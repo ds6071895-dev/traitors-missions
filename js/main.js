@@ -62,18 +62,28 @@ const Game = (() => {
   let setup = null;          // the live setup for whichever mission is briefed
   let setupDef = null;
 
-  function defaultSetup() {
-    const saved = GameState.settings.setup || {};
+  // Each mission remembers its own setup: a mode id only means something to
+  // the mission that defined it, so one shared blob would leak a shootout
+  // mode into the boat race the moment you briefed it.
+  function setupStore() {
+    if (!GameState.settings.setups) GameState.settings.setups = {};
+    return GameState.settings.setups;
+  }
+
+  function defaultSetup(def) {
+    const saved = (def && setupStore()[def.id]) || {};
+    const modes = def && def.modes ? Object.keys(def.modes) : [];
     return {
       seed: Number.isFinite(saved.seed) ? saved.seed : U.dailySeed(),
-      mode: saved.mode === 'trial' ? 'trial' : 'prize',
+      mode: modes.includes(saved.mode) ? saved.mode : (modes[0] || 'prize'),
       modId: saved.modId || null,
       ghost: saved.ghost !== false,
     };
   }
 
   function saveSetup() {
-    GameState.settings.setup = Object.assign({}, setup);
+    if (!setupDef) return;
+    setupStore()[setupDef.id] = Object.assign({}, setup);
     GameState.save();
   }
 
@@ -112,7 +122,11 @@ const Game = (() => {
     }
     document.getElementById('setup-mode-note').textContent = p.mode.blurb;
 
-    // --- channel ---
+    // --- the place you are about to play ---
+    const labels = setupDef.setupLabels || {};
+    document.getElementById('setup-course-head').textContent = labels.course || 'Channel';
+    document.getElementById('setup-mod-head').innerHTML =
+      (labels.modifier || 'Modifier') + ' <span class="setup-sub">keep one, or none</span>';
     document.getElementById('setup-name').textContent = p.name;
     document.getElementById('setup-cond').innerHTML =
       `<span>${p.conditionText}</span>` + (p.opts.daily ? '<b class="tag-today">TODAY</b>' : '');
@@ -148,10 +162,11 @@ const Game = (() => {
 
     const best = p.record && p.record.best;
     const medal = p.record && p.record.medal ? setupDef.medals[p.record.medal] : null;
-    document.getElementById('setup-best').innerHTML = best
-      ? `<span class="sb-lbl">Your best here</span><b>${
-          setup.mode === 'trial' ? U.clockTime(best.finalTime || 0) : U.money(best.earned || 0)
-        }</b>` + (medal ? `<i class="sb-medal" style="--mc:${medal.color}">${medal.name}</i>` : '')
+    // only the mission knows whether its record is a time or a purse
+    const bestText = best ? (p.bestText || U.money(best.earned || 0)) : null;
+    document.getElementById('setup-best').innerHTML = bestText
+      ? `<span class="sb-lbl">Your best here</span><b>${bestText}</b>`
+        + (medal ? `<i class="sb-medal" style="--mc:${medal.color}">${medal.name}</i>` : '')
       : '<span class="sb-lbl">No run on this setup yet</span>';
 
     document.getElementById('brief-mult').textContent =
@@ -160,7 +175,7 @@ const Game = (() => {
 
   function openBrief(def, opts) {
     setupDef = def;
-    setup = Object.assign(defaultSetup(), opts || {});
+    setup = Object.assign(defaultSetup(def), opts || {});
     Screens.show('brief', def);
   }
 
@@ -225,29 +240,9 @@ const Game = (() => {
 
   function showResults({ def, opts, result, isBest }) {
     const r = result;
-    const trial = r.mode === 'trial';
-    const rows = [
-      ['Gates threaded', `${r.hoops}/${r.totalHoops}`],
-      ['Perfect passes', String(r.perfects)],
-    ];
-    if (r.riskHits) rows.push(['Gold rings taken', String(r.riskHits)]);
-    if (r.tricks) rows.push(['Rotations landed', String(r.tricks)]);
-    rows.push(['Best multiplier', '×' + (1 + Math.floor(r.bestCombo / 2) * 0.5)]);
-    if (trial) rows.push(['Final time', U.clockTime(r.finalTime || 0)],
-                         ['Par for this channel', U.clockTime(r.par || 0)]);
-    rows.push(null, ['Ring earnings', U.money(r.hoopMoney)]);
-    if (r.trickMoney) rows.push(['Air tricks', U.money(r.trickMoney)]);
-    if (r.grazeMoney) rows.push(['Close calls', U.money(r.grazeMoney)]);
-    if (r.finishBonus) rows.push(['Finish bonus', U.money(r.finishBonus)]);
-    if (r.timeBonus) {
-      rows.push([trial ? 'Under par' : `Time bonus (${r.timeLeft.toFixed(1)}s)`,
-                 U.money(r.timeBonus)]);
-    }
-    if (r.payout && Math.abs(r.payout - 1) > 0.005) {
-      const why = [r.conditionText, r.modName].filter(Boolean).join(' · ');
-      rows.push([`Conditions ×${r.payout.toFixed(2)}`, why]);
-    }
-    if (!r.completed) rows.push(['Did not finish', r.earned ? '½ earnings' : 'nothing banked']);
+    // the scoreboard is the mission's own language — gates and knots mean
+    // nothing to a bow — so the mission writes its own rows
+    const rows = (def.resultRows ? def.resultRows(r) : []).filter(x => x !== undefined);
 
     document.getElementById('result-title').textContent =
       r.completed ? 'MISSION COMPLETE' : (r.reason || 'MISSION FAILED');
@@ -307,8 +302,20 @@ const Game = (() => {
 
   /* ---------------- boot ---------------- */
 
+  // a mission may bring its own HUD; the default one is the boat race's
+  function hudScreen() {
+    const def = Missions.activeDef;
+    return (def && def.hudScreen) || 'hud';
+  }
+
   function boot() {
     GameState.load();
+    // setups used to be a single shared blob; move an old save across once
+    if (GameState.settings.setup && !GameState.settings.setups) {
+      GameState.settings.setups = { 'boat-race': GameState.settings.setup };
+      delete GameState.settings.setup;
+      GameState.save();
+    }
     Engine.init(document.getElementById('gl'));
     Input.init();
 
@@ -325,11 +332,16 @@ const Game = (() => {
     Screens.register('brief', {
       enter: (def) => {
         if (!def) return;
+        // a setup belongs to the mission that defined it
+        if (!setup || setupDef !== def) setup = defaultSetup(def);
         setupDef = def;
-        if (!setup) setup = defaultSetup();
         document.getElementById('brief-title').textContent = def.name;
         document.getElementById('brief-tagline').textContent = def.tagline;
         document.getElementById('brief-desc').textContent = def.description;
+        document.getElementById('brief-tips').innerHTML =
+          (def.tips || []).map(t => `<li>${t}</li>`).join('');
+        document.getElementById('brief-keys').innerHTML =
+          (def.keys || []).map(k => `<span>${k}</span>`).join('');
         document.getElementById('brief-go').onclick = () => {
           AudioBus.play('ui-click'); launch(def.id, def.setup ? setup : null);
         };
@@ -386,7 +398,7 @@ const Game = (() => {
     document.getElementById('pause-resume').onclick = resume;
     document.getElementById('pause-restart').onclick = () => {
       Engine.setPaused(false);
-      Screens.show('hud');
+      Screens.show(hudScreen());
       if (Missions.active && Missions.active.restart) Missions.active.restart();
     };
     document.getElementById('pause-quit').onclick = () => { Engine.setPaused(false); toMenu(); };
@@ -403,7 +415,7 @@ const Game = (() => {
     function resume() {
       AudioBus.play('ui-click');
       Engine.setPaused(false);
-      Screens.show('hud');
+      Screens.show(hudScreen());
     }
 
     window.addEventListener('keydown', (e) => {

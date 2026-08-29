@@ -324,7 +324,7 @@ const Sky = (() => {
 
   let group, farRing, midRing, nearRing, clouds, birdSys, sunSprite, dome, stars;
 
-  function build(scene, rng) {
+  function build(scene, rng, opts = {}) {
     if (group) { Engine.disposeObject(group); group = null; }
     if (dome) { Engine.disposeObject(dome); dome = null; }
     if (sunSprite) { Engine.disposeObject(sunSprite); sunSprite = null; }
@@ -358,10 +358,13 @@ const Sky = (() => {
       hMin: 150, hMax: 380, haze: look.nearHaze, rock: look.nearRock, grass: look.nearGrass,
     });
     clouds  = buildClouds(rng, 30);
-    birdSys = buildBirds(rng, 14);
+    // A mission where you shoot birds cannot also have birds you are not
+    // allowed to shoot, so it asks for a sky without them.
+    birdSys = opts.birds === false ? null : buildBirds(rng, 14);
     stars = look.starCount > 0 ? buildStars(rng, look.starCount) : null;
 
-    group.add(farRing, midRing, nearRing, clouds, birdSys.mesh);
+    group.add(farRing, midRing, nearRing, clouds);
+    if (birdSys) group.add(birdSys.mesh);
     if (stars) group.add(stars);
     scene.add(group);
     return group;
@@ -381,24 +384,26 @@ const Sky = (() => {
     sunSprite.position.copy(camPos).addScaledVector(SUN_DIR, 9000);
 
     // flap the birds
-    const a = birdSys.attr; let o = 0;
-    for (const b of birdSys.birds) {
-      b.a += b.sp * dt;
-      b.flap += b.fs * dt;
-      const x = camPos.x + Math.cos(b.a) * b.r;
-      const z = camPos.z + Math.sin(b.a) * b.r;
-      const w = Math.sin(b.flap) * 0.55;
-      const fx = -Math.sin(b.a) * b.sz, fz = Math.cos(b.a) * b.sz;
-      const sx = Math.cos(b.a) * b.sz * 2.2, sz2 = Math.sin(b.a) * b.sz * 2.2;
-      const set = (i, X, Y, Z) => { a.array[i * 3] = X; a.array[i * 3 + 1] = Y; a.array[i * 3 + 2] = Z; };
-      set(o++, x, b.y, z);
-      set(o++, x + sx, b.y + w * b.sz * 2, z + sz2);
-      set(o++, x + fx * 0.4, b.y, z + fz * 0.4);
-      set(o++, x, b.y, z);
-      set(o++, x - sx, b.y + w * b.sz * 2, z - sz2);
-      set(o++, x - fx * 0.4, b.y, z - fz * 0.4);
+    if (birdSys) {
+      const a = birdSys.attr; let o = 0;
+      for (const b of birdSys.birds) {
+        b.a += b.sp * dt;
+        b.flap += b.fs * dt;
+        const x = camPos.x + Math.cos(b.a) * b.r;
+        const z = camPos.z + Math.sin(b.a) * b.r;
+        const w = Math.sin(b.flap) * 0.55;
+        const fx = -Math.sin(b.a) * b.sz, fz = Math.cos(b.a) * b.sz;
+        const sx = Math.cos(b.a) * b.sz * 2.2, sz2 = Math.sin(b.a) * b.sz * 2.2;
+        const set = (i, X, Y, Z) => { a.array[i * 3] = X; a.array[i * 3 + 1] = Y; a.array[i * 3 + 2] = Z; };
+        set(o++, x, b.y, z);
+        set(o++, x + sx, b.y + w * b.sz * 2, z + sz2);
+        set(o++, x + fx * 0.4, b.y, z + fz * 0.4);
+        set(o++, x, b.y, z);
+        set(o++, x - sx, b.y + w * b.sz * 2, z - sz2);
+        set(o++, x - fx * 0.4, b.y, z - fz * 0.4);
+      }
+      a.needsUpdate = true;
     }
-    a.needsUpdate = true;
   }
 
   return { build, update, setPreset, resetPreset, DEFAULT_LOOK,

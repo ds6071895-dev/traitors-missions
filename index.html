@@ -61,16 +61,7 @@
     <div class="brief-body">
       <div class="brief-col">
         <p class="brief-desc" id="brief-desc"></p>
-        <ul class="brief-tips">
-          <li><b>Ride the swell.</b> Point down the face of a wave and you gain speed for free.</li>
-          <li><b>Launch the crests.</b> Air time refills your boost — land flat to keep it.</li>
-          <li><b>Spin it.</b> Hold <kbd>Space</kbd> in the air to trick: throttle flips,
-              steering rolls. Let go and the hull snaps to the nearest whole turn — that
-              is the landing. Hold too long and you bin it and lose the chain.</li>
-          <li><b>Take the gold ring.</b> The one against the rocks pays three times the safe one.</li>
-          <li><b>Keep moving.</b> The chain now goes cold on a timer, not just on a miss.</li>
-          <li><b>Run the wall.</b> Shaving rock or cliff at speed pays while you hold it.</li>
-        </ul>
+        <ul class="brief-tips" id="brief-tips"></ul>
       </div>
 
       <div class="brief-col brief-setup" id="brief-setup">
@@ -81,7 +72,7 @@
         </div>
 
         <div class="setup-block">
-          <div class="setup-head">Channel</div>
+          <div class="setup-head" id="setup-course-head">Channel</div>
           <div class="channel-name" id="setup-name">—</div>
           <div class="channel-cond" id="setup-cond">—</div>
           <div class="channel-seed">
@@ -93,7 +84,7 @@
         </div>
 
         <div class="setup-block">
-          <div class="setup-head">Modifier <span class="setup-sub">keep one, or none</span></div>
+          <div class="setup-head" id="setup-mod-head">Modifier <span class="setup-sub">keep one, or none</span></div>
           <div class="mod-hand" id="setup-mods"></div>
         </div>
 
@@ -106,11 +97,7 @@
     </div>
 
     <div class="brief-actions">
-      <div class="brief-keys">
-        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive</span>
-        <span><kbd>Space</kbd> boost / roll</span>
-        <span><kbd>R</kbd> restart</span>
-      </div>
+      <div class="brief-keys" id="brief-keys"></div>
       <button class="btn ghost" id="brief-back">Back</button>
       <button class="btn primary" id="brief-go">Start Mission<span class="btn-mult" id="brief-mult"></span></button>
     </div>
@@ -176,6 +163,84 @@
   </div>
 </section>
 
+<!-- ============ HUD — SHOOTOUT ============ -->
+<section class="screen hud sh-hud" data-screen="hud-shoot">
+
+  <div class="sh-top">
+    <div class="sh-purse">
+      <div class="hud-label">Purse</div>
+      <div class="sh-money" id="sh-money">£0</div>
+      <div class="sh-docked" id="sh-docked"></div>
+      <div class="sh-chain-wrap" id="sh-chain-wrap">
+        <span class="sh-chain" id="sh-chain">×1</span>
+        <span class="sh-chain-lbl">chain</span>
+        <div class="sh-chain-track"><div class="sh-chain-bar" id="sh-chain-bar"></div></div>
+      </div>
+    </div>
+
+    <div class="sh-round-block">
+      <div class="sh-round" id="sh-round">ROUND 1/10</div>
+      <div class="sh-round-name" id="sh-round-name"></div>
+      <div class="sh-round-track"><div class="sh-round-bar" id="sh-round-bar"></div></div>
+      <div class="sh-pace" id="sh-pace">—</div>
+    </div>
+
+    <div class="sh-tally">
+      <div class="hud-label">Taken</div>
+      <div class="sh-left" id="sh-left">0/0</div>
+      <div class="sh-acc-row"><span>accuracy</span><b id="sh-acc">—</b></div>
+      <div class="sh-lives" id="sh-lives"></div>
+    </div>
+  </div>
+
+  <div class="sh-reticle" id="sh-reticle" style="--spread:22px">
+    <i class="r-n"></i><i class="r-s"></i><i class="r-e"></i><i class="r-w"></i>
+    <i class="r-dot"></i>
+    <i class="r-lock"></i>
+    <b class="r-tag" id="sh-lock"></b>
+  </div>
+
+  <div class="sh-banner" id="sh-banner"></div>
+
+  <div class="sh-boss" id="sh-boss">
+    <div class="sb-name">THE GREAT OWL</div>
+    <div class="sb-phase" id="sh-boss-phase">THE LANTERN</div>
+    <div class="sb-pips" id="sh-boss-pips"></div>
+  </div>
+
+  <div class="sh-bottom">
+    <div class="sh-breath" id="sh-breath">
+      <div class="sh-breath-track"><div class="sh-breath-fill" id="sh-breath-fill"></div></div>
+      <div class="sh-breath-lbl">Breath <kbd>RMB</kbd></div>
+    </div>
+
+    <div class="sh-draw" id="sh-draw">
+      <div class="sh-draw-track">
+        <div class="sh-draw-fill" id="sh-draw-fill"></div>
+        <div class="sh-draw-window"></div>
+      </div>
+      <div class="sh-draw-lbl">Draw</div>
+    </div>
+
+    <div class="sh-quiver" id="sh-quiver">
+      <div class="sh-quiver-val" id="sh-quiver-val">16</div>
+      <div class="sh-quiver-lbl">arrows</div>
+    </div>
+  </div>
+
+  <div class="sh-hint" id="sh-hint">Click to aim</div>
+  <div class="sh-focus" id="sh-focus"></div>
+  <div class="sh-rush" id="sh-rush"></div>
+  <div class="hud-setup" id="sh-setup"></div>
+
+  <div id="touch-shoot">
+    <div class="move-zone"><div class="move-ring"></div><div class="move-knob"></div></div>
+    <div class="focus-pad">FOCUS</div>
+    <div class="sprint-pad">RUN</div>
+    <div class="draw-pad">DRAW</div>
+  </div>
+</section>
+
 <!-- ============ PAUSE ============ -->
 <section class="screen pause" data-screen="pause">
   <div class="panel pause-panel">
@@ -232,10 +297,16 @@
 <script src="js/world/water.js"></script>
 <script src="js/world/conditions.js"></script>
 <script src="js/world/course.js"></script>
+<script src="js/world/forest.js"></script>
 <script src="js/entities/boat.js"></script>
 <script src="js/fx/fx.js"></script>
+<script src="js/entities/bow.js"></script>
+<script src="js/entities/flyers.js"></script>
 <script src="js/missions/modifiers.js"></script>
 <script src="js/missions/boat-race.js"></script>
+<script src="js/missions/shootout-rounds.js"></script>
+<script src="js/missions/shootout-twists.js"></script>
+<script src="js/missions/shootout.js"></script>
 <script src="js/missions/coming-soon.js"></script>
 <script src="js/main.js"></script>
 </body>

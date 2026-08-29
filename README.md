@@ -1,6 +1,7 @@
 # The Traitors — Missions
 
-A low-poly, vibrant browser game. One mission is built so far: **Boat Race**.
+A low-poly, vibrant browser game. Two missions are built so far: **Boat Race** and
+**Shootout**.
 
 Open `index.html` in a browser. That's it — everything is plain `<script>` tags, so it
 works straight off disk (`file://`). If you'd rather use a server, run `./serve.sh`.
@@ -67,6 +68,91 @@ channel you actually drew: **Bronze**, **Silver**, **Gold**, **Author**.
 
 The prize pot persists in `localStorage` between sessions.
 
+## Playing the Shootout
+
+You are on a hunter's stand in a wood at dusk, with a bow that draws in half a second.
+Quarry comes from every side over ten short rounds — ravens, lanterns, clays, bats,
+geese, moths, wasps, night messengers — and the last round is the Great Owl. Between
+waves the wood itself is worth shooting: deer, foxes, rabbits, boar and pheasants live
+here, and there are bottles on stumps and bells hung off branches. There is never a
+moment with nothing to shoot at.
+
+| Action | Keys |
+| --- | --- |
+| Look / aim | mouse (click once to lock the pointer) |
+| Walk | `W` `A` `S` `D` |
+| Sprint | `Q` |
+| Draw and loose | hold / release `LMB` (or `Space`) |
+| Hold your breath | `RMB` (or `Shift`) |
+| Pause | `Esc` / `P` |
+| Restart run | `R` |
+
+Gamepad and touch both work; touch gets a move stick plus draw, breath and sprint pads.
+
+### The draw is the whole game
+
+| draw time | what you get |
+| --- | --- |
+| 0 → 0.5s | power ramps: arrow speed 52 → 134 m/s, so a soft loose lobs and a full one flies flat |
+| **0.50 → 0.63s** | **clean loose** — gold reticle, +50%, the arrow pierces a second target, a beat of hit-stop |
+| 0.63 → 1.1s | held at full, no penalty |
+| beyond 1.1s | strain: the reticle sways and power bleeds back to 72% by 2.2s |
+
+It never auto-fires. Being robbed of a shot you were still lining up is worse than any
+amount of arm-burn. `Bow.TUNE` in `js/entities/bow.js` holds every one of those numbers
+in a single block.
+
+### The bow does the maths, on purpose
+
+Arrows are real projectiles — gravity 16 m/s², drag, and a wind that the Gale twist makes
+you feel. Leading a bird by eye with a projectile that drops is a lovely idea and a
+miserable game, so `ShootoutMission._assist` solves it for you: it picks whatever is
+nearest the middle of the crosshair — measured to the quarry **itself**, not to the lead,
+so "I was pointing right at it" and "the assist helped" mean the same thing — then works
+out where that thing will be when an arrow at this speed could get there, how much higher
+to hold for the drop, and how far the wind will carry it. Inside `assistFull` the shot is
+handed over completely; out to `assistSoft` it is bent most of the way.
+
+The reticle tells you when it has locked on, and names what it locked on to. If that name
+comes up red and says **DOVE — HOLD**, do not loose: a dove costs £400, two seconds and
+your whole chain. Doves also carry a red no-entry sign in the world, visible long before
+you can see that the bird is white, because you have to be able to decide before you draw.
+
+### The chain is the stake
+
+Arrows are unlimited; the multiplier is what you can lose. Every hit climbs it, and it
+decays if you stop shooting, snaps on a dove, and snaps when a round runs out. That is
+why the wood is stocked with residents — a bottle keeps a chain alive between waves.
+
+### The Great Owl
+
+The boss is three fights in one bird, and each is a different question:
+
+1. **The lantern** — it circles out of reach carrying a light in its talons and sends
+   ravens at you. Three arrows into the lantern and it drops the light (shoot that too).
+2. **The eyes** — it hangs in front of you and *stares*, eyes blazing red, for five
+   seconds. That is the window. Then it loses patience and comes at you, and while it is
+   coming there is nothing to hit: get out of the way.
+3. **The heart** — no more running. It hovers close, every wingbeat is a gust that shoves
+   you back a step, bats pour past, and you put four arrows through the pale chest.
+
+Between phases it is staggered and untouchable for a beat, which is what tells you —
+without a line of text — that the thing you just did worked. `ShootoutMission.BOSS_PHASES`
+is the whole fight as a three-entry table; the flight itself is four behaviours in
+`js/entities/flyers.js` (`bossCircle`, `bossDive`, `bossHover`, `bossStagger`).
+
+### Rounds and twists are data
+
+`js/missions/shootout-rounds.js` holds sixteen round archetypes — spawn table, cadence,
+arc, duration, and one rule that bends the scoring. A run always opens gently, always
+gets a bonus round in the middle third, always ends with the owl, and draws the rest by
+difficulty tier from the seed, so "Rowan Deep, 8812" is one specific run and not a genre.
+`shootout-twists.js` is a sixteen-card deck in exactly the same declarative shape as
+`modifiers.js`, so the briefing screen renders either without knowing which game it is
+looking at.
+
+---
+
 ## Architecture
 
 The engine knows nothing about gameplay, and missions know nothing about each other.
@@ -90,13 +176,19 @@ js/
     water.js          Gerstner ocean — same wave stack on GPU and CPU
     conditions.js     time-of-day and sea-state presets; one call applies both
     course.js         path, highland cliffs, rocks, channel buoys (reusable kit)
+    forest.js         heightfield wood, instanced flora, hunter's stand, weather
   entities/
     boat.js           hull mesh + arcade physics (surf, launch, trick, land, collide)
+    bow.js            the half-second draw, and arrows as real projectiles
+    flyers.js         every creature and prop you can shoot, and how each moves
   fx/
     fx.js             particles, wake ribbon, shockwaves, floating labels
   missions/
     modifiers.js      the pre-race card deck — declarative rule-benders
     boat-race.js      Mission 01
+    shootout-rounds.js  the rounds a Shootout is built from, as data
+    shootout-twists.js  the Shootout's own card deck
+    shootout.js       Mission 02
     coming-soon.js    locked placeholders / worked example
   main.js             boot, title screen, briefing, results, attract-mode ocean
 ```

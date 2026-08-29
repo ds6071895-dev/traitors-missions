@@ -116,6 +116,7 @@ class BoatRaceMission {
     const mod = Modifiers.byId(o.modId);
     const cond = BoatRaceMission.conditionsFor(o.seed, mod);
     const key = GameState.runKey(o.mode, o.seed, o.modId);
+    const rec = GameState.runRecord('boat-race', key);
     return {
       opts: o,
       mod,
@@ -126,7 +127,11 @@ class BoatRaceMission {
       mode: BoatRaceMission.MODES[o.mode],
       payout: Conditions.payout(cond) * (mod ? mod.payout : 1),
       key,
-      record: GameState.runRecord('boat-race', key),
+      record: rec,
+      bestText: rec.best
+        ? (o.mode === 'trial' ? U.clockTime(rec.best.finalTime || 0)
+                              : U.money(rec.best.earned || 0))
+        : null,
       hasGhost: !!GameState.getGhost('boat-race', key),
     };
   }
@@ -1575,9 +1580,51 @@ Missions.register({
   duration: '~2 min',
   order: 0,
   setup: true,                      // this mission has a pre-race setup panel
+  setupLabels: { course: 'Channel', modifier: 'Modifier' },
   preview: (opts) => BoatRaceMission.preview(opts),
   modes: BoatRaceMission.MODES,
   medals: BoatRaceMission.MEDALS,
   create: (opts) => new BoatRaceMission(opts),
   better: (a, b) => (a.earned || 0) > (b.earned || 0),
+
+  tips: [
+    '<b>Ride the swell.</b> Point down the face of a wave and you gain speed for free.',
+    '<b>Launch the crests.</b> Air time refills your boost — land flat to keep it.',
+    '<b>Spin it.</b> Hold <kbd>Space</kbd> in the air to trick: throttle flips, steering '
+      + 'rolls. Let go and the hull snaps to the nearest whole turn — that is the landing. '
+      + 'Hold too long and you bin it and lose the chain.',
+    '<b>Take the gold ring.</b> The one against the rocks pays three times the safe one.',
+    '<b>Keep moving.</b> The chain goes cold on a timer, not just on a miss.',
+    '<b>Run the wall.</b> Shaving rock or cliff at speed pays while you hold it.',
+  ],
+  keys: ['<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive',
+         '<kbd>Space</kbd> boost / roll', '<kbd>R</kbd> restart'],
+
+  // the scoreboard, in this mission's own nouns
+  resultRows: (r) => {
+    const trial = r.mode === 'trial';
+    const rows = [
+      ['Gates threaded', `${r.hoops}/${r.totalHoops}`],
+      ['Perfect passes', String(r.perfects)],
+    ];
+    if (r.riskHits) rows.push(['Gold rings taken', String(r.riskHits)]);
+    if (r.tricks) rows.push(['Rotations landed', String(r.tricks)]);
+    rows.push(['Best multiplier', '×' + (1 + Math.floor(r.bestCombo / 2) * 0.5)]);
+    if (trial) rows.push(['Final time', U.clockTime(r.finalTime || 0)],
+                         ['Par for this channel', U.clockTime(r.par || 0)]);
+    rows.push(null, ['Ring earnings', U.money(r.hoopMoney)]);
+    if (r.trickMoney) rows.push(['Air tricks', U.money(r.trickMoney)]);
+    if (r.grazeMoney) rows.push(['Close calls', U.money(r.grazeMoney)]);
+    if (r.finishBonus) rows.push(['Finish bonus', U.money(r.finishBonus)]);
+    if (r.timeBonus) {
+      rows.push([trial ? 'Under par' : `Time bonus (${r.timeLeft.toFixed(1)}s)`,
+                 U.money(r.timeBonus)]);
+    }
+    if (r.payout && Math.abs(r.payout - 1) > 0.005) {
+      const why = [r.conditionText, r.modName].filter(Boolean).join(' · ');
+      rows.push([`Conditions ×${r.payout.toFixed(2)}`, why]);
+    }
+    if (!r.completed) rows.push(['Did not finish', r.earned ? '½ earnings' : 'nothing banked']);
+    return rows;
+  },
 });

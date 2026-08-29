@@ -94,6 +94,24 @@ const U = (() => {
     return r.pick(NAME_A) + ' ' + r.pick(NAME_B);
   }
 
+  // the same idea for somewhere with trees in it
+  const WOOD_A = ['Blackthorn', 'Rowan', 'Alder', 'Hazel', 'Bramble', 'Elder',
+                  'Hollow', 'Ash', 'Yew', 'Thistle', 'Fern', 'Birch',
+                  'Willow', 'Crow', 'Hunter', 'Beggar', 'Widow', 'Gallows',
+                  'Miller', 'Foxglove', 'Nettle', 'Sorrow', 'Whisper', 'Ember'];
+  const WOOD_B = ['Hollow', 'Deep', 'Copse', 'Stand', 'Thicket', 'Glade',
+                  'Clearing', 'Wood', 'Grove', 'Break', 'Hanger', 'Bottom',
+                  'Coppice', 'Spinney', 'Reach', 'Gate', 'Cross', 'Fold',
+                  'Marches', 'Warren', 'Chase', 'Rise', 'Hush', 'End'];
+  function forestName(seed) {
+    const r = makeRng((seed ^ 0x1b873593) >>> 0);
+    let a = r.pick(WOOD_A), b = r.pick(WOOD_B);
+    // "Hollow Hollow" is a seed nobody wants to say out loud
+    if (a === b) b = WOOD_B[(WOOD_B.indexOf(b) + 1 + r.int(0, 4)) % WOOD_B.length];
+    return a + ' ' + b;
+  }
+
   return { makeRng, clamp, lerp, smoothstep, damp, angLerp, noise1, fbm1,
-           money, clockTime, wrapAngle, TAU, dailySeed, randomSeed, courseName };
+           money, clockTime, wrapAngle, TAU, dailySeed, randomSeed,
+           courseName, forestName };
 })();

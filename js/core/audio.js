@@ -291,6 +291,40 @@ const AudioBus = (() => {
     else if (busses[bus]) busses[bus].gain.value = v;
   }
 
-  return { init, resume, define, play, engine, ambience, setMuted, toggleMute,
+  /* Wind through leaves: two bands of noise, one slow and one hissier,
+     both swept by their own LFO. Generic enough to live next to the
+     engine and the sea. */
+  function wind() {
+    if (!ready) return { set() {}, stop() {} };
+    const t = now();
+    const n = noise();
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700; lp.Q.value = 0.5;
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 160;
+    const g = ctx.createGain(); g.gain.value = 0.0001;
+    const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.07;
+    const lfoG = ctx.createGain(); lfoG.gain.value = 420;
+    lfo.connect(lfoG); lfoG.connect(lp.frequency);
+    n.connect(hp); hp.connect(lp); lp.connect(g); g.connect(busses.ambience);
+    n.start(t); lfo.start(t);
+    g.gain.setTargetAtTime(0.22, t, 1.5);
+    return {
+      // strength 0..1 — a gale should be audible before you see the trees move
+      set(strength) {
+        const tt = now();
+        g.gain.setTargetAtTime(0.10 + strength * 0.42, tt, 0.8);
+        lp.frequency.setTargetAtTime(500 + strength * 1900, tt, 0.8);
+      },
+      stop() {
+        g.gain.setTargetAtTime(0.0001, now(), 0.6);
+        setTimeout(() => { try { n.stop(); lfo.stop(); } catch (e) {} }, 1600);
+      },
+    };
+  }
+
+  // the shared 2s noise buffer, for recipes defined outside this file
+  function noiseSource() { return ready ? noise() : null; }
+
+  return { init, resume, define, play, engine, ambience, wind, noiseSource,
+           setMuted, toggleMute,
            setVolume, get muted() { return muted; }, get ready() { return ready; } };
 })();

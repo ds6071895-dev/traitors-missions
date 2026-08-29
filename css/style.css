@@ -444,6 +444,217 @@ kbd{
   font-weight:700; color:rgba(230,244,255,.82); background:rgba(6,18,30,.55);
   border:1px solid rgba(255,255,255,.14); border-radius:20px; padding:2px 8px}
 
+/* ==================================================================
+   HUD: Shootout
+   Everything here is built around the middle of the screen, because
+   that is where the whole game happens. The reticle *is* the draw
+   meter — it opens with sway and shuts as the bow comes good — and the
+   bar under it is only there for the first few runs.
+   ================================================================== */
+.sh-hud{flex-direction:column; justify-content:space-between}
+.sh-top{display:flex; justify-content:space-between; align-items:flex-start; gap:20px}
+.sh-bottom{display:flex; justify-content:space-between; align-items:flex-end; gap:20px}
+
+.sh-money{font-family:var(--display); font-size:clamp(28px,4.2vw,48px); line-height:1;
+  color:var(--gold); text-shadow:0 3px 0 rgba(4,12,22,.5), 0 0 34px rgba(242,193,78,.42)}
+/* what a mistake just cost you, said in the same place the money lives */
+.sh-docked{font-family:var(--display); font-size:clamp(17px,2.3vw,26px); line-height:1;
+  color:var(--crimson); text-shadow:0 0 16px rgba(229,19,63,.75); margin-top:2px;
+  opacity:0; transform:translateY(-6px); transition:opacity .12s, transform .18s;
+  letter-spacing:.02em; white-space:nowrap}
+.sh-docked.show{opacity:1; transform:none; animation:dockShove .45s cubic-bezier(.2,1.4,.4,1)}
+@keyframes dockShove{0%{transform:translateY(-14px) scale(1.35)}100%{transform:none}}
+.sh-money.hurt{color:var(--crimson); text-shadow:0 0 22px rgba(229,19,63,.8);
+  animation:moneyHurt .5s ease-out}
+@keyframes moneyHurt{0%{transform:translateX(0)}20%{transform:translateX(-7px)}
+  40%{transform:translateX(6px)}60%{transform:translateX(-4px)}100%{transform:none}}
+
+.sh-chain-wrap{display:flex; align-items:baseline; flex-wrap:wrap; gap:7px; margin-top:4px;
+  opacity:0; max-width:190px; transform:translateY(-4px);
+  transition:opacity .2s, transform .2s}
+.sh-chain-wrap.on{opacity:1; transform:none}
+.sh-chain{font-family:var(--display); font-size:22px; color:var(--mint);
+  text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 20px rgba(125,252,208,.5)}
+.sh-chain-lbl{font-size:9.5px; letter-spacing:.2em; text-transform:uppercase;
+  color:rgba(240,249,255,.75); font-weight:700}
+.sh-chain-track{flex-basis:100%; height:3px; border-radius:2px; overflow:hidden;
+  background:rgba(6,18,30,.6); border:1px solid rgba(255,255,255,.1)}
+.sh-chain-bar{height:100%; width:0%; background:var(--mint); transition:width .1s linear, background .2s}
+.sh-chain-bar.low{background:#ff5470}
+
+.sh-round-block{text-align:center; min-width:180px}
+.sh-round{font-family:var(--display); font-size:clamp(20px,2.6vw,30px); letter-spacing:.06em;
+  color:var(--paper); text-shadow:0 2px 0 rgba(4,12,22,.5)}
+.sh-round-name{font-size:11px; letter-spacing:.18em; text-transform:uppercase; font-weight:700;
+  color:rgba(240,249,255,.8); margin-top:2px; min-height:14px;
+  text-shadow:0 1px 2px rgba(4,16,28,.9)}
+.sh-round-track{height:4px; margin-top:7px; border-radius:3px; background:rgba(6,18,30,.55);
+  border:1px solid rgba(255,255,255,.12); overflow:hidden}
+.sh-round-bar{height:100%; width:100%; background:linear-gradient(90deg,var(--cyan),var(--mint));
+  transition:width .1s linear}
+.sh-round-bar.low{background:#ff5470}
+.sh-pace{display:none; margin-top:4px; font-family:var(--display); font-size:17px;
+  letter-spacing:.04em; color:var(--muted); text-shadow:0 2px 0 rgba(4,12,22,.5)}
+.sh-pace.show{display:block}
+.sh-pace.ahead{color:var(--mint); text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 18px rgba(125,252,208,.5)}
+.sh-pace.behind{color:#ff8fa3; text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 18px rgba(255,84,112,.45)}
+
+.sh-tally{text-align:right; min-width:130px}
+.sh-left{font-family:var(--display); font-size:clamp(22px,3vw,32px); line-height:1.1;
+  color:var(--paper); text-shadow:0 2px 0 rgba(4,12,22,.5)}
+.sh-acc-row{display:flex; gap:8px; justify-content:flex-end; align-items:baseline;
+  font-size:9.5px; letter-spacing:.18em; text-transform:uppercase; color:rgba(240,249,255,.7);
+  font-weight:700}
+.sh-acc-row b{font-family:var(--display); font-size:15px; letter-spacing:.02em; color:var(--cyan)}
+.sh-lives{display:none; gap:5px; justify-content:flex-end; margin-top:7px}
+.sh-lives.show{display:flex}
+.sh-life{width:11px; height:11px; border-radius:50%; border:1.5px solid rgba(255,255,255,.35);
+  background:transparent; transition:background .2s}
+.sh-life.on{background:var(--crimson); border-color:rgba(255,120,150,.8);
+  box-shadow:0 0 12px rgba(216,30,64,.6)}
+
+/* -------- the reticle -------- */
+.sh-reticle{position:absolute; left:50%; top:50%; width:0; height:0; z-index:24;
+  pointer-events:none}
+.sh-reticle i{position:absolute; background:rgba(240,249,255,.9); display:block;
+  box-shadow:0 0 6px rgba(4,16,28,.9); transition:background .12s}
+.sh-reticle .r-n,.sh-reticle .r-s{width:2px; height:9px; left:-1px}
+.sh-reticle .r-e,.sh-reticle .r-w{width:9px; height:2px; top:-1px}
+.sh-reticle .r-n{top:calc(-1 * var(--spread) - 9px)}
+.sh-reticle .r-s{top:var(--spread)}
+.sh-reticle .r-e{left:var(--spread)}
+.sh-reticle .r-w{left:calc(-1 * var(--spread) - 9px)}
+.sh-reticle .r-dot{width:2px; height:2px; left:-1px; top:-1px; border-radius:50%;
+  background:rgba(240,249,255,.55)}
+.sh-reticle.drawing i{background:var(--cyan)}
+.sh-reticle.nocking i{background:rgba(160,180,200,.5)}
+.sh-reticle.perfect i{background:var(--gold); box-shadow:0 0 14px rgba(242,193,78,.95)}
+.sh-reticle.perfect .r-dot{width:4px; height:4px; left:-2px; top:-2px}
+.sh-reticle.focus::after{content:''; position:absolute; left:-46px; top:-46px;
+  width:92px; height:92px; border-radius:50%; border:1px solid rgba(240,249,255,.16)}
+
+/* the lock: the bow has decided what it is looking at, and says so. Gold
+   means the arrow will find it; red means do not loose. */
+.sh-reticle .r-lock{left:-19px; top:-19px; width:38px; height:38px; border-radius:50%;
+  background:none; border:2px solid var(--gold); opacity:0; box-shadow:0 0 12px rgba(242,193,78,.6);
+  transform:scale(1.5); transition:opacity .1s, transform .12s}
+.sh-reticle.lock .r-lock{opacity:.95; transform:scale(1)}
+.sh-reticle .r-tag{position:absolute; left:50%; top:30px; transform:translateX(-50%);
+  font:700 10px/1 var(--body); letter-spacing:.16em; text-transform:uppercase;
+  color:var(--gold); white-space:nowrap; opacity:0; transition:opacity .12s;
+  text-shadow:0 2px 6px rgba(4,16,28,.9)}
+.sh-reticle.lock .r-tag{opacity:.9}
+.sh-reticle.lock-bad .r-lock{border-color:var(--crimson); box-shadow:0 0 18px rgba(229,19,63,.85);
+  animation:lockPulse .5s ease-in-out infinite}
+.sh-reticle.lock-bad .r-tag{color:var(--crimson); opacity:1; font-size:11px}
+@keyframes lockPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.14)}}
+
+/* -------- draw / breath / quiver -------- */
+.sh-draw{width:min(260px,44vw); text-align:center; opacity:.55; transition:opacity .15s}
+.sh-draw.on{opacity:1}
+.sh-draw.hidden{visibility:hidden}
+.sh-draw-track{position:relative; height:7px; border-radius:4px; overflow:hidden;
+  background:rgba(6,18,30,.6); border:1px solid rgba(255,255,255,.14)}
+.sh-draw-fill{height:100%; width:0%; background:linear-gradient(90deg,#2f7f8f,var(--cyan));
+  transition:width .04s linear}
+.sh-draw.perfect .sh-draw-fill{background:linear-gradient(90deg,var(--gold-dim),var(--gold))}
+.sh-draw.strain .sh-draw-fill{background:linear-gradient(90deg,#8a3b4b,#ff5470)}
+/* the clean-loose window, drawn where it actually is on the bar */
+.sh-draw-window{position:absolute; right:0; top:0; bottom:0; width:5%;
+  background:rgba(242,193,78,.5); box-shadow:0 0 10px rgba(242,193,78,.6)}
+.sh-draw-lbl{margin-top:5px; font-size:9.5px; letter-spacing:.24em; text-transform:uppercase;
+  font-weight:700; color:rgba(240,249,255,.8)}
+.sh-draw.perfect .sh-draw-lbl{color:var(--gold)}
+
+.sh-breath{width:min(190px,32vw); opacity:.9}
+.sh-breath.off{visibility:hidden}
+.sh-breath-track{height:5px; border-radius:3px; overflow:hidden; background:rgba(6,18,30,.6);
+  border:1px solid rgba(255,255,255,.13)}
+.sh-breath-fill{height:100%; width:100%; background:linear-gradient(90deg,#4a7f9a,#bfe6ff);
+  transition:width .1s linear}
+.sh-breath.using .sh-breath-fill{background:linear-gradient(90deg,#7dfcd0,#fff)}
+.sh-breath-lbl{margin-top:5px; font-size:9.5px; letter-spacing:.2em; text-transform:uppercase;
+  font-weight:700; color:rgba(240,249,255,.72)}
+
+.sh-quiver{display:none; text-align:right; min-width:80px}
+.sh-quiver.show{display:block}
+.sh-quiver-val{font-family:var(--display); font-size:clamp(26px,3.4vw,38px); line-height:1;
+  color:var(--paper); text-shadow:0 2px 0 rgba(4,12,22,.5)}
+.sh-quiver-lbl{font-size:9.5px; letter-spacing:.2em; text-transform:uppercase; font-weight:700;
+  color:rgba(240,249,255,.72)}
+
+/* -------- round banner -------- */
+.sh-banner{position:absolute; left:50%; top:26%; transform:translate(-50%,-8px) scale(.96);
+  text-align:center; opacity:0; pointer-events:none;
+  transition:opacity .28s ease, transform .28s cubic-bezier(.2,1.4,.4,1)}
+.sh-banner.show{opacity:1; transform:translate(-50%,0) scale(1)}
+.sb-title{font-family:var(--display); font-size:clamp(30px,5vw,58px); letter-spacing:.06em;
+  color:var(--paper); text-shadow:0 4px 0 rgba(4,12,22,.55), 0 0 40px rgba(6,20,34,.7)}
+.sb-sub{font-size:12px; letter-spacing:.22em; text-transform:uppercase; font-weight:700;
+  color:rgba(240,249,255,.86); margin-top:4px; text-shadow:0 2px 6px rgba(4,16,28,.9)}
+.sh-banner.boss .sb-title{color:#ff8fa3; text-shadow:0 4px 0 rgba(4,12,22,.55), 0 0 46px rgba(255,84,112,.6)}
+.sh-banner.bonus .sb-title{color:var(--gold); text-shadow:0 4px 0 rgba(4,12,22,.55), 0 0 46px rgba(242,193,78,.6)}
+.sh-banner.clear .sb-title{color:var(--mint)}
+.sh-banner.perfect .sb-title{color:var(--gold); text-shadow:0 4px 0 rgba(4,12,22,.55), 0 0 56px rgba(242,193,78,.8)}
+.sh-banner.fail .sb-title{color:#ff5470}
+
+/* -------- the owl -------- */
+.sh-boss{position:absolute; left:50%; top:calc(100% - 148px); transform:translateX(-50%);
+  width:min(420px,74vw); text-align:center; opacity:0; pointer-events:none;
+  transition:opacity .35s ease}
+.sh-boss.show{opacity:1}
+.sb-name{font-family:var(--display); font-size:19px; letter-spacing:.14em; color:#ff8fa3;
+  text-shadow:0 2px 0 rgba(4,12,22,.6), 0 0 26px rgba(255,84,112,.5)}
+.sb-phase{font-size:9.5px; letter-spacing:.26em; text-transform:uppercase; font-weight:800;
+  color:rgba(240,249,255,.85); margin-top:2px; text-shadow:0 1px 4px rgba(4,16,28,.9)}
+.sb-pips{display:flex; gap:5px; justify-content:center; margin-top:7px}
+.sb-pip{width:26px; height:7px; border-radius:3px; background:rgba(6,18,30,.6);
+  border:1px solid rgba(255,255,255,.22); transition:background .18s, box-shadow .18s}
+.sb-pip.on{background:linear-gradient(90deg,#ff5470,#ff8fa3); border-color:transparent;
+  box-shadow:0 0 14px rgba(255,84,112,.7)}
+.sh-boss.stagger .sb-name{color:var(--gold); text-shadow:0 2px 0 rgba(4,12,22,.6), 0 0 30px rgba(242,193,78,.7)}
+.sh-boss.open .sb-phase{color:var(--gold); animation:surfPulse 1s ease-in-out infinite}
+
+/* -------- focus vignette + pointer hint -------- */
+.sh-focus{position:fixed; inset:-4%; pointer-events:none; z-index:21; opacity:0;
+  transition:opacity .22s ease;
+  background:
+    radial-gradient(ellipse 42% 38% at 50% 50%, rgba(0,0,0,0) 55%, rgba(4,12,22,.72) 100%),
+    radial-gradient(ellipse 70% 60% at 50% 50%, rgba(0,0,0,0) 60%, rgba(20,60,90,.3) 100%);
+}
+/* the run: the edges of the world blur past you */
+.sh-rush{position:fixed; inset:-6%; pointer-events:none; z-index:21; opacity:0;
+  transition:opacity .18s linear;
+  background:
+    radial-gradient(ellipse 46% 40% at 50% 50%, rgba(0,0,0,0) 58%, rgba(10,26,18,.6) 100%),
+    radial-gradient(ellipse 76% 62% at 50% 50%, rgba(0,0,0,0) 62%, rgba(120,200,140,.16) 100%);
+}
+.sh-hint{position:absolute; left:50%; top:62%; transform:translateX(-50%); opacity:0;
+  font-size:11px; letter-spacing:.24em; text-transform:uppercase; font-weight:700;
+  color:rgba(240,249,255,.9); background:rgba(6,18,30,.7); padding:8px 16px; border-radius:20px;
+  border:1px solid rgba(255,255,255,.18); transition:opacity .25s}
+.sh-hint.show{opacity:1}
+
+/* -------- touch: drag anywhere to look, two pads to act -------- */
+#touch-shoot{display:none; position:absolute; inset:0; pointer-events:all; touch-action:none}
+#touch-shoot.visible{display:block}
+#touch-shoot .draw-pad,#touch-shoot .focus-pad{position:absolute; bottom:9vh; border-radius:50%;
+  display:grid; place-items:center; font-weight:800; letter-spacing:.1em; font-size:12px;
+  pointer-events:all; touch-action:none}
+#touch-shoot .draw-pad{right:6vw; width:112px; height:112px; color:#eaffff;
+  background:rgba(63,224,255,.26); border:2px solid rgba(63,224,255,.7)}
+#touch-shoot .focus-pad{right:6vw; bottom:26vh; width:74px; height:74px; color:#fff;
+  background:rgba(240,249,255,.14); border:2px solid rgba(240,249,255,.4)}
+#touch-shoot .sprint-pad{right:24vw; bottom:11vh; width:74px; height:74px; color:var(--gold);
+  background:rgba(242,193,78,.16); border:2px solid rgba(242,193,78,.55)}
+#touch-shoot .move-zone{position:absolute; left:6vw; bottom:9vh; width:124px; height:124px;
+  pointer-events:all; touch-action:none}
+#touch-shoot .move-ring{position:absolute; inset:0; border-radius:50%;
+  border:2px solid rgba(255,255,255,.22); background:rgba(8,18,30,.26)}
+#touch-shoot .move-knob{position:absolute; left:50%; top:50%; width:54px; height:54px;
+  margin:-27px 0 0 -27px; border-radius:50%; background:rgba(240,249,255,.4);
+  border:2px solid rgba(255,255,255,.5)}
+
 /* ---------------- results: which channel, and what it was worth --------- */
 .result-course{display:flex; flex-direction:column; gap:3px; align-items:center; margin:2px 0 10px}
 .result-course b{font-family:var(--display); font-size:22px; letter-spacing:.05em;
@@ -458,6 +669,24 @@ kbd{
   color:var(--mc,#fff); border:1px solid var(--mc,#fff); border-radius:20px; padding:4px 12px}
 .result-medal.show{display:block; animation:pop .5s ease-out}
 .result-best{margin:0}
+
+/* ---------------- panels that outgrow the screen ----------------
+   The shootout's scoreboard is a long one, and a panel that runs off the
+   bottom of a laptop screen with no way to reach the buttons is not a
+   scoreboard. Anything in a panel scrolls when it has to. */
+.screen.results, .screen.brief{overflow-y:auto; overscroll-behavior:contain}
+.result-panel, .brief-panel{
+  max-height:calc(100vh - 40px);
+  max-height:calc(100dvh - 40px);
+  overflow-y:auto; overscroll-behavior:contain;
+  touch-action:pan-y; pointer-events:auto;
+  scrollbar-width:thin; scrollbar-color:rgba(242,193,78,.5) transparent;
+}
+.result-panel::-webkit-scrollbar, .brief-panel::-webkit-scrollbar{width:8px}
+.result-panel::-webkit-scrollbar-thumb, .brief-panel::-webkit-scrollbar-thumb{
+  background:rgba(242,193,78,.45); border-radius:4px}
+.result-panel::-webkit-scrollbar-track, .brief-panel::-webkit-scrollbar-track{
+  background:transparent}
 
 /* ---------------- boot ---------------- */
 #boot{position:fixed; inset:0; z-index:100; display:grid; place-items:center;
@@ -502,4 +731,8 @@ kbd{
   .title-foot{display:none}
   .hud-rings{min-width:0}
   .hud-progress{width:110px; margin-left:auto}
+  .sh-tally{min-width:0}
+  .sh-round-block{min-width:0}
+  .sh-round-name{display:none}
+  .sh-breath{display:none}
 }
