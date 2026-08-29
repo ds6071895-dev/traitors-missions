@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>The Traitors — Missions</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a1119'/%3E%3Cpath d='M5 21h22l-3 5H8z' fill='%23d81e40'/%3E%3Cpath d='M11 20V9l11 11z' fill='%23f2c14e'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+
+<!-- world-anchored effects -->
+<div id="world-labels"></div>
+<div id="speed-vignette"></div>
+<div id="surf-indicator"><span>SURFING</span></div>
+<div id="screen-flash"></div>
+<div id="fade"></div>
+
+<!-- ============ TITLE ============ -->
+<section class="screen title" data-screen="title">
+  <div class="title-inner">
+    <header class="brand">
+      <div class="brand-kicker">Mission Series</div>
+      <h1 class="brand-title">THE<span>TRAITORS</span></h1>
+      <div class="brand-rule"></div>
+    </header>
+
+    <div class="pot">
+      <span class="pot-label">Prize pot</span>
+      <span class="pot-value" id="pot-value">£0</span>
+    </div>
+
+    <div class="mission-head">
+      <h2>Missions</h2>
+      <p>Earn it in the daylight. Keep it through the night.</p>
+    </div>
+
+    <div class="mission-list" id="mission-list"></div>
+
+    <footer class="title-foot">
+      <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> steer</span>
+      <span><kbd>Space</kbd> boost</span>
+      <span><kbd>Esc</kbd> pause</span>
+      <span><kbd>M</kbd> mute</span>
+    </footer>
+  </div>
+</section>
+
+<!-- ============ BRIEFING ============ -->
+<section class="screen brief" data-screen="brief">
+  <div class="panel brief-panel">
+    <div class="brief-kicker">Mission Briefing</div>
+    <h2 id="brief-title">Boat Race</h2>
+    <p class="brief-tagline" id="brief-tagline"></p>
+
+    <div class="brief-body">
+      <div class="brief-col">
+        <p class="brief-desc" id="brief-desc"></p>
+        <ul class="brief-tips">
+          <li><b>Ride the swell.</b> Point down the face of a wave and you gain speed for free.</li>
+          <li><b>Launch the crests.</b> Air time refills your boost — land flat to keep it.</li>
+          <li><b>Spin it.</b> Hold <kbd>Space</kbd> in the air to trick: throttle flips,
+              steering rolls. Let go and the hull snaps to the nearest whole turn — that
+              is the landing. Hold too long and you bin it and lose the chain.</li>
+          <li><b>Take the gold ring.</b> The one against the rocks pays three times the safe one.</li>
+          <li><b>Keep moving.</b> The chain now goes cold on a timer, not just on a miss.</li>
+          <li><b>Run the wall.</b> Shaving rock or cliff at speed pays while you hold it.</li>
+        </ul>
+      </div>
+
+      <div class="brief-col brief-setup" id="brief-setup">
+        <div class="setup-block">
+          <div class="setup-head">Mode</div>
+          <div class="seg" id="setup-mode"></div>
+          <div class="setup-note" id="setup-mode-note"></div>
+        </div>
+
+        <div class="setup-block">
+          <div class="setup-head">Channel</div>
+          <div class="channel-name" id="setup-name">—</div>
+          <div class="channel-cond" id="setup-cond">—</div>
+          <div class="channel-seed">
+            <input id="setup-seed" type="text" inputmode="numeric" spellcheck="false"
+                   aria-label="Course seed">
+            <button class="chip" id="setup-daily" title="Today's channel, the same for everyone">Today</button>
+            <button class="chip" id="setup-random" title="Draw a new channel">Random</button>
+          </div>
+        </div>
+
+        <div class="setup-block">
+          <div class="setup-head">Modifier <span class="setup-sub">keep one, or none</span></div>
+          <div class="mod-hand" id="setup-mods"></div>
+        </div>
+
+        <div class="setup-foot">
+          <label class="toggle"><input type="checkbox" id="setup-ghost" checked>
+            <span id="setup-ghost-label">Race my ghost</span></label>
+          <div class="setup-best" id="setup-best"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="brief-actions">
+      <div class="brief-keys">
+        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive</span>
+        <span><kbd>Space</kbd> boost / roll</span>
+        <span><kbd>R</kbd> restart</span>
+      </div>
+      <button class="btn ghost" id="brief-back">Back</button>
+      <button class="btn primary" id="brief-go">Start Mission<span class="btn-mult" id="brief-mult"></span></button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HUD ============ -->
+<section class="screen hud" data-screen="hud">
+
+  <div class="hud-top">
+    <div class="hud-money-block">
+      <div class="hud-label">Pot earnings</div>
+      <div class="hud-money" id="hud-money">£0</div>
+      <div class="hud-combo-wrap" id="hud-combo-wrap">
+        <span class="hud-combo" id="hud-combo">×1</span>
+        <span class="hud-combo-lbl">multiplier</span>
+        <div class="hud-combo-track"><div class="hud-combo-bar" id="hud-combo-bar"></div></div>
+      </div>
+    </div>
+
+    <div class="hud-timer">
+      <div class="hud-label" id="hud-time-label">Time</div>
+      <div class="hud-time" id="hud-time">70</div>
+      <div class="hud-ghost" id="hud-ghost">—</div>
+    </div>
+
+    <div class="hud-rings">
+      <div class="hud-label">Rings</div>
+      <div class="hud-rings-val" id="hud-hoops">0/0</div>
+      <div class="hud-progress"><div class="hud-progress-fill" id="hud-progress-fill"></div></div>
+    </div>
+  </div>
+
+  <div class="hud-bottom">
+    <div class="hud-speedo">
+      <div class="hud-speed" id="hud-speed">0</div>
+      <div class="hud-speed-unit">knots</div>
+      <div class="hud-speed-track"><div class="hud-speed-bar" id="hud-speed-bar"></div></div>
+    </div>
+
+    <div class="hud-boost" id="hud-boost">
+      <div class="hud-boost-track"><div class="hud-boost-fill" id="hud-boost-fill"></div></div>
+      <div class="hud-boost-label">Boost <kbd>Space</kbd></div>
+    </div>
+  </div>
+
+  <div class="center-msg" id="center-msg"></div>
+
+  <div class="hud-setup" id="hud-setup"></div>
+
+  <button id="mute-btn" title="Mute (M)" aria-label="Mute">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+      <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/>
+      <path class="wave" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"
+            fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      <path class="slash" d="M4 20L20 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
+
+  <div id="touch-controls">
+    <div class="stick-zone"><div class="stick-ring"></div><div class="stick-knob"></div></div>
+    <div class="boost-btn">BOOST</div>
+  </div>
+</section>
+
+<!-- ============ PAUSE ============ -->
+<section class="screen pause" data-screen="pause">
+  <div class="panel pause-panel">
+    <h2>Paused</h2>
+    <div class="pause-actions">
+      <button class="btn primary" id="pause-resume">Resume</button>
+      <button class="btn ghost" id="pause-restart">Restart mission</button>
+      <button class="btn ghost" id="pause-quit">Back to missions</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ RESULTS ============ -->
+<section class="screen results" data-screen="results">
+  <div class="panel result-panel">
+    <div class="result-sub" id="result-sub">Boat Race</div>
+    <h2 class="result-title win" id="result-title">MISSION COMPLETE</h2>
+    <div class="result-course" id="result-course"></div>
+    <div class="result-badges">
+      <div class="result-medal" id="result-medal"></div>
+      <div class="result-best" id="result-best">NEW BEST</div>
+    </div>
+
+    <div class="result-rows" id="result-rows"></div>
+
+    <div class="result-total">
+      <span>Added to the pot</span>
+      <b id="result-earned">£0</b>
+    </div>
+    <div class="result-pot">
+      <span>Prize pot</span>
+      <b id="result-pot">£0</b>
+    </div>
+
+    <div class="result-actions">
+      <button class="btn ghost" id="result-menu">Missions</button>
+      <button class="btn ghost" id="result-new">New channel</button>
+      <button class="btn primary" id="result-retry">Race again</button>
+    </div>
+  </div>
+</section>
+
+<div id="boot"><div class="boot-inner"><div class="boot-spin"></div><span>Loading the loch…</span></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="js/core/util.js"></script>
+<script src="js/core/engine.js"></script>
+<script src="js/core/input.js"></script>
+<script src="js/core/audio.js"></script>
+<script src="js/core/state.js"></script>
+<script src="js/core/screens.js"></script>
+<script src="js/core/missions.js"></script>
+<script src="js/world/sky.js"></script>
+<script src="js/world/water.js"></script>
+<script src="js/world/conditions.js"></script>
+<script src="js/world/course.js"></script>
+<script src="js/entities/boat.js"></script>
+<script src="js/fx/fx.js"></script>
+<script src="js/missions/modifiers.js"></script>
+<script src="js/missions/boat-race.js"></script>
+<script src="js/missions/coming-soon.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

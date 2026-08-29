@@ -1,0 +1,183 @@
+/* ------------------------------------------------------------------
+   state.js — the persistent game state.
+
+   Right now only the prize pot and mission records are used, but the
+   shape is the full Traitors model (cast, roles, rounds, banishments)
+   so the round table, murders and votes can be layered on later
+   without a save migration.
+------------------------------------------------------------------ */
+const GameState = (() => {
+
+  const KEY = 'traitors.save.v1';
+  const VERSION = 1;
+
+  const CAST = [
+    'Alina', 'Bex', 'Callum', 'Dev', 'Esme', 'Fitz',
+    'Greta', 'Hari', 'Ines', 'Jonah', 'Kira', 'Luca',
+  ];
+
+  function fresh() {
+    return {
+      version: VERSION,
+      createdAt: Date.now(),
+      player: { name: 'You', role: 'faithful', alive: true },
+      prizePot: 0,
+      round: 1,
+      phase: 'lobby',            // lobby | mission | roundtable | endgame
+      cast: CAST.map((name, i) => ({
+        id: 'p' + i, name, role: 'faithful', alive: true, suspicion: 0,
+      })),
+      missions: {},              // id -> { plays, completed, best:{...}, lastEarned }
+      settings: { muted: false, camera: 'chase', quality: 'high' },
+      log: [],                   // narrative events, for a future recap screen
+    };
+  }
+
+  let data = fresh();
+  const listeners = new Set();
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.version === VERSION) data = Object.assign(fresh(), parsed);
+      }
+    } catch (e) { /* corrupt or unavailable storage — start fresh */ }
+    return data;
+  }
+
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
+    listeners.forEach(fn => fn(data));
+  }
+
+  function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+
+  function reset() { data = fresh(); save(); return data; }
+
+  /* ---------------- prize pot ---------------- */
+
+  function addToPot(amount) {
+    data.prizePot = Math.max(0, Math.round(data.prizePot + amount));
+    save();
+    return data.prizePot;
+  }
+
+  /* ---------------- mission records ---------------- */
+
+  function missionRecord(id) {
+    if (!data.missions[id]) {
+      data.missions[id] = { plays: 0, completed: 0, best: null, lastEarned: 0 };
+    }
+    return data.missions[id];
+  }
+
+  // result: { earned, completed, time, ...anything mission-specific }
+  // A mission decides what "better" means via `betterFn`.
+  function recordMission(id, result, betterFn) {
+    const rec = missionRecord(id);
+    rec.plays++;
+    if (result.completed) rec.completed++;
+    rec.lastEarned = result.earned || 0;
+    const better = betterFn || ((a, b) => (a.earned || 0) > (b.earned || 0));
+    const isBest = !rec.best || better(result, rec.best);
+    if (isBest) rec.best = Object.assign({}, result);
+    save();
+    return { record: rec, isBest };
+  }
+
+  /* ---------------- per-course records ----------------
+     A time set on the Cold Kraken in a storm at night with Glass Cannon
+     running is not comparable to anything else, so a record is keyed by
+     the whole setup: mode, seed and modifier. ------------------------- */
+
+  const runKey = (mode, seed, modId) => `${mode}:${seed}:${modId || 'none'}`;
+
+  function runRecord(id, key) {
+    const rec = missionRecord(id);
+    if (!rec.runs) rec.runs = {};
+    if (!rec.runs[key]) rec.runs[key] = { plays: 0, best: null, medal: 0 };
+    return rec.runs[key];
+  }
+
+  // result: whatever the mission wants to keep. `betterFn` decides what
+  // "better" means for this mode (most money, or least time) and is asked
+  // even about the very first run — a `b` of null means "nothing to beat",
+  // which is not the same as "anything beats it": a time trial abandoned
+  // after twelve seconds has not set a twelve-second time.
+  function recordRun(id, key, result, betterFn) {
+    const run = runRecord(id, key);
+    run.plays++;
+    const better = betterFn || ((a, b) => (a.earned || 0) > (b ? (b.earned || 0) : -1));
+    const isBest = better(result, run.best);
+    if (isBest) run.best = Object.assign({}, result);
+    run.medal = Math.max(run.medal || 0, result.medal || 0);
+    save();
+    return { run, isBest };
+  }
+
+  /* ---------------- ghosts ----------------
+     Kept in their own storage key: they are far bigger than the save and
+     far less precious, so a quota failure here must never cost you the
+     prize pot. Oldest ghosts are evicted first. */
+
+  const GHOST_KEY = 'traitors.ghosts.v1';
+  const GHOST_LIMIT = 12;
+  let ghosts = null;
+
+  function loadGhosts() {
+    if (ghosts) return ghosts;
+    try { ghosts = JSON.parse(localStorage.getItem(GHOST_KEY)) || {}; }
+    catch (e) { ghosts = {}; }
+    return ghosts;
+  }
+
+  function getGhost(id, key) {
+    const g = loadGhosts()[id + '|' + key];
+    return g ? g.data : null;
+  }
+
+  function saveGhost(id, key, data) {
+    const g = loadGhosts();
+    g[id + '|' + key] = { at: Date.now(), data };
+    const keys = Object.keys(g);
+    if (keys.length > GHOST_LIMIT) {
+      keys.sort((a, b) => g[a].at - g[b].at);
+      for (let i = 0; i < keys.length - GHOST_LIMIT; i++) delete g[keys[i]];
+    }
+    try { localStorage.setItem(GHOST_KEY, JSON.stringify(g)); }
+    catch (e) { /* out of room — a ghost is not worth failing a run over */ }
+  }
+
+  /* ---------------- narrative hooks for later phases ---------------- */
+
+  function logEvent(type, text, meta) {
+    data.log.push({ t: Date.now(), round: data.round, type, text, meta: meta || null });
+    if (data.log.length > 300) data.log.shift();
+    save();
+  }
+
+  function assignTraitors(count = 3, rng = Math.random) {
+    data.cast.forEach(p => (p.role = 'faithful'));
+    const pool = data.cast.slice();
+    for (let i = 0; i < count && pool.length; i++) {
+      const idx = Math.floor(rng() * pool.length);
+      pool[idx].role = 'traitor';
+      pool.splice(idx, 1);
+    }
+    save();
+  }
+
+  const alive = () => data.cast.filter(p => p.alive);
+  const traitors = () => data.cast.filter(p => p.role === 'traitor' && p.alive);
+
+  return {
+    load, save, reset, subscribe,
+    addToPot, missionRecord, recordMission, logEvent, assignTraitors, alive, traitors,
+    runKey, runRecord, recordRun, getGhost, saveGhost,
+    get data() { return data; },
+    get prizePot() { return data.prizePot; },
+    get settings() { return data.settings; },
+  };
+})();
