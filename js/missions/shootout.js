@@ -21,6 +21,8 @@
 ------------------------------------------------------------------ */
 class ShootoutMission {
 
+  static _UP = new THREE.Vector3(0, 1, 0);
+
   static CONFIG = {
     seed: 20260829,           // only a fallback; a run brings its own
 
@@ -50,18 +52,30 @@ class ShootoutMission {
     focusTime: 0.58,          // how far time slows while focusing
     baseFov: 64,
 
-    // Aim assist. Leading a bird by eye with a projectile that drops is a
-    // lovely idea and a miserable game, so the bow does the maths: point
-    // at the quarry — at the bird itself, not at where it is going — and
-    // the arrow is loosed at the interception. The cone is measured to
-    // the thing you are looking at, which is the only measurement that
-    // matches what you think you are doing. Inside `assistFull` the shot
-    // is handed over completely; out to `assistSoft` it is bent most of
-    // the way, so a shot you had no business taking still misses.
-    assistFull: 0.30,         // radians ≈ 17°
-    assistSoft: 0.62,         // ≈ 36°
-    assistSteady: 1.45,       // how much wider the cone is while focusing
-    assistLockMs: 260,        // how long the reticle keeps showing a lock
+    /* Aim assist: removed.
+
+       It used to solve the whole interception for you inside a six
+       degree cone. Every version of it was too much — the cones came
+       down from seventeen degrees to six, the falloff curve was turned
+       inside out — and a playtester still said the bow was doing the
+       shooting, which it was. So the lead is yours. An arrow leaves
+       where you pointed it, and nothing bends it but gravity and the
+       weather.
+
+       There is no hidden cone, snap, magnetic target, or interception
+       correction left in the shot path. */
+
+    /* What is left is *information*. The
+       reticle still names what it is pointed at and still shouts about a
+       dove, because knowing a dove is in front of you is the decision;
+       the deliberately easier Steady Hand card can also paint an
+       intercept mark that you must put the crosshair on yourself. A
+       standard run receives no lead solution at all. */
+    lockCone: 0.055,          // ≈ 3.2°, for naming what you are looking at
+    doveCone: 0.18,           // doves get called out from much further off
+    focusLockScale: 1.30,     // focus makes target names easier to acquire
+    leadMark: false,          // enabled only by the Steady Hand card
+    leadCone: 0.16,           // how far off centre the mark will follow
 
     // walking about
     eyeHeight: 1.72,
@@ -121,6 +135,7 @@ class ShootoutMission {
       mode: opts.mode === 'gauntlet' ? 'gauntlet' : 'prize',
       modId: opts.modId || null,
       ghost: opts.ghost !== false,
+      bossRush: opts.bossRush === true,
       daily: seed === U.dailySeed(),
     };
   }
@@ -176,7 +191,8 @@ class ShootoutMission {
     this.cond = ShootoutMission.conditionsFor(this.seed, this.twist);
     this.payout = ForestConditions.payout(this.cond) * (this.twist ? this.twist.payout : 1);
     this.forestName = U.forestName(this.seed);
-    this.key = GameState.runKey(this.mode, this.seed, this.opts.modId);
+    this.key = GameState.runKey(this.mode, this.seed, this.opts.modId)
+             + (this.opts.bossRush ? ':boss' : '');
     this.rng = U.makeRng(this.seed);
 
     this.state = 'idle';        // idle | countdown | live | between | finished | failed
@@ -200,7 +216,13 @@ class ShootoutMission {
     this.stepPhase = 0;
     this._respawn = [];
     this.boss = null;
+    if (this.music) { this.music.stop(0.4); this.music = null; }
     this.lockT = 0; this.lockName = ''; this.lockGuard = false;
+    this.lockTarget = null;
+    // the charms the owl fight hands out, as seconds remaining
+    this.buffs = { ember: 0, breath: 0, nerve: 0, purse: 0 };
+    this.buffOn = false;
+    this.boonsTaken = 0;
     this.money = 0;
     this.penalty = 0;
     this.bonusMoney = 0;
@@ -279,6 +301,9 @@ class ShootoutMission {
 
     this.bow = new Bow({ tune: (this.twist && this.twist.tune) || {} });
     this.bow.build(camera);
+    // Iron Nerve widens this and then puts it back; the run's own value
+    // has to be remembered before anything is allowed to touch it
+    this._basePerfect = this.bow.tune.perfectWindow;
     this.arrows = new ArrowSystem(scene, this.bow.tune);
     this.arrows.setWind(wind.x, wind.z, wind.strength);
 
@@ -297,7 +322,10 @@ class ShootoutMission {
 
     this._buildResidents();
 
-    this.schedule = this.mode === 'prize' ? ShootoutRounds.schedule(this.seed) : null;
+    if (this.mode === 'prize') {
+      const fullSchedule = ShootoutRounds.schedule(this.seed);
+      this.schedule = this.opts.bossRush ? fullSchedule.slice(-1) : fullSchedule;
+    } else this.schedule = null;
     this.roundCount = this.schedule ? this.schedule.length : 0;
     this.targets = this.C.baseFov;   // placeholder, replaced below
     this.par = this._computePar();
@@ -369,6 +397,7 @@ class ShootoutMission {
       lives: q('sh-lives'),
       banner: q('sh-banner'),
       boss: q('sh-boss'), bossPhase: q('sh-boss-phase'), bossPips: q('sh-boss-pips'),
+      bossStages: q('sh-boss-stages'), boons: q('sh-boons'), lead: q('sh-lead'),
       hint: q('sh-hint'),
       focus: q('sh-focus'),
       rush: q('sh-rush'),
@@ -398,6 +427,7 @@ class ShootoutMission {
     this._lastBeep = 4;
     this.windSnd = AudioBus.wind();
     if (this.windSnd) this.windSnd.set(this.wind.strength);
+    this._startStageMusic();
     Screens.show('hud-shoot');
     this._setCenter('', '');
     this._banner(this.forestName, ForestConditions.describe(this.cond));
@@ -411,16 +441,30 @@ class ShootoutMission {
     this._resetRun();
     this.pos.set(0, this.forest.walkAt(0, 0), 0);
     this._buildResidents();
+    this._startStageMusic();
     this.state = 'countdown';
     this._setCenter('', '');
     this._banner(this.forestName, ForestConditions.describe(this.cond));
     if (this.hud.focus) this.hud.focus.style.opacity = 0;
   }
 
+  // The ordinary rounds carry a leaner version of the owl score: drums,
+  // bass, pad and a restrained horn line. It stays on one musical clock
+  // between rounds so every new wave can lift the arrangement without a
+  // hard restart. The owl still gets the full choir and the biggest gears.
+  _startStageMusic() {
+    if (this.music) { this.music.stop(0.25); this.music = null; }
+    this.music = Music.stage();
+    this.music.setGear(0, 0.1);
+    this.music.setIntensity(0.52);
+  }
+
   dispose() {
     clearTimeout(this._reportT);
     clearTimeout(this._flashT);
     clearTimeout(this._bannerT);
+    clearTimeout(this._boonT2);
+    if (this.music) { this.music.stop(0.4); this.music = null; }
     if (this.windSnd) this.windSnd.stop();
     if (this._unlockWatch) this._unlockWatch();
     Input.setMouseAim(false);
@@ -439,6 +483,8 @@ class ShootoutMission {
       if (this.hud.setup) this.hud.setup.innerHTML = '';
       if (this.hud.banner) this.hud.banner.classList.remove('show');
       if (this.hud.boss) this.hud.boss.className = 'sh-boss';
+      if (this.hud.boons) { this.hud.boons.innerHTML = ''; this._boonKey = null; }
+      if (this.hud.lead) this.hud.lead.classList.remove('show');
       if (this.hud.hitmark) this.hud.hitmark.className = 'sh-hitmark';
       if (this.hud.loose) this.hud.loose.className = 'sh-loose';
       this._setCenter('', '');
@@ -451,8 +497,10 @@ class ShootoutMission {
     if (!this.scene) return;
     if (Engine.isPaused()) {
       if (this._aimOn) { Input.setMouseAim(false); this._aimOn = false; }
+      if (this.music) this.music.setPaused(true);
       return;
     }
+    if (this.music) this.music.setPaused(false);
     const wantAim = this.state === 'countdown' || this.state === 'live'
                     || this.state === 'between';
     if (wantAim && !this._aimOn) { Input.setMouseAim(true); this._aimOn = true; }
@@ -469,8 +517,12 @@ class ShootoutMission {
     const wantFocus = !this.flags.noFocus && Input.held('focus') && this.breath > 0.05
                       && this.state === 'live';
     this.focusing = wantFocus;
-    if (wantFocus) this.breath = Math.max(0, this.breath - rawDt);
-    else this.breath = Math.min(this.C.breathMax, this.breath + rawDt * this.C.breathRegen);
+    // a hawk's breath does not run out
+    if (wantFocus && this.buffs.breath <= 0) this.breath = Math.max(0, this.breath - rawDt);
+    else if (!wantFocus || this.buffs.breath > 0) {
+      this.breath = Math.min(this.C.breathMax, this.breath + rawDt * this.C.breathRegen
+                             * (this.buffs.breath > 0 ? 6 : 1));
+    }
 
     // hit-stop first, then the focus dilation, then whatever the run wants
     let dt = rawDt;
@@ -482,6 +534,14 @@ class ShootoutMission {
       this.timeScale = U.damp(this.timeScale, target, 7.0, rawDt);
       dt = rawDt * this.timeScale;
     }
+    /* The bow runs on its own clock. Holding your breath is *meant* to
+       slow your draw along with the world — that is the trade. Hit-stop
+       is not: it is a forty-millisecond freeze to punctuate a kill, and
+       freezing the draw with it means every hit in a chain costs you a
+       beat of the next shot. That is felt immediately and reads as the
+       bow being sluggish, which is the last thing this mission can afford. */
+    const bowDt = this.hitStop > 0 ? rawDt
+                : rawDt * (wantFocus ? this.C.focusTime : 1);
 
     this._updateAim(rawDt);
     this._updateMove(rawDt);
@@ -489,8 +549,10 @@ class ShootoutMission {
     if (this.state === 'countdown') this._updateCountdown(rawDt);
     if (this.state === 'live' || this.state === 'between') this._updateRound(dt);
 
+    this._updateBuffs(rawDt);
     this._lockScan(rawDt);
-    this._updateBow(dt);
+    this._updateLead();
+    this._updateBow(bowDt);
     this._updateArrows(dt);
     this._updateFlock(dt);
 
@@ -671,16 +733,20 @@ class ShootoutMission {
     Input.haptic(8);
 
     const spread = this.flags.twinShot ? [-0.012, 0.012] : [0];
-    const solved = this._assist(this._dirFrom(this.aimYaw, this.aimPitch), shot.speed);
+    // No aim assist: every arrow leaves in the exact direction the player
+    // chose. Gravity, wind and target motion take over from here.
+    const aimed = this._dirFrom(this.aimYaw, this.aimPitch);
     for (const off of spread) {
-      const dir = off === 0 ? solved.clone()
-        : solved.clone().applyAxisAngle(ShootoutMission._UP, off);
+      const dir = off === 0 ? aimed.clone()
+        : aimed.clone().applyAxisAngle(ShootoutMission._UP, off);
+      // far enough in front of the eye that a full-size arrow does not
+      // spend its first frame drawn across the whole screen
       const origin = this.camera.position.clone()
-        .addScaledVector(dir, 0.9)
+        .addScaledVector(dir, 1.5)
         .add(this._right.set(Math.cos(this.aimYaw), 0, -Math.sin(this.aimYaw)).multiplyScalar(0.22));
       origin.y -= 0.12;
       const s = Object.assign({}, shot);
-      if (this.flags.alwaysPierce) s.pierce = Math.max(s.pierce, 1);
+      if (this.flags.alwaysPierce || this.buffs.ember > 0) s.pierce = Math.max(s.pierce, 1);
       this.arrows.fire(origin, dir, s);
     }
     // a shot that finds nothing still has to be answered for
@@ -689,29 +755,26 @@ class ShootoutMission {
     this._shotQueue.push(this._pendingShot);
   }
 
-  /* Point the arrow at where the quarry is going to be.
+  /* What the crosshair is over, worked out every frame with nothing at
+     stake. This is the half of the old aim assist that survived: it does
+     not touch a single arrow, it only tells you what you are pointed at
+     — and, far more importantly, when that thing is a dove.
 
-     The cone is measured to the quarry *itself* — not to the lead — so
-     that "I was pointing right at it" and "the assist helped" mean the
-     same thing. Having picked whatever is nearest the middle of the
-     crosshair, we solve the interception properly: where it will be when
-     an arrow at this speed could get there, how much higher you have to
-     hold for the drop, and how far the wind will carry it. Doves are
-     never solved for; the assist will not shoot a dove on your behalf. */
-  /* The same cone, run every frame with nothing at stake, purely so the
-     reticle can tell you what the bow has decided it is looking at — and,
-     just as importantly, when that thing is a dove. */
+     The dove cone stays wide on purpose. Warning you costs nothing now
+     that nothing is being aimed for you, and having to decide *before*
+     you draw is the whole of what a dove is for. */
   _lockScan(dt) {
     const C = this.C;
     this.lockT = Math.max(0, this.lockT - dt);
     if (this.lockT > 0) return;
     this.lockName = ''; this.lockGuard = false;
+    this.lockTarget = null;
     if (this.state !== 'live') return;
     const eye = this.camera.position;
     const dir = this._dirFrom(this.aimYaw, this.aimPitch);
-    const wide = this.focusing ? C.assistSteady : 1;
-    const soft = C.assistSoft * wide;
-    let bestAng = soft, best = null;
+    const wide = this.focusing ? C.focusLockScale : 1;
+    const near = C.lockCone * wide;
+    let bestAng = near, best = null;
     for (const f of this.flock.list) {
       if (f.dying || !f.alive) continue;
       if (f.type.boss && !f.weakName) continue;
@@ -719,77 +782,90 @@ class ShootoutMission {
       const to = this._tmpV.copy(anchor).sub(eye);
       const dist = to.length();
       if (dist < 3) continue;
-      // a dove is called out from further away than anything else, because
-      // knowing it is there is the entire point
-      const cone = f.guard ? soft * 1.4 : soft;
+      const cone = f.guard ? C.doveCone : near;
       const ang = Math.acos(U.clamp(to.divideScalar(dist).dot(dir), -1, 1));
       if (ang > cone) continue;
-      if (f.guard ? ang < soft * 1.4 : ang < bestAng) {
-        if (f.guard) { best = f; bestAng = -1; break; }
-        bestAng = ang; best = f;
-      }
+      if (f.guard) { best = f; break; }          // a dove outranks everything
+      if (ang < bestAng) { bestAng = ang; best = f; }
     }
     if (!best) return;
+    this.lockTarget = best;
     this.lockGuard = !!best.guard;
     this.lockName = best.guard ? 'DOVE — HOLD'
       : (best.type.boss ? ((best.weak[best.weakName] || {}).label || best.type.name)
                         : best.type.name);
   }
 
-  _assist(dir, speed) {
-    const C = this.C;
-    this.lockName = '';
-    if (this.flags.noAssist) return dir;
-    const eye = this.camera.position;
-    const wide = this.focusing ? C.assistSteady : 1;
-    const full = C.assistFull * wide;
-    const soft = C.assistSoft * wide;
-    let pick = null, pickAng = soft, pickScore = 1e9;
+  /* -------- the intercept mark --------
 
+     Hold your breath and the bow will *show* you the lead it will not
+     take for you: a mark on the point in the air where the arrow and the
+     bird would meet, drop and wind included. You still have to put the
+     crosshair on it, against a target that is moving and a hand that
+     sways, and you are paying breath for the privilege — which is a
+     skill you can practise, rather than a cone that shoots for you.
+
+     It is drawn as a HUD dot rather than a sprite because it has to sit
+     on top of the fog and the trees: a mark you cannot see through a
+     branch is a mark that lies to you at exactly the wrong moment. */
+  _updateLead() {
+    const C = this.C;
+    const el = this.hud && this.hud.lead;
+    if (!el) return;
+    const show = C.leadMark && this.focusing && this.state === 'live'
+                 && !this.flags.noLead;
+    if (!show) { if (this._leadOn) { el.classList.remove('show'); this._leadOn = false; } return; }
+
+    const eye = this.camera.position;
+    const dir = this._dirFrom(this.aimYaw, this.aimPitch);
+    // while you are drawing it answers for the arrow you are holding;
+    // otherwise for the full loose you are about to take
+    const pw = this.bow.state === 'drawing' ? Math.max(this.bow.power, 0.35) : 1;
+    const speed = U.lerp(this.bow.tune.speedMin, this.bow.tune.speedMax, Math.pow(pw, 0.85));
+    let pick = null, pickAng = C.leadCone;
     for (const f of this.flock.list) {
       if (f.dying || !f.alive || f.guard) continue;
-      // on the owl this is whichever part the fight has opened, not the
-      // middle of it — and if nothing is open there is nothing to solve
       if (f.type.boss && !f.weakName) continue;
-      const anchor = f.type.boss ? f.aimPoint(this._tmpV2).clone() : f.pos;
+      const anchor = f.type.boss ? f.aimPoint(this._tmpV2) : f.pos;
       const to = this._tmpV.copy(anchor).sub(eye);
       const dist = to.length();
-      if (dist < 3) continue;
+      if (dist < 6) continue;
       const ang = Math.acos(U.clamp(to.divideScalar(dist).dot(dir), -1, 1));
-      if (ang > soft) continue;
-      // nearest the crosshair wins, with a light nudge towards whatever
-      // is closer to you when two things are about equally central
-      const score = ang + dist * 0.00035;
-      if (score < pickScore) { pickScore = score; pickAng = ang; pick = { f, anchor, dist }; }
+      if (ang < pickAng) { pickAng = ang; pick = { f, dist }; }
     }
-    if (!pick) return dir;
+    if (!pick) { el.classList.remove('show'); this._leadOn = false; return; }
 
-    // where it will be when an arrow at this speed could get there
-    const { f, anchor } = pick;
-    let tof = pick.dist / speed;
-    const aim = new THREE.Vector3();
+    const aim = this._interceptOf(pick.f, pick.dist, speed);
+    const p = aim.project(this.camera);
+    // behind you, or off the edge: a mark parked against the frame is a
+    // mark pointing at the wrong thing
+    if (p.z > 1 || Math.abs(p.x) > 1 || Math.abs(p.y) > 1) {
+      el.classList.remove('show'); this._leadOn = false; return;
+    }
+    el.style.left = ((p.x * 0.5 + 0.5) * 100) + '%';
+    el.style.top = ((-p.y * 0.5 + 0.5) * 100) + '%';
+    el.classList.add('show');
+    el.classList.toggle('far', pick.dist > this.C.longShotFrom);
+    this._leadOn = true;
+  }
+
+  /* Where to hold to hit `f` with an arrow leaving now at `speed`: four
+     passes at the time of flight, then the drop and the wind on top. The
+     assist used to do this and then fly the arrow there itself; now it
+     does it and draws a dot. */
+  _interceptOf(f, dist, speed, out) {
+    const eye = this.camera.position;
+    const anchor = f.type.boss ? f.aimPoint(this._tmpV2) : f.pos;
+    const aim = out || new THREE.Vector3();
+    let tof = dist / speed;
     for (let i = 0; i < 4; i++) {
       aim.copy(anchor).addScaledVector(f.vel, tof);
       tof = aim.distanceTo(eye) / speed;
     }
-    // and how much higher you have to hold to get it there
     aim.y += 0.5 * this.bow.tune.gravity * tof * tof;
     aim.x -= this.wind.x * this.bow.tune.windScale * tof * tof * 0.5;
     aim.z -= this.wind.z * this.bow.tune.windScale * tof * tof * 0.5;
-    const want = aim.sub(eye).normalize();
-
-    // hand it over completely inside the inner cone, and ease off outside
-    // it rather than falling off a cliff
-    let k = 1;
-    if (pickAng > full) {
-      const t = 1 - (pickAng - full) / Math.max(1e-4, soft - full);
-      k = t * (2 - t);                     // ease-out: still generous at the rim
-    }
-    if (k > 0.55) {
-      this.lockName = f.type.boss ? (f.weak[f.weakName] || {}).label || '' : f.type.name;
-      this.lockT = C.assistLockMs / 1000;
-    }
-    return dir.lerp(want, k).normalize();
+    return aim;
   }
 
   _dirFrom(yaw, pitch) {
@@ -840,11 +916,17 @@ class ShootoutMission {
 
     if (target.guard) { this._dove(target, info); return true; }
 
+    // a charm is not quarry: it is eight seconds of something
+    if (target.type.boon) {
+      this.hits++;
+      if (arrow.perfect) this.cleanHits++;
+      this._takeBoon(target, info);
+      return true;
+    }
+
     // the owl is not killed by arrows in the body; it is killed by arrows
     // in whichever part the fight has opened
     if (target.type.boss) {
-      this.hits++;
-      if (arrow.perfect) this.cleanHits++;
       const B = this.boss;
       const open = B && B.open && B.staggerT <= 0 && target.weakName;
       // against the arrow's own flight, not against where it happened to
@@ -853,6 +935,8 @@ class ShootoutMission {
       const len = seg.length();
       if (open && target.weakSegHit(arrow.prev, seg, Math.max(len, 1e-4))) {
         const at = target.aimPoint(new THREE.Vector3());
+        this.hits++;
+        if (arrow.perfect) this.cleanHits++;
         this._bossHurt(target, { point: at, dist: at.distanceTo(this.camera.position) });
       } else {
         AudioBus.play('boss-clang', {});
@@ -881,7 +965,7 @@ class ShootoutMission {
     this.chainT = C.chainWindow;
     this.bestChain = Math.max(this.bestChain, this.chain);
     // a deer is not one of the round's quarry, however satisfying it was
-    if (this.round && !target.resident) {
+    if (this.round && !target.resident && !target.isAdd) {
       this.round.killed = Math.min(this.round.total, this.round.killed + 1);
     }
 
@@ -891,7 +975,8 @@ class ShootoutMission {
     const longMult = 1 + Math.max(0, dist - C.longShotFrom) * C.longShotPer;
     const roundMult = (rule.valueMult || 1) * (rule.pierceDouble && arrow.hits > 1 ? 2 : 1);
     const value = target.value * C.moneyPerPoint
-                * chainMult * cleanMult * longMult * roundMult * C.moneyScale;
+                * chainMult * cleanMult * longMult * roundMult * C.moneyScale
+                * this._boonPay();
     this.money += value;
 
     // arrows back for a clean loose, when arrows are finite
@@ -932,26 +1017,64 @@ class ShootoutMission {
 
   /* =================== the Great Owl ===================
 
-     A boss is only a boss if it changes. This one is three fights: it
-     circles out of reach carrying a lantern and sending ravens at you;
-     it drops the lantern and starts making passes, and the only moment
-     its eyes face you is the moment it is coming straight at your head;
-     and then it stops running altogether, hangs in the air beating its
-     wings hard enough to shove you backwards, and dares you to put an
-     arrow through its chest while bats pour past.
+     A boss is only a boss if it changes, and this one changes four
+     times. It circles out of reach with a lantern in its talons and
+     calls ravens down on you; it drops the light and starts making
+     passes, and the only moment its eyes face you is the moment it is
+     coming straight at your head; then it hunts you properly, crossing
+     the clearing at twelve metres with its talons out; and finally it
+     stops running altogether, hangs in your face beating its wings hard
+     enough to shove you backwards, and dares you to put five arrows
+     through its chest while bats pour past.
+
+     Three things run underneath all four phases:
+
+     - It calls. Every phase has a summon on a timer: the owl climbs,
+       hangs there hammering its wings while it screeches, and a ring of
+       birds arrives. It cannot be hurt while it is calling, which makes
+       the call a beat where the right answer is to deal with the sky.
+     - The wood answers. Charms rise out of the trees in waves — on every
+       stagger and on a timer — and each is eight or twelve seconds of
+       something real: arrows that pierce and bite twice, a breath that
+       never runs out, a clean window twice as wide, or double money.
+       They climb, so a charm you ignore is a charm that leaves.
+     - The score. `Music.boss()` is told which phase this is, and the
+       gear it changes into is what a phase of this fight sounds like.
 
      Between phases it is staggered and untouchable for a beat, which is
      what gives the fight its rhythm — and what tells you, without a line
-     of text, that something you did worked. */
+     of text, that the thing you just did worked. */
 
   static BOSS_PHASES = [
-    { key: 'lantern', name: 'THE LANTERN', need: 3,
-      call: 'It will not come down while it is carrying that light.' },
-    { key: 'eyes', name: 'THE EYES', need: 3,
-      call: 'Its eyes only face you when it does. Hold your nerve.' },
-    { key: 'chest', name: 'THE HEART', need: 4,
-      call: 'No more running. Put one through it.' },
+    { key: 'lantern', name: 'THE LANTERN', need: 3, gear: 0, flight: 'circle',
+      call: 'It will not come down while it is carrying that light.',
+      add: 'raven', addN: 3, addEvery: 9, boonEvery: 14 },
+    { key: 'eyes', name: 'THE EYES', need: 3, gear: 1, flight: 'stare',
+      call: 'Its eyes only face you when it does. Hold your nerve.',
+      add: 'raven', addN: 3, addEvery: 10, boonEvery: 15 },
+    { key: 'talons', name: 'THE TALONS', need: 4, gear: 2, flight: 'sweep',
+      call: 'It is hunting you now. Hit it as it comes in.',
+      add: 'bat', addN: 4, addEvery: 8, boonEvery: 13 },
+    { key: 'chest', name: 'THE HEART', need: 5, gear: 3, flight: 'rage',
+      call: 'No more running. Put five through it.',
+      add: 'bat', addN: 4, addEvery: 5.5, boonEvery: 11 },
   ];
+
+  /* What a charm is worth. Every one of these is a real change to the
+     bow or the purse for a handful of seconds, because a powerup that
+     you cannot feel is a collectible, and this fight has enough to look
+     at already. */
+  static BOONS = {
+    ember:  { name: 'EMBER ARROWS',  time: 10, color: '#ff9c42',
+              blurb: 'every arrow pierces, and bites the owl twice' },
+    breath: { name: "HAWK'S BREATH", time: 12, color: '#39e6ff',
+              blurb: 'your breath does not run out' },
+    nerve:  { name: 'IRON NERVE',    time: 12, color: '#3ddc84',
+              blurb: 'the clean window opens twice as wide' },
+    purse:  { name: 'GOLDEN HOUR',   time: 10, color: '#ffd166',
+              blurb: 'everything pays double' },
+  };
+  static BOON_KINDS = ['charmEmber', 'charmBreath', 'charmNerve', 'charmPurse'];
 
   _beginBoss(f) {
     // the whole fight is fought inside a ring you can see across: it
@@ -962,12 +1085,22 @@ class ShootoutMission {
     f.behaviour = 'bossCircle';
     f.weakName = null;
     this.boss = {
-      flyer: f, phase: -1, hits: 0, t: 0, addT: 5, gustT: 0,
-      open: false, staggerT: 0, cycleT: 0, diving: false, down: false,
+      flyer: f, phase: -1, hits: 0, t: 0, addT: 6, gustT: 0, boonT: 10,
+      callT: 0, calls: 0, open: false, staggerT: 0, cycleT: 0,
+      diving: false, down: false,
     };
     this._banner('THE GREAT OWL', 'It has been watching you all evening', 'boss');
     AudioBus.play('owl-screech', {});
     this.shake = Math.max(this.shake, 5);
+    // Hand the musical clock from the lighter hunt arrangement to the
+    // full boss score. The crossfade is short enough to feel like the
+    // owl has kicked the door in, without stacking two bass lines.
+    if (this.music) { this.music.stop(0.55); this.music = null; }
+    // the score comes in under the screech, one gear below the fight, so
+    // the first phase change is already a lift
+    this.music = Music.boss();
+    this.music.setGear(0, 0.1);
+    this.music.setIntensity(0.75);
     setTimeout(() => { if (this.boss && this.boss.phase === -1) this._bossPhase(0); }, 2600);
   }
 
@@ -978,17 +1111,41 @@ class ShootoutMission {
     B.phase = i;
     B.hits = 0;
     B.cycleT = 0;
+    B.callT = 0;
     B.diving = false;
     B.staggerT = 0;
+    B.addT = P.addEvery * 0.55;
+    B.boonT = P.boonEvery * 0.6;
     B.flyer.weakName = P.key;
     B.open = true;
-    B.stare = i === 1;
-    const f = B.flyer;
-    if (i === 0) { f.behaviour = 'bossCircle'; f.orbitTarget = 52; f.cruiseY = this.pos.y + 24; }
-    if (i === 1) { f.behaviour = 'bossHover'; f.hoverDist = 38; f.hoverUp = 17; }
-    if (i === 2) { f.behaviour = 'bossHover'; f.hoverDist = 30; f.hoverUp = 14; }
+    B.stare = P.flight === 'stare';
+    this._bossFly(P.flight);
     this._banner(P.name, P.call, 'boss');
-    AudioBus.play('owl-screech', { pitch: 1 + i * 0.12 });
+    AudioBus.play('owl-screech', { pitch: 1 + i * 0.1 });
+    if (this.music) {
+      this.music.setGear(P.gear, i === 3 ? 0.4 : 2);
+      this.music.setIntensity(0.8 + i * 0.07);
+      this.music.stinger('phase');
+    }
+  }
+
+  /* One place that knows how each phase flies, so a phase change, the
+     end of a call and the end of a dive all put the owl back into the
+     same air rather than three subtly different versions of it. */
+  _bossFly(kind) {
+    const f = this.boss.flyer;
+    f.lane = null;
+    if (kind === 'circle') {
+      f.behaviour = 'bossCircle'; f.orbitTarget = 52; f.cruiseY = this.pos.y + 24;
+    } else if (kind === 'stare') {
+      f.behaviour = 'bossHover'; f.hoverDist = 38; f.hoverUp = 17;
+    } else if (kind === 'sweep') {
+      f.behaviour = 'bossSweep'; f.sweepDist = 48; f.sweepUp = 13;
+    } else if (kind === 'rage') {
+      f.behaviour = 'bossRage'; f.hoverDist = 29; f.hoverUp = 14; f.rageRate = 1.0;
+    } else if (kind === 'call') {
+      f.behaviour = 'bossCall'; f.callDist = 54; f.callUp = 34;
+    }
   }
 
   _updateBoss(dt) {
@@ -997,6 +1154,7 @@ class ShootoutMission {
     const f = B.flyer;
     if (!f.alive || f.dying) { if (!B.down) this._bossDown(); return; }
     B.t += dt;
+    const P = ShootoutMission.BOSS_PHASES[B.phase] || null;
 
     // the eyes light up only while it is looking at you
     if (f.weak && f.weak.eyes.lights) {
@@ -1017,32 +1175,106 @@ class ShootoutMission {
       }
       return;
     }
-    if (B.phase < 0) return;
+    if (B.phase < 0 || !P) return;
 
     B.cycleT += dt;
 
+    /* The call. It breaks whatever the phase was doing: the owl climbs
+       out of the fight, hangs there hammering, and the sky fills. There
+       is nothing to shoot on the owl for those two seconds, which is the
+       point — the answer to a call is the thing it called. */
+    if (B.callT > 0) {
+      B.callT -= dt;
+      if (B.callT <= 0) {
+        B.open = true;
+        B.cycleT = 0;
+        B.stare = P.flight === 'stare';
+        this._bossFly(P.flight);
+      }
+    } else {
+      B.addT -= dt;
+      if (B.addT <= 0) {
+        B.addT = P.addEvery;
+        this._bossCall(P);
+      } else {
+        this._bossFlightUpdate(dt, P, B, f);
+      }
+    }
+
+    // the wood's answer, on its own clock
+    B.boonT -= dt;
+    if (B.boonT <= 0) {
+      B.boonT = P.boonEvery;
+      this._boonWave(B.phase >= 2 ? 2 : 1);
+    }
+
+    // one place decides whether there is anything to shoot at, so the
+    // reticle, the mark and the arrows all agree about it
+    f.weakName = (B.open && B.staggerT <= 0) ? P.key : null;
+
+    // and the score keeps up with how close the phase is to breaking
+    if (this.music) {
+      const through = P.need ? B.hits / P.need : 0;
+      this.music.setIntensity(0.8 + B.phase * 0.05 + through * 0.2);
+    }
+  }
+
+  /* Each phase's own flying, once the calls and the staggers have had
+     their say. */
+  _bossFlightUpdate(dt, P, B, f) {
     /* Phase 2: the stare. It hangs in front of you with its eyes lit and
        dares you to take the shot — that is the window, and it is a long,
        obvious one. Then it loses patience and comes at you, and while it
        is coming there is nothing to hit; you get out of the way, it pulls
        up, and it turns round and stares at you again. */
-    if (B.phase === 1) {
+    if (P.flight === 'stare') {
       if (B.stare && B.cycleT > 5.2) {
         B.stare = false; B.open = false; B.diving = true; B.cycleT = 0;
         f.behaviour = 'bossDive'; f.committed = false;
         AudioBus.play('owl-screech', { pitch: 1.2 });
+        if (this.music) this.music.duck(0.4, 0.8);
         this._banner('IT IS COMING', 'GET OUT OF THE WAY', 'bad');
         this.shake = Math.max(this.shake, 3);
       } else if (!B.stare && B.cycleT > 2.6) {
         B.stare = true; B.open = true; B.diving = false; B.cycleT = 0;
-        f.behaviour = 'bossHover'; f.hoverDist = 38; f.hoverUp = 17;
+        this._bossFly('stare');
         AudioBus.play('owl-screech', { pitch: 0.95 });
         this._banner('IT IS LOOKING AT YOU', 'THE EYES', 'boss');
       }
+      return;
     }
 
-    // phase 3: every wingbeat is a gust that shoves you back a step
-    if (B.phase === 2) {
+    /* Phase 3: the talon runs. The talons are only worth an arrow while
+       it is actually coming at you — the shot is a crossing target at
+       forty metres, which is the hardest honest shot in the mission and
+       the reason the phase is here. On the wheel-around it is shielded,
+       and that is the beat you use to reload your nerve. */
+    if (P.flight === 'sweep') {
+      const to = this._tmpV.copy(this.camera.position).sub(f.pos);
+      const closing = to.normalize().dot(f.vel) > 2;
+      const near = f.pos.distanceTo(this.camera.position) < 70;
+      const open = closing && near;
+      if (open !== B.open) {
+        B.open = open;
+        if (open) AudioBus.play('owl-screech', { pitch: 1.35 });
+      }
+      // a pass that goes over your head is a pass you felt
+      const d = f.pos.distanceTo(this.camera.position);
+      if (d < 22 && (!f._sweepFx || this.elapsed - f._sweepFx > 1.4)) {
+        f._sweepFx = this.elapsed;
+        this.shake = Math.max(this.shake, 3.4);
+        AudioBus.play('owl-gust', {});
+        const away = this._tmpV2.copy(this.pos).sub(f.pos);
+        away.y = 0; away.normalize();
+        this.vel.x += away.x * 3.2;
+        this.vel.z += away.z * 3.2;
+      }
+      return;
+    }
+
+    /* Phase 4: every wingbeat is a gust that shoves you back a step, and
+       it will not stop moving. */
+    if (P.flight === 'rage') {
       B.gustT -= dt;
       if (B.gustT <= 0) {
         B.gustT = 1.5;
@@ -1052,38 +1284,146 @@ class ShootoutMission {
         this.vel.z += away.z * 5.5;
         this.shake = Math.max(this.shake, 2.6);
         AudioBus.play('owl-gust', {});
+        this.fx.rings.fire(f.pos, this.camera.quaternion, 2, 26, 0.5, '#8899aa');
       }
     }
-
-    // and all through it, something else in the air to worry about
-    B.addT -= dt;
-    if (B.addT <= 0) {
-      B.addT = B.phase === 2 ? 2.6 : 6.5;
-      const kind = B.phase === 2 ? 'bat' : 'raven';
-      for (let i = 0; i < (B.phase === 2 ? 2 : 2); i++) {
-        const a = Math.random() * Math.PI * 2;
-        const add = this._spawnOne(kind, 'cruise', {
-          mode: 'sweep', ang: a, dist: 60 + Math.random() * 40,
-          height: 16 + Math.random() * 18, life: 26,
-        });
-        if (add) add.isAdd = true;
-      }
-    }
-
-    // one place decides whether there is anything to shoot at, so the
-    // reticle, the aim assist and the arrows all agree about it
-    const P = ShootoutMission.BOSS_PHASES[B.phase];
-    f.weakName = (B.open && B.staggerT <= 0 && P) ? P.key : null;
   }
+
+  /* -------- it calls something down -------- */
+
+  _bossCall(P) {
+    const B = this.boss;
+    const f = B.flyer;
+    B.calls++;
+    B.callT = 2.1;
+    B.open = false;
+    B.diving = false;
+    B.stare = false;
+    f.weakName = null;
+    this._bossFly('call');
+    AudioBus.play('owl-screech', { pitch: 0.86 });
+    if (this.music) this.music.stinger('summon');
+    this._banner('IT IS CALLING THEM', P.add === 'bat' ? 'BATS' : 'RAVENS', 'bad');
+    this.shake = Math.max(this.shake, 2.2);
+    this.fx.rings.fire(f.pos, this.camera.quaternion, 3, 34, 0.7, '#ff8fa3');
+
+    // they arrive out of the ring the owl is calling over, and come at you
+    const n = P.addN + (B.phase >= 2 ? 1 : 0);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + Math.random() * 0.5;
+      setTimeout(() => {
+        if (this.state !== 'live' || !this.boss || this.boss.down) return;
+        const add = this._spawnOne(P.add, 'dive', {
+          mode: 'swarm', ang: a, dist: 62 + Math.random() * 26,
+          height: 18 + Math.random() * 16, life: 30,
+        });
+        if (add) {
+          add.isAdd = true;
+          add.bossMinion = true;
+          this.fx.labels.add('▼', add.pos, { className: 'bad', life: 0.7, rise: 4 });
+        }
+      }, 260 + i * 170);
+    }
+  }
+
+  /* -------- charms -------- */
+
+  /* A wave of them, rising out of the trees around you. They are spread
+     right round the clearing on purpose: taking all four means turning
+     your back on the owl, which is a decision rather than a pickup. */
+  _boonWave(n, why) {
+    if (this.state !== 'live') return;
+    const kinds = ShootoutMission.BOON_KINDS.slice();
+    let made = 0;
+    for (let i = 0; i < n; i++) {
+      const kind = kinds.splice((Math.random() * kinds.length) | 0, 1)[0]
+                || ShootoutMission.BOON_KINDS[(Math.random() * 4) | 0];
+      const f = this._spawnOne(kind, 'drift', {
+        mode: 'rise',
+        ang: Math.random() * Math.PI * 2,
+        dist: 26 + Math.random() * 34,
+        height: 3 + Math.random() * 4,
+        life: 15,
+      });
+      if (!f) continue;
+      f.isAdd = true;                       // never quarry, never holds a round open
+      f.guardFree = true;
+      made++;
+      const B = ShootoutMission.BOONS[f.type.boon];
+      this.fx.labels.add(B ? B.name : 'CHARM', f.pos,
+                         { className: 'air', life: 1.6, rise: 7 });
+    }
+    if (!made) return;
+    AudioBus.play('boon-rise', {});
+    if (this.music) this.music.stinger('boon');
+    this._banner('THE WOOD OFFERS SOMETHING', why || 'SHOOT THE CHARMS', 'bonus');
+  }
+
+  _takeBoon(target, info) {
+    const kind = target.type.boon;
+    const B = ShootoutMission.BOONS[kind];
+    target.kill();
+    this._deathFx(target, info, true);
+    if (!B) return;
+    // taking one while it is already running adds to it rather than
+    // replacing it: a second charm must never be worth less than the first
+    this.buffs[kind] = Math.max(this.buffs[kind] || 0, 0) + B.time;
+    if (kind === 'breath') this.breath = this.C.breathMax;
+    this.boonsTaken++;
+    this._hitMark('boss');
+    this._burst(info.point, 42, B.color, 11);
+    this.fx.rings.fire(info.point, this.camera.quaternion, 0.5, 6, 0.5, B.color);
+    this.fx.labels.add(B.name, info.point, { className: 'perfect', life: 1.6, rise: 10 });
+    this._setCenter(B.name, B.blurb.toUpperCase(), 'go');
+    clearTimeout(this._boonT2);
+    this._boonT2 = setTimeout(() => this._setCenter('', ''), 1400);
+    this._flash(0.22, 'rgba(255,255,255,0.35)');
+    this.hitStop = Math.max(this.hitStop, 0.07);
+    Input.rumble(0.6, 160);
+    AudioBus.play('boon-take', {});
+    if (this.music) this.music.stinger('boon');
+    // a charm keeps the chain alive; it is a hit, and it took an arrow
+    this.chainT = this.C.chainWindow;
+  }
+
+  /* What the charms actually do. Three of them are read where they
+     matter — the drain in `update`, the pierce in `_loose`, the payout in
+     `_award` — and the fourth is a number in the bow, so it is written
+     here every frame rather than toggled, which means it cannot get
+     stuck open if a run ends mid-charm. */
+  _updateBuffs(dt) {
+    let any = false;
+    for (const k of Object.keys(this.buffs)) {
+      if (this.buffs[k] > 0) {
+        this.buffs[k] = Math.max(0, this.buffs[k] - dt);
+        if (this.buffs[k] > 0) any = true;
+        else {
+          AudioBus.play('boon-end', {});
+          this.fx.labels.add(ShootoutMission.BOONS[k].name + ' — GONE', this.camera.position,
+                             { className: 'bad', life: 0.9, rise: 4 });
+        }
+      }
+    }
+    this.buffOn = any;
+    if (this.bow) {
+      this.bow.tune.perfectWindow = this._basePerfect * (this.buffs.nerve > 0 ? 2.2 : 1);
+    }
+  }
+
+  // what a hit is worth right now, before anything else multiplies it
+  _boonPay() { return this.buffs.purse > 0 ? 2 : 1; }
 
   // a weak point taking an arrow: the whole point of the fight
   _bossHurt(target, info) {
     const B = this.boss;
     const C = this.C;
     if (!B) return;
-    B.hits++;
+    // an ember arrow bites twice, which is what makes the charm worth
+    // turning your back on the owl for
+    const bite = this.buffs.ember > 0 ? 2 : 1;
+    B.hits += bite;
     const P = ShootoutMission.BOSS_PHASES[B.phase] || { need: 99, name: '' };
-    const pay = C.bossHitMoney * this._chainMult() * C.moneyScale;
+    const pay = C.bossHitMoney * this._chainMult() * C.moneyScale * this._boonPay() * bite;
     this.money += pay;
     this.chain = Math.min(this.chain + 1, C.chainCap);
     this.chainT = C.chainWindow;
@@ -1099,6 +1439,7 @@ class ShootoutMission {
     this._flash(0.2, 'rgba(255,209,102,0.5)');
     Input.rumble(0.7, 160);
     AudioBus.play('boss-hurt', {});
+    if (this.music) this.music.stinger('hurt');
 
     if (B.hits >= P.need) this._bossStagger();
   }
@@ -1108,7 +1449,9 @@ class ShootoutMission {
     const f = B.flyer;
     B.staggerT = 2.4;
     B.open = false;
+    B.callT = 0;
     f.weakName = null;
+    f.lane = null;
     this.hitStop = Math.max(this.hitStop, 0.14);
     this.timeScaleTarget = 0.45;
     setTimeout(() => { if (this.state === 'live') this.timeScaleTarget = 1; }, 900);
@@ -1117,6 +1460,7 @@ class ShootoutMission {
     Input.rumble(1, 420);
     AudioBus.play('owl-screech', { pitch: 0.8 });
     this._banner('STAGGERED', '', 'perfect');
+    if (this.music) this.music.stinger('stagger');
 
     // the lantern goes, and it goes somewhere you can shoot it
     if (B.phase === 0 && f.weak) {
@@ -1130,12 +1474,20 @@ class ShootoutMission {
         this.fx.labels.add('IT DROPPED THE LIGHT', p, { className: 'perfect', life: 1.6, rise: 7 });
       }
     }
+    // every stagger pays a wave of charms: the reward for breaking a
+    // phase is being better armed for the next one
+    setTimeout(() => {
+      if (this.state === 'live' && this.boss && !this.boss.down) {
+        this._boonWave(B.phase >= 1 ? 3 : 2, 'IT DROPPED ITS GRIP ON THE WOOD');
+      }
+    }, 700);
   }
 
   _bossDown() {
     const B = this.boss;
     if (!B || B.down) return;
     B.down = true;
+    if (this.round) this.round.killed = this.round.total;
     const f = B.flyer;
     f.weakName = null;
     if (f.alive && !f.dying) f.kill();
@@ -1150,6 +1502,12 @@ class ShootoutMission {
     AudioBus.play('owl-death', {});
     this._banner('THE GREAT OWL IS DOWN', '', 'perfect');
     this._burst(f.pos, 160, '#6b543a', 20);
+    // the score turns major over the body and then gets out of the way
+    if (this.music) {
+      this.music.stinger('down');
+      this.music.stop(3.6);
+      this.music = null;
+    }
     // clear the sky of everything it called in
     for (const a of this.flock.list) if (a.isAdd && !a.dying) a.escaped = true;
   }
@@ -1194,7 +1552,11 @@ class ShootoutMission {
   }
 
   _onLand(arrow, what) {
-    // a shot that hit nothing at all is what breaks a chain
+    /* Where it landed, said out loud. A miss with no mark on it is a
+       shot that simply evaporated, and half of learning the lead is
+       seeing how far short or wide the last one went. */
+    this._burst(arrow.pos, what === 'tree' ? 7 : 9,
+                what === 'tree' ? '#6b543a' : '#8a7a5c', 4.5);
     if (arrow.hits === 0) this._miss();
   }
 
@@ -1240,7 +1602,9 @@ class ShootoutMission {
           this._respawn.push({ kind: f.homeKind, t: this.C.respawnTime * (0.6 + Math.random()) });
           return;
         }
-        if (f.escaped && !f.guard && this.round) {
+        // what the owl called in, and what the wood offered, are both
+        // the boss's business: neither is quarry you let get away
+        if (f.escaped && !f.guard && !f.isAdd && this.round) {
           this.round.escaped++;
           this.escapes++;
         }
@@ -1253,6 +1617,7 @@ class ShootoutMission {
       if (f.dying || !f.alive) continue;
       const d = f.pos.distanceTo(this.camera.position);
       if (f.type.stings && d < 4.5) { this._sting(f); }
+      else if (f.bossMinion && d < 4.8) this._bossMinionPass(f);
       // it holds nine metres of air under it now, so the pass is judged
       // by how close it came to your head rather than to your boots
       else if (f.type.boss && this.boss && this.boss.diving && d < 12) this._bossPass(f);
@@ -1271,6 +1636,28 @@ class ShootoutMission {
     this.fx.labels.add(`−${U.money(this.C.stingCost)}  STUNG`, f.pos,
                        { className: 'bad', life: 1.3, rise: 6 });
     this._docked(this.C.stingCost, 'STUNG');
+  }
+
+  /* A raven or bat the owl called is not set dressing. Letting one reach
+     you costs a little round time and knocks the chain backwards, so the
+     summon creates a real target-priority decision without turning every
+     add into a second life system. */
+  _bossMinionPass(f) {
+    f.kill();
+    this.chain = Math.max(0, this.chain - 2);
+    this.chainT = this.C.chainWindow;
+    if (this.round) this.round.time = Math.max(0, this.round.time - 0.75);
+    const away = this._tmpV.copy(this.pos).sub(f.pos);
+    away.y = 0;
+    if (away.lengthSq() > 0.001) away.normalize();
+    this.vel.x += away.x * 2.5;
+    this.vel.z += away.z * 2.5;
+    this._flash(0.24, 'rgba(120,40,90,0.5)');
+    this.shake = Math.max(this.shake, 2.8);
+    Input.rumble(0.55, 160);
+    AudioBus.play('flyer-hit', { pitch: f.type.id === 'bat' ? 1.4 : 0.75 });
+    this.fx.labels.add(`${f.type.name.toUpperCase()} STRIKE`, f.pos,
+                       { className: 'bad', life: 1.0, rise: 5 });
   }
 
   _bossPass(f) {
@@ -1297,7 +1684,9 @@ class ShootoutMission {
     const R = this.round;
     if (!R) return;
 
-    R.time -= dt;
+    // A boss round's clock is only the remaining time-bonus window. Once
+    // it is spent, the fight carries on until the owl is actually down.
+    R.time = R.def.kind === 'boss' ? Math.max(0, R.time - dt) : R.time - dt;
     R.spawnT -= dt;
 
     if (R.spawned < R.total && R.spawnT <= 0) {
@@ -1314,7 +1703,6 @@ class ShootoutMission {
     const quarryLeft = this.flock.list.some(f => !f.dying && !f.resident && !f.isAdd);
     if (R.def.kind === 'boss') {
       if (this.boss && this.boss.down && !quarryLeft) this._endRound(true);
-      else if (R.time <= 0) this._endRound(false);
       return;
     }
     if (R.spawned >= R.total && !quarryLeft) this._endRound(true);
@@ -1342,14 +1730,33 @@ class ShootoutMission {
       time: d.duration,
       duration: d.duration,
       spawnT: 0.6,
+      wave: 0,
+      waveShape: null,
       facing: sched.facing,
       speedScale: this.C.speedScale * (1 + (sched.scale - 1) * 0.5) * (d.spawn.speed || 1),
     };
     this.state = 'live';
-    this._banner(
-      this.mode === 'prize' ? `ROUND ${index + 1} / ${this.roundCount}` : `WAVE ${index + 1}`,
-      d.name, d.kind);
+    const roundLabel = this.mode === 'prize'
+      ? `ROUND ${index + 1} / ${this.roundCount}` : `WAVE ${index + 1}`;
+    // Non-boss rounds finally introduce their actual rule and flavour;
+    // the owl keeps its existing entrance sequence untouched.
+    this._banner(d.kind === 'boss' ? roundLabel : d.name,
+                 d.kind === 'boss' ? d.name : `${roundLabel} · ${d.blurb}`,
+                 d.kind);
     AudioBus.play(d.kind === 'boss' ? 'boss-call' : 'round-start', {});
+
+    // Gauntlet carries on after an owl, whose score has deliberately
+    // faded out. Bring the hunt arrangement back for the next ordinary wave.
+    if (d.kind !== 'boss' && !this.music) this._startStageMusic();
+    if (d.kind !== 'boss' && this.music) {
+      // Tier two stops at gear one: it gets the horn and a stronger pulse,
+      // but saves the choir, double kick and fastest tempo for the owl.
+      const gear = d.kind === 'bonus' ? 1 : Math.min(1, d.tier || 0);
+      const intensity = d.kind === 'bonus' ? 0.82 : 0.58 + (d.tier || 0) * 0.11;
+      this.music.setGear(gear, 1.25);
+      this.music.setIntensity(intensity);
+      this.music.stinger(d.kind === 'bonus' ? 'bonus-round' : 'round');
+    }
 
     // "a gilded raven in every round" is a card, not a round
     if (this.flags.gildedEveryRound && d.kind === 'normal') {
@@ -1368,10 +1775,14 @@ class ShootoutMission {
     if (cleared) {
       this.roundsCleared++;
       const timeBonus = Math.round(Math.max(0, R.time) * C.roundTimeBonus);
-      let bonus = (C.roundClearBonus + timeBonus) * C.moneyScale;
-      if (perfect) { bonus += C.perfectRoundBonus * C.moneyScale; this.perfectRounds++; }
+      const boonPay = this._boonPay();
+      let bonus = (C.roundClearBonus + timeBonus) * C.moneyScale * boonPay;
+      if (perfect) {
+        bonus += C.perfectRoundBonus * C.moneyScale * boonPay;
+        this.perfectRounds++;
+      }
       if (R.def.kind === 'boss') {
-        const bounty = C.bossBounty * C.moneyScale;
+        const bounty = C.bossBounty * C.moneyScale * boonPay;
         bonus += bounty; this.bossesDown++; this.bossMoney += bounty;
       }
       this.bonusMoney += bonus;
@@ -1480,16 +1891,30 @@ class ShootoutMission {
   _spawnWave(n) {
     const R = this.round;
     const spec = R.def.spawn;
+    const shapes = R.def.waves && R.def.waves.length ? R.def.waves : ['scatter'];
+    const waveNo = R.wave || 0;
+    const shape = shapes[waveNo % shapes.length];
+    R.wave = waveNo + 1;
+    R.waveShape = shape;
     if (spec.mode === 'formation') { R.spawned += this._spawnFormation(n); return; }
     for (let i = 0; i < n; i++) {
       // a dove is not quarry, so it never counts against the round's tally
       const guard = Math.random() < (R.def.guards || 0);
-      const typeId = guard ? 'dove' : spec.types[(Math.random() * spec.types.length) | 0];
+      const typeAt = shape === 'relay' || shape === 'roulette'
+        ? (waveNo + i) % spec.types.length
+        : (Math.random() * spec.types.length) | 0;
+      const typeId = guard ? 'dove' : spec.types[typeAt];
+      const place = this._wavePlacement(shape, waveNo, i, n, spec);
       const f = this._spawnOne(typeId, spec.behaviour, {
-        ang: this._spawnAngle(spec, i),
-        dist: U.lerp(spec.dist[0], spec.dist[1], Math.random()),
-        height: U.lerp(spec.height[0], spec.height[1], Math.random()),
-        mode: spec.mode,
+        ang: place.ang,
+        dist: place.dist,
+        height: place.height,
+        mode: place.mode,
+        behaviour: place.behaviour,
+        head: place.head,
+        dir: place.dir,
+        curve: place.curve,
+        speedMult: place.speedMult,
         life: R.time + 4,
       });
       if (f && !guard) R.spawned++;
@@ -1497,6 +1922,82 @@ class ShootoutMission {
       if (guard) i--;
       if (R.spawned >= R.total) break;
     }
+  }
+
+  /* Every round has a short authored sequence of wave shapes. The targets
+     and rules still define the round, while this layer changes where a
+     wave enters, how tightly it flies and whether it crosses or charges.
+     That makes the same round escalate instead of replaying one dice roll. */
+  _wavePlacement(shape, waveNo, i, n, spec) {
+    const u = n <= 1 ? 0.5 : i / (n - 1);
+    const side = (i + waveNo) % 2 ? 1 : -1;
+    const midDist = (spec.dist[0] + spec.dist[1]) * 0.5;
+    const midHeight = (spec.height[0] + spec.height[1]) * 0.5;
+    const o = {
+      ang: this._spawnAngle(spec, i),
+      dist: U.lerp(spec.dist[0], spec.dist[1], Math.random()),
+      height: U.lerp(spec.height[0], spec.height[1], Math.random()),
+      mode: spec.mode,
+      behaviour: spec.behaviour,
+      head: undefined,
+      dir: undefined,
+      curve: undefined,
+      speedMult: 1,
+    };
+
+    if (shape === 'parade' || shape === 'salvo') {
+      o.ang = this.round.facing + (u - 0.5) * 0.28;
+      o.dist = midDist;
+      o.height = midHeight + (i - (n - 1) * 0.5) * (shape === 'salvo' ? 1.8 : 0.8);
+      o.speedMult = shape === 'salvo' ? 1.12 : 1;
+    } else if (shape === 'high-low') {
+      o.ang = this.round.facing + side * 0.34;
+      o.height = i % 2 ? spec.height[1] : spec.height[0];
+    } else if (shape === 'split' || shape === 'pincer') {
+      o.ang = this.round.facing + side * Math.max(0.62, (spec.arc || 1.5) * 0.46);
+      o.dist = midDist + side * (spec.dist[1] - spec.dist[0]) * 0.12;
+      if (shape === 'pincer') {
+        o.mode = 'swarm'; o.behaviour = 'dive'; o.speedMult = 1.08;
+      }
+    } else if (shape === 'crosscut') {
+      o.ang = this.round.facing + (i % 2) * Math.PI + (u - 0.5) * 0.35;
+      o.dist = midDist;
+      o.height = midHeight + side * 4;
+    } else if (shape === 'cascade' || shape === 'echelon') {
+      o.ang = this.round.facing + (u - 0.5) * (spec.arc || 1.4) * 0.7;
+      o.height = U.lerp(spec.height[1], spec.height[0], u);
+      o.dist = U.lerp(spec.dist[0], spec.dist[1], shape === 'echelon' ? u : 1 - u);
+    } else if (shape === 'rush' || shape === 'dive') {
+      o.ang = this.round.facing + (u - 0.5) * (spec.arc || 1.8);
+      o.dist = spec.dist[0] + (spec.dist[1] - spec.dist[0]) * 0.25;
+      o.mode = 'swarm'; o.behaviour = 'dive'; o.speedMult = shape === 'rush' ? 1.18 : 1.05;
+    } else if (shape === 'spiral' || shape === 'constellation') {
+      const spread = shape === 'spiral' ? Math.PI * 2 : (spec.arc || Math.PI * 2);
+      o.ang = this.round.facing + waveNo * 0.72 + u * spread;
+      o.dist = U.lerp(spec.dist[0], spec.dist[1], shape === 'spiral'
+        ? ((waveNo + i) % 4) / 3 : Math.random());
+      o.height = U.lerp(spec.height[0], spec.height[1], (i * 0.618 + waveNo * 0.23) % 1);
+    } else if (shape === 'curtain' || shape === 'fan') {
+      o.ang = this.round.facing + (u - 0.5) * (spec.arc || 2.4);
+      o.dist = midDist;
+      o.height = shape === 'fan' ? U.lerp(spec.height[0], spec.height[1], u) : midHeight;
+    } else if (shape === 'counter' || shape === 'orbit' || shape === 'tighten') {
+      o.ang = this.round.facing + u * Math.PI * 2;
+      o.dir = shape === 'counter' ? side : (waveNo % 2 ? -1 : 1);
+      o.dist = shape === 'tighten' ? spec.dist[0] : midDist;
+      o.height = midHeight + side * 3;
+      o.speedMult = shape === 'tighten' ? 1.18 : 1;
+    } else if (shape === 'relay') {
+      o.ang = this.round.facing + side * 0.48 + (u - 0.5) * 0.2;
+      o.height = midHeight + i * 2.5;
+      o.curve = side * Math.max(0.08, spec.curve || 0);
+    } else if (shape === 'roulette') {
+      const behaviours = ['cruise', 'zigzag', 'dive'];
+      o.behaviour = behaviours[(waveNo + i) % behaviours.length];
+      if (o.behaviour === 'dive') o.mode = 'swarm';
+      o.ang = this.round.facing + (u - 0.5) * (spec.arc || 3);
+    }
+    return o;
   }
 
   _spawnAngle(spec, i) {
@@ -1519,28 +2020,28 @@ class ShootoutMission {
     const y = ground + (o.height ?? 24);
     const speed = (FlyerKit.TYPES[typeId].speed[0]
       + Math.random() * (FlyerKit.TYPES[typeId].speed[1] - FlyerKit.TYPES[typeId].speed[0]))
-      * (R ? R.speedScale : 1);
+      * (R ? R.speedScale : 1) * (o.speedMult || 1);
 
     const opts = {
       pos: new THREE.Vector3(x, y, z),
-      behaviour,
+      behaviour: o.behaviour || behaviour,
       speed,
       life: o.life || 30,
-      curve: (spec.curve || 0) * (Math.random() < 0.5 ? -1 : 1),
+      curve: o.curve ?? ((spec.curve || 0) * (Math.random() < 0.5 ? -1 : 1)),
     };
 
     if (mode === 'sweep' || mode === 'cross') {
       // crossing the view rather than flying at it: the shot that has to
       // be led is the one worth taking
       const side = Math.random() < 0.5 ? 1 : -1;
-      opts.head = ang + Math.PI + side * (Math.PI / 2) * U.lerp(0.55, 1.0, Math.random());
+      opts.head = o.head ?? (ang + Math.PI + side * (Math.PI / 2) * U.lerp(0.55, 1.0, Math.random()));
     } else if (mode === 'orbit' || mode === 'boss') {
       opts.behaviour = mode === 'boss' ? 'boss' : 'circle';
       opts.centre = new THREE.Vector3(cx, y, cz);
       opts.orbit = range;
       opts.orbitTarget = mode === 'boss' ? Math.max(34, range * 0.62) : range;
       opts.ang = ang;
-      opts.dir = Math.random() < 0.5 ? 1 : -1;
+      opts.dir = o.dir ?? (Math.random() < 0.5 ? 1 : -1);
       opts.attackT = 6;
     } else if (mode === 'rise') {
       opts.behaviour = 'drift';
@@ -1570,6 +2071,7 @@ class ShootoutMission {
   _spawnFormation(n) {
     const R = this.round;
     const spec = R.def.spawn;
+    const shape = R.waveShape || 'vee';
     const ang = this._spawnAngle(spec, 0);
     const lead = this._spawnOne(spec.types[0], 'cruise', {
       ang, dist: U.lerp(spec.dist[0], spec.dist[1], Math.random()),
@@ -1579,13 +2081,15 @@ class ShootoutMission {
     if (!lead) return 0;
     let made = 1;
     for (let i = 1; i < n; i++) {
-      const s = i % 2 ? 1 : -1;
-      const rank = Math.ceil(i / 2);
+      const s = shape === 'echelon' ? 1 : (i % 2 ? 1 : -1);
+      const rank = shape === 'echelon' ? i : Math.ceil(i / 2);
+      const gap = shape === 'break' ? 7 : 5;
+      const lift = shape === 'break' ? 1.7 : 0.8;
       const f = this.flock.spawn(spec.types[0], {
-        pos: lead.pos.clone().add(new THREE.Vector3(s * rank * 5, rank * 0.6, rank * 5)),
+        pos: lead.pos.clone().add(new THREE.Vector3(s * rank * gap, rank * lift, rank * gap)),
         behaviour: 'formation',
         leader: lead,
-        slot: { x: s * rank * 5, y: rank * 0.8, z: rank * 5 },
+        slot: { x: s * rank * gap, y: rank * lift, z: rank * gap },
         life: R.time + 6,
       });
       if (f) { f.head = lead.head; made++; }
@@ -1645,6 +2149,7 @@ class ShootoutMission {
   _finish() {
     if (this.state === 'finished' || this.state === 'failed') return;
     this.state = 'finished';
+    if (this.music) { this.music.stop(1.2); this.music = null; }
     // hand the mouse back before the scoreboard arrives
     Input.setMouseAim(false);
     this._aimOn = false;
@@ -1662,6 +2167,7 @@ class ShootoutMission {
   _fail(reason) {
     if (this.state === 'finished' || this.state === 'failed') return;
     this.state = 'failed';
+    if (this.music) { this.music.stop(1.2); this.music = null; }
     // hand the mouse back before the scoreboard arrives
     Input.setMouseAim(false);
     this._aimOn = false;
@@ -1694,7 +2200,8 @@ class ShootoutMission {
     const acc = this.shots ? this.hits / this.shots : 0;
     return Object.assign({
       mode: this.mode,
-      modeName: this.modeDef.name,
+      modeName: this.opts.bossRush ? 'Boss Hunt' : this.modeDef.name,
+      bossRush: this.opts.bossRush,
       seed: this.seed,
       courseName: this.forestName,
       conditionText: ForestConditions.describe(this.cond),
@@ -1721,6 +2228,7 @@ class ShootoutMission {
       roundsCleared: this.roundsCleared,
       perfectRounds: this.perfectRounds,
       bossesDown: this.bossesDown,
+      boonsTaken: this.boonsTaken,
       elapsed: this.elapsed,
       par: this.par,
     }, part);
@@ -1886,12 +2394,61 @@ class ShootoutMission {
         [...h.bossPips.children].forEach((el, i) => {
           el.classList.toggle('on', i < P.need - B.hits);
         });
+        // and which of the four fights this is
+        if (h.bossStages) {
+          const n = ShootoutMission.BOSS_PHASES.length;
+          if (h.bossStages.childElementCount !== n) {
+            h.bossStages.innerHTML = '';
+            for (let i = 0; i < n; i++) {
+              const d = document.createElement('i');
+              d.className = 'sb-stage';
+              h.bossStages.appendChild(d);
+            }
+          }
+          [...h.bossStages.children].forEach((el, i) => {
+            el.className = 'sb-stage' + (i < B.phase ? ' done' : i === B.phase ? ' now' : '');
+          });
+        }
       }
     }
+
+    this._updateBoonHud();
 
     if (h.hint) {
       const need = !Input.pointerLocked && !Input.isTouch && this.state !== 'finished';
       h.hint.classList.toggle('show', need);
+    }
+  }
+
+  /* The charms you are holding. The row is rebuilt only when the *set*
+     of them changes, and the bars inside it are written every frame —
+     rebuilding four chips at sixty hertz throws away the animation that
+     tells you a new one arrived. */
+  _updateBoonHud() {
+    const el = this.hud && this.hud.boons;
+    if (!el) return;
+    const live = Object.keys(this.buffs).filter(k => this.buffs[k] > 0);
+    const key = live.join(',');
+    if (key !== this._boonKey) {
+      this._boonKey = key;
+      el.innerHTML = '';
+      this._boonEls = {};
+      for (const k of live) {
+        const B = ShootoutMission.BOONS[k];
+        const chip = document.createElement('div');
+        chip.className = 'sh-boon';
+        chip.style.setProperty('--bc', B.color);
+        chip.innerHTML = `<b>${B.name}</b><span class="bt"><i></i></span>`;
+        el.appendChild(chip);
+        this._boonEls[k] = chip;
+      }
+    }
+    for (const k of live) {
+      const chip = this._boonEls && this._boonEls[k];
+      if (!chip) continue;
+      const left = U.clamp(this.buffs[k] / ShootoutMission.BOONS[k].time, 0, 1);
+      chip.querySelector('.bt > i').style.width = (left * 100) + '%';
+      chip.classList.toggle('low', this.buffs[k] < 2.5);
     }
   }
 }
@@ -1976,6 +2533,51 @@ AudioBus.define('owl-gust', (c, dest) => {
   g.gain.exponentialRampToValueAtTime(0.34, t + 0.05);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
   n.start(t); n.stop(t + 0.7);
+});
+
+/* A charm rising is a bell that opens upwards; taking one is the same
+   bell arriving; losing one is it closing again. Three shapes of the
+   same sound, so a run of charms reads as one system. */
+AudioBus.define('boon-rise', (c, dest) => {
+  const t = c.currentTime;
+  [523.25, 659.25, 987.77].forEach((f, i) => {
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(f, t + i * 0.1);
+    o.frequency.linearRampToValueAtTime(f * 1.02, t + i * 0.1 + 0.5);
+    o.connect(g); g.connect(dest);
+    g.gain.setValueAtTime(0.0001, t + i * 0.1);
+    g.gain.exponentialRampToValueAtTime(0.11, t + i * 0.1 + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.1 + 0.9);
+    o.start(t + i * 0.1); o.stop(t + i * 0.1 + 1);
+  });
+});
+
+AudioBus.define('boon-take', (c, dest) => {
+  const t = c.currentTime;
+  [659.25, 987.77, 1318.5, 1975.5].forEach((f, i) => {
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = i > 1 ? 'sine' : 'triangle';
+    o.frequency.setValueAtTime(f, t + i * 0.045);
+    o.connect(g); g.connect(dest);
+    g.gain.setValueAtTime(0.0001, t + i * 0.045);
+    g.gain.exponentialRampToValueAtTime(0.16 / (i * 0.5 + 1), t + i * 0.045 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.045 + 0.7);
+    o.start(t + i * 0.045); o.stop(t + i * 0.045 + 0.8);
+  });
+});
+
+AudioBus.define('boon-end', (c, dest) => {
+  const t = c.currentTime;
+  [987.77, 659.25].forEach((f, i) => {
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(f, t + i * 0.07);
+    o.frequency.exponentialRampToValueAtTime(f * 0.75, t + i * 0.07 + 0.35);
+    o.connect(g); g.connect(dest);
+    g.gain.setValueAtTime(0.0001, t + i * 0.07);
+    g.gain.exponentialRampToValueAtTime(0.07, t + i * 0.07 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.07 + 0.4);
+    o.start(t + i * 0.07); o.stop(t + i * 0.07 + 0.5);
+  });
 });
 
 AudioBus.define('boss-hurt', (c, dest) => {
@@ -2098,6 +2700,10 @@ Missions.register({
   players: 'Solo',
   duration: '~3 min',
   order: 1,
+  quickStart: {
+    label: 'Fight Owl', icon: '◉', title: 'Jump straight to The Great Owl',
+    opts: { mode: 'prize', bossRush: true, ghost: false },
+  },
   setup: true,
   hudScreen: 'hud-shoot',
   setupLabels: { course: 'Wood', modifier: 'Twist' },
@@ -2119,8 +2725,9 @@ Missions.register({
       + 'whatever it hits.',
     '<b>Hold your breath.</b> <kbd>Right mouse</kbd> slows the world and steadies your hand '
       + 'while it lasts. It runs out, and it comes back slowly.',
-    '<b>Lead them.</b> Arrows are real — they take time to arrive and they drop. Aim where '
-      + 'the bird is going, and further ahead the softer you drew.',
+    '<b>Lead your shot.</b> Arrows are real: they take time to arrive, drop, and move with '
+      + 'the wind. Nothing bends them towards a target. The easier Steady Hand card can '
+      + 'reveal an intercept mark; a standard run leaves the whole lead to you.',
     '<b>Keep the chain.</b> Every hit raises the multiplier. A miss, a dove, or four quiet '
       + 'seconds and it falls away.',
     '<b>Never the dove.</b> The white one costs you money, seconds and the whole chain.',
@@ -2140,6 +2747,7 @@ Missions.register({
       ['Rounds cleared', `${r.roundsCleared}/${r.roundsTotal}`],
     ];
     if (r.perfectRounds) rows.push(['Perfect rounds', String(r.perfectRounds)]);
+    if (r.boonsTaken) rows.push(['Owl charms taken', String(r.boonsTaken)]);
     if (r.escapes) rows.push(['Got away', String(r.escapes)]);
     if (r.doves) rows.push(['Doves shot', String(r.doves)]);
     rows.push(null, ['Quarry earnings', U.money(r.quarryMoney)]);

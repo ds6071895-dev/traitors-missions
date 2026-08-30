@@ -130,6 +130,20 @@ const Conditions = (() => {
 
   const byId = (list, id) => list.find(x => x.id === id) || null;
 
+  /* ---------------- the clock ----------------
+     The natural order of a day. A mission can walk this instead of asking
+     the seed for an hour every time, so a session actually goes somewhere:
+     dawn, midday, last light, moonlight, round again. A squall is weather
+     rather than an hour, so it sits outside the cycle and only a seed or a
+     modifier can deal it. */
+
+  const CYCLE = ['dawn', 'noon', 'dusk', 'night'];
+  // an hour that is not on the cycle (a squall) starts the day again
+  const nextTime = (id) => CYCLE[(CYCLE.indexOf(id) + 1) % CYCLE.length];
+  const isNight = (id) => id === 'night';
+  // the same hour if it is already daylight, otherwise the middle of the day
+  const dayTime = (id) => (!isNight(id) && byId(TIMES, id) ? id : 'noon');
+
   function weightedPick(list, rng) {
     let total = 0;
     for (const x of list) total += x.weight;
@@ -192,5 +206,6 @@ const Conditions = (() => {
     return r.sea.payout * r.time.payout;
   };
 
-  return { TIMES, SEAS, forSeed, resolve, apply, lights, describe, payout };
+  return { TIMES, SEAS, CYCLE, nextTime, dayTime,
+           forSeed, resolve, apply, lights, describe, payout };
 })();

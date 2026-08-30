@@ -38,8 +38,13 @@ The briefing screen is where a run is chosen. Nothing about it is fixed:
 - **The mode** is either a **Prize Run** (the clock counts down, rings buy time, score is
   money) or a **Time Trial** (the clock counts up, every ring knocks seconds off it, score
   is the one number at the end).
-- **The sea** is always a storm sea. The sky is still the seed's to choose; the water is
-  not, because it is the only water this hull is any fun on.
+- **The sea** is always a storm sea. The water is not the seed's to choose, because it is
+  the only water this hull is any fun on.
+- **The hour** is its own dial: **Auto**, **Day** or **Night**. On Auto the clock moves on
+  an hour every run — dawn, midday, last light, moonlight, round again — so racing the
+  same channel twice in a row is two different drives rather than the same afternoon
+  repainted. The Night Run card still outranks the dial: it was chosen on purpose and
+  paid for.
 - **The modifier** is a hand of three cards dealt from the seed, of which you keep one or
   none. Fog Bank, Riptide, Glass Cannon, Cold Engine, Closing In, Tight Rings… each one
   bends the rules and multiplies everything you earn. A shared seed deals a shared hand.
@@ -50,6 +55,23 @@ The briefing screen is where a run is chosen. Nothing about it is fixed:
 Each setup keeps its own record and its own medal, because a storm at night with Glass
 Cannon running is not comparable to anything else. Medals are worked out from par for the
 channel you actually drew: **Bronze**, **Silver**, **Gold**, **Author**.
+
+### A run has a shape
+
+A channel is not one corridor from end to end. `CourseKit` plans two or three **stretches**
+into every path — a **throat** that squeezes the water to a third of its width, an **open
+bay** that opens it out and fills it with rock — and stores them as a width profile, so the
+cliffs, the buoys, the shore foam and the rock field all follow the water without knowing
+why. Gates come at you faster in a throat and spread right across a bay. Each one names
+itself as you reach it.
+
+The last 38% of the channel is the **home stretch**: the rings tighten, nearly every gate
+grows a gold one, and every gate pays **double** — while buying you exactly the same
+handful of seconds the easy ones did. That is the squeeze. The clock you arrive with is
+the clock you finish on, and a fumbled gate costs three seconds, so a prize run can now
+genuinely be lost by a driver who has been sloppy in the first half. A clean line finishes
+with time in hand; a 60% line needs to hold about 13 m/s more average speed than a clean
+one to survive, which is not a thing this hull can do in a storm.
 
 ### Five things make you fast
 
@@ -104,16 +126,15 @@ It never auto-fires. Being robbed of a shot you were still lining up is worse th
 amount of arm-burn. `Bow.TUNE` in `js/entities/bow.js` holds every one of those numbers
 in a single block.
 
-### The bow does the maths, on purpose
+### The bow does not aim for you
 
 Arrows are real projectiles — gravity 16 m/s², drag, and a wind that the Gale twist makes
-you feel. Leading a bird by eye with a projectile that drops is a lovely idea and a
-miserable game, so `ShootoutMission._assist` solves it for you: it picks whatever is
-nearest the middle of the crosshair — measured to the quarry **itself**, not to the lead,
-so "I was pointing right at it" and "the assist helped" mean the same thing — then works
-out where that thing will be when an arrow at this speed could get there, how much higher
-to hold for the drop, and how far the wind will carry it. Inside `assistFull` the shot is
-handed over completely; out to `assistSoft` it is bent most of the way.
+you feel. There is no snap, magnetic cone or hidden interception correction: every arrow
+leaves in the exact direction of the crosshair. Hold your breath and a small intercept
+mark appears for nearby quarry only if you deliberately chose the lower-paying **Steady
+Hand** card. It includes target motion, arrow drop and wind, but it is only information;
+you still have to move the crosshair onto it and loose at the right time. A standard run
+provides no lead solution at all.
 
 The reticle tells you when it has locked on, and names what it locked on to. If that name
 comes up red and says **DOVE — HOLD**, do not loose: a dove costs £400, two seconds and
@@ -128,20 +149,27 @@ why the wood is stocked with residents — a bottle keeps a chain alive between 
 
 ### The Great Owl
 
-The boss is three fights in one bird, and each is a different question:
+The boss is four fights in one bird, and each is a different question:
 
 1. **The lantern** — it circles out of reach carrying a light in its talons and sends
    ravens at you. Three arrows into the lantern and it drops the light (shoot that too).
 2. **The eyes** — it hangs in front of you and *stares*, eyes blazing red, for five
    seconds. That is the window. Then it loses patience and comes at you, and while it is
    coming there is nothing to hit: get out of the way.
-3. **The heart** — no more running. It hovers close, every wingbeat is a gust that shoves
-   you back a step, bats pour past, and you put four arrows through the pale chest.
+3. **The talons** — it crosses the clearing in fast attack runs. The talons are vulnerable
+   only on the approach, so you have to turn, track and lead it without aim assist.
+4. **The heart** — no more running. It circles close, every wingbeat is a gust that shoves
+   you back a step, bats pour past, and you put five arrows through the pale chest.
+
+The owl periodically climbs out of reach and summons a ring of ravens or bats. The wood
+answers with rising charm waves: temporary piercing ember arrows, unlimited breath, a
+wider clean-loose window, or double money. Each phase also raises a procedural boss score
+from war drums and bass into horns and choir.
 
 Between phases it is staggered and untouchable for a beat, which is what tells you —
 without a line of text — that the thing you just did worked. `ShootoutMission.BOSS_PHASES`
-is the whole fight as a three-entry table; the flight itself is four behaviours in
-`js/entities/flyers.js` (`bossCircle`, `bossDive`, `bossHover`, `bossStagger`).
+is the whole fight as a four-entry table; its flight is spread across the boss behaviours
+in `js/entities/flyers.js`, including circling, diving, crossing sweeps, summons and rage.
 
 ### Rounds and twists are data
 
@@ -325,7 +353,11 @@ against the new amplitude, so crests keep their shape and never loop back on the
 however big the sea gets.
 
 `Conditions.forSeed(seed)` picks a pair deterministically, which is what makes a seed a
-whole race rather than just a path.
+whole race rather than just a path. `Conditions.CYCLE` is the other way round the same
+problem: `nextTime(id)` walks dawn → noon → dusk → night, so a mission can move its own
+clock on between runs instead of asking the seed for an hour it has already had. The boat
+race keeps its place on that cycle in the save (`settings.raceTime`), which is why a
+retry of the run you just finished comes back at a different hour.
 
 ### Modifiers are data, not code
 

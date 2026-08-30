@@ -81,6 +81,11 @@
             <button class="chip" id="setup-daily" title="Today's channel, the same for everyone">Today</button>
             <button class="chip" id="setup-random" title="Draw a new channel">Random</button>
           </div>
+          <div class="channel-tod" id="setup-tod-row">
+            <span class="tod-lbl">Hour</span>
+            <div class="tod-chips" id="setup-tod"></div>
+          </div>
+          <div class="setup-note" id="setup-tod-note"></div>
         </div>
 
         <div class="setup-block">
@@ -200,6 +205,10 @@
     <b class="r-tag" id="sh-lock"></b>
   </div>
 
+  <!-- hold your breath and the bow shows you the lead it will not take
+       for you: the point in the air where the arrow and the bird meet -->
+  <div class="sh-lead" id="sh-lead"><i></i><i></i></div>
+
   <!-- the loose: a ring that leaves the middle with the arrow -->
   <div class="sh-loose" id="sh-loose"></div>
   <!-- and the answer to it: four ticks that snap out when it lands -->
@@ -213,7 +222,12 @@
     <div class="sb-name">THE GREAT OWL</div>
     <div class="sb-phase" id="sh-boss-phase">THE LANTERN</div>
     <div class="sb-pips" id="sh-boss-pips"></div>
+    <!-- which of the four fights you are in -->
+    <div class="sb-stages" id="sh-boss-stages"></div>
   </div>
+
+  <!-- what the wood has lent you, and for how long -->
+  <div class="sh-boons" id="sh-boons"></div>
 
   <div class="sh-bottom">
     <div class="sh-breath" id="sh-breath">
@@ -297,6 +311,7 @@
 <script src="js/core/engine.js"></script>
 <script src="js/core/input.js"></script>
 <script src="js/core/audio.js"></script>
+<script src="js/core/music.js"></script>
 <script src="js/core/state.js"></script>
 <script src="js/core/screens.js"></script>
 <script src="js/core/missions.js"></script>

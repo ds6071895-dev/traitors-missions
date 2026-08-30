@@ -30,6 +30,8 @@ const CourseKit = (() => {
       this.pts = [];
       this.tans = [];
       this.half = [];               // channel half-width at each sample
+      this.halfBase = [];           // ...before the structure squeezes it
+      this.features = [];           // the throats and bays down its length
       this.cum = [];                // arc length at each sample
       const spaced = this.curve.getSpacedPoints(n);
       let acc = 0;
@@ -42,9 +44,42 @@ const CourseKit = (() => {
         this.tans.push(t);
         const w = opts.halfWidth || 62;
         const vary = opts.widthVary ?? 22;
-        this.half.push(w + U.fbm1(i * 0.055, 3, 91) * vary);
+        this.halfBase.push(w + U.fbm1(i * 0.055, 3, 91) * vary);
+        this.half.push(this.halfBase[i]);
       }
       this.total = acc;
+      if (opts.features) this.setFeatures(opts.features);
+    }
+
+    /* The channel's *structure*: a list of stretches that squeeze or open the
+       water out. It is stored as a width profile rather than as objects, so
+       the cliffs, the rocks, the buoys and the shore foam all follow the
+       water without any of them having to know what a throat is. */
+    setFeatures(list) {
+      this.features = list || [];
+      for (let i = 0; i <= this.n; i++) {
+        this.half[i] = Math.max(MIN_HALF, this.halfBase[i] * this.widthScale(this.cum[i]));
+      }
+      return this;
+    }
+
+    widthScale(s) {
+      let k = 1;
+      for (const f of this.features) {
+        // taper in and out over a third of the stretch, so a throat is a
+        // funnel you can read from a long way off, not a wall that appears
+        const b = Math.min(95, (f.s1 - f.s0) * 0.34);
+        const e = U.smoothstep(f.s0 - b, f.s0 + b, s)
+                * (1 - U.smoothstep(f.s1 - b, f.s1 + b, s));
+        k *= U.lerp(1, f.scale, e);
+      }
+      return k;
+    }
+
+    // which stretch, if any, is s inside? Used by whoever is placing things.
+    featureAt(s) {
+      for (const f of this.features) if (s >= f.s0 && s <= f.s1) return f;
+      return null;
     }
 
     // nearest sample to (x,z); `hint` makes this O(1) for a moving boat
@@ -88,6 +123,51 @@ const CourseKit = (() => {
     }
   }
 
+  /* =============== structure ===============
+     A corridor that is the same width from end to end is the same drive
+     however the seed bends it: you hold the middle and steer. These are the
+     exceptions to the corridor — a throat you have to thread and an open bay
+     where the line is yours to choose — and they are what makes one channel
+     a different job from another rather than the same one repainted.
+
+     `rock` is a density multiplier: a bay wants a field of rock in it to be
+     a decision at all, and a throat with rock in it is just unfair. */
+
+  const FEATURES = [
+    { kind: 'narrows', name: 'The Throat',  weight: 3,
+      scale: [0.40, 0.55], len: [170, 290], rock: 0.25 },
+    { kind: 'bay',     name: 'Open Water',  weight: 3,
+      scale: [1.55, 1.95], len: [320, 470], rock: 2.4 },
+  ];
+  // however hard a throat squeezes, there has to be a line through it
+  const MIN_HALF = 25;
+  // plain corridor is 1, so the busiest stretch sets the scale for the rest
+  const ROCK_DENSITY_MAX = FEATURES.reduce((m, f) => Math.max(m, f.rock), 1);
+
+  // 2-4 stretches down the middle of the channel, with ordinary corridor
+  // between them: structure you notice is structure you meet occasionally
+  function planFeatures(rng, total) {
+    const out = [];
+    const guard = total * 0.90;
+    let s = total * rng.range(0.13, 0.24);
+    let weightTotal = 0;
+    for (const f of FEATURES) weightTotal += f.weight;
+    while (s < guard && out.length < 3) {
+      let r = rng() * weightTotal, def = FEATURES[FEATURES.length - 1];
+      for (const f of FEATURES) { r -= f.weight; if (r <= 0) { def = f; break; } }
+      const len = rng.range(def.len[0], def.len[1]);
+      if (s + len > guard) break;
+      // three at most, with a long stretch of ordinary corridor between them:
+      // structure you meet occasionally is structure you notice
+      out.push({
+        kind: def.kind, name: def.name, s0: s, s1: s + len,
+        scale: rng.range(def.scale[0], def.scale[1]), rock: def.rock,
+      });
+      s += len + rng.range(330, 620);
+    }
+    return out;
+  }
+
   function makePath(rng, opts = {}) {
     const segs = opts.segments || 20;
     const step = opts.segmentLength || 230;
@@ -107,7 +187,13 @@ const CourseKit = (() => {
       z += Math.cos(h) * step;
     }
     pts.push(new THREE.Vector3(x, 0, z));
-    return new CoursePath(pts, opts);
+    const path = new CoursePath(pts, opts);
+    // the total is only known once the curve is sampled, so the structure is
+    // planned against the channel that actually came out
+    if (opts.features !== false && !opts.features) {
+      path.setFeatures(planFeatures(rng, path.total));
+    }
+    return path;
   }
 
   /* =============== cliffs =============== */
@@ -406,6 +492,12 @@ const CourseKit = (() => {
     let tries = 0;
     while (colliders.length < count && tries++ < count * 30) {
       const s = rng.range(path.total * 0.06, path.total * 0.965);
+      // Rock follows the structure: a bay wants a field of it in there to be
+      // a choice of line at all, and a throat with rock in it is not a line,
+      // it is a coin toss. The loop places `count` either way, so this moves
+      // the rock about rather than changing how much of it there is.
+      const feat = path.featureAt ? path.featureAt(s) : null;
+      if (rng() > (feat ? feat.rock : 1) / ROCK_DENSITY_MAX) continue;
       const at = path.at(s);
       const lat = rng.range(-1, 1) * at.half * rng.range(0.35, 0.94);
       const nx = -at.tangent.z, nz = at.tangent.x;
@@ -605,5 +697,5 @@ const CourseKit = (() => {
   }
 
   return { COL, CoursePath, makePath, buildCliffs, buildRocks, buildBuoys,
-           buildShoreFoam, ROWS };
+           buildShoreFoam, ROWS, FEATURES };
 })();

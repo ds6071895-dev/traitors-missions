@@ -23,6 +23,7 @@ const ShootoutRounds = (() => {
       duration: 22, count: 8, interval: [1.25, 1.7], batch: [1, 1],
       spawn: { mode: 'sweep', types: ['raven'], behaviour: 'cruise',
                dist: [58, 84], height: [16, 26], arc: 1.5, speed: 0.85, curve: 0.06 },
+      waves: ['parade', 'high-low', 'split'],
       guards: 0,
     },
     {
@@ -31,6 +32,7 @@ const ShootoutRounds = (() => {
       duration: 24, count: 12, interval: [0.9, 1.35], batch: [1, 2],
       spawn: { mode: 'sweep', types: ['raven', 'raven', 'messenger'], behaviour: 'cruise',
                dist: [70, 115], height: [18, 34], arc: 2.1, speed: 1, curve: 0.1 },
+      waves: ['crosscut', 'cascade', 'rush'],
       guards: 0.18,
     },
     {
@@ -39,6 +41,7 @@ const ShootoutRounds = (() => {
       duration: 24, count: 12, interval: [1.0, 1.5], batch: [1, 2],
       spawn: { mode: 'rise', types: ['lantern'], behaviour: 'drift',
                dist: [40, 95], height: [2, 6], arc: 2.6, speed: 1 },
+      waves: ['spiral', 'curtain', 'constellation'],
       guards: 0.34,
       rule: { guardHeavy: true },
     },
@@ -48,6 +51,7 @@ const ShootoutRounds = (() => {
       duration: 22, count: 14, interval: [1.5, 1.9], batch: [2, 2],
       spawn: { mode: 'launch', types: ['clay'], behaviour: 'arc',
                dist: [95, 130], height: [8, 14], arc: 0.9, speed: 1 },
+      waves: ['fan', 'salvo', 'crosscut'],
       guards: 0,
       rule: { pierceDouble: true },
     },
@@ -57,6 +61,7 @@ const ShootoutRounds = (() => {
       duration: 22, count: 14, interval: [0.85, 1.2], batch: [1, 2],
       spawn: { mode: 'sweep', types: ['bat'], behaviour: 'zigzag',
                dist: [38, 62], height: [12, 24], arc: 3.0, speed: 1 },
+      waves: ['scatter', 'rush', 'spiral'],
       guards: 0,
     },
     {
@@ -65,6 +70,7 @@ const ShootoutRounds = (() => {
       duration: 26, count: 11, interval: [1.5, 2.0], batch: [1, 2],
       spawn: { mode: 'swarm', types: ['wasp'], behaviour: 'dive',
                dist: [70, 95], height: [12, 24], arc: 2.4, speed: 0.8 },
+      waves: ['pincer', 'rush', 'scatter'],
       guards: 0,
       rule: { sting: true, pierceDouble: true },
     },
@@ -74,6 +80,7 @@ const ShootoutRounds = (() => {
       duration: 24, count: 12, interval: [3.4, 4.2], batch: [4, 5],
       spawn: { mode: 'formation', types: ['goose'], behaviour: 'cruise',
                dist: [90, 130], height: [26, 40], arc: 1.2, speed: 1 },
+      waves: ['vee', 'echelon', 'break'],
       guards: 0.1,
     },
     {
@@ -83,6 +90,7 @@ const ShootoutRounds = (() => {
       duration: 24, count: 10, interval: [1.6, 2.1], batch: [1, 2],
       spawn: { mode: 'sweep', types: ['messenger'], behaviour: 'cruise',
                dist: [80, 120], height: [22, 36], arc: 1.8, speed: 1.15, curve: 0.14 },
+      waves: ['relay', 'crosscut', 'dive'],
       guards: 0.2,
     },
     {
@@ -91,6 +99,7 @@ const ShootoutRounds = (() => {
       duration: 22, count: 11, interval: [1.2, 1.6], batch: [1, 2],
       spawn: { mode: 'sweep', types: ['moth'], behaviour: 'zigzag',
                dist: [34, 58], height: [10, 20], arc: 3.0, speed: 0.8 },
+      waves: ['spiral', 'constellation', 'scatter'],
       guards: 0,
     },
     {
@@ -99,6 +108,7 @@ const ShootoutRounds = (() => {
       duration: 24, count: 9, interval: [1.7, 2.2], batch: [1, 1],
       spawn: { mode: 'orbit', types: ['raven'], behaviour: 'circle',
                dist: [46, 72], height: [18, 30], arc: 6.28, speed: 1 },
+      waves: ['orbit', 'counter', 'tighten'],
       guards: 0,
       rule: { cleanOnly: true, valueMult: 2.4 },
     },
@@ -108,6 +118,7 @@ const ShootoutRounds = (() => {
       duration: 24, count: 16, interval: [1.1, 1.5], batch: [2, 2],
       spawn: { mode: 'cross', types: ['raven', 'bat'], behaviour: 'cruise',
                dist: [60, 100], height: [16, 32], arc: 1.1, speed: 1.05, curve: 0.08 },
+      waves: ['pincer', 'crosscut', 'high-low'],
       guards: 0.15,
     },
     {
@@ -116,6 +127,7 @@ const ShootoutRounds = (() => {
       duration: 24, count: 11, interval: [1.4, 1.9], batch: [1, 2],
       spawn: { mode: 'sweep', types: ['raven', 'goose'], behaviour: 'cruise',
                dist: [140, 190], height: [34, 52], arc: 1.6, speed: 1.35 },
+      waves: ['parade', 'echelon', 'cascade'],
       guards: 0.1,
       rule: { valueMult: 1.6 },
     },
@@ -125,6 +137,7 @@ const ShootoutRounds = (() => {
       duration: 24, count: 15, interval: [0.95, 1.3], batch: [1, 2],
       spawn: { mode: 'sweep', types: ['raven', 'bat', 'lantern', 'clay', 'messenger'],
                behaviour: 'cruise', dist: [50, 110], height: [14, 34], arc: 3.0, speed: 1 },
+      waves: ['roulette', 'pincer', 'rush', 'crosscut'],
       guards: 0.22,
     },
 
@@ -135,6 +148,7 @@ const ShootoutRounds = (() => {
       duration: 9.5, count: 1, interval: [9, 9], batch: [1, 1],
       spawn: { mode: 'orbit', types: ['gilded'], behaviour: 'circle',
                dist: [44, 60], height: [20, 30], arc: 6.28, speed: 1 },
+      waves: ['counter'],
       guards: 0,
       rule: { bonus: true, noChainBreak: true },
     },
@@ -144,6 +158,7 @@ const ShootoutRounds = (() => {
       duration: 12, count: 26, interval: [0.28, 0.45], batch: [1, 2],
       spawn: { mode: 'rise', types: ['lantern'], behaviour: 'drift',
                dist: [30, 80], height: [2, 8], arc: 6.28, speed: 1.4 },
+      waves: ['spiral', 'curtain', 'constellation'],
       guards: 0,
       rule: { bonus: true, noChainBreak: true, valueMult: 0.85 },
     },
@@ -151,8 +166,7 @@ const ShootoutRounds = (() => {
     /* ---- and the thing at the end of it ---- */
     {
       id: 'great-owl', name: 'The Great Owl', tier: 2, kind: 'boss',
-      blurb: 'It has the lantern, it has the eyes, and it has a temper. '
-           + 'Three fights in one bird.',
+      blurb: 'Lantern, eyes, talons, heart. Four fights in one furious bird.',
       duration: 130, count: 1, interval: [99, 99], batch: [1, 1],
       // close enough that it is the thing you are looking at, not a
       // shape over the far treeline

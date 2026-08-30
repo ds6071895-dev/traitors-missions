@@ -19,11 +19,15 @@ class Bow {
     holdGrace: 1.10,         // free hold at full draw before the arm complains
     strainEnd: 2.20,         // by here you are down to strainFloor and shaking
     strainFloor: 0.72,
-    nockTime: 0.18,          // between loosing and being able to draw again
-    minLoose: 0.10,          // a tap does not fire; it is not a trigger
+    nockTime: 0.10,          // between loosing and being able to draw again
+    minLoose: 0.04,          // a click always sends *something*: a tap that
+                             // silently does nothing is the single most
+                             // unresponsive thing a shooter can do
 
-    speedMin: 52,            // m/s at the very start of the draw
-    speedMax: 134,           // at full draw
+    speedMin: 48,            // m/s at the very start of the draw
+    speedMax: 112,           // at full draw — fast, but slow enough that the
+                             // arrow is a thing you watch rather than a thing
+                             // that has already arrived
     gravity: 16,             // exaggerated so lead and drop are readable
     drag: 0.05,
     windScale: 5.5,          // how hard the weather pushes an arrow about
@@ -247,39 +251,63 @@ class ArrowSystem {
     this.scene = scene;
     this.flying = [];
     this.stuck = [];
+    this.pool = [];
     this.wind = new THREE.Vector3();
 
-    // one geometry, one material, many meshes: an arrow is four faces
-    const shaft = new THREE.CylinderGeometry(0.022, 0.022, 0.9, 5);
+    /* One geometry, one material, many meshes. The arrow is drawn a good
+       deal chunkier than a real one: at a hundred metres a true-scale
+       shaft is a third of a pixel, and an arrow you cannot see is a bow
+       that does not appear to do anything. */
+    const shaft = new THREE.CylinderGeometry(0.05, 0.05, 1.15, 5);
     shaft.rotateX(Math.PI / 2);
-    const head = new THREE.ConeGeometry(0.05, 0.17, 4);
+    const head = new THREE.ConeGeometry(0.115, 0.34, 4);
     head.rotateX(-Math.PI / 2);
-    head.translate(0, 0, -0.52);
-    const f1 = new THREE.BoxGeometry(0.008, 0.11, 0.2);
-    f1.translate(0, 0, 0.36);
+    head.translate(0, 0, -0.66);
+    const f1 = new THREE.BoxGeometry(0.012, 0.2, 0.3);
+    f1.translate(0, 0, 0.46);
     const f2 = f1.clone(); f2.rotateZ(Math.PI / 2);
     this.geo = Sky.mergeGeometries([shaft, head, f1, f2].map(g => g.toNonIndexed()));
     this.geo.computeVertexNormals();
-    this.matPlain = new THREE.MeshLambertMaterial({ color: '#e8d9b6', flatShading: true });
+    // both lit *and* emissive, so an arrow crossing a shadowed treeline
+    // does not disappear into it halfway
+    this.matPlain = new THREE.MeshLambertMaterial({
+      color: '#f4e7c6', emissive: '#6a5a34', flatShading: true });
     this.matClean = new THREE.MeshLambertMaterial({
-      color: '#ffd166', emissive: '#8a5a00', flatShading: true });
+      color: '#ffd166', emissive: '#b07400', flatShading: true });
 
-    // a short streak behind every arrow, which is most of what sells speed
-    const maxTrail = this.T.maxFlying * 12;
+    /* The streak behind it, and the thing that actually sells the shot.
+
+       It used to be GL lines, which are one pixel wide whatever you ask
+       for and were invisible at any range worth shooting at. This is a
+       ribbon instead: real triangles, turned to face the camera every
+       frame and widened with distance, so a shot at eighty metres reads
+       exactly as clearly as one at ten. */
+    this.trailLen = 14;                       // segments kept per arrow
+    this.ghosts = [];                         // streaks still fading after the
+                                              // arrow itself has landed
+    const quads = (this.T.maxFlying + 8) * this.trailLen;
     const tg = new THREE.BufferGeometry();
-    this.trailPos = new Float32Array(maxTrail * 6);
-    this.trailCol = new Float32Array(maxTrail * 8);
+    this.trailPos = new Float32Array(quads * 18);   // 6 verts per quad
+    this.trailCol = new Float32Array(quads * 24);
     tg.setAttribute('position', new THREE.BufferAttribute(this.trailPos, 3));
     tg.setAttribute('color', new THREE.BufferAttribute(this.trailCol, 4));
     tg.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
-    this.trail = new THREE.LineSegments(tg, new THREE.LineBasicMaterial({
+    this.trail = new THREE.Mesh(tg, new THREE.MeshBasicMaterial({
       vertexColors: true, transparent: true, depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+      // the wood's fog is thick enough to swallow a shot at a hundred
+      // metres, and an additive surface mixed towards a pale fog colour
+      // gets *brighter* with distance rather than fading — so the streak
+      // opts out of it entirely and stays the one clean line on screen
+      fog: false,
     }));
     this.trail.frustumCulled = false;
     this.trail.renderOrder = 5;
     scene.add(this.trail);
     this.trailGeo = tg;
+    this._eye = new THREE.Vector3();
+    this._d = new THREE.Vector3();
+    this._side = new THREE.Vector3();
 
     this._up = new THREE.Vector3(0, 1, 0);
     this._m = new THREE.Matrix4();
@@ -288,11 +316,31 @@ class ArrowSystem {
 
   setWind(x, z, strength) { this.wind.set(x, 0, z).multiplyScalar(strength); }
 
+  /* Arrow meshes are pooled and *never* disposed. They all share one
+     geometry and two materials, and handing those to the scene's usual
+     disposeObject — which walks the tree and disposes everything it finds
+     — threw away the shared buffers and the compiled shader every time an
+     arrow retired, for the whole system to upload again on the next one.
+     Half a dozen arrows a second is half a dozen re-uploads a second. */
+  _acquire(mat) {
+    const mesh = this.pool.pop() || new THREE.Mesh(this.geo, mat);
+    mesh.material = mat;
+    mesh.scale.setScalar(1);
+    mesh.visible = true;
+    this.scene.add(mesh);
+    return mesh;
+  }
+
+  _release(mesh) {
+    if (!mesh) return;
+    this.scene.remove(mesh);
+    if (this.pool.length < 64) this.pool.push(mesh);
+  }
+
   fire(origin, dir, shot) {
     if (this.flying.length >= this.T.maxFlying) this._retire(this.flying[0], 0);
-    const mesh = new THREE.Mesh(this.geo, shot.perfect ? this.matClean : this.matPlain);
+    const mesh = this._acquire(shot.perfect ? this.matClean : this.matPlain);
     mesh.position.copy(origin);
-    this.scene.add(mesh);
     const a = {
       mesh,
       pos: origin.clone(),
@@ -303,7 +351,7 @@ class ArrowSystem {
       perfect: shot.perfect,
       power: shot.power,
       hits: 0,
-      history: [origin.clone(), origin.clone(), origin.clone()],
+      history: [origin.clone()],
     };
     this.flying.push(a);
     return a;
@@ -327,19 +375,35 @@ class ArrowSystem {
 
       a.mesh.position.copy(a.pos);
       this._point(a.mesh, a.vel);
+      /* Held at true scale an arrow shrinks below a pixel within twenty
+         metres. It is grown with range instead — the same trick the hit
+         spheres use — so that the thing you loosed stays a thing you can
+         follow all the way to what it hits. */
+      if (ctx.eye) {
+        const d = a.pos.distanceTo(ctx.eye);
+        a.mesh.scale.set(1 + d * 0.022, 1 + d * 0.022, 1 + d * 0.010);
+      }
       a.history.push(a.pos.clone());
-      if (a.history.length > 4) a.history.shift();
+      if (a.history.length > this.trailLen + 1) a.history.shift();
+    }
+
+    // the streak outlives the arrow for a moment, so that a shot which
+    // buries itself in a trunk still draws the line it took to get there
+    for (let i = this.ghosts.length - 1; i >= 0; i--) {
+      const g = this.ghosts[i];
+      g.life -= dt;
+      if (g.life <= 0) this.ghosts.splice(i, 1);
     }
 
     for (let i = this.stuck.length - 1; i >= 0; i--) {
       const s = this.stuck[i];
       s.life -= dt;
-      if (s.life <= 0) { Engine.disposeObject(s.mesh); this.stuck.splice(i, 1); continue; }
+      if (s.life <= 0) { this._release(s.mesh); this.stuck.splice(i, 1); continue; }
       if (s.life < 1) {
         s.mesh.scale.setScalar(Math.max(0.001, s.life));
       }
     }
-    this._updateTrail();
+    this._updateTrail(ctx && ctx.eye);
   }
 
   // swept tests, in the order they happen along this frame's segment
@@ -410,17 +474,30 @@ class ArrowSystem {
   _stick(a) {
     a.mesh.position.copy(a.pos);
     this._point(a.mesh, a.vel);
+    // back to life size once it is in the ground: the range scaling is
+    // there to keep an arrow *in flight* visible, and a fencepost-sized
+    // arrow standing in the grass in front of you is not that
+    a.mesh.scale.setScalar(1);
     this.stuck.push({ mesh: a.mesh, life: this.T.stuckLife });
     a.mesh = null;
+    this._ghost(a);
+    a.history = null;                 // _retire must not queue it twice
     while (this.stuck.length > this.T.maxStuck) {
       const s = this.stuck.shift();
-      Engine.disposeObject(s.mesh);
+      this._release(s.mesh);
     }
     AudioBus.play('arrow-thunk', { amount: U.clamp(a.vel.length() / 120, 0.3, 1) });
   }
 
+  _ghost(a) {
+    if (!a.history || a.history.length < 2) return;
+    if (this.ghosts.length >= 8) this.ghosts.shift();
+    this.ghosts.push({ history: a.history, perfect: a.perfect, life: 0.18, fade: 0.18 });
+  }
+
   _retire(a, i) {
-    if (a.mesh) Engine.disposeObject(a.mesh);
+    this._ghost(a);
+    if (a.mesh) this._release(a.mesh);
     const idx = i !== undefined && this.flying[i] === a ? i : this.flying.indexOf(a);
     if (idx >= 0) this.flying.splice(idx, 1);
   }
@@ -431,43 +508,94 @@ class ArrowSystem {
     mesh.rotateY(Math.PI);          // the model points down -Z
   }
 
-  _updateTrail() {
+  /* Build the ribbons. Each pair of history points becomes a quad lying
+     in the plane that faces the camera, tapering and fading towards the
+     tail, and widened in proportion to its distance from the eye so it
+     holds a roughly constant width on screen. */
+  _updateTrail(eye) {
     const P = this.trailPos, C = this.trailCol;
-    let v = 0;
-    for (const a of this.flying) {
+    const quads = P.length / 18;
+    const e = eye ? this._eye.copy(eye) : this._eye.set(0, 0, 0);
+    let q = 0;
+    // live arrows first, then the fading ones — two passes rather than a
+    // joined array, because this runs every frame
+    for (let pass = 0; pass < 2; pass++) {
+     const src = pass ? this.ghosts : this.flying;
+     for (const a of src) {
       const h = a.history;
-      for (let i = 1; i < h.length && v < P.length / 6; i++) {
-        const o = v * 6, o4 = v * 8;
-        P[o] = h[i - 1].x; P[o + 1] = h[i - 1].y; P[o + 2] = h[i - 1].z;
-        P[o + 3] = h[i].x; P[o + 4] = h[i].y; P[o + 5] = h[i].z;
-        const fade = (i / h.length) * (a.perfect ? 0.85 : 0.4);
-        const cr = a.perfect ? 1 : 0.9, cg = a.perfect ? 0.82 : 0.9, cb = a.perfect ? 0.4 : 0.85;
-        for (let k = 0; k < 2; k++) {
+      if (!h) continue;
+      const n = h.length;
+      const alive = pass ? a.life / a.fade : 1;
+      for (let i = 1; i < n && q < quads; i++) {
+        const p0 = h[i - 1], p1 = h[i];
+        const d = this._d.copy(p1).sub(p0);
+        if (d.lengthSq() < 1e-8) continue;
+        // towards the camera, crossed with the flight, gives the flat of
+        // the ribbon; a segment seen exactly end-on has no width to give
+        const side = this._side.set(e.x - p1.x, e.y - p1.y, e.z - p1.z).cross(d);
+        if (side.lengthSq() < 1e-8) continue;
+        side.normalize();
+
+        // how far along the tail we are: 1 at the arrowhead, 0 at the end
+        const t0 = (i - 1) / (n - 1), t1 = i / (n - 1);
+        // width in world units chosen so the ribbon holds a roughly
+        // constant half-degree on screen at any range, tapered to nothing
+        // at the tail. Both ends use the same curve, so consecutive quads
+        // meet exactly instead of stepping.
+        const dist = eye ? p1.distanceTo(e) : 40;
+        const w = 0.035 + dist * 0.0040;
+        const w0 = w * t0 * t0, w1 = w * t1 * t1;
+
+        const ax = p0.x + side.x * w0, ay = p0.y + side.y * w0, az = p0.z + side.z * w0;
+        const bx = p0.x - side.x * w0, by = p0.y - side.y * w0, bz = p0.z - side.z * w0;
+        const cx = p1.x + side.x * w1, cy = p1.y + side.y * w1, cz = p1.z + side.z * w1;
+        const dx = p1.x - side.x * w1, dy = p1.y - side.y * w1, dz = p1.z - side.z * w1;
+
+        const o = q * 18;
+        // two triangles: a,b,c and b,d,c
+        P[o] = ax; P[o + 1] = ay; P[o + 2] = az;
+        P[o + 3] = bx; P[o + 4] = by; P[o + 5] = bz;
+        P[o + 6] = cx; P[o + 7] = cy; P[o + 8] = cz;
+        P[o + 9] = bx; P[o + 10] = by; P[o + 11] = bz;
+        P[o + 12] = dx; P[o + 13] = dy; P[o + 14] = dz;
+        P[o + 15] = cx; P[o + 16] = cy; P[o + 17] = cz;
+
+        const cr = a.perfect ? 1 : 0.95, cg = a.perfect ? 0.84 : 0.93, cb = a.perfect ? 0.42 : 0.82;
+        const peak = (a.perfect ? 1.15 : 0.8) * alive;
+        const f0 = t0 * t0 * peak, f1 = t1 * t1 * peak;
+        const o4 = q * 24;
+        const put = (k, f) => {
           C[o4 + k * 4] = cr; C[o4 + k * 4 + 1] = cg;
-          C[o4 + k * 4 + 2] = cb; C[o4 + k * 4 + 3] = fade * (k ? 1 : 0.2);
-        }
-        v++;
+          C[o4 + k * 4 + 2] = cb; C[o4 + k * 4 + 3] = f;
+        };
+        put(0, f0); put(1, f0); put(2, f1);
+        put(3, f0); put(4, f1); put(5, f1);
+        q++;
       }
+     }
     }
     // park the unused vertices on top of each other so they draw nothing
-    for (let i = v; i < P.length / 6; i++) {
-      const o = i * 6, o4 = i * 8;
-      for (let k = 0; k < 6; k++) P[o + k] = 0;
-      for (let k = 0; k < 8; k++) C[o4 + k] = 0;
+    for (let i = q; i < quads; i++) {
+      const o = i * 18, o4 = i * 24;
+      for (let k = 0; k < 18; k++) P[o + k] = 0;
+      for (let k = 0; k < 24; k++) C[o4 + k] = 0;
     }
     this.trailGeo.attributes.position.needsUpdate = true;
     this.trailGeo.attributes.color.needsUpdate = true;
   }
 
   clear() {
-    for (const a of this.flying) if (a.mesh) Engine.disposeObject(a.mesh);
-    for (const s of this.stuck) Engine.disposeObject(s.mesh);
+    for (const a of this.flying) this._release(a.mesh);
+    for (const s of this.stuck) this._release(s.mesh);
     this.flying.length = 0; this.stuck.length = 0;
-    this._updateTrail();
+    this.ghosts.length = 0;
+    this._updateTrail(null);
   }
 
   dispose() {
     this.clear();
+    for (const m of this.pool) this.scene.remove(m);
+    this.pool.length = 0;
     Engine.disposeObject(this.trail);
     this.geo.dispose();
     this.matPlain.dispose();

@@ -1,0 +1,448 @@
+/* ------------------------------------------------------------------
+   music.js — a procedural score, written at runtime.
+
+   There are no audio files anywhere in this game, so a boss theme has
+   to be *played* rather than loaded. This is a small step sequencer: a
+   clock that wakes up every forty milliseconds, looks a third of a
+   second into the future, and books every note that falls inside that
+   window with the Web Audio clock. Scheduling ahead is the whole trick —
+   notes fired from requestAnimationFrame arrive whenever the frame
+   arrives, which is audibly not a beat.
+
+   A score is layers over one chord loop: drums, a bass gallop, a pad,
+   the horn theme, and a choir on top. Which layers are switched on, and
+   how fast the whole thing runs, is what a phase of the fight *is*. So
+   the music does not merely accompany the boss; it is told what the
+   boss is doing and answers, and the player hears the fight change one
+   beat before they see it.
+------------------------------------------------------------------ */
+const Music = (() => {
+
+  const ROOT = 36.708;        // D1 — everything is a ratio off this
+  const LOOKAHEAD = 0.34;     // seconds of future booked at a time
+  const TICK = 40;            // ms between wakeups
+
+  const hz = (semi) => ROOT * Math.pow(2, semi / 12);
+
+  /* Eight bars of D minor that keep leaning somewhere and never quite
+     resolving, which is what makes a loop feel like a fight rather than
+     a song. The last bar is the dominant, so bar eight always wants bar
+     one — the loop point stops being a seam. */
+  const CHORDS = [
+    [0, 3, 7],        // i     Dm
+    [0, 3, 7],        // i
+    [8, 12, 15],      // VI    Bb
+    [5, 8, 12],       // iv    Gm
+    [0, 3, 7],        // i
+    [10, 14, 17],     // VII   C
+    [8, 12, 15],      // VI    Bb
+    [7, 11, 14],      // V     A  (harmonic minor: a major five)
+  ];
+
+  /* One bar of sixteenths per layer. The numbers are velocities, and a
+     zero is a rest — patterns rather than code, so the difference
+     between "circling" and "enraged" is a table edit. */
+  const PATTERNS = {
+    kick:   [1, 0, 0, 0, .55, 0, 0, .4, 1, 0, 0, 0, .55, 0, .7, 0],
+    kickDbl:[1, 0, .5, 0, .7, 0, .5, .4, 1, 0, .5, 0, .7, .5, .8, .6],
+    tom:    [0, 0, 0, .5, 0, 0, 0, 0, 0, 0, .5, 0, 0, .7, 0, .8],
+    hat:    [0, .3, 0, .35, 0, .3, 0, .35, 0, .3, 0, .35, 0, .3, 0, .45],
+    bass:   [1, 0, .7, .7, 0, .8, 0, .7, 1, 0, .7, 0, .8, 0, .7, .6],
+  };
+  // where the bass sits against the bar's chord, in scale steps
+  const BASSNOTE = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -5, 0, 0, 3, 5];
+
+  /* The theme. Sixteen sixteenths — one bar — of horn, stated over the
+     tonic and answered a fourth up when the loop comes round again. */
+  const THEME = [
+    { s: 12, d: 3 }, { s: 15, d: 1 }, { s: 14, d: 2 }, { s: 12, d: 2 },
+    { s: 19, d: 3 }, { s: 17, d: 1 }, { s: 15, d: 2 }, { s: 12, d: 2 },
+  ];
+
+  // the theme by the sixteenth it starts on, worked out once
+  const THEME_AT = (() => {
+    const m = {};
+    let at = 0;
+    for (const n of THEME) { m[at] = n; at += n.d; }
+    return m;
+  })();
+
+  /* Four gears. `layers` are gains, so a layer at 0 is silent but still
+     costs nothing, and the conductor can fade one in over a bar rather
+     than switching it on mid-note. */
+  const GEARS = [
+    { bpm: 84,  kick: .55, tom: .35, hat: 0,   bass: .8,  pad: .55, theme: 0,   choir: 0,  double: false },
+    { bpm: 96,  kick: .8,  tom: .55, hat: .35, bass: 1,   pad: .6,  theme: .75, choir: 0,  double: false },
+    { bpm: 112, kick: .9,  tom: .7,  hat: .5,  bass: 1,   pad: .6,  theme: .9,  choir: .4, double: false },
+    { bpm: 132, kick: 1,   tom: .85, hat: .6,  bass: 1,   pad: .7,  theme: 1,   choir: .8, double: true },
+  ];
+
+  class Score {
+    constructor(opts = {}) {
+      this.ctx = AudioBus.ctx;
+      this.dest = AudioBus.bus('music');
+      this.ok = !!(this.ctx && this.dest);
+      if (!this.ok) return;
+
+      // The same orchestra can play the hunt and the owl without making
+      // every raven feel like the end of the world. Stage music holds back
+      // the choir, horn and room size; the boss profile uses the full mix.
+      this.profile = Object.assign({
+        level: 0.9, theme: 1, choir: 1, pad: 1, percussion: 1, reverb: 0.28,
+      }, opts);
+
+      this.out = this.ctx.createGain();
+      this.out.gain.value = 0.0001;
+      this.out.connect(this.dest);
+
+      // one shared plate of reverb-ish delay, because a horn in a wood
+      // that stops dead the moment it stops sounding is a horn in a box
+      this.send = this.ctx.createGain();
+      this.send.gain.value = this.profile.reverb;
+      const delay = this.ctx.createDelay(0.5);
+      delay.delayTime.value = 0.19;
+      const fb = this.ctx.createGain();
+      fb.gain.value = 0.34;
+      const damp = this.ctx.createBiquadFilter();
+      damp.type = 'lowpass'; damp.frequency.value = 2200;
+      this.send.connect(delay); delay.connect(damp); damp.connect(fb);
+      fb.connect(delay); damp.connect(this.out);
+
+      this.gear = 0;
+      this.gearFrom = 0;
+      this.gearMix = 1;          // 0..1 across a gear change
+      this.intensity = 1;
+      this.step = 0;             // sixteenths since the score started
+      this.next = 0;             // audio time of the next step
+      this.paused = false;
+      this.timer = null;
+    }
+
+    start() {
+      if (!this.ok || this.timer) return this;
+      this.next = this.ctx.currentTime + 0.08;
+      this.out.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.out.gain.setValueAtTime(0.0001, this.ctx.currentTime);
+      this.out.gain.exponentialRampToValueAtTime(this.profile.level, this.ctx.currentTime + 1.6);
+      this.timer = setInterval(() => this._pump(), TICK);
+      return this;
+    }
+
+    /* Which gear, and how long to take getting there. A phase change
+       crossfades over a couple of beats; the enrage snaps. */
+    setGear(i, glide = 2) {
+      if (!this.ok) return;
+      i = U.clamp(i | 0, 0, GEARS.length - 1);
+      if (i === this.gear) return;
+      this.gearFrom = this.gear;
+      this.gear = i;
+      this.gearMix = 0;
+      this.glide = Math.max(0.25, glide);
+    }
+
+    // an extra shove on top of the gear: how hard the fight is going
+    setIntensity(v) { this.intensity = U.clamp(v, 0, 1.5); }
+
+    setPaused(v) {
+      if (!this.ok || this.paused === v) return;
+      this.paused = v;
+      const t = this.ctx.currentTime;
+      this.out.gain.cancelScheduledValues(t);
+      this.out.gain.setTargetAtTime(v ? 0.0001 : this.profile.level, t, 0.12);
+      if (!v) this.next = Math.max(this.next, t + 0.06);
+    }
+
+    // duck under a screech or a banner without losing the beat
+    duck(amount = 0.35, time = 0.9) {
+      if (!this.ok || this.paused) return;
+      const t = this.ctx.currentTime;
+      this.out.gain.cancelScheduledValues(t);
+      this.out.gain.setValueAtTime(Math.max(0.0001, this.out.gain.value), t);
+      this.out.gain.exponentialRampToValueAtTime(Math.max(0.02, amount), t + 0.08);
+      this.out.gain.exponentialRampToValueAtTime(this.profile.level, t + time);
+    }
+
+    stop(fade = 1.2) {
+      if (!this.ok) return;
+      if (this.timer) { clearInterval(this.timer); this.timer = null; }
+      const t = this.ctx.currentTime;
+      this.out.gain.cancelScheduledValues(t);
+      this.out.gain.setValueAtTime(Math.max(0.0001, this.out.gain.value), t);
+      this.out.gain.exponentialRampToValueAtTime(0.0001, t + fade);
+      setTimeout(() => { try { this.out.disconnect(); } catch (e) {} }, (fade + 0.4) * 1000);
+    }
+
+    /* -------- the clock -------- */
+
+    _gearNow(key) {
+      const a = GEARS[this.gearFrom][key], b = GEARS[this.gear][key];
+      return typeof a === 'number' ? U.lerp(a, b, this.gearMix) : (this.gearMix > 0.5 ? b : a);
+    }
+
+    _pump() {
+      if (!this.ok || this.paused) return;
+      const now = this.ctx.currentTime;
+      // a tab that was in the background comes back with the audio clock
+      // hours ahead of where the sequencer got to; catch up rather than
+      // spraying every missed note at once
+      if (this.next < now - 0.5) this.next = now + 0.05;
+      let guard = 0;
+      while (this.next < now + LOOKAHEAD && guard++ < 64) {
+        const bpm = U.lerp(GEARS[this.gearFrom].bpm, GEARS[this.gear].bpm, this.gearMix);
+        const spb = 60 / bpm / 4;              // seconds per sixteenth
+        this._play(this.step, this.next);
+        this.next += spb;
+        this.step++;
+        if (this.gearMix < 1) this.gearMix = Math.min(1, this.gearMix + spb / this.glide);
+      }
+    }
+
+    _play(step, t) {
+      const s = step % 16;
+      const bar = Math.floor(step / 16) % CHORDS.length;
+      const chord = CHORDS[bar];
+      const root = chord[0];
+      const I = this.intensity;
+      const dbl = this._gearNow('double');
+
+      const percussion = this.profile.percussion;
+      const kick = (dbl ? PATTERNS.kickDbl : PATTERNS.kick)[s] * this._gearNow('kick') * I * percussion;
+      if (kick > 0.02) this._kick(t, kick);
+      const tom = PATTERNS.tom[s] * this._gearNow('tom') * I * percussion;
+      if (tom > 0.02) this._tom(t, tom, 128 + (s % 4) * 22);
+      const hat = PATTERNS.hat[s] * this._gearNow('hat') * I * percussion;
+      if (hat > 0.02) this._hat(t, hat);
+
+      const bass = PATTERNS.bass[s] * this._gearNow('bass') * I;
+      if (bass > 0.02) this._bass(t, hz(root + 12 + BASSNOTE[s]), 0.16, bass);
+
+      // the pad lands on the bar, and holds it
+      if (s === 0) {
+        const pad = this._gearNow('pad') * this.profile.pad;
+        if (pad > 0.02) this._pad(t, chord.map(c => hz(c + 36)), (60 / GEARS[this.gear].bpm) * 4.2, pad);
+      }
+
+      // the theme, stated low and answered a fourth up two bars later
+      const theme = this._gearNow('theme') * this.profile.theme;
+      const note = THEME_AT[s];
+      if (theme > 0.02 && note) {
+        const lift = (bar % 4) >= 2 ? 5 : 0;
+        const spb = 60 / U.lerp(GEARS[this.gearFrom].bpm, GEARS[this.gear].bpm, this.gearMix) / 4;
+        this._horn(t, hz(note.s + 36 + lift), note.d * spb * 0.95, theme);
+      }
+
+      // and voices, two octaves up, on the half bar
+      const choir = this._gearNow('choir') * this.profile.choir;
+      if (choir > 0.02 && (s === 0 || s === 8)) {
+        const spb = 60 / GEARS[this.gear].bpm / 4;
+        this._choir(t, hz(chord[(s ? 2 : 1)] + 48), spb * 7.5, choir);
+      }
+    }
+
+    /* -------- voices -------- */
+
+    _env(g, t, a, d, peak, hold = 0) {
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0001, peak), t + a);
+      if (hold) g.gain.setValueAtTime(Math.max(0.0001, peak), t + a + hold);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + a + hold + d);
+    }
+
+    _kick(t, v) {
+      const c = this.ctx;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(150, t);
+      o.frequency.exponentialRampToValueAtTime(38, t + 0.16);
+      o.connect(g); g.connect(this.out);
+      this._env(g, t, 0.004, 0.24, 0.5 * v);
+      o.start(t); o.stop(t + 0.4);
+    }
+
+    // a war drum: pitched noise with a body under it
+    _tom(t, v, f) {
+      const c = this.ctx;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(f, t);
+      o.frequency.exponentialRampToValueAtTime(f * 0.55, t + 0.22);
+      o.connect(g); g.connect(this.out); g.connect(this.send);
+      this._env(g, t, 0.005, 0.3, 0.3 * v);
+      o.start(t); o.stop(t + 0.5);
+      const n = AudioBus.noiseSource();
+      if (!n) return;
+      const nf = c.createBiquadFilter(), ng = c.createGain();
+      nf.type = 'bandpass'; nf.frequency.value = f * 2.4; nf.Q.value = 0.9;
+      n.connect(nf); nf.connect(ng); ng.connect(this.out);
+      this._env(ng, t, 0.003, 0.12, 0.16 * v);
+      n.start(t); n.stop(t + 0.25);
+    }
+
+    _hat(t, v) {
+      const c = this.ctx;
+      const n = AudioBus.noiseSource();
+      if (!n) return;
+      const f = c.createBiquadFilter(), g = c.createGain();
+      f.type = 'highpass'; f.frequency.value = 6500;
+      n.connect(f); f.connect(g); g.connect(this.out);
+      this._env(g, t, 0.002, 0.055, 0.075 * v);
+      n.start(t); n.stop(t + 0.12);
+    }
+
+    _bass(t, f, dur, v) {
+      const c = this.ctx;
+      const o = c.createOscillator(), o2 = c.createOscillator();
+      const g = c.createGain(), lp = c.createBiquadFilter();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(f, t);
+      o2.type = 'square'; o2.frequency.setValueAtTime(f / 2, t); o2.detune.value = 6;
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(240 + 1400 * v, t);
+      lp.frequency.exponentialRampToValueAtTime(180, t + dur);
+      o.connect(lp); o2.connect(lp); lp.connect(g); g.connect(this.out);
+      this._env(g, t, 0.006, dur, 0.22 * v);
+      o.start(t); o2.start(t); o.stop(t + dur + 0.1); o2.stop(t + dur + 0.1);
+    }
+
+    // three detuned saws through a slow filter: the bed everything sits on
+    _pad(t, freqs, dur, v) {
+      const c = this.ctx;
+      const g = c.createGain(), lp = c.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(500, t);
+      lp.frequency.linearRampToValueAtTime(1500, t + dur * 0.4);
+      lp.frequency.linearRampToValueAtTime(400, t + dur);
+      lp.connect(g); g.connect(this.out); g.connect(this.send);
+      for (const f of freqs) {
+        for (const det of [-7, 7]) {
+          const o = c.createOscillator();
+          o.type = 'sawtooth'; o.frequency.setValueAtTime(f, t); o.detune.value = det;
+          o.connect(lp); o.start(t); o.stop(t + dur + 0.2);
+        }
+      }
+      this._env(g, t, 0.5, dur * 0.6, 0.055 * v, dur * 0.3);
+    }
+
+    // the horn: a saw with a bite on the front and vibrato behind it
+    _horn(t, f, dur, v) {
+      const c = this.ctx;
+      const o = c.createOscillator(), o2 = c.createOscillator();
+      const g = c.createGain(), lp = c.createBiquadFilter();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(f, t);
+      o2.type = 'sawtooth'; o2.frequency.setValueAtTime(f, t); o2.detune.value = -11;
+      const vib = c.createOscillator(), vg = c.createGain();
+      vib.type = 'sine'; vib.frequency.value = 5.4; vg.gain.value = f * 0.006;
+      vib.connect(vg); vg.connect(o.frequency); vg.connect(o2.frequency);
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(700, t);
+      lp.frequency.linearRampToValueAtTime(2600, t + 0.08);
+      lp.frequency.linearRampToValueAtTime(1100, t + dur);
+      o.connect(lp); o2.connect(lp); lp.connect(g);
+      g.connect(this.out); g.connect(this.send);
+      this._env(g, t, 0.05, dur * 0.5, 0.15 * v, dur * 0.5);
+      o.start(t); o2.start(t); vib.start(t);
+      o.stop(t + dur + 0.3); o2.stop(t + dur + 0.3); vib.stop(t + dur + 0.3);
+    }
+
+    _choir(t, f, dur, v) {
+      const c = this.ctx;
+      const g = c.createGain(), bp = c.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = f * 1.6; bp.Q.value = 1.6;
+      bp.connect(g); g.connect(this.out); g.connect(this.send);
+      for (const [type, det, m] of [['triangle', 0, 1], ['sine', 9, 1], ['sine', -9, 2]]) {
+        const o = c.createOscillator();
+        o.type = type; o.frequency.setValueAtTime(f * m, t); o.detune.value = det;
+        o.connect(bp); o.start(t); o.stop(t + dur + 0.3);
+      }
+      const vib = c.createOscillator(), vg = c.createGain();
+      vib.type = 'sine'; vib.frequency.value = 4.8; vg.gain.value = 3.5;
+      vib.connect(vg); vg.connect(bp.frequency);
+      vib.start(t); vib.stop(t + dur + 0.3);
+      this._env(g, t, 0.6, dur * 0.5, 0.085 * v, dur * 0.35);
+    }
+
+    /* -------- punctuation --------
+       Stingers are played *now*, on top of whatever the loop is doing,
+       because the thing they are marking has already happened. */
+    stinger(kind) {
+      if (!this.ok) return;
+      const t = this.ctx.currentTime + 0.01;
+      if (kind === 'phase') {
+        this._horn(t, hz(24), 0.9, 1.1);
+        this._horn(t + 0.02, hz(31), 0.9, 0.9);
+        this._tom(t, 1, 96); this._tom(t + 0.16, 0.8, 128);
+      } else if (kind === 'stagger') {
+        // the fight stops for a beat and so does the score
+        this.duck(0.22, 1.5);
+        this._tom(t, 1, 84);
+        this._choir(t, hz(36), 1.8, 1.2);
+        this._choir(t + 0.04, hz(43), 1.8, 0.9);
+        this._crash(t, 0.7);
+      } else if (kind === 'summon') {
+        this._choir(t, hz(35), 1.4, 1.0);       // a flat second under the root
+        this._tom(t, 0.9, 70);
+        this._tom(t + 0.12, 0.7, 70);
+      } else if (kind === 'boon') {
+        [0, 7, 12, 16].forEach((s, i) => this._choir(t + i * 0.07, hz(s + 48), 1.1, 0.7));
+      } else if (kind === 'hurt') {
+        this._tom(t, 0.9, 150);
+      } else if (kind === 'down') {
+        // the one place the mode turns: a major third over the tonic
+        this._crash(t, 1);
+        this._tom(t, 1, 70);
+        [0, 4, 7, 12].forEach((s, i) => {
+          this._horn(t + i * 0.09, hz(s + 24), 2.6, 1.1);
+          this._choir(t + i * 0.09, hz(s + 48), 2.8, 1.0);
+        });
+        this._bass(t, hz(12), 2.4, 1);
+      } else if (kind === 'round') {
+        // A compact two-note lift: enough to make a new round arrive on a
+        // beat, deliberately short of the boss phase fanfare.
+        this._tom(t, 0.55 * this.profile.percussion, 118);
+        this._horn(t + 0.03, hz(24), 0.5, 0.42 * this.profile.theme);
+        this._horn(t + 0.05, hz(31), 0.5, 0.32 * this.profile.theme);
+      } else if (kind === 'bonus-round') {
+        [24, 28, 31, 36].forEach((s, i) =>
+          this._horn(t + i * 0.065, hz(s), 0.62, 0.38 * this.profile.theme));
+        this._tom(t, 0.48 * this.profile.percussion, 142);
+      }
+    }
+
+    _crash(t, v) {
+      const c = this.ctx;
+      const n = AudioBus.noiseSource();
+      if (!n) return;
+      const f = c.createBiquadFilter(), g = c.createGain();
+      f.type = 'highpass'; f.frequency.value = 3200;
+      n.connect(f); f.connect(g); g.connect(this.out); g.connect(this.send);
+      this._env(g, t, 0.01, 1.6, 0.16 * v);
+      n.start(t); n.stop(t + 1.8);
+    }
+  }
+
+  // a score that does nothing, for when there is no audio context at all
+  const SILENT = {
+    start() { return this; }, setGear() {}, setIntensity() {}, setPaused() {},
+    duck() {}, stinger() {}, stop() {},
+  };
+
+  function boss() {
+    if (!AudioBus.ready) return SILENT;
+    const s = new Score();
+    return s.ok ? s.start() : SILENT;
+  }
+
+  function stage() {
+    if (!AudioBus.ready) return SILENT;
+    const s = new Score({
+      level: 0.58,
+      theme: 0.58,
+      choir: 0,
+      pad: 0.82,
+      percussion: 0.72,
+      reverb: 0.18,
+    });
+    return s.ok ? s.start() : SILENT;
+  }
+
+  return { boss, stage, Score, GEARS };
+})();

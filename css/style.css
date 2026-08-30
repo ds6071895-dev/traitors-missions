@@ -157,6 +157,7 @@ kbd{
 .mission-head p{margin:5px 0 0; font-size:13px; color:var(--muted); letter-spacing:.03em}
 
 .mission-list{display:flex; flex-direction:column; gap:12px}
+.mission-card-row{display:flex; align-items:stretch; gap:10px}
 .mission-card{
   display:flex; align-items:center; gap:18px; width:100%; text-align:left;
   padding:16px 20px; border-radius:14px; cursor:pointer; color:var(--paper);
@@ -169,6 +170,23 @@ kbd{
   transform:translateY(-2px); border-color:rgba(242,193,78,.55);
   box-shadow:0 14px 36px rgba(0,0,0,.45), inset 0 0 0 1px rgba(242,193,78,.12);
 }
+.mission-card-row .mission-card{flex:1; min-width:0}
+.mission-quick{
+  width:112px; flex:none; border-radius:14px; cursor:pointer; color:#ffdbe2;
+  border:1px solid rgba(255,84,112,.42); font-family:var(--body); font-size:11px;
+  font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+  background:linear-gradient(160deg,rgba(100,18,42,.86),rgba(28,13,27,.92));
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+  transition:transform .14s ease,border-color .18s,box-shadow .2s,background .2s;
+}
+.mission-quick:hover{
+  transform:translateY(-2px); border-color:#ff8fa3;
+  background:linear-gradient(160deg,rgba(135,22,51,.94),rgba(40,13,31,.96));
+  box-shadow:0 12px 30px rgba(80,4,28,.5),inset 0 0 22px rgba(255,84,112,.1);
+}
+.mission-quick:active{transform:translateY(1px) scale(.99)}
+.mq-icon{font-family:var(--display); font-size:22px; line-height:1; color:#ff8fa3;
+  text-shadow:0 0 18px rgba(255,84,112,.75)}
 .mission-card.locked{opacity:.42; cursor:not-allowed; filter:grayscale(.7)}
 .mc-icon{
   font-family:var(--display); font-size:26px; letter-spacing:.02em; color:var(--gold);
@@ -381,6 +399,11 @@ kbd{
   letter-spacing:.08em; color:var(--paper); padding:8px 10px; border-radius:8px;
   background:rgba(4,12,22,.65); border:1px solid rgba(255,255,255,.13)}
 .channel-seed input:focus{outline:none; border-color:rgba(242,193,78,.6)}
+.channel-tod{display:flex; gap:8px; align-items:center}
+.tod-lbl{font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--muted);
+  font-weight:800}
+.tod-chips{display:flex; gap:6px; flex:1}
+.tod-chips .chip{flex:1}
 .chip{font-family:var(--body); font-size:10.5px; font-weight:800; letter-spacing:.14em;
   text-transform:uppercase; padding:8px 10px; border-radius:8px; cursor:pointer;
   color:var(--paper); background:rgba(255,255,255,.06);
@@ -601,10 +624,13 @@ kbd{
 @media (prefers-reduced-motion:reduce){
   .sh-reticle.perfect .r-dot{animation:none}
   .sh-hitmark.show i,.sh-hitmark.show b,.sh-loose.go::after{animation-duration:.01ms}
+  .sh-boon{animation:none}
+  .sh-boon.low{animation:none; opacity:.7}
 }
 
-/* the lock: the bow has decided what it is looking at, and says so. Gold
-   means the arrow will find it; red means do not loose. */
+/* the lock: what the crosshair is over, named. Gold is quarry — it does
+   not mean the arrow will find it, nothing aims for you any more — and
+   red means a dove is in front of you, so do not loose. */
 .sh-reticle .r-lock{left:-19px; top:-19px; width:38px; height:38px; border-radius:50%;
   background:none; border:2px solid var(--gold); opacity:0; box-shadow:0 0 12px rgba(242,193,78,.6);
   transform:scale(1.5); transition:opacity .1s, transform .12s}
@@ -684,6 +710,46 @@ kbd{
   box-shadow:0 0 14px rgba(255,84,112,.7)}
 .sh-boss.stagger .sb-name{color:var(--gold); text-shadow:0 2px 0 rgba(4,12,22,.6), 0 0 30px rgba(242,193,78,.7)}
 .sh-boss.open .sb-phase{color:var(--gold); animation:surfPulse 1s ease-in-out infinite}
+
+.sb-stages{display:flex; gap:6px; justify-content:center; margin-top:8px}
+.sb-stage{width:7px; height:7px; transform:rotate(45deg); background:rgba(6,18,30,.6);
+  border:1px solid rgba(255,255,255,.28)}
+.sb-stage.done{background:rgba(255,84,112,.35); border-color:rgba(255,143,163,.5)}
+.sb-stage.now{background:var(--gold); border-color:transparent;
+  box-shadow:0 0 14px rgba(242,193,78,.9)}
+
+/* -------- the charms the owl fight lends you -------- */
+.sh-boons{position:absolute; left:50%; top:calc(100% - 210px); transform:translateX(-50%);
+  display:flex; flex-wrap:wrap; gap:8px; justify-content:center; width:min(760px,92vw);
+  pointer-events:none; z-index:23}
+.sh-boon{--bc:#ffd166; display:flex; align-items:center; gap:7px; padding:5px 10px 5px 8px;
+  border-radius:999px; background:rgba(6,18,30,.62); border:1px solid var(--bc);
+  box-shadow:0 0 18px -4px var(--bc); backdrop-filter:blur(3px);
+  animation:boonIn .28s cubic-bezier(.2,1.4,.4,1) both}
+.sh-boon b{font-size:9.5px; letter-spacing:.18em; font-weight:800; color:var(--bc);
+  text-transform:uppercase}
+.sh-boon .bt{position:relative; width:34px; height:4px; border-radius:2px;
+  background:rgba(255,255,255,.16); overflow:hidden}
+.sh-boon .bt i{position:absolute; inset:0; right:auto; background:var(--bc); border-radius:2px}
+/* the last two seconds, said out loud */
+.sh-boon.low{animation:boonLow .5s ease-in-out infinite}
+@keyframes boonIn{from{opacity:0; transform:translateY(8px) scale(.9)} to{opacity:1; transform:none}}
+@keyframes boonLow{0%,100%{opacity:1} 50%{opacity:.45}}
+
+/* -------- the intercept mark --------
+   A ring you have to put the crosshair on, drawn over everything: a mark
+   you cannot see through a branch lies to you at the worst moment. */
+.sh-lead{position:absolute; left:50%; top:50%; width:0; height:0; z-index:23;
+  opacity:0; transition:opacity .12s ease; pointer-events:none}
+.sh-lead.show{opacity:.92}
+.sh-lead i{position:absolute; display:block; border-radius:50%}
+.sh-lead i:first-child{left:-11px; top:-11px; width:22px; height:22px;
+  border:1.5px dashed rgba(57,230,255,.9); box-shadow:0 0 12px rgba(57,230,255,.45)}
+.sh-lead i:last-child{left:-2px; top:-2px; width:4px; height:4px; background:var(--cyan);
+  box-shadow:0 0 8px rgba(57,230,255,.9)}
+.sh-lead.far i:first-child{border-color:rgba(242,193,78,.9);
+  box-shadow:0 0 12px rgba(242,193,78,.45)}
+.sh-lead.far i:last-child{background:var(--gold); box-shadow:0 0 8px rgba(242,193,78,.9)}
 
 /* -------- focus vignette + pointer hint -------- */
 .sh-focus{position:fixed; inset:-4%; pointer-events:none; z-index:21; opacity:0;
@@ -798,6 +864,8 @@ kbd{
   .mod-blurb{display:none}
   .mc-icon{width:46px; height:46px; font-size:23px}
   .mc-meta{display:none}
+  .mission-card-row{gap:7px}
+  .mission-quick{width:78px; font-size:9px; letter-spacing:.08em}
   .title-foot{display:none}
   .hud-rings{min-width:0}
   .hud-progress{width:110px; margin-left:auto}

@@ -324,7 +324,13 @@ const AudioBus = (() => {
   // the shared 2s noise buffer, for recipes defined outside this file
   function noiseSource() { return ready ? noise() : null; }
 
+  // The score in music.js needs the context and a bus of its own: it
+  // books notes against the audio clock directly rather than playing a
+  // recipe per note, which is the only way a beat lands on the beat.
+  function bus(name) { return busses[name] || busses.sfx || null; }
+
   return { init, resume, define, play, engine, ambience, wind, noiseSource,
-           setMuted, toggleMute,
-           setVolume, get muted() { return muted; }, get ready() { return ready; } };
+           setMuted, toggleMute, bus,
+           setVolume, get ctx() { return ctx; },
+           get muted() { return muted; }, get ready() { return ready; } };
 })();

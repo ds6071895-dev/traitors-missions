@@ -43,7 +43,7 @@ const ShootoutTwists = (() => {
     {
       id: 'heavy', name: 'Heavy Bow', icon: '⌁', payout: 1.28,
       blurb: 'Slower to draw, but it hits like a falling tree and always pierces.',
-      tune: { drawTime: 0.85, speedMax: 168, piercePerfect: 2 },
+      tune: { drawTime: 0.85, speedMax: 140, piercePerfect: 2 },
       flags: { alwaysPierce: true },
     },
     {
@@ -95,9 +95,9 @@ const ShootoutTwists = (() => {
     {
       id: 'steady', name: 'Steady Hand', icon: '⊙', payout: 0.88,
       blurb: 'A longer breath, a wider clean window, and quarry that flies straighter. '
-           + 'Easier — and it pays like it.',
+           + 'Focus also shows the lead. Easier — and it pays like it.',
       tune: { perfectWindow: 0.2 },
-      config: { breathMax: 5.2, speedScale: 0.85 },
+      config: { breathMax: 5.2, speedScale: 0.85, leadMark: true },
     },
     {
       id: 'metronome', name: 'Metronome', icon: '⏱', payout: 1.44,

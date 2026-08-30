@@ -76,6 +76,7 @@ const Game = (() => {
     return {
       seed: Number.isFinite(saved.seed) ? saved.seed : U.dailySeed(),
       mode: modes.includes(saved.mode) ? saved.mode : (modes[0] || 'prize'),
+      tod: saved.tod || 'auto',
       modId: saved.modId || null,
       ghost: saved.ghost !== false,
     };
@@ -134,6 +135,30 @@ const Game = (() => {
     if (document.activeElement !== seedInput) seedInput.value = String(p.opts.seed);
     document.getElementById('setup-daily').classList.toggle('on', p.opts.daily);
 
+    // --- time of day, for a mission that has an opinion about the hour ---
+    const todRow = document.getElementById('setup-tod-row');
+    const todNote = document.getElementById('setup-tod-note');
+    const tods = setupDef.todOptions;
+    todRow.style.display = tods ? '' : 'none';
+    todNote.style.display = tods ? '' : 'none';
+    if (tods) {
+      const wrap = document.getElementById('setup-tod');
+      wrap.innerHTML = '';
+      // the preview is the authority on what was actually chosen: `auto`
+      // resolves to an hour the mission keeps, not to one the panel knows
+      const cur = p.opts.tod;
+      for (const t of tods) {
+        const b = document.createElement('button');
+        b.className = 'chip' + (t.id === cur ? ' on' : '');
+        b.textContent = t.name;
+        b.title = t.blurb || '';
+        b.onclick = () => setSetup({ tod: t.id });
+        wrap.appendChild(b);
+      }
+      const chosen = tods.find(t => t.id === cur);
+      todNote.textContent = chosen ? chosen.blurb : '';
+    }
+
     // --- the hand ---
     const hand = document.getElementById('setup-mods');
     hand.innerHTML = '';
@@ -186,6 +211,8 @@ const Game = (() => {
     list.innerHTML = '';
     for (const m of Missions.all()) {
       const rec = GameState.data.missions[m.id];
+      const row = document.createElement('div');
+      row.className = 'mission-card-row';
       const card = document.createElement('button');
       card.className = 'mission-card' + (m.locked ? ' locked' : '');
       card.disabled = !!m.locked;
@@ -208,7 +235,22 @@ const Game = (() => {
           startMission(m.id);
         });
       }
-      list.appendChild(card);
+      row.appendChild(card);
+      if (!m.locked && m.quickStart) {
+        const quick = document.createElement('button');
+        quick.className = 'mission-quick';
+        quick.innerHTML = `<span class="mq-icon">${m.quickStart.icon || '◆'}</span>`
+                        + `<span>${m.quickStart.label}</span>`;
+        quick.title = m.quickStart.title || m.quickStart.label;
+        quick.addEventListener('mouseenter', () => AudioBus.play('ui-hover'));
+        quick.addEventListener('click', () => {
+          AudioBus.resume(); AudioBus.play('ui-click');
+          const opts = Object.assign(defaultSetup(m), m.quickStart.opts || {});
+          launch(m.id, opts);
+        });
+        row.appendChild(quick);
+      }
+      list.appendChild(row);
     }
     document.getElementById('pot-value').textContent = U.money(GameState.prizePot);
   }

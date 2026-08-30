@@ -165,6 +165,38 @@ const FlyerKit = (() => {
     return g;
   }
 
+  /* ---------------- a charm ----------------
+
+     The owl fight drops these, and they have one job: to be obviously
+     not quarry and obviously worth an arrow, from any distance and
+     against a wood full of birds. So a charm is a lit core inside two
+     rings turning against each other, in a colour nothing else in the
+     wood uses, with a light of its own — and it climbs, so a charm you
+     ignore is a charm that leaves. */
+  function boonMesh(o) {
+    const g = new THREE.Group();
+    const S = o.size || 1;
+    const core = new THREE.Mesh(new THREE.OctahedronGeometry(S * 0.46, 0),
+                                new THREE.MeshBasicMaterial({ color: o.glow }));
+    g.add(core);
+    const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(S * 0.72, 0),
+                                 lam(o.color, { emissive: o.color, emissiveIntensity: 0.7,
+                                                transparent: true, opacity: 0.5 }));
+    g.add(shell);
+    // TorusGeometry begins in the XY plane. Rotate one ring into XZ and
+    // the other into YZ so the charm reads as a cage from every angle.
+    for (const ax of ['x', 'y']) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(S * 1.0, S * 0.08, 4, 12),
+                                  lam(o.color, { emissive: o.color, emissiveIntensity: 0.9 }));
+      ring.rotation[ax] = Math.PI / 2;
+      g.add(ring);
+    }
+    const light = new THREE.PointLight(o.glow, 2.2, 24, 2);
+    g.add(light);
+    g.userData.flame = core;          // the flyer already pulses this for us
+    return g;
+  }
+
   /* A four-legged animal: body, neck, head, four legs on pivots and a
      tail. The legs are the whole trick — a deer that slides across the
      grass reads as a bug, and four swinging boxes read as a deer. */
@@ -287,10 +319,10 @@ const FlyerKit = (() => {
      with two lit eyes, fingered wingtips, a fanned tail, and a heavy
      iron lantern gripped in its talons.
 
-     The three things that can actually be hurt are parts of the bird —
-     the lantern it carries, then its eyes, then its chest — rather than
-     markers hung off it, and each one is only open during its own phase
-     of the fight. `userData.weak` is how the mission finds them. */
+     The four things that can actually be hurt are parts of the bird —
+     lantern, eyes, talons, then chest — rather than markers hung off it,
+     and each one is only open during its own phase of the fight.
+     `userData.weak` is how the mission finds them. */
   function owlMesh(o) {
     const g = new THREE.Group();
     const S = o.size;
@@ -430,10 +462,12 @@ const FlyerKit = (() => {
     g.userData.wings = wings;
     g.userData.flame = flame;
     g.userData.head = head;
-    // the three things that can be hurt, in the order the fight opens them
+    // the four things that can be hurt, in the order the fight opens them
+    g.userData.talons = talons;
     g.userData.weak = {
       lantern: { obj: lantern, radius: S * 0.9, label: 'THE LANTERN' },
       eyes: { obj: head, radius: S * 0.85, label: 'THE EYES', lights: eyes },
+      talons: { obj: talons, radius: S * 0.8, label: 'THE TALONS' },
       chest: { obj: chest, radius: S * 1.0, label: 'THE HEART' },
     };
     return g;
@@ -556,6 +590,38 @@ const FlyerKit = (() => {
       mesh: () => bellMesh({ size: 0.7, body: '#c9a227', rim: '#8a6c12' }),
       death: 'gold', deathColor: '#ffd166',
     },
+    /* ---- the four charms the owl fight puts in the air ----
+       They are worth nothing at all in money, and everything in the
+       eight seconds after you hit one. */
+    charmEmber: {
+      id: 'charmEmber', name: 'Ember Charm', points: 0, hp: 1, radius: 2.1, size: 1.0,
+      speed: [1.8, 2.6], flap: 0, spin: 2.4, glowing: true,
+      boon: 'ember', boonName: 'EMBER ARROWS', boonBlurb: 'every arrow pierces and bites twice',
+      mesh: () => boonMesh({ size: 1.0, color: '#ff7a2f', glow: '#ffd166' }),
+      death: 'embers', deathColor: '#ff9c42',
+    },
+    charmBreath: {
+      id: 'charmBreath', name: 'Hawk Charm', points: 0, hp: 1, radius: 2.1, size: 1.0,
+      speed: [1.8, 2.6], flap: 0, spin: 2.4, glowing: true,
+      boon: 'breath', boonName: "HAWK'S BREATH", boonBlurb: 'hold your breath as long as you like',
+      mesh: () => boonMesh({ size: 1.0, color: '#39e6ff', glow: '#d8fbff' }),
+      death: 'embers', deathColor: '#39e6ff',
+    },
+    charmNerve: {
+      id: 'charmNerve', name: 'Nerve Charm', points: 0, hp: 1, radius: 2.1, size: 1.0,
+      speed: [1.8, 2.6], flap: 0, spin: 2.4, glowing: true,
+      boon: 'nerve', boonName: 'IRON NERVE', boonBlurb: 'the clean window opens twice as wide',
+      mesh: () => boonMesh({ size: 1.0, color: '#3ddc84', glow: '#ccffe4' }),
+      death: 'embers', deathColor: '#3ddc84',
+    },
+    charmPurse: {
+      id: 'charmPurse', name: 'Purse Charm', points: 0, hp: 1, radius: 2.1, size: 1.0,
+      speed: [1.8, 2.6], flap: 0, spin: 2.4, glowing: true,
+      boon: 'purse', boonName: 'GOLDEN HOUR', boonBlurb: 'everything pays double',
+      mesh: () => boonMesh({ size: 1.0, color: '#ffd166', glow: '#fff3cf' }),
+      death: 'gold', deathColor: '#ffd166',
+    },
+
     owl: {
       id: 'owl', name: 'The Great Owl', points: 900, hp: 99, radius: 5.6, size: 2.6,
       speed: [13, 18], flap: 2.4, wingAmp: 0.62, boss: true,
@@ -661,6 +727,7 @@ const FlyerKit = (() => {
     // straight up, wandering with the wind
     drift(f, dt, ctx) {
       f.bobT += dt;
+      f.spinA += (f.type.spin || 0) * dt;
       f.vel.set(ctx.wind.x * 2.4 + Math.sin(f.bobT * 0.7 + f.phase) * 1.4,
                 f.speed,
                 ctx.wind.z * 2.4 + Math.cos(f.bobT * 0.6 + f.phase) * 1.4);
@@ -817,6 +884,92 @@ const FlyerKit = (() => {
       f.flapRate = 3.4;
       bossKeep(f, dt, ctx);
     },
+    /* The talon run. It picks a lane that crosses your front rather
+       than a line that ends at your face, flies it flat out, and takes
+       the next one from wherever it came out of the last — so the fight
+       moves across the whole clearing and you are turning, tracking and
+       leading a thing the size of a shed. This is the phase the aim
+       assist used to make trivial, which is exactly why it exists now
+       that there isn't one. */
+    bossSweep(f, dt, ctx) {
+      const cap = f.speed * 2.2;
+      let need = !f.lane;
+      if (f.lane) {
+        const dx = f.pos.x - f.lane.x, dz = f.pos.z - f.lane.z;
+        if (dx * dx + dz * dz < 18 * 18) need = true;      // arrived; take the next
+      }
+      if (need) {
+        // Take a lane through the clearing to the opposite side. A small
+        // alternating lateral offset keeps consecutive passes distinct,
+        // while still bringing the owl close enough to feel dangerous.
+        let ux = f.pos.x - ctx.player.x, uz = f.pos.z - ctx.player.z;
+        const len = Math.hypot(ux, uz) || 1;
+        ux /= len; uz /= len;
+        f.laneSide = f.laneSide === 1 ? -1 : 1;
+        const r = f.sweepDist ?? 46;
+        const offset = f.laneSide * (9 + Math.random() * 5);
+        f.lane = {
+          x: ctx.player.x - ux * r - uz * offset,
+          z: ctx.player.z - uz * r + ux * offset,
+        };
+      }
+      const want = ctx.tmp.set(f.lane.x - f.pos.x,
+                               (ctx.player.y + (f.sweepUp ?? 12)) - f.pos.y,
+                               f.lane.z - f.pos.z);
+      want.setLength(cap);
+      f.vel.lerp(want, 1 - Math.exp(-2.8 * dt));
+      if (f.vel.lengthSq() > cap * cap) f.vel.setLength(cap);
+      f.head = Math.atan2(f.vel.x, f.vel.z);
+      // bank out of the *rate* of turn, which is what a wingover looks like
+      const turn = U.wrapAngle(f.head - (f._prevHead ?? f.head));
+      f._prevHead = f.head;
+      f.bank = U.damp(f.bank, U.clamp(-turn / Math.max(dt, 1e-3) * 0.5, -0.9, 0.9), 6, dt);
+      f.flapRate = 2.6;
+      bossKeep(f, dt, ctx);
+    },
+    /* The call. It climbs, stops, and hammers its wings while whatever
+       it is calling arrives — a long, obvious, deliberately unhittable
+       beat that tells you to deal with the sky instead. */
+    bossCall(f, dt, ctx) {
+      const want = ctx.tmp.set(ctx.player.x - f.pos.x,
+                               (ctx.player.y + (f.callUp ?? 34)) - f.pos.y,
+                               ctx.player.z - f.pos.z);
+      const flat = Math.hypot(want.x, want.z) || 1e-3;
+      const rad = f.callDist ?? 54;
+      want.x -= want.x / flat * rad;
+      want.z -= want.z / flat * rad;
+      want.multiplyScalar(0.9);
+      const cap = f.speed * 1.6;
+      if (want.lengthSq() > cap * cap) want.setLength(cap);
+      f.vel.lerp(want, 1 - Math.exp(-2.0 * dt));
+      const toP = ctx.tmp.set(ctx.player.x - f.pos.x, 0, ctx.player.z - f.pos.z);
+      f.head = Math.atan2(toP.x, toP.z);
+      f.bank = 0;
+      f.flapRate = 4.5;
+      bossKeep(f, dt, ctx);
+    },
+    /* Enraged: it will not hold still and it will not go away. It slides
+       round you at arm's length, rising and falling, always facing you,
+       which makes the chest a target that is never in the same place
+       twice but is always *there*. */
+    bossRage(f, dt, ctx) {
+      f.rageA = (f.rageA ?? Math.atan2(f.pos.x - ctx.player.x, f.pos.z - ctx.player.z))
+                + dt * (f.rageRate ?? 0.9) * f.dir;
+      const rad = f.hoverDist ?? 30;
+      const want = ctx.tmp.set(
+        ctx.player.x + Math.sin(f.rageA) * rad - f.pos.x,
+        (ctx.player.y + (f.hoverUp ?? 15) + Math.sin(f.age * 1.9) * 6) - f.pos.y,
+        ctx.player.z + Math.cos(f.rageA) * rad - f.pos.z);
+      want.multiplyScalar(1.4);
+      const cap = f.speed * 2.6;
+      if (want.lengthSq() > cap * cap) want.setLength(cap);
+      f.vel.lerp(want, 1 - Math.exp(-3.0 * dt));
+      const toP = ctx.tmp.set(ctx.player.x - f.pos.x, 0, ctx.player.z - f.pos.z);
+      f.head = Math.atan2(toP.x, toP.z);
+      f.bank = Math.sin(f.age * 3.1) * 0.22;
+      f.flapRate = 4.0;
+      bossKeep(f, dt, ctx);
+    },
     // staggered: dead in the air for a beat, wings loose
     bossStagger(f, dt, ctx) {
       f.vel.multiplyScalar(1 - Math.min(1, 2.4 * dt));
@@ -892,12 +1045,17 @@ const FlyerKit = (() => {
     // there is not difficulty, it is a lottery.
     hitRadius(from) {
       const d = from ? this.pos.distanceTo(from) : 0;
-      // Generous, and more generous the further away it is: a raven at
-      // 120 m is a handful of pixels, and pixel-hunting is not the game.
-      // The dove is the exception — it keeps a tight sphere, because
-      // being punished by a hit you did not really make is the worst
-      // thing that can happen in a shooting gallery.
-      const grow = this.type.guard ? 220 : 90;
+      // Forgiving with range, because a raven at 120 m is a handful of
+      // pixels and pixel-hunting is not the game — but only just. This
+      // used to be twice as generous, back when the bow also solved the
+      // lead for you; two layers of the same forgiveness stacked up to a
+      // bow that hit whatever was roughly over there, and a playtester
+      // said as much. The lead is yours again, so the sphere is the only
+      // help left and it stays modest.
+      // The dove is the exception the other way — it keeps the tightest
+      // sphere of anything, because being punished for a hit you did not
+      // really make is the worst thing a shooting gallery can do.
+      const grow = this.type.guard ? 340 : 240;
       return this.type.radius * this.scale * (1 + d / grow);
     }
 
@@ -919,8 +1077,7 @@ const FlyerKit = (() => {
 
     /* Where an arrow has to land to hurt this thing. For everything in
        the wood that is its middle; for the owl it is whichever part the
-       fight has opened, which is also where the aim assist should be
-       looking. */
+       fight has opened, which is also where the focus lead marker points. */
     aimPoint(out) {
       const v = out || this._wp;
       const w = this.weak && this.weakName && this.weak[this.weakName];
@@ -930,10 +1087,12 @@ const FlyerKit = (() => {
 
     // did that arrow land on the open part, or just on a very cross bird?
     weakRadius(w) {
-      // deliberately generous. The owl is a long way off for most of the
-      // fight, the assist has already aimed at the open part, and a shot
-      // that visibly went into the lantern must count as one.
-      return w.radius * this.scale * 2.4;
+      // Generous enough that a shot which visibly went into the lantern
+      // counts as one, and no more than that. Nothing aims at the open
+      // part on your behalf any more, so this is where the whole boss
+      // fight is decided: too wide and every arrow that clips the bird
+      // is a hit, too tight and the owl is a lottery at sixty metres.
+      return w.radius * this.scale * 1.55;
     }
     /* The arrow's own segment against the open weak point. The body has a
        hit sphere many metres across, so the point where an arrow *enters*
@@ -1024,16 +1183,54 @@ const FlyerKit = (() => {
         this.mark.position.copy(this.pos);
         this.mark.position.y += this.type.radius * this.scale * 1.5 + 1.2;
       }
+      /* Which way it is pointing.
+
+         Every model in here is built facing −Z: beak, chest and snout at
+         the front of the group, tail at the back. `head` is a compass
+         bearing — 0 is +Z — so the yaw that puts the *face* along the
+         bearing is `head + PI`. Without that half turn every bird in the
+         wood flies tail first, which is only obvious on the one thing you
+         look at properly: an owl that dives at you back-of-head first.
+
+         The order matters as much as the angles. In YXZ the yaw is taken
+         in the world, the pitch in the yawed frame (so a climb is a climb
+         whichever way it is heading, not a roll) and the bank about the
+         model's own length. */
       this.mesh.rotation.set(0, 0, 0);
+      this.mesh.rotation.order = 'YXZ';
       if (this.type.spin) {
         this.mesh.rotation.y = this.spinA;
         this.mesh.rotation.z = Math.PI * 0.12;
       } else {
-        this.mesh.rotation.y = this.head;
-        this.mesh.rotation.z = U.clamp(this.bank, -1, 1);
+        this.mesh.rotation.y = this.head + Math.PI;
+        // banking into the turn, not out of it: +Z roll lifts the right
+        // wing, and a rising heading is a turn to the left
+        this.mesh.rotation.z = -U.clamp(this.bank, -1, 1);
         // nose follows the climb, which is what makes a dive look like one
         const climb = Math.atan2(this.vel.y, Math.hypot(this.vel.x, this.vel.z) || 1);
-        this.mesh.rotation.x = -U.clamp(climb, -0.9, 0.9) * 0.7;
+        this.mesh.rotation.x = U.clamp(climb, -0.9, 0.9) * 0.7;
+      }
+
+      /* And, for the owl, where it is *looking*. An owl's head turns
+         nearly the whole way round, and this one uses all of it: the eyes
+         stay on you while it circles, so the round you spend shooting at
+         its lantern is a round spent being watched. It costs one rotation
+         and it is most of the character of the fight. */
+      if (this.mesh.userData.head && ctx.player) {
+        const h = this.mesh.userData.head;
+        h.rotation.order = 'YXZ';
+        const dx = ctx.player.x - this.pos.x, dz = ctx.player.z - this.pos.z;
+        const flat = Math.hypot(dx, dz) || 1e-3;
+        const want = Math.atan2(dx, dz) + Math.PI;          // same convention
+        // relative to the body, and only as far round as a neck will go
+        const relY = U.clamp(U.wrapAngle(want - (this.head + Math.PI)), -2.7, 2.7);
+        const relX = U.clamp(Math.atan2(ctx.player.y - (this.pos.y + this.type.size * 0.9),
+                                        flat) - this.mesh.rotation.x, -0.7, 0.7);
+        // damped numerically rather than by shortest angle: from hard left
+        // to hard right an owl unwinds through the front, it does not
+        // whip round through its own shoulders
+        h.rotation.y = U.damp(h.rotation.y, relY, 4.5, dt);
+        h.rotation.x = U.damp(h.rotation.x, relX, 4.5, dt);
       }
 
       if (this.wings) {

@@ -31,10 +31,21 @@ class BoatRaceMission {
     riskMult: 3,            // and what it pays for going there
     startTime: 80,
     trialLimit: 300,        // a time trial still has to end sometime
-    // Half the rings buying the same clock: each one is worth twice what
-    // it was, or a prize run would run out of time before the finish.
+    // What a gate buys you. Tuned so a clean line finishes with time in hand
+    // and a sloppy one does not: three quarters of the gates threaded should
+    // be a photo finish, not a formality.
     timePerHoop: 6.8,
     timePerfectBonus: 1.2,
+    missPenalty: 3.0,       // ...and what fumbling one costs, in seconds
+    trialMissPenalty: 2.0,
+    // ---- the home stretch ----
+    // The last stretch of the channel is where the run is decided: the rings
+    // tighten, nearly every gate grows a gold one, and they pay double —
+    // but they buy you no more clock than the easy ones did.
+    finalFrom: 0.62,        // where it starts, as a fraction of the channel
+    finalMult: 2,           // what a gate in it is worth
+    finalRingScale: 0.82,   // and how much of a ring is left by then
+    finalRiskChance: 0.85,
     trialGain: 3.0,         // seconds *off* the clock per ring, in time trial
     trialPerfectBonus: 1.0,
     moneyPerHoop: 250,
@@ -74,6 +85,16 @@ class BoatRaceMission {
     },
   };
 
+  /* Time of day is a dial of its own, not just something the seed happens
+     to deal. `auto` walks the clock on one hour every run, so back-to-back
+     races alternate day and night instead of repeating the same afternoon
+     — which is what a default seed used to give you all day long. */
+  static TOD = [
+    { id: 'auto',  name: 'Auto',  blurb: 'The clock moves on an hour every run.' },
+    { id: 'day',   name: 'Day',   blurb: 'Daylight, whatever the channel drew.' },
+    { id: 'night', name: 'Night', blurb: 'Moonlight. Harder to read, and it pays for it.' },
+  ];
+
   // 0 is no medal; the run's own par is worked out from the course it got
   static MEDALS = [
     null,
@@ -94,6 +115,7 @@ class BoatRaceMission {
     return {
       seed,
       mode: opts.mode === 'trial' ? 'trial' : 'prize',
+      tod: BoatRaceMission.TOD.some(t => t.id === opts.tod) ? opts.tod : 'auto',
       modId: opts.modId || null,
       ghost: opts.ghost !== false,
       daily: seed === U.dailySeed(),
@@ -111,20 +133,38 @@ class BoatRaceMission {
     return C;
   }
 
-  /* The sky is still the seed's to choose; the sea is not. Every race is
-     run on a storm sea now — it is the water this boat was built for, and
-     a run that drew glass was a different, duller game. Forced last, so
-     nothing can deal its way out of it. */
-  static conditionsFor(seed, mod) {
-    return Object.assign(Conditions.forSeed(seed), (mod && mod.cond) || {},
-                         { sea: 'storm' });
+  /* Where the auto clock currently stands. It lives in the save rather than
+     in the setup, so it keeps moving whichever channel you race — and a
+     retry of the run you just did comes back at a different hour. */
+  static autoTime() {
+    const cur = GameState.settings.raceTime;
+    return Conditions.CYCLE.includes(cur) ? cur : Conditions.CYCLE[0];
+  }
+
+  static advanceTime() {
+    GameState.settings.raceTime = Conditions.nextTime(BoatRaceMission.autoTime());
+    GameState.save();
+  }
+
+  /* The sea is not the seed's to choose: every race is run on a storm sea
+     now — it is the water this boat was built for, and a run that drew glass
+     was a different, duller game. Forced last, so nothing can deal its way
+     out of it. The hour comes from the setup's own dial; a modifier that
+     names an hour (Night Run) still outranks it, because that one was
+     chosen on purpose and paid for. */
+  static conditionsFor(o, mod) {
+    const base = Conditions.forSeed(o.seed);
+    const time = o.tod === 'night' ? 'night'
+               : o.tod === 'day' ? Conditions.dayTime(base.time)
+               : BoatRaceMission.autoTime();
+    return Object.assign(base, { time }, (mod && mod.cond) || {}, { sea: 'storm' });
   }
 
   // everything the setup UI needs, without touching the GPU
   static preview(opts) {
     const o = BoatRaceMission.normalise(opts);
     const mod = Modifiers.byId(o.modId);
-    const cond = BoatRaceMission.conditionsFor(o.seed, mod);
+    const cond = BoatRaceMission.conditionsFor(o, mod);
     const key = GameState.runKey(o.mode, o.seed, o.modId);
     const rec = GameState.runRecord('boat-race', key);
     return {
@@ -154,7 +194,7 @@ class BoatRaceMission {
     this.mod = Modifiers.byId(this.opts.modId);
     this.flags = Object.assign({}, this.mod && this.mod.flags);
     this.C = BoatRaceMission.configFor(this.mod);
-    this.cond = BoatRaceMission.conditionsFor(this.seed, this.mod);
+    this.cond = BoatRaceMission.conditionsFor(this.opts, this.mod);
     this.payout = Conditions.payout(this.cond) * (this.mod ? this.mod.payout : 1);
     this.courseName = U.courseName(this.seed);
     this.key = GameState.runKey(this.mode, this.seed, this.opts.modId);
@@ -172,6 +212,7 @@ class BoatRaceMission {
     this.gatesHit = 0;
     this.perfects = 0;
     this.riskHits = 0;
+    this.stretchHits = 0;
     this.tricks = 0;
     this.trickMoney = 0;
     this.grazeMoney = 0;
@@ -186,6 +227,8 @@ class BoatRaceMission {
     this.camDip = 0;              // camera drops on a heavy landing
     this.camPush = 0;             // camera falls back when the boost lights
     this.hint = -1;
+    this._inStretch = false;      // has the home stretch announced itself yet
+    this._featureSeen = new Set();
     this._frame = {};
     this._surf = {};
     this._tmpV = new THREE.Vector3();
@@ -240,6 +283,10 @@ class BoatRaceMission {
     // ...so the clock has to know how far it is being asked to cover
     this.startTime = Math.round(C.startTime * U.clamp(this.path.total / 4200, 0.82, 1.30));
     this.time = this.startTime;
+
+    // the throats and bays the path drew for itself are announced as you
+    // reach them, so a change in the water reads as a change in the job
+    this._featureSeen = new Set();
 
     this.gates = this._buildGates();
     this.hoops = this.gates.flatMap(g => g.rings);
@@ -308,58 +355,89 @@ class BoatRaceMission {
     const baseR = C.hoopRadius * C.hoopRadiusScale;
     const riskR = baseR * C.riskRadiusScale;
 
-    this._ringGeo = new THREE.TorusGeometry(baseR, 0.85, 14, 56);
-    this._glowGeo = new THREE.TorusGeometry(baseR, 2.9, 8, 44);
-    this._riskRingGeo = new THREE.TorusGeometry(riskR, 0.8, 14, 48);
-    this._riskGlowGeo = new THREE.TorusGeometry(riskR, 2.6, 8, 40);
     this._lampGeo = new THREE.IcosahedronGeometry(0.85, 1);
+    this._hoopFrameMat = new THREE.MeshLambertMaterial({
+      vertexColors: true, flatShading: true,
+    });
+    this._hoopGeos = [this._lampGeo];
 
-    // Everything that never changes colour — pylons, pontoons and the rim
-    // blades — is one geometry shared by every ring. Twenty-six gates used to
-    // cost fourteen draw calls each.
-    const frameGeo = this._buildHoopFrame(baseR);
-    const riskFrameGeo = this._buildHoopFrame(riskR);
-    const frameMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-    this._hoopGeos = [this._ringGeo, this._glowGeo, this._riskRingGeo,
-                      this._riskGlowGeo, this._lampGeo, frameGeo, riskFrameGeo];
-    this._hoopFrameMat = frameMat;
-    this._frameGeos = { safe: frameGeo, risk: riskFrameGeo };
+    /* One kit of geometry per size of ring on the course — the two the
+       ordinary gates use and the tighter pair the home stretch uses. Rings
+       are sized by *building* them smaller rather than by scaling the group,
+       because the group carries the pylons down to their pontoons and a
+       scaled gate would float its floats above the water. Everything that
+       never changes colour is shared, so a gate is a handful of draw calls
+       however many of them the channel has. */
+    this._ringKit = {};
+    const kit = (name, radius, tube) => {
+      const ring = new THREE.TorusGeometry(radius, tube, 14, 52);
+      const glow = new THREE.TorusGeometry(radius, radius * 0.23, 8, 42);
+      const frame = this._buildHoopFrame(radius);
+      this._hoopGeos.push(ring, glow, frame);
+      this._ringKit[name] = { ring, glow, frame, radius };
+    };
+    kit('safe', baseR, 0.85);
+    kit('risk', riskR, 0.8);
+    kit('finalSafe', baseR * C.finalRingScale, 0.85);
+    kit('finalRisk', riskR * C.finalRingScale, 0.8);
 
     // the weave that makes you drive is seeded, so no two channels phrase
     // their gates the same way
     const w1 = rng.range(0.8, 1.5), w2 = rng.range(0.3, 0.7);
     const p1 = rng.range(0, 6.28), p2 = rng.range(0, 6.28);
 
+    this.gateMultSum = 0;         // what par has to expect the course to pay
     let s = 200, idx = 0;
     while (s < this.path.total - 150) {
       const at = this.path.at(s);
-      const nx = -at.tangent.z, nz = at.tangent.x;
+      // the last stretch of the channel is the one that decides the run
+      const final = s / this.path.total >= C.finalFrom;
+      const feat = this.path.featureAt ? this.path.featureAt(s) : null;
+      const kind = final ? 'finalSafe' : 'safe';
+      const riskKind = final ? 'finalRisk' : 'risk';
+      const safeR = this._ringKit[kind].radius;
+      const rR = this._ringKit[riskKind].radius;
 
       const sway = Math.sin(idx * w1 + p1) * 0.5 + Math.sin(idx * w2 + p2) * 0.22;
       const gate = {
-        index: idx, s,
+        index: idx, s, final, feature: feat ? feat.kind : null,
         cx: at.point.x, cz: at.point.z,
         nx: at.tangent.x, nz: at.tangent.z,   // gate plane normal = travel direction
         state: 'pending', rings: [],
       };
 
-      gate.rings.push(this._makeRing(gate, at, sway * (at.half - baseR - 18), baseR, 'safe'));
+      // How far off the centreline the safe ring is allowed to sit. A throat
+      // has no room to weave in and the ring goes down the middle of it; a
+      // bay has more room than is any use, so the weave is capped rather
+      // than left to put the ring somewhere you would never look.
+      const amp = U.clamp(at.half - safeR - 18, 0, 62);
+      const safeLat = sway * amp;
+      gate.rings.push(this._makeRing(gate, at, safeLat, kind));
 
-      const wantRisk = this.flags.allRisk || rng() < C.riskChance;
-      if (wantRisk) {
-        // hard against the opposite wall from wherever the safe line went
-        const side = sway >= 0 ? -1 : 1;
-        const lat = side * (at.half - riskR - C.riskInset);
-        gate.rings.push(this._makeRing(gate, at, lat, riskR, 'risk'));
+      // hard against the opposite wall from wherever the safe line went
+      const side = sway >= 0 ? -1 : 1;
+      const riskLat = side * (at.half - rR - C.riskInset);
+      let chance = final ? Math.max(C.riskChance, C.finalRiskChance) : C.riskChance;
+      if (feat && feat.kind === 'bay') chance += 0.25;
+      // ...but only where the two rings are actually two lines. In a throat
+      // they would overlap, and a gold ring you cannot miss is not a choice.
+      const room = Math.abs(riskLat - safeLat) > safeR + rR + 2;
+      if (room && (this.flags.allRisk || rng() < chance)) {
+        gate.rings.push(this._makeRing(gate, at, riskLat, riskKind));
       }
 
+      this.gateMultSum += final ? C.finalMult : 1;
       gates.push(gate);
       idx++;
       // Gates bunch up through the bends and stretch out on the straights, so
       // the course has phrasing — a run-up, a flurry, a breather — instead of
-      // a metronome.
+      // a metronome. A throat comes at you faster than that; a bay is the
+      // breather before whatever is next.
       const curv = this._curvature(s);
-      s += U.lerp(C.hoopSpacing * 1.5, C.hoopSpacing * 0.68, curv);
+      let step = U.lerp(C.hoopSpacing * 1.5, C.hoopSpacing * 0.68, curv);
+      if (feat) step *= feat.kind === 'narrows' ? 0.74 : 1.18;
+      if (final) step *= 0.86;
+      s += step;
     }
     return gates;
   }
@@ -383,26 +461,32 @@ class BoatRaceMission {
     return U.clamp(this._rawCurvature(s) / this._curvMax, 0, 1);
   }
 
-  _makeRing(gate, at, lat, radius, kind) {
+  _makeRing(gate, at, lat, variant) {
     const C = this.C;
-    const risk = kind === 'risk';
+    const K = this._ringKit[variant];
+    const radius = K.radius;
+    const risk = variant === 'risk' || variant === 'finalRisk';
+    const final = variant === 'finalSafe' || variant === 'finalRisk';
     const nx = -at.tangent.z, nz = at.tangent.x;
     const x = at.point.x + nx * lat, z = at.point.z + nz * lat;
 
-    const idle = risk ? '#f5b625' : '#25e0f5';
+    // gold is still the ring against the rocks; violet is the home stretch,
+    // so the stretch that pays double is one you can see coming
+    const idle = risk ? '#f5b625' : (final ? '#b98cff' : '#25e0f5');
+    const glowIdle = risk ? '#ffca4d' : (final ? '#c9a4ff' : '#39e6ff');
     const group = new THREE.Group();
-    const ring = new THREE.Mesh(risk ? this._riskRingGeo : this._ringGeo,
+    const ring = new THREE.Mesh(K.ring,
       new THREE.MeshLambertMaterial({
-        color: risk ? '#7a4c05' : '#0e7d92', emissive: idle,
+        color: risk ? '#7a4c05' : (final ? '#3b2a6b' : '#0e7d92'), emissive: idle,
         emissiveIntensity: 1.5, flatShading: true,
       }));
-    const glow = new THREE.Mesh(risk ? this._riskGlowGeo : this._glowGeo,
+    const glow = new THREE.Mesh(K.glow,
       new THREE.MeshBasicMaterial({
-        color: risk ? '#ffca4d' : '#39e6ff', transparent: true, opacity: 0.22,
+        color: glowIdle, transparent: true, opacity: 0.22,
         blending: THREE.AdditiveBlending, depthWrite: false,
       }));
     glow.renderOrder = 3;
-    const frame = new THREE.Mesh(this._frameGeos[kind], this._hoopFrameMat);
+    const frame = new THREE.Mesh(K.frame, this._hoopFrameMat);
     const lamp = new THREE.Mesh(this._lampGeo, new THREE.MeshLambertMaterial({
       color: '#ffffff', emissive: idle, emissiveIntensity: 1.6, flatShading: true,
     }));
@@ -412,9 +496,11 @@ class BoatRaceMission {
     this.scene.add(group);
 
     const h = {
-      gate, kind, risk, x, z, lat,
+      gate, kind: risk ? 'risk' : 'safe', risk, final,
+      mult: final ? C.finalMult : 1,
+      x, z, lat,
       baseRadius: radius, radius,
-      idle, group, ring, glow, lamp,
+      idle, glowIdle, group, ring, glow, lamp,
       state: 'pending', flash: 0, height: C.hoopHeight + (risk ? 0.8 : 0),
       pos: new THREE.Vector3(x, 0, z),
     };
@@ -576,14 +662,16 @@ class BoatRaceMission {
       // it the bigger the sea, because a storm spends half the run in the air
       // and the other half climbing. Then it banks the gate deductions.
       const speed = U.clamp(33 - 3.4 * (swell - 1), 25, 35);
-      const par = Math.max(25, this.path.total / speed - gates * C.trialGain * 2.4);
+      // gateMultSum, not the gate count: the home stretch knocks twice as
+      // much off the clock as the rest of the channel does
+      const par = Math.max(25, this.path.total / speed - this.gateMultSum * C.trialGain * 2.4);
       return { kind: 'time', par, cuts: [par * 1.30, par * 1.12, par, par * 0.88] };
     }
     // per gate: the base ring, a healthy multiplier, and the gold rings and
     // close calls a good line picks up on the way past — plus an allowance
     // for tricks that scales with the sea, because a big swell hands you far
     // more launches to spin off and par has to expect you to take them
-    const par = (gates * C.moneyPerHoop * C.moneyScale * 4.4
+    const par = (this.gateMultSum * C.moneyPerHoop * C.moneyScale * 4.4
                  + gates * C.trickMoney * C.moneyScale * 1.7 * swell
                  + C.finishBonus
                  + this.startTime * C.timeBonusPerSecond * 0.30) * this.payout;
@@ -644,6 +732,7 @@ class BoatRaceMission {
   dispose() {
     clearTimeout(this._reportT);
     clearTimeout(this._flashT);
+    clearTimeout(this._stretchT);
     if (this.engineSnd) this.engineSnd.stop();
     if (this.ambSnd) this.ambSnd.stop();
     if (this.fx) this.fx.dispose();
@@ -678,9 +767,12 @@ class BoatRaceMission {
     this.time = this.startTime;
     this.deduct = 0;
     this.money = 0; this.combo = 0; this.comboT = 0; this.bestCombo = 0;
-    this.gatesHit = 0; this.perfects = 0; this.riskHits = 0;
+    this.gatesHit = 0; this.perfects = 0; this.riskHits = 0; this.stretchHits = 0;
     this.tricks = 0; this.trickMoney = 0; this.grazeMoney = 0; this.grazeT = 0;
     this._airHints = 0;
+    this._inStretch = false;
+    this._featureSeen = new Set();
+    clearTimeout(this._stretchT);
     this.elapsed = 0;
     this.hint = -1; this.world.hint = -1;
     this.hitStop = 0; this.timeScale = 1; this.timeScaleTarget = 1;
@@ -696,7 +788,7 @@ class BoatRaceMission {
       h.group.scale.setScalar(1);
       h.ring.material.emissive.set(h.idle);
       h.lamp.material.emissive.set(h.idle);
-      h.glow.material.color.set(h.risk ? '#ffca4d' : '#39e6ff');
+      h.glow.material.color.set(h.glowIdle);
     }
     const p0 = this.path.at(0);
     this.boat.reset(p0.point.x, p0.point.z, Math.atan2(p0.tangent.x, p0.tangent.z));
@@ -769,6 +861,8 @@ class BoatRaceMission {
       this._updateCombo(dt);
       this._checkGates();
       this._checkGraze(dt);
+      this._checkStretch();
+      this._checkFeature();
       this._recordGhost(dt);
       this._checkFinish();
       if (this.mode === 'prize' && this.time <= 0) { this.time = 0; this._fail("TIME'S UP"); }
@@ -807,6 +901,39 @@ class BoatRaceMission {
       this.state = 'racing';
       this.boat.boost = this.flags.noBoost ? 0 : 1;
     }
+  }
+
+  /* -------- the shape of a run --------
+     A race that is the same job from the start line to the finish is one you
+     have finished after two goes. These two are the beats: the water changes
+     under you, and then the last stretch turns the screw. */
+
+  _checkStretch() {
+    if (this._inStretch) return;
+    const f = this.world.lastFrame;
+    if (!f || f.s < this.path.total * this.C.finalFrom) return;
+    this._inStretch = true;
+    this._setCenter('HOME STRETCH', `Tighter rings · gates pay ×${this.C.finalMult}`, 'go');
+    this._flash(0.28, '#b98cff');
+    this.fovKick = Math.min(this.fovKick + 8, 16);
+    AudioBus.play('perfect', { combo: 6 });
+    Input.rumble(0.5, 240);
+    clearTimeout(this._stretchT);
+    this._stretchT = setTimeout(() => {
+      if (this.state === 'racing') this._setCenter('', '');
+    }, 1600);
+  }
+
+  // the throats and bays name themselves as you reach them
+  _checkFeature() {
+    const f = this.world.lastFrame;
+    if (!f) return;
+    const feat = this.path.featureAt ? this.path.featureAt(f.s) : null;
+    if (!feat || this._featureSeen.has(feat)) return;
+    this._featureSeen.add(feat);
+    this.fx.labels.add(feat.name.toUpperCase(),
+      this._tmpV.copy(this.boat.pos).setY(this.boat.pos.y + 6),
+      { className: 'air', life: 1.3, rise: 9 });
   }
 
   // a cross-current, always the same way down a given channel
@@ -904,15 +1031,19 @@ class BoatRaceMission {
     const perfect = radialDist < h.radius * 0.30;
     if (perfect) this.perfects++;
     if (h.risk) this.riskHits++;
+    if (h.final) this.stretchHits++;
     const mult = 1 + Math.floor(this.combo / 2) * 0.5;
     const risk = h.risk ? C.riskMult : 1;
-    const amount = Math.round(C.moneyPerHoop * C.moneyScale * mult * risk
+    const amount = Math.round(C.moneyPerHoop * C.moneyScale * mult * risk * h.mult
                               * (perfect ? C.perfectMult : 1));
     this.money += amount;
 
     if (this.mode === 'trial') {
-      this.deduct += (C.trialGain + (perfect ? C.trialPerfectBonus : 0)) * risk;
+      this.deduct += (C.trialGain + (perfect ? C.trialPerfectBonus : 0)) * risk * h.mult;
     } else {
+      // Deliberately *not* multiplied by h.mult: the home stretch pays double
+      // and buys you nothing. That is the squeeze — the clock you arrive with
+      // is the clock you finish on.
       this.time += (C.timePerHoop + (perfect ? C.timePerfectBonus : 0)) * (h.risk ? 1.6 : 1);
     }
     this.boat.addBoost((C.boostPerHoop + (perfect ? 0.1 : 0)) * (h.risk ? 1.5 : 1));
@@ -931,7 +1062,11 @@ class BoatRaceMission {
       this.hitStop = Math.max(this.hitStop, h.risk ? 0.07 : 0.055);
     }
 
-    const tag = h.risk ? `RISK ×${C.riskMult}  ` : (perfect ? 'PERFECT  ' : '');
+    // what this particular ring was worth over a plain one, so a gold ring in
+    // the home stretch says ×6 rather than lying about half of itself
+    const ringMult = risk * h.mult;
+    const tag = ringMult > 1 ? `${h.risk ? 'RISK' : 'STRETCH'} ×${ringMult}  `
+                             : (perfect ? 'PERFECT  ' : '');
     this.fx.labels.add(tag + U.money(amount) + (mult > 1 ? `  ×${mult}` : ''), h.pos, {
       className: h.risk ? 'perfect' : (perfect ? 'perfect' : 'good'), life: 1.5, rise: 11,
     });
@@ -968,13 +1103,25 @@ class BoatRaceMission {
     h.glow.material.opacity = 0.07;
   }
 
+  /* A missed gate used to cost nothing but the chain, which is why a prize
+     run could not really be lost: the clock only ever went up. Now it bites,
+     and a run you have been sloppy in is a run you can run out of. */
   _missGate(gate) {
+    const C = this.C;
     gate.state = 'miss';
     for (const h of gate.rings) if (h.state === 'pending') this._dimRing(h, 'miss');
     const at = gate.rings[0].pos;
-    if (this.combo >= 3) {
-      this.fx.labels.add('COMBO LOST', at, { className: 'bad', life: 1.2, rise: 7 });
+
+    if (this.state === 'racing') {
+      const cost = this.mode === 'trial' ? C.trialMissPenalty : C.missPenalty;
+      if (this.mode === 'trial') this.deduct -= cost;
+      else this.time = Math.max(0, this.time - cost);
+      this.fx.labels.add(`MISSED  −${cost.toFixed(0)}s`
+                         + (this.combo >= 3 ? '  CHAIN LOST' : ''), at,
+        { className: 'bad', life: 1.3, rise: 8 });
+      this._flash(0.2, '#ff5470');
       AudioBus.play('miss');
+      Input.rumble(0.35, 140);
     }
     this.combo = 0;
     this.comboT = 0;
@@ -1138,6 +1285,7 @@ class BoatRaceMission {
       totalHoops: this.gates.length,
       perfects: this.perfects,
       riskHits: this.riskHits,
+      stretchHits: this.stretchHits,
       tricks: this.tricks,
       bestCombo: this.bestCombo,
       par: this.targets.par,
@@ -1149,6 +1297,10 @@ class BoatRaceMission {
     if (this.reported || !this.result) return;
     this.reported = true;
     const r = this.result;
+
+    // one hour on, so the next run — including a straight retry of this one —
+    // is not the race you have just finished, repainted
+    if (this.opts.tod === 'auto') BoatRaceMission.advanceTime();
 
     // per-course record, keyed by the whole setup
     const { isBest } = GameState.recordRun('boat-race', this.key, r, this.modeDef.better);
@@ -1194,7 +1346,7 @@ class BoatRaceMission {
       h.group.rotation.z = Math.atan2(this._surf.nx, this._surf.ny) * 0.35;
       h.group.rotation.x = -Math.atan2(this._surf.nz, this._surf.ny) * 0.2;
       if (h.state === 'pending') {
-        const beat = h.risk ? 4.6 : 3;
+        const beat = h.risk ? 4.6 : (h.final ? 3.8 : 3);
         const pulse = 1.1 + Math.sin(t * beat + h.gate.index) * (h.risk ? 0.45 : 0.3);
         h.ring.material.emissiveIntensity = pulse;
         h.lamp.material.emissiveIntensity = 0.8 + pulse;
@@ -1595,7 +1747,9 @@ Missions.register({
     'Every gate you thread adds to the prize pot and buys you time — and the gold ring ' +
     'tucked against the rocks pays three times as much as the safe one. Ride down the face ' +
     'of a wave for free speed, launch off the crests, roll it in the air, and keep the chain ' +
-    'alive for a bigger multiplier.',
+    'alive for a bigger multiplier. The channel narrows to a throat and opens into open '
+    + 'water on the way down, and the last stretch of it — tighter rings, gold on nearly '
+    + 'every gate, double money and not a second of extra clock — is where the run is won.',
   icon: '01',
   maxPrize: 60000,
   players: 'Solo',
@@ -1603,6 +1757,7 @@ Missions.register({
   order: 0,
   setup: true,                      // this mission has a pre-race setup panel
   setupLabels: { course: 'Channel', modifier: 'Modifier' },
+  todOptions: BoatRaceMission.TOD,
   preview: (opts) => BoatRaceMission.preview(opts),
   modes: BoatRaceMission.MODES,
   medals: BoatRaceMission.MEDALS,
@@ -1616,6 +1771,10 @@ Missions.register({
       + 'rolls. Let go and the hull snaps to the nearest whole turn — that is the landing. '
       + 'Hold too long and you bin it and lose the chain.',
     '<b>Take the gold ring.</b> The one against the rocks pays three times the safe one.',
+    '<b>Arrive with time in hand.</b> The last stretch pays double and buys you no clock '
+      + 'at all — and every gate you fumble costs you three seconds.',
+    '<b>Read the water.</b> The channel throttles down to a throat and opens into rock-'
+      + 'strewn bays. Both are named as you reach them.',
     '<b>Keep moving.</b> The chain goes cold on a timer, not just on a miss.',
     '<b>Run the wall.</b> Shaving rock or cliff at speed pays while you hold it.',
   ],
@@ -1630,6 +1789,7 @@ Missions.register({
       ['Perfect passes', String(r.perfects)],
     ];
     if (r.riskHits) rows.push(['Gold rings taken', String(r.riskHits)]);
+    if (r.stretchHits) rows.push(['Home-stretch gates', String(r.stretchHits)]);
     if (r.tricks) rows.push(['Rotations landed', String(r.tricks)]);
     rows.push(['Best multiplier', '×' + (1 + Math.floor(r.bestCombo / 2) * 0.5)]);
     if (trial) rows.push(['Final time', U.clockTime(r.finalTime || 0)],
