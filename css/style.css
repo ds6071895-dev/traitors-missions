@@ -111,6 +111,11 @@ kbd{
 .btn.primary:hover{box-shadow:0 10px 30px rgba(242,193,78,.45)}
 .btn.ghost{background:rgba(255,255,255,.05); border-color:rgba(255,255,255,.16); color:var(--paper)}
 .btn.ghost:hover{background:rgba(255,255,255,.11)}
+/* testing doors, marked as such so one never ships looking like a feature */
+.btn.dev{background:rgba(63,224,255,.05); border-color:rgba(63,224,255,.28);
+  color:#9fe8ff; border-style:dashed}
+.btn.dev:hover{background:rgba(63,224,255,.12)}
+.btn.dev .pg-sub{color:rgba(159,232,255,.65)}
 
 /* ---------------- title ---------------- */
 .screen.title{
@@ -772,7 +777,7 @@ kbd{
 .sh-hint.show{opacity:1}
 
 /* -------- touch: drag anywhere to look, two pads to act -------- */
-#touch-shoot{display:none; position:absolute; inset:0; pointer-events:all; touch-action:none}
+#touch-shoot{display:none; position:fixed; inset:0; z-index:45; pointer-events:all; touch-action:none}
 #touch-shoot.visible{display:block}
 #touch-shoot .draw-pad,#touch-shoot .focus-pad{position:absolute; bottom:9vh; border-radius:50%;
   display:grid; place-items:center; font-weight:800; letter-spacing:.1em; font-size:12px;
@@ -790,6 +795,9 @@ kbd{
 #touch-shoot .move-knob{position:absolute; left:50%; top:50%; width:54px; height:54px;
   margin:-27px 0 0 -27px; border-radius:50%; background:rgba(240,249,255,.4);
   border:2px solid rgba(255,255,255,.5)}
+#touch-shoot.walk-only .draw-pad,
+#touch-shoot.walk-only .focus-pad,
+#touch-shoot.walk-only .sprint-pad{display:none}
 
 /* ---------------- results: which channel, and what it was worth --------- */
 .result-course{display:flex; flex-direction:column; gap:3px; align-items:center; margin:2px 0 10px}
@@ -874,3 +882,323 @@ kbd{
   .sh-round-name{display:none}
   .sh-breath{display:none}
 }
+
+/* ==================================================================
+   THE SHOW — play screen, cinematics, the table, the fire, the verdict
+   ================================================================== */
+
+/* ---------------- the front door ---------------- */
+
+.screen.play{
+  align-items:center; justify-content:center; overflow-y:auto;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% 8%, rgba(242,193,78,.10) 0%, rgba(0,0,0,0) 55%),
+    linear-gradient(180deg, rgba(6,16,28,.88) 0%, rgba(6,16,28,.34) 38%,
+                            rgba(6,16,28,.42) 64%, rgba(6,16,28,.94) 100%);
+}
+.play-inner{
+  width:min(560px, 100%); display:flex; flex-direction:column; align-items:center;
+  gap:clamp(16px,2.4vw,26px); text-align:center; margin:auto;
+}
+.play-blurb{
+  margin:0; color:var(--muted); font-size:clamp(13px,1.5vw,15.5px); line-height:1.75;
+  max-width:44ch;
+}
+.play-actions{display:flex; flex-direction:column; gap:11px; width:100%}
+
+.btn.huge, .btn.wide{
+  width:100%; display:flex; flex-direction:column; align-items:center; gap:3px;
+  padding:16px 22px; letter-spacing:.14em; text-align:center;
+}
+.btn.huge{
+  padding:22px 24px;
+  box-shadow:0 10px 34px rgba(242,193,78,.30), inset 0 1px 0 rgba(255,255,255,.35);
+}
+.btn.huge .pg-main{font-family:var(--display); font-size:clamp(30px,5.4vw,44px); letter-spacing:.10em; line-height:1}
+.btn.wide .pg-main{font-family:var(--display); font-size:clamp(17px,2.6vw,22px); letter-spacing:.12em; line-height:1}
+.pg-sub{
+  font-family:var(--body); font-weight:600; font-size:11.5px; letter-spacing:.05em;
+  text-transform:none; opacity:.68;
+}
+.btn.huge .pg-sub{opacity:.75; color:#3a2a08}
+
+.play-foot{
+  display:flex; align-items:center; justify-content:center; gap:clamp(10px,2vw,20px);
+  flex-wrap:wrap; margin-top:6px; width:100%;
+}
+.pot.mini{display:flex; align-items:baseline; gap:7px}
+.pot.mini .pot-label{font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted)}
+.pot.mini .pot-value{font-family:var(--display); font-size:19px; color:var(--gold)}
+
+.voice-pick{display:flex; align-items:center; gap:8px}
+.voice-pick > span{
+  font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted);
+}
+.voice-pick select{
+  font-family:var(--body); font-size:12px; font-weight:600; color:var(--paper);
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.18);
+  border-radius:8px; padding:7px 9px; max-width:190px; cursor:pointer;
+}
+.voice-pick select:disabled{opacity:.45; cursor:default}
+.voice-pick option{background:#101b28; color:var(--paper)}
+
+.title-foot .btn.ghost{padding:8px 18px; font-size:12px; margin-right:auto}
+
+/* ---------------- the cinematic overlay ----------------
+   Not a screen. It sits over everything so that a subtitle and a vote
+   panel can be up at the same time. It is always inert, so a click on
+   dialogue reaches the canvas and captures first-person look. */
+
+#cine{position:fixed; inset:0; z-index:46; pointer-events:none; opacity:0;
+  transition:opacity .5s ease}
+#cine.on{opacity:1}
+
+.cine-bar{
+  position:absolute; left:0; right:0; height:0; background:#04090f;
+  transition:height .8s cubic-bezier(.22,.9,.28,1);
+}
+.cine-bar.top{top:0}
+.cine-bar.bottom{bottom:0}
+#cine.bars .cine-bar{height:7.5vh}
+
+.cine-caption{
+  position:absolute; left:50%; bottom:calc(11.5vh + env(safe-area-inset-bottom));
+  transform:translateX(-50%) translateY(8px);
+  width:min(760px, 88vw); text-align:center;
+  opacity:0; transition:opacity .28s ease, transform .28s ease;
+}
+.cine-caption.on{opacity:1; transform:translateX(-50%) translateY(0)}
+.cap-speaker{
+  font-family:var(--display); font-size:12.5px; letter-spacing:.30em; text-indent:.30em;
+  color:var(--gold); margin-bottom:6px; text-transform:uppercase;
+  text-shadow:0 2px 12px rgba(0,0,0,.9);
+}
+.cap-speaker:empty{display:none}
+.cap-text{
+  font-size:clamp(16px,2.3vw,22px); font-weight:600; line-height:1.5; color:#fff;
+  text-shadow:0 2px 4px rgba(0,0,0,.95), 0 0 26px rgba(0,0,0,.8);
+  text-wrap:balance;
+}
+
+/* the full-screen card: your role, and the night's twist */
+.cine-card{
+  position:absolute; left:50%; top:44%; transform:translate(-50%,-50%) scale(.94);
+  width:min(560px, 86vw); text-align:center; padding:26px 30px 30px;
+  border-radius:16px; opacity:0; pointer-events:none;
+  background:linear-gradient(165deg, rgba(12,20,32,.93), rgba(6,12,20,.96));
+  border:1px solid rgba(242,193,78,.30);
+  box-shadow:0 26px 70px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.06);
+  transition:opacity .5s ease, transform .7s cubic-bezier(.18,.9,.25,1);
+}
+.cine-card.on{opacity:1; transform:translate(-50%,-50%) scale(1)}
+.cc-kicker{
+  font-size:11px; letter-spacing:.26em; text-transform:uppercase; color:var(--muted);
+  margin-bottom:10px;
+}
+.cc-title{
+  font-family:var(--display); font-size:clamp(30px,6vw,54px); letter-spacing:.05em;
+  line-height:1; color:var(--gold); text-shadow:0 0 40px rgba(242,193,78,.35);
+}
+.cc-sub{margin-top:12px; font-size:13.5px; line-height:1.65; color:#cfe0f2}
+.cc-sub:empty{display:none}
+
+.cine-card.t-traitor{border-color:rgba(216,30,64,.55)}
+.cine-card.t-traitor .cc-title{color:#ff5470; text-shadow:0 0 46px rgba(216,30,64,.6)}
+.cine-card.t-faithful{border-color:rgba(125,252,208,.42)}
+.cine-card.t-faithful .cc-title{color:var(--mint); text-shadow:0 0 42px rgba(125,252,208,.45)}
+.cine-card.t-twist{border-color:rgba(63,224,255,.42)}
+.cine-card.t-twist .cc-title{color:var(--cyan); text-shadow:0 0 42px rgba(63,224,255,.45)}
+
+/* ---------------- the round table: your line ---------------- */
+
+.screen.say{align-items:flex-end; justify-content:center; pointer-events:none;
+  padding-bottom:calc(19vh + env(safe-area-inset-bottom))}
+.say-panel{
+  pointer-events:auto; width:min(720px, 94vw);
+  display:flex; flex-direction:column; gap:9px;
+}
+.say-kicker{
+  font-family:var(--display); font-size:12px; letter-spacing:.28em; text-indent:.28em;
+  color:var(--gold); text-transform:uppercase; text-align:center; margin-bottom:2px;
+  text-shadow:0 2px 10px rgba(0,0,0,.9);
+}
+.say-options{display:flex; flex-direction:column; gap:8px}
+.btn.say-btn{
+  display:flex; flex-direction:column; align-items:flex-start; gap:4px;
+  text-transform:none; letter-spacing:0; text-align:left; padding:12px 17px;
+  background:rgba(10,20,32,.86); border:1px solid rgba(255,255,255,.16);
+  color:var(--paper); backdrop-filter:blur(8px);
+}
+.btn.say-btn:hover, .btn.say-btn.nav-on{
+  background:rgba(20,36,54,.94); border-color:rgba(242,193,78,.45);
+}
+.say-label{
+  font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:var(--gold);
+  font-weight:800;
+}
+.say-text{font-size:14px; font-weight:500; line-height:1.5; color:#dceaf8; font-style:italic}
+
+/* ---------------- the fire: the vote ---------------- */
+
+.screen.vote{align-items:flex-end; justify-content:center; pointer-events:none;
+  padding-bottom:calc(20vh + env(safe-area-inset-bottom))}
+.vote-panel{
+  pointer-events:auto; width:min(680px, 94vw); text-align:center;
+  display:flex; flex-direction:column; gap:11px;
+}
+.vote-kicker{
+  font-size:10.5px; letter-spacing:.26em; text-transform:uppercase; color:var(--muted);
+}
+.vote-title{
+  margin:0; font-family:var(--display); font-size:clamp(22px,3.6vw,32px);
+  letter-spacing:.04em; color:#fff; text-shadow:0 2px 14px rgba(0,0,0,.9);
+}
+.vote-options{display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
+.btn.vote-btn{
+  flex:1 1 200px; max-width:300px;
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  padding:15px 20px; text-transform:none; letter-spacing:0;
+  background:rgba(10,20,32,.88); border:1px solid rgba(255,255,255,.18);
+  color:var(--paper); backdrop-filter:blur(8px);
+}
+.vb-label{
+  font-family:var(--display); font-size:18px; letter-spacing:.12em; text-transform:uppercase;
+}
+.vb-sub{font-size:11px; opacity:.7; font-weight:600}
+.btn.vote-btn.v-end{border-color:rgba(125,252,208,.42)}
+.btn.vote-btn.v-end .vb-label{color:var(--mint)}
+.btn.vote-btn.v-banish, .btn.vote-btn.v-name{border-color:rgba(216,30,64,.45)}
+.btn.vote-btn.v-banish .vb-label, .btn.vote-btn.v-name .vb-label{color:#ff5470}
+.btn.vote-btn:hover:not(:disabled), .btn.vote-btn.nav-on{background:rgba(22,38,56,.95)}
+.btn.vote-btn:disabled{opacity:.34; cursor:default}
+.btn.vote-btn.chosen{
+  opacity:1; border-color:var(--gold);
+  box-shadow:0 0 0 1px var(--gold), 0 10px 30px rgba(242,193,78,.28);
+}
+
+.vote-tally{display:flex; gap:8px; justify-content:center; flex-wrap:wrap; min-height:30px}
+.vt{
+  display:flex; flex-direction:column; align-items:center; gap:1px;
+  padding:5px 13px; border-radius:8px; font-size:11.5px; font-weight:700;
+  background:rgba(8,16,26,.7); border:1px solid rgba(255,255,255,.10); color:var(--muted);
+  transition:all .3s ease;
+}
+.vt i{font-style:normal; font-size:9px; letter-spacing:.12em; text-transform:uppercase; opacity:.6}
+.vt.in{color:var(--paper); border-color:rgba(242,193,78,.45); background:rgba(30,24,10,.7)}
+.vt.in i{color:var(--gold); opacity:.9}
+.vote-note{font-size:11px; color:var(--muted); letter-spacing:.03em}
+.stage-hint{position:fixed; left:50%; top:18px; z-index:31; transform:translate(-50%,-8px);
+  padding:8px 14px; border-radius:18px; pointer-events:none; opacity:0;
+  color:rgba(240,249,255,.9); background:rgba(6,15,25,.72);
+  border:1px solid rgba(255,255,255,.16); font-size:10px; font-weight:800;
+  letter-spacing:.16em; text-transform:uppercase; transition:opacity .2s,transform .2s}
+.stage-hint.on{opacity:1; transform:translate(-50%,0)}
+.stage-hint i{color:var(--gold); font-style:normal; margin:0 5px}
+
+/* ---------------- the verdict ---------------- */
+
+.screen.verdict{align-items:center; justify-content:center; overflow-y:auto;
+  background:rgba(4,9,16,.72)}
+.verdict-panel{width:min(560px, 96vw); text-align:center}
+.verdict-title{
+  margin:0; font-family:var(--display); font-size:clamp(38px,8vw,68px); letter-spacing:.05em;
+  line-height:1;
+}
+.verdict-title.win{color:var(--gold); text-shadow:0 0 46px rgba(242,193,78,.45)}
+.verdict-title.lose{color:#ff5470; text-shadow:0 0 46px rgba(216,30,64,.45)}
+.verdict-role{
+  margin-top:8px; font-size:12px; letter-spacing:.24em; text-transform:uppercase;
+  font-weight:800;
+}
+.verdict-role.faithful{color:var(--mint)}
+.verdict-role.traitor{color:#ff5470}
+.verdict-line{
+  margin:14px 0 20px; font-size:14.5px; line-height:1.65; color:#cfe0f2; text-wrap:balance;
+}
+
+.verdict-cast{display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-bottom:20px}
+.vc{
+  flex:1 1 130px; max-width:170px; padding:11px 8px; border-radius:11px;
+  background:rgba(8,16,26,.8); border:1px solid rgba(255,255,255,.10);
+  display:flex; flex-direction:column; gap:3px;
+}
+.vc-name{font-family:var(--display); font-size:17px; letter-spacing:.04em; color:var(--paper)}
+.vc-role{font-size:9.5px; letter-spacing:.18em; font-weight:800}
+.vc.faithful{border-color:rgba(125,252,208,.32)}
+.vc.faithful .vc-role{color:var(--mint)}
+.vc.traitor{border-color:rgba(216,30,64,.42)}
+.vc.traitor .vc-role{color:#ff5470}
+.vc-fate{font-size:9.5px; letter-spacing:.10em; text-transform:uppercase; color:var(--muted)}
+.vc.out{opacity:.52}
+.vc.out .vc-name{text-decoration:line-through; text-decoration-thickness:1px}
+
+.verdict-money{
+  border-top:1px solid rgba(255,255,255,.10); padding-top:14px; margin-bottom:20px;
+  display:flex; flex-direction:column; gap:7px;
+}
+.vm-row{display:flex; justify-content:space-between; align-items:baseline; font-size:13px}
+.vm-row span{color:var(--muted); letter-spacing:.05em}
+.vm-row b{font-family:var(--display); font-size:19px; letter-spacing:.02em}
+.vm-row.total{border-top:1px solid rgba(255,255,255,.08); padding-top:8px}
+.vm-row.total b{color:var(--gold); font-size:23px}
+.verdict-banked.win{color:var(--mint)}
+.verdict-banked.lose{color:#ff5470}
+.verdict-actions{display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
+
+/* ---------------- the focus ring ----------------
+   Only while the pad or the keys are driving; a mouse takes it away
+   again, so it never shows up as a stray outline for a mouse user. */
+
+.nav-on{
+  outline:2px solid var(--gold) !important; outline-offset:3px;
+  box-shadow:0 0 0 5px rgba(242,193,78,.16) !important;
+}
+body.nav-mode .btn:focus{outline:none}
+.mission-card.nav-on, .mission-quick.nav-on{outline-offset:2px}
+
+/* ---------------- small screens ---------------- */
+
+@media (max-width: 720px){
+  .play-inner{gap:15px}
+  .btn.huge{padding:19px 18px}
+  .play-foot{gap:12px; flex-direction:column}
+  .voice-pick select{max-width:56vw}
+  .cap-text{font-size:15.5px}
+  .cine-caption{bottom:calc(13vh + env(safe-area-inset-bottom)); width:92vw}
+  .vote-options{flex-direction:column}
+  .btn.vote-btn{max-width:none; padding:17px 18px}
+  .btn.say-btn{padding:13px 15px}
+  .say-text{font-size:13px}
+  .screen.say, .screen.vote{padding-bottom:calc(15vh + env(safe-area-inset-bottom))}
+  .verdict-cast{gap:6px}
+  .vc{flex:1 1 90px; padding:9px 5px}
+  .vc-name{font-size:14px}
+  /* thumbs need a target, not a link */
+  .btn{min-height:46px}
+  .chip{min-height:38px}
+}
+
+@media (max-height: 560px) and (orientation: landscape){
+  #cine.bars .cine-bar{height:4.5vh}
+  .cine-caption{bottom:calc(7vh + env(safe-area-inset-bottom))}
+  .cine-card{top:40%; padding:16px 22px 20px}
+  .cc-title{font-size:clamp(24px,5vw,36px)}
+  .screen.say, .screen.vote{padding-bottom:calc(8vh + env(safe-area-inset-bottom))}
+  .play-inner{gap:10px}
+  .btn.huge{padding:13px 18px}
+  .btn.huge .pg-main{font-size:28px}
+  .play-blurb{display:none}
+}
+
+/* a pad plugged in gets bigger hit areas even on a desktop, because it
+   is being driven from a sofa */
+@media (pointer: coarse){
+  .voice-pick select{padding:10px 11px}
+}
+
+/* the pot reads as a chip on the front door, not the banner it is on
+   the mission list */
+.pot.mini{padding:7px 14px; gap:7px}
+.title-foot .btn.ghost{align-self:center}
+/* a select carries its own focus ring badly, so it gets the same one */
+select.nav-on{outline-offset:2px}

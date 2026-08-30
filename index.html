@@ -21,7 +21,74 @@
 <div id="screen-flash"></div>
 <div id="fade"></div>
 
-<!-- ============ TITLE ============ -->
+<!-- ============ CINEMATIC OVERLAY ============
+     Not a screen: it sits over whatever is showing, so the fire's vote
+     panel and Claudia's subtitle can be up at the same time. -->
+<div id="cine">
+  <div class="cine-bar top"></div>
+  <div class="cine-bar bottom"></div>
+  <div class="cine-card" id="cine-card">
+    <div class="cc-kicker" id="cine-card-kicker"></div>
+    <div class="cc-title" id="cine-card-title"></div>
+    <div class="cc-sub" id="cine-card-sub"></div>
+  </div>
+
+  <div class="cine-caption" id="cine-caption">
+    <div class="cap-speaker" id="cine-speaker"></div>
+    <div class="cap-text" id="cine-sub"></div>
+  </div>
+
+</div>
+
+<!-- ============ PLAY ============ -->
+<section class="screen play" data-screen="play">
+  <div class="play-inner">
+    <header class="brand">
+      <div class="brand-kicker">The Highlands</div>
+      <h1 class="brand-title">THE<span>TRAITORS</span></h1>
+      <div class="brand-rule"></div>
+    </header>
+
+    <p class="play-blurb">
+      Three of you. Two missions, a round table and a fire.<br>
+      One of you may be a Traitor. It is possible that none of you is.
+    </p>
+
+    <div class="play-actions">
+      <button class="btn huge primary" id="play-go" data-nav>
+        <span class="pg-main">PLAY</span>
+        <span class="pg-sub">A full night, start to fire</span>
+      </button>
+      <button class="btn wide ghost" id="play-resume" data-nav hidden>
+        <span class="pg-main">CONTINUE</span>
+        <span class="pg-sub" id="play-resume-sub"></span>
+      </button>
+      <button class="btn wide ghost" id="play-missions" data-nav>
+        <span class="pg-main">MISSIONS</span>
+        <span class="pg-sub">Practise them on your own</span>
+      </button>
+      <!-- testing only: skips the missions and opens on the fire -->
+      <button class="btn wide dev" id="play-finale" data-nav>
+        <span class="pg-main">STRAIGHT TO THE FIRE</span>
+        <span class="pg-sub">Testing — skips both missions</span>
+      </button>
+    </div>
+
+    <div class="play-foot">
+      <div class="pot mini">
+        <span class="pot-label">Banked</span>
+        <span class="pot-value" id="play-pot">£0</span>
+      </div>
+      <label class="voice-pick">
+        <span>Claudia's voice</span>
+        <select id="voice-select" data-nav aria-label="Claudia's voice"></select>
+      </label>
+      <button class="chip" id="play-mute" data-nav>Sound</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MISSIONS (practice) ============ -->
 <section class="screen title" data-screen="title">
   <div class="title-inner">
     <header class="brand">
@@ -37,12 +104,13 @@
 
     <div class="mission-head">
       <h2>Missions</h2>
-      <p>Earn it in the daylight. Keep it through the night.</p>
+      <p>Solo practice. No table, no fire, nothing to lose.</p>
     </div>
 
     <div class="mission-list" id="mission-list"></div>
 
     <footer class="title-foot">
+      <button class="btn ghost" id="title-back" data-back data-nav>Back</button>
       <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> steer</span>
       <span><kbd>Space</kbd> boost</span>
       <span><kbd>Esc</kbd> pause</span>
@@ -103,7 +171,7 @@
 
     <div class="brief-actions">
       <div class="brief-keys" id="brief-keys"></div>
-      <button class="btn ghost" id="brief-back">Back</button>
+      <button class="btn ghost" id="brief-back" data-back data-nav>Back</button>
       <button class="btn primary" id="brief-go">Start Mission<span class="btn-mult" id="brief-mult"></span></button>
     </div>
   </div>
@@ -253,23 +321,23 @@
   <div class="sh-focus" id="sh-focus"></div>
   <div class="sh-rush" id="sh-rush"></div>
   <div class="hud-setup" id="sh-setup"></div>
-
-  <div id="touch-shoot">
-    <div class="move-zone"><div class="move-ring"></div><div class="move-knob"></div></div>
-    <div class="focus-pad">FOCUS</div>
-    <div class="sprint-pad">RUN</div>
-    <div class="draw-pad">DRAW</div>
-  </div>
 </section>
+
+<div id="touch-shoot">
+  <div class="move-zone"><div class="move-ring"></div><div class="move-knob"></div></div>
+  <div class="focus-pad">FOCUS</div>
+  <div class="sprint-pad">RUN</div>
+  <div class="draw-pad">DRAW</div>
+</div>
 
 <!-- ============ PAUSE ============ -->
 <section class="screen pause" data-screen="pause">
   <div class="panel pause-panel">
     <h2>Paused</h2>
     <div class="pause-actions">
-      <button class="btn primary" id="pause-resume">Resume</button>
+      <button class="btn primary" id="pause-resume" data-back data-nav>Resume</button>
       <button class="btn ghost" id="pause-restart">Restart mission</button>
-      <button class="btn ghost" id="pause-quit">Back to missions</button>
+      <button class="btn ghost" id="pause-quit" data-nav>Leave</button>
     </div>
   </div>
 </section>
@@ -297,9 +365,54 @@
     </div>
 
     <div class="result-actions">
-      <button class="btn ghost" id="result-menu">Missions</button>
-      <button class="btn ghost" id="result-new">New channel</button>
-      <button class="btn primary" id="result-retry">Race again</button>
+      <button class="btn ghost" id="result-menu" data-nav>Missions</button>
+      <button class="btn ghost" id="result-new" data-nav>New channel</button>
+      <button class="btn primary" id="result-retry" data-nav>Race again</button>
+      <button class="btn primary" id="result-continue" data-nav hidden>Continue</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ROUND TABLE — your line ============ -->
+<section class="screen say" data-screen="say">
+  <div class="say-panel">
+    <div class="say-kicker">Your turn</div>
+    <div class="say-options" id="say-options"></div>
+  </div>
+</section>
+
+<!-- ============ THE FIRE — the vote ============ -->
+<section class="screen vote" data-screen="vote">
+  <div class="vote-panel">
+    <div class="vote-kicker" id="vote-kicker"></div>
+    <h2 class="vote-title" id="vote-title"></h2>
+    <div class="vote-options" id="vote-options"></div>
+    <div class="vote-tally" id="vote-tally"></div>
+    <div class="vote-note" id="vote-note"></div>
+  </div>
+</section>
+
+<div class="stage-hint" id="stage-hint">Click to look <i>·</i> WASD to move</div>
+
+<!-- ============ VERDICT ============ -->
+<section class="screen verdict" data-screen="verdict">
+  <div class="panel verdict-panel">
+    <h2 class="verdict-title win" id="verdict-title">YOU WIN</h2>
+    <div class="verdict-role" id="verdict-role"></div>
+    <p class="verdict-line" id="verdict-line"></p>
+
+    <div class="verdict-cast" id="verdict-cast"></div>
+
+    <div class="verdict-money">
+      <div class="vm-row"><span>The pot</span><b id="verdict-pot">£0</b></div>
+      <div class="vm-row"><span>Banked</span>
+        <b class="verdict-banked" id="verdict-banked">£0</b></div>
+      <div class="vm-row total"><span>Your total</span><b id="verdict-total">£0</b></div>
+    </div>
+
+    <div class="verdict-actions">
+      <button class="btn ghost" id="verdict-menu" data-back data-nav>Main menu</button>
+      <button class="btn primary" id="verdict-again" data-nav>Another night</button>
     </div>
   </div>
 </section>
@@ -315,12 +428,20 @@
 <script src="js/core/state.js"></script>
 <script src="js/core/screens.js"></script>
 <script src="js/core/missions.js"></script>
+<script src="js/core/voice.js"></script>
+<script src="js/core/uinav.js"></script>
+<script src="js/core/session.js"></script>
+<script src="js/core/net.js"></script>
+<script src="js/core/bots.js"></script>
+<script src="js/core/scenes.js"></script>
 <script src="js/world/sky.js"></script>
 <script src="js/world/water.js"></script>
 <script src="js/world/conditions.js"></script>
 <script src="js/world/course.js"></script>
 <script src="js/world/forest.js"></script>
+<script src="js/world/highland.js"></script>
 <script src="js/entities/boat.js"></script>
+<script src="js/entities/figure.js"></script>
 <script src="js/fx/fx.js"></script>
 <script src="js/entities/bow.js"></script>
 <script src="js/entities/flyers.js"></script>
@@ -330,6 +451,12 @@
 <script src="js/missions/shootout-twists.js"></script>
 <script src="js/missions/shootout.js"></script>
 <script src="js/missions/coming-soon.js"></script>
+<script src="js/scenes/claudia-lines.js"></script>
+<script src="js/scenes/stage.js"></script>
+<script src="js/scenes/hill.js"></script>
+<script src="js/scenes/roundtable.js"></script>
+<script src="js/scenes/fireplace.js"></script>
+<script src="js/scenes/show.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

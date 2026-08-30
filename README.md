@@ -1,12 +1,76 @@
-# The Traitors — Missions
+# The Traitors
 
-A low-poly, vibrant browser game. Two missions are built so far: **Boat Race** and
-**Shootout**.
+A low-poly, vibrant browser game. Two ways in:
+
+- **PLAY** runs a whole night — a welcome on a Highland hill, a mission, a round table,
+  a second mission, and a finale at the fire where the pot is won or lost on one throw.
+  Three players: you and two bots.
+- **MISSIONS** is solo practice on the missions themselves. Two are built: **Boat Race**
+  and **Shootout**.
 
 Open `index.html` in a browser. That's it — everything is plain `<script>` tags, so it
 works straight off disk (`file://`). If you'd rather use a server, run `./serve.sh`.
 
-Only external dependency is three.js from a CDN, plus two Google fonts.
+Only external dependency is three.js from a CDN, plus two Google fonts. Claudia is
+spoken by the browser's own speech synthesiser; there are no audio files anywhere.
+
+---
+
+## Playing a night
+
+| Beat | What happens |
+| --- | --- |
+| **The hill** | Claudia welcomes you and tells you what you are. Nobody else is told. |
+| **Mission** | One of the missions, drawn from the seed, with a twist card dealt for you. Everything you earn goes into the night's pot. |
+| **The round table** | The three of you talk. You choose one thing to say. **Nobody is banished.** |
+| **Mission** | The second one, with its own twist. The last chance to add to the pot. |
+| **The fire** | End the game, or banish one more — and open their pouch. |
+
+### The roles
+
+Roles are drawn once, from the run's seed:
+
+- **half of all nights contain no Traitor at all**;
+- otherwise exactly one, uniform over all three players — you included.
+
+You are told your own role on the hill. Nobody is ever told whether a Traitor exists.
+That is the whole game: a table where everyone may be honest and nobody can prove it.
+
+### The endgame
+
+Everyone still sitting votes **end it** or **banish**. Ending must be unanimous: one
+**banish again** choice forces another banishment. Once every decision is locked,
+Claudia burns the decision pouches one person at a time, revealing all **end game**
+choices first and then every **banish again** choice. Everyone then names somebody and
+those names are spoken aloud one by one before the tally. A tied tally is voted again;
+it is never broken randomly. The named player's role pouch then goes into the fire.
+The cycle repeats unless only two contestants remain, when the game ends automatically.
+
+When the night stops — by a unanimous vote or by reaching the final two — nobody is told
+who won until every identity still in the circle is revealed. Faithfuls reveal first;
+any surviving Traitor is held until last. The verdict panel comes up after that, not
+before. Banished contestants receive nothing. Surviving Faithfuls split the pot only if
+no Traitor remains; otherwise the surviving Traitor takes it.
+
+You win as a **Faithful** if the night ends with you still there and no Traitor left
+alive. You win as a **Traitor** if it ends with you still there. Winning banks the pot;
+losing loses it. Nothing is banked until the fire goes out.
+
+### Controls, everywhere
+
+| | |
+| --- | --- |
+| Menus | mouse, touch, **arrow keys / d-pad / left stick**, `Enter` or **A** to choose, `Esc` or **B** to go back |
+| Hill, discussion and fire | first person: **WASD / left stick** to move, **mouse / right stick / arrows** to look; click once to capture the mouse |
+| Dialogue | Voiceover cannot be skipped; clicks capture the pointer without cutting a line short |
+| Pouch reveal | The camera unlocks only for the short cinematic as the pouch is thrown into the fire |
+| The fire | the vote is a panel of buttons; the same four inputs drive it |
+| Missions | as documented below, and gamepad and touch both work |
+
+Claudia's voice comes from whatever the operating system has installed, which varies
+enormously, so the front screen has a picker. If there is no synthesiser at all — or the
+game is muted — the subtitles hold for a readable time instead and the pacing is
+identical.
 
 ---
 
@@ -187,7 +251,9 @@ looking at.
 
 The engine knows nothing about gameplay, and missions know nothing about each other.
 A mission hands the engine a `{ scene, camera }` and an update function; that's the
-entire contract. A round-table scene and a boat race have nothing else in common.
+entire contract. A round-table scene and a boat race have nothing else in common — and
+the scenes take exactly the same contract, which is why `js/scenes/` needed no engine
+changes at all to exist.
 
 ```
 index.html            script order + all screen markup
@@ -198,19 +264,28 @@ js/
     engine.js         renderer, main loop, the active view, GPU disposal
     input.js          named actions (throttle/steer/boost/…), keyboard + pad + touch
     audio.js          procedural Web Audio; sounds are registered recipes
+    music.js          the runtime score: a step sequencer and three profiles
     state.js          persistent save: prize pot, mission records, cast/roles/rounds
     screens.js        DOM screen stack + fade transitions
     missions.js       mission registry and lifecycle
+    session.js        the authority for a night: phases, roles, votes, pot
+    net.js            the transport seam — loopback today, a socket later
+    bots.js           the two players who are not real yet (deletable)
+    voice.js          Claudia out loud, and the subtitles that stand in for her
+    uinav.js          gamepad and keyboard navigation for every menu
+    scenes.js         scene runner + the beat sequencer the scenes are written in
   world/
     sky.js            sky dome, sun, clouds, birds, stars, distant mountain rings
     water.js          Gerstner ocean — same wave stack on GPU and CPU
     conditions.js     time-of-day and sea-state presets; one call applies both
     course.js         path, highland cliffs, rocks, channel buoys (reusable kit)
     forest.js         heightfield wood, instanced flora, hunter's stand, weather
+    highland.js       the hill, the grass, and the highlands round the edge
   entities/
     boat.js           hull mesh + arcade physics (surf, launch, trick, land, collide)
     bow.js            the half-second draw, and arrows as real projectiles
     flyers.js         every creature and prop you can shoot, and how each moves
+    figure.js         a person, in primitives, with a four-handle rig
   fx/
     fx.js             particles, wake ribbon, shockwaves, floating labels
   missions/
@@ -220,8 +295,125 @@ js/
     shootout-twists.js  the Shootout's own card deck
     shootout.js       Mission 02
     coming-soon.js    locked placeholders / worked example
-  main.js             boot, title screen, briefing, results, attract-mode ocean
+  scenes/
+    claudia-lines.js  every spoken line in the show, as data
+    stage.js          the hill dressed three ways, and first-person movement
+    hill.js           the welcome
+    roundtable.js     the talking
+    fireplace.js      the endgame
+    show.js           the director: which of the above is on screen
+  main.js             boot, the front screens, briefing, results, attract ocean
 ```
+
+### The show is written for a server it does not have yet
+
+Real multiplayer is next, so the night is already built the shape a server wants. Three
+rules make that true, and all three are load-bearing:
+
+1. **One reducer.** Every change to a night goes through `Session.dispatch(action)`, and
+   an action is a plain serialisable object — `{type:'vote', playerId, choice}` and so
+   on. Nothing else may touch the state.
+2. **One seam.** Scenes never call `Session`. They send through `Net.send()` and learn
+   through `Net.on()`. `Net.LocalTransport` is ten lines that loop straight back into
+   the local session; a `SocketTransport` with the same three methods — open, send,
+   close — is the entire multiplayer client. Delivery is deferred by a microtask even
+   locally, so no scene can quietly come to depend on a reply arriving inside the same
+   call stack as the request.
+3. **The client is never told another role.** `Session` keeps the role table in a
+   closure and it is never in `state`. You get `Session.myRole()`, which is yours. The
+   fire is an `emit('reveal')` from the authority, not a lookup by the UI. Today that
+   rule is worth nothing; the moment there is a network it is the whole game, and it is
+   much easier to have never broken it. There is a test that walks the serialised
+   snapshot and asserts the word never appears in it.
+
+`bots.js` is the throwaway. It talks to the game through `Net` exactly as you do, and
+knows only what a remote client would know: its own role, the public state, and nothing
+else. When two humans replace it, nothing above it changes.
+
+Nothing random is ever held as a live generator, because a live generator cannot survive
+a reload. Roles, the mission plan and every tie-break are pure functions of
+`(seed, purpose)` via `rngFor()`, so a night resumed from `localStorage` deals exactly
+the hand it dealt before — which is also the snapshot a server would send on reconnect.
+
+### The hill is one shape with one guarantee
+
+`HighlandKit` reuses the wood's machinery — `ForestKit` exports its instancer, its wind
+material and its fire — under a different palette and one different rule: nothing on the
+hill is flat-shaded. Hard facets read as style on a two-metre rock and as broken geometry
+on a two-hundred-metre hillside, which is the same split `CourseKit.buildCliffs` makes
+when it puts its rock rows and its hills in separate material groups.
+
+The height field is a gaussian crest plus rolling shoulders, and the rolls are *gated on
+how far the crest has already fallen*:
+
+```
+height   = base + crest(r) + rolls · allow(r)
+allow(r) = clamp((peak − crest(r)) / gate, 0, 1)
+```
+
+A point can only out-top the summit if `rolls > gate`, so keeping `gate` at or above the
+total roll amplitude makes the summit provably the highest ground on the hill, for every
+seed. That is not decoration: the camera settles on the summit and looks out, and on a
+first attempt without the gate one seed in six put a lump of grass in front of the shot.
+
+The grass is one instanced mesh of small three-blade tufts — about thirteen thousand of
+them, scaled by the quality setting — over a hundred and twenty metres, thinning outward
+until a blade would be a pixel. Two things stop that reading as a texture: each blade
+carries a base-to-tip brightness gradient in its vertex colours, and each tuft gets a hue
+of its own on top, high in lightness and on the yellow side of green. The whole field
+rides the same two wind uniforms the wood's trees do, so one weather moves everything.
+
+The loch is the sea kit, calmed right down. The hill is *raised* forty metres rather than
+the water being sunk, because `Water` draws at y=0 and its shells, its sampling and its
+fog all assume so — and raising the land gets a real shoreline for free wherever the
+shoulders drop back through zero.
+
+### Claudia
+
+`speechSynthesis` sounds like a robot mostly for reasons you can fix, and `voice.js` is
+those fixes: score the OS voice list rather than taking the first one (and let the player
+override, because what is installed varies wildly); speak one sentence per utterance, so
+there are real pauses at full stops and Chrome's fifteen-second truncation never bites;
+rate 0.92 and duck the score under every line.
+
+And never depend on it. No synthesiser, muted, or a voice that fires no events: all of
+them fall through to subtitles held for `1.6s + 45ms/char`, and the scene above cannot
+tell the difference. `Voice.say()` always resolves, exactly once, whatever the browser
+does. Your own line at the round table is deliberately silent — being dubbed by the
+host's voice in your own mouth is worse than reading it.
+
+### Scenes are beat lists
+
+A cutscene written as control flow becomes a thicket of timers and half-finished
+callbacks the moment it is interrupted. `Scenes.run()` takes a list instead:
+
+```js
+Scenes.run([
+  { shot: 'grass', line: () => lines[0], hold: 0.8 },
+  { card: { kicker: 'And you are', title: 'A FAITHFUL' }, wait: 1.5 },
+  { then: () => Net.send({ type: 'advance' }) },
+], this);
+```
+
+Cancelling and "she is still talking" are handled once, there. Dialogue is not
+skippable, while every wait remains cancellable by teardown so leaving mid-sentence leaves
+nothing running. `stage.js` holds the camera: every shot is a named framing the beat list
+asks for, and the rig eases two damped points and a fov towards it — it never animates a
+rotation, because a camera that eases its own euler angles takes the long way round
+exactly once and it is always on the shot that mattered.
+
+### The two joins between the show and the missions
+
+`show.js` owns both, and they are the only places the mission engine had to change.
+
+- **The pot.** `Missions.setPotSink(fn)` swaps where winnings go for the duration of a
+  night: into that night's pot rather than the permanent one, and only banked if the
+  night is survived. In multiplayer the server owns the pot, which is the shape this
+  already has.
+- **The pause after a mission.** The result is held rather than dispatched, so you read
+  your own scoreboard and press Continue. Dispatching it the instant the mission ended
+  would change phase, and the phase change would tear the results screen down while you
+  were still reading it.
 
 ### The water is the load-bearing part
 
@@ -291,9 +483,14 @@ Missions.register({
 
 3. Add the `<script>` tag to `index.html`.
 
-The title screen, briefing, pause, results, prize-pot banking and best-score tracking
-all come for free. Call `Missions.complete({ earned, completed, ... })` when the run ends
-and the rest happens on its own.
+The mission list, briefing, pause, results, prize-pot banking and best-score tracking all
+come for free. Call `Missions.complete({ earned, completed, ... })` when the run ends and
+the rest happens on its own.
+
+It also joins the PLAY rotation on its own. A night draws two missions from whatever is
+registered and unlocked, takes the first of your `modes` as its money mode, and deals one
+card from your own `preview().hand` as the night's twist — so a mission gets announced by
+Claudia, twisted and scored inside a night without knowing that any of that exists.
 
 `opts` is whatever the briefing screen produced, and it is remembered so "race again"
 repeats the exact same run. A mission that wants no setup simply ignores it.
@@ -383,12 +580,28 @@ AudioBus.play('gong', { pitch: 2 });
 
 No audio files anywhere; it's all synthesised at runtime.
 
+### Adding a line, or a beat
+
+All the prose is in `js/scenes/claudia-lines.js`. A set is a list of takes; a take is a
+list of sentences, and the sentences are the timing — `Voice` speaks one at a time and
+puts a real pause at every full stop, so a line written as one long clause is a line
+delivered in a rush. Takes are drawn from the run seed, so a second night is not a
+recital of the first and a shared seed is still a shared night.
+
+`{name}`, `{mission}`, `{twist}` and `{pot}` are filled by the caller. Bot lines carry
+`accuse: true` if they point at somebody; the bots weight their choice on it, which is
+why a Traitor bot spends its evening directing traffic.
+
 ### The save file
 
-`GameState` already models the whole show — cast, roles, alive/dead, round number,
-phase, and an event log — even though only the prize pot and mission records are used
-today. `assignTraitors()`, `alive()` and `traitors()` are there for the round table.
-Saves are keyed `traitors.save.v1`; bump `VERSION` in `state.js` if the shape changes.
+`GameState` holds what survives between nights: the prize pot, mission records, the cast
+and an event log. Saves are keyed `traitors.save.v1`; bump `VERSION` in `state.js` if the
+shape changes.
+
+A night in progress lives in its own key, `traitors.session.v2`, and is offered back on
+the front screen if you left one unfinished. Roles are *not* in it — they are re-derived
+from the seed on resume, which is both why they cannot drift and why a saved night
+cannot be read out of local storage.
 
 Per-course records live under `missions[id].runs`, keyed `mode:seed:modifier` by
 `GameState.runKey()`, because that whole triple is what a time or a score is a record

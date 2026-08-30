@@ -109,6 +109,7 @@ const Engine = (() => {
     init, start, setView, clearView, addUpdater, onResize, resize,
     setPaused, isPaused, disposeObject,
     get renderer() { return renderer; },
+    get hasView() { return !!view; },
     get size() { return size; },
     get time() { return elapsed; },
   };

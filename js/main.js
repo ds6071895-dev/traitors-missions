@@ -1,6 +1,16 @@
 /* ------------------------------------------------------------------
-   main.js — boot, title screen, results, and the attract-mode ocean
-   that sits behind the menus.
+   main.js — boot, the front screens, results, and the attract-mode
+   ocean that sits behind the menus.
+
+   Two ways in from the front door. PLAY hands over to `Show`, which
+   runs a whole night and owns the screen until it is finished.
+   MISSIONS is the practice flow that was here before and is untouched
+   by any of it: same briefing, same results, same permanent pot.
+
+   The results screen is the one place they meet. It is the mission's
+   own scoreboard either way; in a run its buttons collapse to a single
+   Continue, because "race again" is not on offer when there is a round
+   table waiting for you.
 ------------------------------------------------------------------ */
 const Game = (() => {
 
@@ -268,7 +278,16 @@ const Game = (() => {
     });
   }
 
+  /* Leaving mid-mission means two different things. In practice it is
+     "back to the list"; in a run it is walking out on the night, so the
+     run is ended and the save with it — coming back to a half-finished
+     evening you have already abandoned would be worse than losing it. */
   function toMenu() {
+    if (typeof Show !== 'undefined' && Show.running) {
+      Show.end({ abandon: true });
+      toPlay();
+      return;
+    }
     Screens.transition(() => {
       Missions.end();
       Engine.setPaused(false);
@@ -337,9 +356,98 @@ const Game = (() => {
       if (shown >= target) clearInterval(showResults._t);
     }, 45);
 
+    /* In a run there is nowhere to go but onward, so the three practice
+       buttons collapse to one. The mission engine does not know the
+       difference and should not have to. */
+    const run = (typeof Show !== 'undefined' && Show.running) ? Show.resultsAction(r) : null;
+    for (const id of ['result-retry', 'result-new', 'result-menu']) {
+      document.getElementById(id).hidden = !!run;
+    }
+    const cont = document.getElementById('result-continue');
+    cont.hidden = !run;
+    if (run) {
+      cont.textContent = run.label;
+      cont.onclick = () => { AudioBus.play('ui-click'); cont.disabled = true; run.go(); };
+      cont.disabled = false;
+    }
+
     Screens.show('results', { def });
     showResults._def = def;
     showResults._opts = opts;
+  }
+
+  /* ---------------- the front door ---------------- */
+
+  function renderPlay() {
+    document.getElementById('play-pot').textContent = U.money(GameState.prizePot);
+
+    // an unfinished night is offered back rather than silently dropped
+    const saved = Session.saved();
+    const resume = document.getElementById('play-resume');
+    resume.hidden = !saved;
+    if (saved) {
+      const where = { hill: 'on the hill', mission: 'mid-mission',
+                      table: 'at the round table', finale: 'at the fire' }[saved.phase] || 'in progress';
+      document.getElementById('play-resume-sub').textContent =
+        `${where} · pot ${U.money(saved.pot)}`;
+    }
+
+    syncMuteChip();
+    voicesDrawn = 0;
+    renderVoices();
+  }
+
+  function syncMuteChip() {
+    const b = document.getElementById('play-mute');
+    if (b) {
+      b.textContent = AudioBus.muted ? 'Sound off' : 'Sound on';
+      b.classList.toggle('on', !AudioBus.muted);
+    }
+  }
+
+  /* The OS voice list is wildly different from machine to machine and
+     the best one is often not the default, so this is a real setting
+     rather than a hidden preference. It is refreshed on entry because
+     Chrome hands back an empty list until it feels like it. */
+  let voicesDrawn = 0;
+  function renderVoices() {
+    const sel = document.getElementById('voice-select');
+    if (!sel) return;
+    const list = Voice.supported ? Voice.list() : [];
+    if (!list.length) {
+      sel.innerHTML = '<option>Subtitles only</option>';
+      sel.disabled = true;
+      // it usually arrives a moment later
+      if (voicesDrawn++ < 6) setTimeout(renderVoices, 400);
+      return;
+    }
+    sel.disabled = false;
+    const chosen = GameState.settings.voiceURI || (Voice.current && Voice.current.uri);
+    sel.innerHTML = list.map(v =>
+      `<option value="${v.uri}"${v.uri === chosen ? ' selected' : ''}>${v.name} — ${v.lang}</option>`
+    ).join('');
+  }
+
+  function toPlay() {
+    Screens.transition(() => {
+      if (typeof Show !== 'undefined' && Show.running) Show.end();
+      Engine.setPaused(false);
+      Missions.end();
+      showAttract();
+      Screens.show('play');
+    });
+  }
+
+  function startShow(resume, opts) {
+    AudioBus.resume();
+    Voice.unlock();
+    AudioBus.play('ui-click');
+    Screens.transition(() => {
+      disposeAttract();
+      Missions.end();
+      Screens.hideAll();
+      if (!(resume && Show.resume())) Show.begin(U.randomSeed(), opts);
+    }, 420);
   }
 
   /* ---------------- boot ---------------- */
@@ -360,13 +468,22 @@ const Game = (() => {
     }
     Engine.init(document.getElementById('gl'));
     Input.init();
+    Voice.init();
+    UINav.init();
 
-    // audio can only start after a real user gesture
-    const kick = () => { AudioBus.init(); AudioBus.resume(); AudioBus.setMuted(GameState.settings.muted); };
+    // audio can only start after a real user gesture, and so can speech
+    const kick = () => {
+      AudioBus.init(); AudioBus.resume();
+      AudioBus.setMuted(GameState.settings.muted);
+      Voice.setMuted(GameState.settings.muted);
+      Voice.refresh();
+      renderVoices();
+    };
     window.addEventListener('pointerdown', kick, { once: true });
     window.addEventListener('keydown', kick, { once: true });
 
     /* screens */
+    Screens.register('play', { enter: () => renderPlay() });
     Screens.register('title', {
       enter: () => renderMissionList(),
     });
@@ -411,7 +528,48 @@ const Game = (() => {
 
     Screens.register('results', {});
     Screens.register('hud', {});
+    Screens.register('hud-shoot', {});
     Screens.register('pause', {});
+    Screens.register('say', {});
+    Screens.register('vote', {});
+    Screens.register('verdict', {});
+
+    /* ---- the front door ---- */
+    document.getElementById('play-go').onclick = () => startShow(false);
+    document.getElementById('play-resume').onclick = () => startShow(true);
+    // testing only: a fresh night with both missions already banked
+    document.getElementById('play-finale').onclick =
+      () => startShow(false, { jumpTo: 'finale' });
+    document.getElementById('play-missions').onclick = () => {
+      AudioBus.resume(); AudioBus.play('ui-click');
+      Screens.transition(() => { renderMissionList(); Screens.show('title'); });
+    };
+    document.getElementById('title-back').onclick = () => {
+      AudioBus.play('ui-click'); Screens.show('play'); renderPlay();
+    };
+    document.getElementById('play-mute').onclick = () => {
+      const m = AudioBus.toggleMute();
+      GameState.settings.muted = m; GameState.save();
+      Voice.setMuted(m);
+      syncMute(m); syncMuteChip();
+    };
+    document.getElementById('voice-select').onchange = (e) => {
+      Voice.setVoice(e.target.value);
+      AudioBus.play('ui-click');
+      Voice.say('There you are.', { speaker: 'Claudia' });
+    };
+
+    /* ---- the verdict ---- */
+    document.getElementById('verdict-menu').onclick = () => {
+      AudioBus.play('ui-click');
+      Show.end({ abandon: true });
+      toPlay();
+    };
+    document.getElementById('verdict-again').onclick = () => {
+      AudioBus.play('ui-click');
+      Show.end({ abandon: true });
+      startShow(false);
+    };
 
     document.getElementById('brief-back').onclick = () => {
       AudioBus.play('ui-click'); Screens.show('title');
@@ -450,7 +608,10 @@ const Game = (() => {
     muteBtn.onclick = () => {
       const m = AudioBus.toggleMute();
       GameState.settings.muted = m; GameState.save();
-      syncMute(m);
+      // the browser will not let speech through the audio graph, so it
+      // has to be muted by hand or Claudia talks over a muted game
+      Voice.setMuted(m);
+      syncMute(m); syncMuteChip();
     };
     syncMute(GameState.settings.muted);
 
@@ -464,29 +625,21 @@ const Game = (() => {
       if (Screens.current === 'pause' && (e.code === 'Escape' || e.code === 'KeyP')) resume();
       else if (Screens.current === 'brief' && e.code === 'Enter'
                && e.target.tagName !== 'INPUT') {
-        launch(showBriefId(), setupDef && setupDef.setup ? setup : null);
+        if (setupDef) launch(setupDef.id, setupDef.setup ? setup : null);
       }
       else if (Screens.current === 'brief' && e.code === 'Escape') Screens.show('title');
     });
 
-    let _briefId = null;
-    const showBriefId = () => _briefId;
-    const origShow = Screens.show;
-    Screens.show = function (id, data) {
-      if (id === 'brief' && data) _briefId = data.id;
-      return origShow.call(Screens, id, data);
-    };
-
     Missions.on('complete', showResults);
 
     showAttract();
-    Screens.show('title');
+    Screens.show('play');
     Engine.start();
 
     document.getElementById('boot').classList.add('gone');
   }
 
-  return { boot, toMenu, launch };
+  return { boot, toMenu, toPlay, launch, showResults, renderPlay };
 })();
 
 window.addEventListener('DOMContentLoaded', () => {

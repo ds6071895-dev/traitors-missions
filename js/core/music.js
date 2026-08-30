@@ -28,16 +28,48 @@ const Music = (() => {
      resolving, which is what makes a loop feel like a fight rather than
      a song. The last bar is the dominant, so bar eight always wants bar
      one — the loop point stops being a seam. */
-  const CHORDS = [
-    [0, 3, 7],        // i     Dm
-    [0, 3, 7],        // i
-    [8, 12, 15],      // VI    Bb
-    [5, 8, 12],       // iv    Gm
-    [0, 3, 7],        // i
-    [10, 14, 17],     // VII   C
-    [8, 12, 15],      // VI    Bb
-    [7, 11, 14],      // V     A  (harmonic minor: a major five)
-  ];
+  const PROGRESSIONS = {
+    // the fight: eight bars that keep leaning and never resolve
+    dread: [
+      [0, 3, 7],        // i     Dm
+      [0, 3, 7],        // i
+      [8, 12, 15],      // VI    Bb
+      [5, 8, 12],       // iv    Gm
+      [0, 3, 7],        // i
+      [10, 14, 17],     // VII   C
+      [8, 12, 15],      // VI    Bb
+      [7, 11, 14],      // V     A  (harmonic minor: a major five)
+    ],
+
+    /* The hill. Same key, opposite argument: it opens onto the relative
+       major and keeps going up, so the loop feels like a view rather
+       than a threat. Bar eight is the subdominant rather than the
+       dominant — it comes home instead of demanding something. */
+    hymn: [
+      [8, 12, 15],      // VI    Bb   — the wide one, first
+      [3, 7, 10],       // III   F
+      [5, 8, 12],       // iv    Gm
+      [10, 14, 17],     // VII   C
+      [8, 12, 15],      // VI    Bb
+      [0, 3, 7],        // i     Dm
+      [10, 14, 17],     // VII   C
+      [5, 8, 12],       // iv    Gm
+    ],
+
+    /* The fire. Two chords, held, a semitone apart at the top — the
+       oldest trick there is for "something is about to be decided". */
+    verdict: [
+      [0, 3, 7],        // i     Dm
+      [0, 3, 7],
+      [0, 4, 7],        // I     D  (picardy, and it is not a kindness)
+      [0, 3, 7],
+      [8, 12, 15],      // VI    Bb
+      [8, 12, 15],
+      [7, 11, 14],      // V     A
+      [7, 11, 14],
+    ],
+  };
+  const CHORDS = PROGRESSIONS.dread;   // the default, and the old behaviour
 
   /* One bar of sixteenths per layer. The numbers are velocities, and a
      zero is a rest — patterns rather than code, so the difference
@@ -89,7 +121,9 @@ const Music = (() => {
       // the choir, horn and room size; the boss profile uses the full mix.
       this.profile = Object.assign({
         level: 0.9, theme: 1, choir: 1, pad: 1, percussion: 1, reverb: 0.28,
+        progression: 'dread',
       }, opts);
+      this.chords = PROGRESSIONS[this.profile.progression] || CHORDS;
 
       this.out = this.ctx.createGain();
       this.out.gain.value = 0.0001;
@@ -162,8 +196,19 @@ const Music = (() => {
       this.out.gain.exponentialRampToValueAtTime(this.profile.level, t + time);
     }
 
+    /* Change what the band is playing without stopping it. The swap
+       lands on the next bar line, because a chord that changes halfway
+       through one is a mistake rather than a modulation. */
+    setProgression(id) {
+      const next = PROGRESSIONS[id];
+      if (!next || next === this.chords) return;
+      this.profile.progression = id;
+      this._pending = next;
+    }
+
     stop(fade = 1.2) {
       if (!this.ok) return;
+      LIVE.delete(this);
       if (this.timer) { clearInterval(this.timer); this.timer = null; }
       const t = this.ctx.currentTime;
       this.out.gain.cancelScheduledValues(t);
@@ -199,8 +244,9 @@ const Music = (() => {
 
     _play(step, t) {
       const s = step % 16;
-      const bar = Math.floor(step / 16) % CHORDS.length;
-      const chord = CHORDS[bar];
+      if (s === 0 && this._pending) { this.chords = this._pending; this._pending = null; }
+      const bar = Math.floor(step / 16) % this.chords.length;
+      const chord = this.chords[bar];
       const root = chord[0];
       const I = this.intensity;
       const dbl = this._gearNow('double');
@@ -400,6 +446,25 @@ const Music = (() => {
         this._tom(t, 0.55 * this.profile.percussion, 118);
         this._horn(t + 0.03, hz(24), 0.5, 0.42 * this.profile.theme);
         this._horn(t + 0.05, hz(31), 0.5, 0.32 * this.profile.theme);
+      } else if (kind === 'reveal') {
+        /* The pouch has answered. Everything the band has, at once, and
+           then a sub that is still going when the crash has gone — the
+           room is meant to be ringing while she says the name, so the
+           tails are long and the attack is not. */
+        this._crash(t, 1.3);
+        this._tom(t, 1, 56);
+        this._tom(t + 0.085, 0.9, 44);
+        [0, 7, 12, 19].forEach((sm, i) => {
+          this._horn(t + i * 0.032, hz(sm + 24), 3.2, 1.2 * this.profile.theme);
+          this._choir(t + i * 0.045, hz(sm + 48), 3.6, 1.1 * this.profile.choir);
+        });
+        this._bass(t, hz(0), 3.8, 1.25);
+        this._bass(t + 0.02, hz(12), 3.2, 0.85);
+      } else if (kind === 'riser-end') {
+        // the top of a riser: a single dry hit, so the sweep has somewhere
+        // to arrive rather than just stopping
+        this._tom(t, 0.9, 64);
+        this._crash(t, 0.5);
       } else if (kind === 'bonus-round') {
         [24, 28, 31, 36].forEach((s, i) =>
           this._horn(t + i * 0.065, hz(s), 0.62, 0.38 * this.profile.theme));
@@ -422,27 +487,71 @@ const Music = (() => {
   // a score that does nothing, for when there is no audio context at all
   const SILENT = {
     start() { return this; }, setGear() {}, setIntensity() {}, setPaused() {},
-    duck() {}, stinger() {}, stop() {},
+    duck() {}, stinger() {}, stop() {}, setProgression() {},
   };
+
+  /* Every score that is currently playing. Claudia has to be able to
+     duck whatever is under her without knowing what it is, and a scene
+     change has to be able to stop a score somebody else started. */
+  const LIVE = new Set();
+
+  function begin(s) {
+    if (!s.ok) return SILENT;
+    LIVE.add(s);
+    return s.start();
+  }
+
+  function duckAll(amount = 0.4, time = 0.9) { LIVE.forEach(s => s.duck(amount, time)); }
+  function stopAll(fade = 1.0) { LIVE.forEach(s => s.stop(fade)); LIVE.clear(); }
+  function pauseAll(v) { LIVE.forEach(s => s.setPaused(v)); }
 
   function boss() {
     if (!AudioBus.ready) return SILENT;
-    const s = new Score();
-    return s.ok ? s.start() : SILENT;
+    return begin(new Score());
   }
 
   function stage() {
     if (!AudioBus.ready) return SILENT;
-    const s = new Score({
+    return begin(new Score({
       level: 0.58,
       theme: 0.58,
       choir: 0,
       pad: 0.82,
       percussion: 0.72,
       reverb: 0.18,
-    });
-    return s.ok ? s.start() : SILENT;
+    }));
   }
 
-  return { boss, stage, Score, GEARS };
+  /* The hill and the table. Almost no drums — a beat under a welcome
+     makes it a trailer — but the room is enormous and the choir is up,
+     which is what makes a landscape feel like an occasion. */
+  function ceremony() {
+    if (!AudioBus.ready) return SILENT;
+    return begin(new Score({
+      level: 0.50,
+      theme: 0.30,
+      choir: 0.55,
+      pad: 1.0,
+      percussion: 0.16,
+      reverb: 0.46,
+      progression: 'hymn',
+    }));
+  }
+
+  /* The fire. Everything, and it climbs. */
+  function verdict() {
+    if (!AudioBus.ready) return SILENT;
+    return begin(new Score({
+      level: 0.86,
+      theme: 0.72,
+      choir: 1.0,
+      pad: 0.9,
+      percussion: 1.0,
+      reverb: 0.34,
+      progression: 'verdict',
+    }));
+  }
+
+  return { boss, stage, ceremony, verdict, duckAll, stopAll, pauseAll,
+           Score, GEARS, PROGRESSIONS };
 })();

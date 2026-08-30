@@ -3,6 +3,14 @@
    a series. They also double as the worked example for adding a real
    mission: fill in `create()` with a class that implements
    build/start/update/dispose and drop `locked`.
+
+   The round table used to be listed here. It is not a mission any more
+   — it is a phase of a PLAY run, in `js/scenes/roundtable.js` — so it
+   has gone. Anything left in this list is genuinely unbuilt.
+
+   A PLAY run draws its two missions from whatever is registered and
+   unlocked, so unlocking one here puts it into the rotation as well as
+   onto the practice menu.
 ------------------------------------------------------------------ */
 [
   {
@@ -24,16 +32,6 @@
     players: 'Squad',
     duration: '~4 min',
     order: 3,
-  },
-  {
-    id: 'round-table',
-    name: 'The Round Table',
-    tagline: 'Somebody at this table is lying.',
-    icon: '05',
-    maxPrize: 0,
-    players: 'All',
-    duration: 'Nightly',
-    order: 4,
   },
 ].forEach(def => Missions.register(Object.assign({
   locked: true,

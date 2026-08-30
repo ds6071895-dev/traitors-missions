@@ -27,6 +27,7 @@ const Input = (() => {
     pause:     ['Escape', 'KeyP'],
     restart:   ['KeyR'],
     confirm:   ['Enter', 'NumpadEnter'],
+    back:      ['Escape', 'Backspace'],
     camera:    ['KeyC'],
     mute:      ['KeyM'],
   };
@@ -238,17 +239,38 @@ const Input = (() => {
 
   // which touch overlay is live — a mission picks one in build()
   function setTouchMode(mode) {
-    touchMode = mode === 'aim' ? 'aim' : 'drive';
+    touchMode = mode === 'aim' || mode === 'walk' || mode === 'off' ? mode : 'drive';
     const drive = document.getElementById('touch-controls');
     const shoot = document.getElementById('touch-shoot');
     if (drive) drive.classList.toggle('visible', isTouch && touchMode === 'drive');
-    if (shoot) shoot.classList.toggle('visible', isTouch && touchMode === 'aim');
+    if (shoot) {
+      shoot.classList.toggle('visible', isTouch && (touchMode === 'aim' || touchMode === 'walk'));
+      shoot.classList.toggle('walk-only', touchMode === 'walk');
+    }
   }
 
   function gamepad() {
-    const gp = navigator.getGamepads ? navigator.getGamepads()[0] : null;
-    return gp && gp.connected ? gp : null;
+    if (!navigator.getGamepads) return null;
+    const pads = navigator.getGamepads();
+    // the first *connected* pad, not the first slot: unplugging one and
+    // plugging in another leaves a hole at index 0 on some browsers
+    for (let i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) return pads[i];
+    return null;
   }
+
+  /* One button can mean more than one thing — south is "shoot" in a
+     mission and "yes" in a menu, and only the reader knows which it is
+     standing in front of. */
+  const PAD = {
+    0:  ['fire', 'boost', 'confirm'],
+    1:  ['back'],
+    4:  ['focus'],
+    6:  ['focus'],
+    7:  ['fire', 'boost'],
+    9:  ['pause'],
+    10: ['sprint'],
+    12: ['navUp'], 13: ['navDown'], 14: ['navLeft'], 15: ['navRight'],
+  };
 
   const dz = (v, d = 0.16) => (Math.abs(v) < d ? 0 : (v - Math.sign(v) * d) / (1 - d));
 
@@ -264,6 +286,8 @@ const Input = (() => {
       if (action === 'focus' && (gp.buttons[6]?.pressed || gp.buttons[4]?.pressed)) return true;
       if (action === 'sprint' && gp.buttons[10]?.pressed) return true;
       if (action === 'pause' && gp.buttons[9]?.pressed) return true;
+      if (action === 'confirm' && gp.buttons[0]?.pressed) return true;
+      if (action === 'back' && gp.buttons[1]?.pressed) return true;
     }
     return false;
   }
@@ -313,14 +337,40 @@ const Input = (() => {
   function scanPad() {
     const gp = gamepad();
     if (!gp) { padPrev.clear(); return; }
-    for (const [i, a] of [[7, 'fire'], [0, 'fire'], [6, 'focus'], [4, 'focus'],
-                          [10, 'sprint'], [9, 'pause']]) {
+    for (const key in PAD) {
+      const i = +key;
       const on = !!gp.buttons[i]?.pressed;
       const was = padPrev.has(i);
-      if (on && !was) { padPrev.add(i); pressedThisFrame.add(a); }
-      else if (!on && was) { padPrev.delete(i); releasedThisFrame.add(a); }
+      if (on === was) continue;
+      if (on) { padPrev.add(i); for (const a of PAD[i]) pressedThisFrame.add(a); }
+      else { padPrev.delete(i); for (const a of PAD[i]) releasedThisFrame.add(a); }
     }
   }
+
+  /* -------- menu navigation --------
+     A d-pad held down has to walk a list, not sprint through it, so this
+     is edge-plus-repeat rather than a raw read: one step immediately,
+     nothing for a third of a second, then a steady tick. Returns
+     {x, y} of -1/0/1, and zero on every frame in between. */
+
+  const nav = { x: 0, y: 0, next: 0 };
+  function navAxis() {
+    const gp = gamepad();
+    let x = 0, y = 0;
+    if (gp) {
+      if (gp.buttons[14]?.pressed) x = -1; else if (gp.buttons[15]?.pressed) x = 1;
+      if (gp.buttons[12]?.pressed) y = -1; else if (gp.buttons[13]?.pressed) y = 1;
+      if (!x) { const ax = gp.axes[0] || 0; if (Math.abs(ax) > 0.55) x = Math.sign(ax); }
+      if (!y) { const ay = gp.axes[1] || 0; if (Math.abs(ay) > 0.55) y = Math.sign(ay); }
+    }
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (!x && !y) { nav.x = 0; nav.y = 0; nav.next = 0; return { x: 0, y: 0 }; }
+    if (x !== nav.x || y !== nav.y) { nav.x = x; nav.y = y; nav.next = now + 380; return { x, y }; }
+    if (now >= nav.next) { nav.next = now + 150; return { x, y }; }
+    return { x: 0, y: 0 };
+  }
+
+  const padPresent = () => !!gamepad();
 
   function pressed(action) { return pressedThisFrame.has(action); }
   function released(action) { return releasedThisFrame.has(action); }
@@ -376,5 +426,6 @@ const Input = (() => {
   return { init, held, pressed, released, steer, throttle, endFrame,
            aimDelta, aimStick, moveAxes, setMouseAim, setTouchMode, requestLock, onLockChange,
            rumble, haptic, setEnabled, rebind, BINDINGS, isTouch,
+           navAxis, padPresent,
            get pointerLocked() { return locked; } };
 })();

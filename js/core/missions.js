@@ -21,6 +21,18 @@ const Missions = (() => {
   let active = null, activeDef = null, activeOpts = null;
   const listeners = { complete: new Set(), exit: new Set() };
 
+  /* Where a mission's winnings go. Practising banks straight into the
+     permanent pot; a PLAY run puts them in that night's pot instead and
+     only banks it if the night is survived. In multiplayer the server
+     owns this, which is the shape it already has: one function, swapped
+     for the duration of a run. */
+  let potSink = (amount) => GameState.addToPot(amount);
+  function setPotSink(fn) {
+    const prev = potSink;
+    potSink = fn || ((a) => GameState.addToPot(a));
+    return () => { potSink = prev; };
+  }
+
   function register(def) {
     registry.set(def.id, Object.assign({
       order: registry.size,
@@ -66,7 +78,7 @@ const Missions = (() => {
     if (!activeDef) return;
     const def = activeDef;
     const earned = Math.max(0, Math.round(result.earned || 0));
-    if (earned > 0) GameState.addToPot(earned);
+    if (earned > 0) potSink(earned);
     const { isBest } = GameState.recordMission(def.id, Object.assign({ earned }, result), def.better);
     GameState.logEvent('mission', `${def.name}: ${U.money(earned)} added to the pot`, { id: def.id });
     listeners.complete.forEach(fn => fn({
@@ -86,7 +98,7 @@ const Missions = (() => {
 
   function on(evt, fn) { listeners[evt].add(fn); return () => listeners[evt].delete(fn); }
 
-  return { register, all, get, launch, complete, end, on,
+  return { register, all, get, launch, complete, end, on, setPotSink,
            get active() { return active; }, get activeDef() { return activeDef; },
            get activeOpts() { return activeOpts; } };
 })();

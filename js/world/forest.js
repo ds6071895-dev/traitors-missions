@@ -461,15 +461,39 @@ const ForestKit = (() => {
     }
     // A fire on the ground beside the stand: somewhere for the eye to
     // rest, and the only warm light in the wood at night.
-    const fire = new THREE.Group();
+    const fire = buildFire();
     fire.position.set(-5.6, heightAt(-5.6, 3.2), 3.2);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.22, 4, 9),
-                                new THREE.MeshLambertMaterial({ color: '#6d7482', flatShading: true }));
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = 0.14;
-    fire.add(ring);
-    for (let i = 0; i < 5; i++) {
-      const a = (i / 5) * Math.PI * 2;
+    g.add(fire);
+    g.userData.fire = fire;
+
+    return g;
+  }
+
+  /* =============== fire =============== */
+
+  /* A stone ring, some logs and four cones. It carries its own light and
+     its own flame list, and `animateFire` is the only thing that has to
+     know what is inside it — which is what lets the round table borrow
+     the wood's fire without borrowing the wood.
+
+     The animation is deliberately two sines at unrelated speeds per
+     flame. One sine is a pulse and reads as a machine; two that never
+     line up read as fire. */
+  function buildFire(opts = {}) {
+    const o = Object.assign({ scale: 1, light: 2.4, range: 26, colour: '#ff9c42',
+                              logs: 5, stones: true }, opts);
+    const wood = (col) => new THREE.MeshLambertMaterial({ color: col, flatShading: true });
+    const fire = new THREE.Group();
+
+    if (o.stones) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.22, 4, 9),
+                                  new THREE.MeshLambertMaterial({ color: '#6d7482', flatShading: true }));
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 0.14;
+      fire.add(ring);
+    }
+    for (let i = 0; i < o.logs; i++) {
+      const a = (i / o.logs) * Math.PI * 2;
       const log = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 1.5, 4), wood('#4a3526'));
       log.position.set(Math.cos(a) * 0.35, 0.45, Math.sin(a) * 0.35);
       log.rotation.set(Math.cos(a) * 0.7, a, Math.sin(a) * 0.7);
@@ -485,15 +509,29 @@ const ForestKit = (() => {
       fire.add(fl);
       flames.push(fl);
     }
-    const fireLight = new THREE.PointLight('#ff9c42', 2.4, 26, 2);
+    const fireLight = new THREE.PointLight(o.colour, o.light, o.range, 2);
     fireLight.position.y = 1.2;
     fire.add(fireLight);
     fire.userData.flames = flames;
     fire.userData.light = fireLight;
-    g.add(fire);
-    g.userData.fire = fire;
+    fire.userData.base = { light: o.light, colour: new THREE.Color(o.colour) };
+    fire.scale.setScalar(o.scale);
+    return fire;
+  }
 
-    return g;
+  // `boost` is how hard it is burning right now: 1 is a campfire, 3 is
+  // something having just been thrown into it.
+  function animateFire(fire, t, boost = 1) {
+    if (!fire || !fire.userData.flames) return;
+    fire.userData.flames.forEach((fl, i) => {
+      const w = Math.sin(t * (7 + i * 2.3) + i) * 0.5 + Math.sin(t * 3.1 + i * 2) * 0.5;
+      const b = 1 + (boost - 1) * (0.6 + i * 0.14);
+      fl.scale.set((1 + w * 0.16) * b, (1 + w * 0.3) * b, (1 + w * 0.16) * b);
+      fl.rotation.z = w * 0.09;
+    });
+    const L = fire.userData.light;
+    if (L) L.intensity = (fire.userData.base.light + Math.sin(t * 9.3) * 0.5
+                          + Math.sin(t * 4.1) * 0.3) * boost;
   }
 
   /* =============== drifting motes =============== */
@@ -679,15 +717,7 @@ const ForestKit = (() => {
         motes.update(dt, { x: uniforms.wind.value.x, y: uniforms.wind.value.y },
                      camPos, o.moteFall);
         // the fire never repeats itself, which is what makes it read as fire
-        if (fire) {
-          const t = uniforms.time.value;
-          fire.userData.flames.forEach((fl, i) => {
-            const w = Math.sin(t * (7 + i * 2.3) + i) * 0.5 + Math.sin(t * 3.1 + i * 2) * 0.5;
-            fl.scale.set(1 + w * 0.16, 1 + w * 0.3, 1 + w * 0.16);
-            fl.rotation.z = w * 0.09;
-          });
-          fire.userData.light.intensity = 2.2 + Math.sin(t * 9.3) * 0.5 + Math.sin(t * 4.1) * 0.3;
-        }
+        animateFire(fire, uniforms.time.value);
       },
       dispose() {
         Engine.disposeObject(group);
@@ -697,7 +727,14 @@ const ForestKit = (() => {
     };
   }
 
-  return { build, COL, noise2, fbm2 };
+  /* The wood is not the only place that needs grass that moves, a
+     scatter of instanced somethings, or a fire. These are exported so
+     the highland kit is genuinely the same machinery under a different
+     palette rather than a second copy of it that drifts. */
+  return { build, COL, noise2, fbm2,
+           makeGround, buildGround, windMaterial, instance,
+           speciesGeometry, detailGeometry, buildContactShadows,
+           buildMotes, buildFire, animateFire, paintGeo };
 })();
 
 
