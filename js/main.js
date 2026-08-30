@@ -381,17 +381,6 @@ const Game = (() => {
   function renderPlay() {
     document.getElementById('play-pot').textContent = U.money(GameState.prizePot);
 
-    // an unfinished night is offered back rather than silently dropped
-    const saved = Session.saved();
-    const resume = document.getElementById('play-resume');
-    resume.hidden = !saved;
-    if (saved) {
-      const where = { hill: 'on the hill', mission: 'mid-mission',
-                      table: 'at the round table', finale: 'at the fire' }[saved.phase] || 'in progress';
-      document.getElementById('play-resume-sub').textContent =
-        `${where} · pot ${U.money(saved.pot)}`;
-    }
-
     syncMuteChip();
     voicesDrawn = 0;
     renderVoices();
@@ -536,7 +525,6 @@ const Game = (() => {
 
     /* ---- the front door ---- */
     document.getElementById('play-go').onclick = () => startShow(false);
-    document.getElementById('play-resume').onclick = () => startShow(true);
     // testing only: a fresh night with both missions already banked
     document.getElementById('play-finale').onclick =
       () => startShow(false, { jumpTo: 'finale' });
