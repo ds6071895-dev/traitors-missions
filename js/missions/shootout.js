@@ -362,6 +362,7 @@ class ShootoutMission {
       round: q('sh-round'), roundName: q('sh-round-name'), roundBar: q('sh-round-bar'),
       left: q('sh-left'), acc: q('sh-acc'), pace: q('sh-pace'),
       reticle: q('sh-reticle'), lock: q('sh-lock'),
+      hitmark: q('sh-hitmark'), loose: q('sh-loose'),
       draw: q('sh-draw'), drawFill: q('sh-draw-fill'),
       breath: q('sh-breath'), breathFill: q('sh-breath-fill'),
       quiver: q('sh-quiver'), quiverVal: q('sh-quiver-val'),
@@ -438,6 +439,8 @@ class ShootoutMission {
       if (this.hud.setup) this.hud.setup.innerHTML = '';
       if (this.hud.banner) this.hud.banner.classList.remove('show');
       if (this.hud.boss) this.hud.boss.className = 'sh-boss';
+      if (this.hud.hitmark) this.hud.hitmark.className = 'sh-hitmark';
+      if (this.hud.loose) this.hud.loose.className = 'sh-loose';
       this._setCenter('', '');
     }
   }
@@ -663,6 +666,7 @@ class ShootoutMission {
     if (this.arrowsLeft !== Infinity) this.arrowsLeft--;
     this.recoil = 0.028 + shot.power * 0.03;
     this.fovKick = 1.6 + shot.power * 2.4;
+    this._looseRing(shot.perfect);
     Input.rumble(0.25 + shot.power * 0.3, 90);
     Input.haptic(8);
 
@@ -804,6 +808,26 @@ class ShootoutMission {
     });
   }
 
+  /* The reticle answering back. Both of these restart their animation by
+     hand: the class goes off, the layout is read to flush it, and the
+     class goes back on — otherwise a second hit inside a third of a
+     second gets no mark at all, which is exactly when you want one. */
+  _hitMark(kind) {
+    const el = this.hud && this.hud.hitmark;
+    if (!el) return;
+    el.className = 'sh-hitmark';
+    void el.offsetWidth;
+    el.className = 'sh-hitmark show' + (kind ? ' ' + kind : '');
+  }
+
+  _looseRing(clean) {
+    const el = this.hud && this.hud.loose;
+    if (!el) return;
+    el.className = 'sh-loose';
+    void el.offsetWidth;
+    el.className = 'sh-loose go' + (clean ? ' clean' : '');
+  }
+
   /* -------- hits and misses -------- */
 
   _onHit(target, arrow, info) {
@@ -832,6 +856,7 @@ class ShootoutMission {
         this._bossHurt(target, { point: at, dist: at.distanceTo(this.camera.position) });
       } else {
         AudioBus.play('boss-clang', {});
+        this._hitMark('dull');
         this._burst(info.point, 10, '#9aa6b8', 5);
         this.fx.labels.add(open ? 'MISSED THE MARK' : 'ARMOURED', info.point,
                            { className: 'bad', life: 0.9, rise: 6 });
@@ -844,6 +869,7 @@ class ShootoutMission {
     if (arrow.perfect) this.cleanHits++;
     this.hits++;
     if (killed) this._award(target, arrow, info);
+    else this._hitMark('');
     return true;
   }
 
@@ -884,6 +910,7 @@ class ShootoutMission {
       life: 1.4, rise: 10,
     });
 
+    this._hitMark(arrow.perfect ? 'kill clean' : 'kill');
     this._deathFx(target, info, arrow.perfect);
     this.hitStop = Math.max(this.hitStop, arrow.perfect ? 0.085 : 0.045);
     this.shake = Math.max(this.shake, arrow.perfect ? 2.4 : 1.2);
@@ -927,9 +954,11 @@ class ShootoutMission {
   ];
 
   _beginBoss(f) {
-    f.cruiseY = this.pos.y + 40;
-    f.orbit = 120;
-    f.orbitTarget = 120;
+    // the whole fight is fought inside a ring you can see across: it
+    // circles at thirty metres up and eighty out, never further
+    f.cruiseY = this.pos.y + 30;
+    f.orbit = 78;
+    f.orbitTarget = 78;
     f.behaviour = 'bossCircle';
     f.weakName = null;
     this.boss = {
@@ -955,9 +984,9 @@ class ShootoutMission {
     B.open = true;
     B.stare = i === 1;
     const f = B.flyer;
-    if (i === 0) { f.behaviour = 'bossCircle'; f.orbitTarget = 58; f.cruiseY = this.pos.y + 26; }
-    if (i === 1) { f.behaviour = 'bossHover'; f.hoverDist = 44; f.hoverUp = 19; }
-    if (i === 2) { f.behaviour = 'bossHover'; f.hoverDist = 34; f.hoverUp = 15; }
+    if (i === 0) { f.behaviour = 'bossCircle'; f.orbitTarget = 52; f.cruiseY = this.pos.y + 24; }
+    if (i === 1) { f.behaviour = 'bossHover'; f.hoverDist = 38; f.hoverUp = 17; }
+    if (i === 2) { f.behaviour = 'bossHover'; f.hoverDist = 30; f.hoverUp = 14; }
     this._banner(P.name, P.call, 'boss');
     AudioBus.play('owl-screech', { pitch: 1 + i * 0.12 });
   }
@@ -1006,7 +1035,7 @@ class ShootoutMission {
         this.shake = Math.max(this.shake, 3);
       } else if (!B.stare && B.cycleT > 2.6) {
         B.stare = true; B.open = true; B.diving = false; B.cycleT = 0;
-        f.behaviour = 'bossHover'; f.hoverDist = 44; f.hoverUp = 19;
+        f.behaviour = 'bossHover'; f.hoverDist = 38; f.hoverUp = 17;
         AudioBus.play('owl-screech', { pitch: 0.95 });
         this._banner('IT IS LOOKING AT YOU', 'THE EYES', 'boss');
       }
@@ -1062,6 +1091,7 @@ class ShootoutMission {
 
     this.fx.labels.add(`${U.money(Math.round(pay * this.payout))}  ${P.name}`, info.point,
                        { className: 'perfect', life: 1.3, rise: 9 });
+    this._hitMark('boss');
     this._burst(info.point, 46, '#ffd166', 12);
     this.fx.rings.fire(info.point, this.camera.quaternion, 0.5, 5.5, 0.45, '#ffd166');
     this.hitStop = Math.max(this.hitStop, 0.09);
@@ -1144,6 +1174,7 @@ class ShootoutMission {
     this.chain = 0; this.chainT = 0;
     if (this.round) this.round.time = Math.max(0, this.round.time - C.doveTime);
     target.kill();
+    this._hitMark('bad');
     this._deathFx(target, info, false);
     this.fx.labels.add(`−${U.money(cost)}  DOVE · PROTECTED`, info.point,
                        { className: 'bad', life: 1.9, rise: 8 });
@@ -1222,7 +1253,9 @@ class ShootoutMission {
       if (f.dying || !f.alive) continue;
       const d = f.pos.distanceTo(this.camera.position);
       if (f.type.stings && d < 4.5) { this._sting(f); }
-      else if (f.type.boss && this.boss && this.boss.diving && d < 9) this._bossPass(f);
+      // it holds nine metres of air under it now, so the pass is judged
+      // by how close it came to your head rather than to your boots
+      else if (f.type.boss && this.boss && this.boss.diving && d < 12) this._bossPass(f);
     }
   }
 

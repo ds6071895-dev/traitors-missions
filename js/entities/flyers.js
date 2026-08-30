@@ -559,6 +559,9 @@ const FlyerKit = (() => {
     owl: {
       id: 'owl', name: 'The Great Owl', points: 900, hp: 99, radius: 5.6, size: 2.6,
       speed: [13, 18], flap: 2.4, wingAmp: 0.62, boss: true,
+      // it is eight metres across the wings: it needs its own headroom
+      // over the ground, and a short lead so it never becomes scenery
+      floor: 9, leash: 88, ceiling: 54,
       mesh: () => owlMesh({ size: 2.6, body: '#6b543a', wing: '#3f3122' }),
       death: 'feathers', deathColor: '#6b543a',
     },
@@ -595,6 +598,36 @@ const FlyerKit = (() => {
 
   /* =============== behaviours ===============
      Each one is (flyer, dt, ctx) and does nothing but steer. */
+
+  /* Wherever the fight sends it, the owl stays a thing in your sky.
+     Every boss behaviour finishes here: a ring it is steered back inside
+     and a ceiling it is held under, both measured from *you*. Without
+     this a dive that goes long, or a pull-out that keeps climbing, ends
+     with the boss a dot over the treeline — or past the world bounds
+     entirely, which reads as it simply vanishing. */
+  function bossKeep(f, dt, ctx) {
+    const leash = f.leash ?? f.type.leash ?? 88;
+    const dx = f.pos.x - ctx.player.x, dz = f.pos.z - ctx.player.z;
+    const r = Math.hypot(dx, dz) || 1e-3;
+    if (r > leash) {
+      // the further out it is the harder it turns, so coming back reads
+      // as a wingover rather than a handbrake
+      const k = U.clamp((r - leash) / 26, 0, 1);
+      const pull = f.speed * 2.0;
+      const a = 1 - Math.exp(-3.2 * k * dt);
+      f.vel.x += (-dx / r * pull - f.vel.x) * a;
+      f.vel.z += (-dz / r * pull - f.vel.z) * a;
+      f.head = Math.atan2(f.vel.x, f.vel.z);
+      // and a hard stop far outside it, so nothing can ever outrun it
+      const hard = leash * 1.6;
+      if (r > hard) {
+        f.pos.x = ctx.player.x + dx / r * hard;
+        f.pos.z = ctx.player.z + dz / r * hard;
+      }
+    }
+    const ceil = ctx.player.y + (f.ceiling ?? f.type.ceiling ?? 54);
+    if (f.pos.y > ceil) { f.pos.y = ceil; if (f.vel.y > 0) f.vel.y *= -0.25; }
+  }
 
   const BEHAVIOURS = {
     // a straight line with a bob and a lazy curve — the bread and butter
@@ -730,22 +763,36 @@ const FlyerKit = (() => {
       f.head = Math.atan2(f.vel.x, f.vel.z);
       f.bank = 0.4 * f.dir;
       f.flapRate = 1.0;
+      bossKeep(f, dt, ctx);
     },
+    /* The pass. It comes at a point a little over your head rather than
+       at your boots — a bird this size aimed at the floor arrives in the
+       floor, and the ground clamp then drags it through the dirt — and
+       it pulls out at a fixed top speed towards its own cruising height.
+       (It used to multiply its speed every frame while climbing away,
+       which is how a boss ends up somewhere over the next county.) */
     bossDive(f, dt, ctx) {
-      const to = ctx.tmp.copy(ctx.player).sub(f.pos);
+      const cap = f.speed * 2.4;
+      const to = ctx.tmp.set(ctx.player.x - f.pos.x,
+                             (ctx.player.y + 5.5) - f.pos.y,
+                             ctx.player.z - f.pos.z);
       const d = to.length();
-      if (d > 10 && !f.committed) {
-        to.normalize();
-        f.vel.lerp(to.multiplyScalar(f.speed * 2.4), 1 - Math.exp(-3.2 * dt));
+      if (d > 12 && !f.committed) {
+        f.vel.lerp(to.multiplyScalar(cap / (d || 1)), 1 - Math.exp(-3.2 * dt));
       } else {
         f.committed = true;
-        // pull up hard and climb away, wings hammering
-        f.vel.y += 26 * dt;
-        f.vel.multiplyScalar(1 + 0.5 * dt);
+        // pull up hard, wings hammering — but only back up to the height
+        // it fights from, and never faster than it can fly
+        const wantY = Math.max(ctx.player.y + 22, f.cruiseY);
+        f.vel.y = U.damp(f.vel.y, U.clamp((wantY - f.pos.y) * 1.2, -8, 24), 3.2, dt);
+        f.vel.x *= 1 - Math.min(1, 0.5 * dt);
+        f.vel.z *= 1 - Math.min(1, 0.5 * dt);
       }
+      if (f.vel.lengthSq() > cap * cap) f.vel.setLength(cap);
       f.head = Math.atan2(f.vel.x, f.vel.z);
       f.bank = U.clamp(-f.vel.y * 0.05, -0.5, 0.5);
       f.flapRate = 2.4;
+      bossKeep(f, dt, ctx);
     },
     bossHover(f, dt, ctx) {
       // hangs in front of you, beating, daring you
@@ -768,13 +815,15 @@ const FlyerKit = (() => {
       f.head = Math.atan2(toP.x, toP.z);
       f.bank = Math.sin(f.age * 1.8) * 0.12;
       f.flapRate = 3.4;
+      bossKeep(f, dt, ctx);
     },
     // staggered: dead in the air for a beat, wings loose
-    bossStagger(f, dt) {
+    bossStagger(f, dt, ctx) {
       f.vel.multiplyScalar(1 - Math.min(1, 2.4 * dt));
       f.vel.y += Math.sin(f.age * 9) * 3 * dt;
       f.bank = Math.sin(f.age * 12) * 0.3;
       f.flapRate = 0.35;
+      if (ctx) bossKeep(f, dt, ctx);
     },
     boss(f, dt, ctx) { BEHAVIOURS.bossCircle(f, dt, ctx); },
   };
@@ -963,8 +1012,10 @@ const FlyerKit = (() => {
           this.head = U.angLerp(this.head, back, 0.2);
         }
       } else {
-        // keep out of the ground and under the ceiling
-        const gy = ctx.heightAt(this.pos.x, this.pos.z) + 3;
+        // keep out of the ground and under the ceiling. Big things need
+        // more clearance than a raven: the owl's wings are eight metres
+        // across, and three metres of headroom is it ploughing a furrow.
+        const gy = ctx.heightAt(this.pos.x, this.pos.z) + (this.type.floor || 3);
         if (this.pos.y < gy) { this.pos.y = gy; if (this.vel.y < 0) this.vel.y = 0; }
       }
 
@@ -1011,9 +1062,14 @@ const FlyerKit = (() => {
       }
 
       // gone: too far, too old, or it has flown off the top
+      // ...but a boss never wanders off on its own. It *is* the round;
+      // an owl that ages out or crosses the world bounds mid-fight is an
+      // owl that vanishes. Only the mission may retire it.
       const r = Math.hypot(this.pos.x, this.pos.z);
-      if (this.life !== 999 && this.age > this.life) this.escaped = true;
-      if (r > ctx.bounds || this.pos.y > 230) this.escaped = true;
+      if (!this.type.boss) {
+        if (this.life !== 999 && this.age > this.life) this.escaped = true;
+        if (r > ctx.bounds || this.pos.y > 230) this.escaped = true;
+      }
       if (this.escaped) this.alive = false;
     }
   }

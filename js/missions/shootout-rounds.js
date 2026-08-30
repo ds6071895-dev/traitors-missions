@@ -154,8 +154,10 @@ const ShootoutRounds = (() => {
       blurb: 'It has the lantern, it has the eyes, and it has a temper. '
            + 'Three fights in one bird.',
       duration: 130, count: 1, interval: [99, 99], batch: [1, 1],
+      // close enough that it is the thing you are looking at, not a
+      // shape over the far treeline
       spawn: { mode: 'boss', types: ['owl'], behaviour: 'bossCircle',
-               dist: [110, 110], height: [46, 46], arc: 0, speed: 1 },
+               dist: [72, 72], height: [34, 34], arc: 0, speed: 1 },
       guards: 0,
       rule: { boss: true },
     },

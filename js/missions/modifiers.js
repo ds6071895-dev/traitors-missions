@@ -8,7 +8,8 @@
 
      config  — absolute overrides merged over the mission's CONFIG
      tune    — merged over Boat.TUNE for this run
-     cond    — forces a time of day and/or a sea state
+     cond    — forces a time of day (the sea is no longer a card: every
+               race is run on a storm sea, so there is nothing to draw)
      fog     — scene fog distances
      flags   — behaviour the mission checks for by name
      payout  — multiplies everything you earn
@@ -22,16 +23,6 @@ const Modifiers = (() => {
       id: 'night', name: 'Night Run', icon: '☾', payout: 1.30,
       blurb: 'Race it by moonlight. The rings are the only thing you can see clearly.',
       cond: { time: 'night' },
-    },
-    {
-      id: 'storm', name: 'Storm Sea', icon: '≋', payout: 1.35,
-      blurb: 'A sea that is actively trying to throw you out of the channel.',
-      cond: { sea: 'storm' },
-    },
-    {
-      id: 'deadcalm', name: 'Dead Calm', icon: '▬', payout: 1.15,
-      blurb: 'Glass. No wave faces to surf, no crests to launch — and less time.',
-      cond: { sea: 'glass' }, config: { startTime: 64 },
     },
     {
       id: 'fog', name: 'Fog Bank', icon: '≡', payout: 1.40,
@@ -71,7 +62,7 @@ const Modifiers = (() => {
     {
       id: 'rush', name: 'Rush', icon: '⏱', payout: 1.30,
       blurb: 'Twenty-five seconds less on the clock, and rings give more back.',
-      config: { startTime: 54, timePerHoop: 4.6 },
+      config: { startTime: 54, timePerHoop: 9.2 },
     },
     {
       id: 'slalom', name: 'Slalom', icon: '▲', payout: 1.30,

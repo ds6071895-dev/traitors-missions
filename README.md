@@ -38,9 +38,11 @@ The briefing screen is where a run is chosen. Nothing about it is fixed:
 - **The mode** is either a **Prize Run** (the clock counts down, rings buy time, score is
   money) or a **Time Trial** (the clock counts up, every ring knocks seconds off it, score
   is the one number at the end).
+- **The sea** is always a storm sea. The sky is still the seed's to choose; the water is
+  not, because it is the only water this hull is any fun on.
 - **The modifier** is a hand of three cards dealt from the seed, of which you keep one or
-  none. Fog Bank, Riptide, Glass Cannon, Cold Engine, Closing In, Storm Sea… each one bends
-  the rules and multiplies everything you earn. A shared seed deals a shared hand.
+  none. Fog Bank, Riptide, Glass Cannon, Cold Engine, Closing In, Tight Rings… each one
+  bends the rules and multiplies everything you earn. A shared seed deals a shared hand.
 - **The ghost** is your own best run on that exact setup — same seed, same mode, same
   modifier — replayed beside you with a live split. Anything else would be lying about
   where you are.

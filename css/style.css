@@ -513,25 +513,95 @@ kbd{
 .sh-life.on{background:var(--crimson); border-color:rgba(255,120,150,.8);
   box-shadow:0 0 12px rgba(216,30,64,.6)}
 
-/* -------- the reticle -------- */
+/* -------- the reticle --------
+   The middle of the screen is where the whole game happens, so the middle
+   of the reticle has to survive being held over anything: birch bark, a
+   bright sky, a lit lantern. Every part of it is a bright core wearing a
+   dark outline — the trick a map pin uses — instead of a pale pixel that
+   vanishes the moment the background is pale too. One variable, --ret,
+   carries the state colour to the blades, the dot and the glow together,
+   so the middle is never a colour you cannot see. */
 .sh-reticle{position:absolute; left:50%; top:50%; width:0; height:0; z-index:24;
-  pointer-events:none}
-.sh-reticle i{position:absolute; background:rgba(240,249,255,.9); display:block;
-  box-shadow:0 0 6px rgba(4,16,28,.9); transition:background .12s}
-.sh-reticle .r-n,.sh-reticle .r-s{width:2px; height:9px; left:-1px}
-.sh-reticle .r-e,.sh-reticle .r-w{width:9px; height:2px; top:-1px}
-.sh-reticle .r-n{top:calc(-1 * var(--spread) - 9px)}
+  pointer-events:none; --ret:#f4fbff; --ret-glow:rgba(180,220,255,.35)}
+.sh-reticle i{position:absolute; background:var(--ret); display:block; border-radius:1.5px;
+  box-shadow:0 0 0 1px rgba(2,10,18,.92), 0 0 7px rgba(2,10,18,.8), 0 0 12px var(--ret-glow);
+  transition:background .1s, box-shadow .1s}
+.sh-reticle .r-n,.sh-reticle .r-s{width:2.5px; height:10px; left:-1.25px}
+.sh-reticle .r-e,.sh-reticle .r-w{width:10px; height:2.5px; top:-1.25px}
+.sh-reticle .r-n{top:calc(-1 * var(--spread) - 10px)}
 .sh-reticle .r-s{top:var(--spread)}
 .sh-reticle .r-e{left:var(--spread)}
-.sh-reticle .r-w{left:calc(-1 * var(--spread) - 9px)}
-.sh-reticle .r-dot{width:2px; height:2px; left:-1px; top:-1px; border-radius:50%;
-  background:rgba(240,249,255,.55)}
-.sh-reticle.drawing i{background:var(--cyan)}
-.sh-reticle.nocking i{background:rgba(160,180,200,.5)}
-.sh-reticle.perfect i{background:var(--gold); box-shadow:0 0 14px rgba(242,193,78,.95)}
-.sh-reticle.perfect .r-dot{width:4px; height:4px; left:-2px; top:-2px}
+.sh-reticle .r-w{left:calc(-1 * var(--spread) - 10px)}
+/* the dot: a solid pip with a hard dark ring round it, big enough to be
+   a thing you aim with rather than a smudge you look for */
+.sh-reticle .r-dot{width:5px; height:5px; left:-2.5px; top:-2.5px; border-radius:50%;
+  background:var(--ret);
+  box-shadow:0 0 0 1.8px rgba(2,10,18,.95), 0 0 9px var(--ret), 0 0 16px var(--ret-glow)}
+.sh-reticle.nocking{--ret:#9db2c4; --ret-glow:rgba(120,150,180,.25)}
+.sh-reticle.drawing{--ret:var(--cyan); --ret-glow:rgba(57,230,255,.6)}
+/* full draw: the middle goes gold and breathes, and you can feel the shot
+   is ready without taking your eye off the bird */
+.sh-reticle.perfect{--ret:var(--gold); --ret-glow:rgba(242,193,78,.9)}
+.sh-reticle.perfect .r-dot{width:7px; height:7px; left:-3.5px; top:-3.5px;
+  animation:retReady .85s ease-in-out infinite}
+@keyframes retReady{0%,100%{transform:scale(1)}50%{transform:scale(1.3)}}
 .sh-reticle.focus::after{content:''; position:absolute; left:-46px; top:-46px;
   width:92px; height:92px; border-radius:50%; border:1px solid rgba(240,249,255,.16)}
+
+/* -------- the loose, and the hit --------
+   Two answers, both dead centre. The ring leaves with the arrow; the four
+   ticks snap out when it lands. The tick is the only thing that tells you
+   the arrow arrived before the money floats up out of the wood, so it is
+   instant, it is loud, and it is a different shape for a kill, for a hit
+   that only annoyed something, for the owl, and for a dove. */
+.sh-loose{position:absolute; left:50%; top:50%; width:0; height:0; z-index:25;
+  pointer-events:none}
+.sh-loose::after{content:''; position:absolute; left:-11px; top:-11px;
+  width:22px; height:22px; border-radius:50%; border:2px solid var(--lo,#dff3ff);
+  box-shadow:0 0 12px var(--lo,#dff3ff); opacity:0}
+.sh-loose.go::after{animation:looseRing .26s cubic-bezier(.2,.8,.35,1) forwards}
+.sh-loose.clean{--lo:var(--gold)}
+@keyframes looseRing{
+  0%{transform:scale(.5); opacity:.95}
+  100%{transform:scale(2.3); opacity:0}}
+
+.sh-hitmark{position:absolute; left:50%; top:50%; width:0; height:0; z-index:26;
+  pointer-events:none; opacity:0; --hm:#ffffff; --hm-far:24px; --hm-len:12px}
+.sh-hitmark.show{opacity:1}
+.sh-hitmark i{position:absolute; left:-1.5px; top:calc(-1 * var(--hm-len) / 2);
+  width:3px; height:var(--hm-len); border-radius:2px; background:var(--hm);
+  box-shadow:0 0 0 1px rgba(2,10,18,.9), 0 0 10px var(--hm); opacity:0}
+.sh-hitmark i:nth-child(1){--a:45deg}
+.sh-hitmark i:nth-child(2){--a:135deg}
+.sh-hitmark i:nth-child(3){--a:225deg}
+.sh-hitmark i:nth-child(4){--a:315deg}
+.sh-hitmark b{position:absolute; left:-9px; top:-9px; width:18px; height:18px;
+  border-radius:50%; border:2px solid var(--hm); box-shadow:0 0 14px var(--hm);
+  opacity:0; display:block}
+.sh-hitmark.show i{animation:hitTick .32s cubic-bezier(.12,.85,.3,1) forwards}
+.sh-hitmark.show b{animation:hitRing .36s cubic-bezier(.2,.8,.35,1) forwards}
+@keyframes hitTick{
+  0%{transform:rotate(var(--a)) translateY(-6px) scale(.55); opacity:0}
+  14%{opacity:1}
+  100%{transform:rotate(var(--a)) translateY(calc(-1 * var(--hm-far))) scale(1); opacity:0}}
+@keyframes hitRing{
+  0%{transform:scale(.4); opacity:.85}
+  100%{transform:scale(2.6); opacity:0}}
+/* a kill pays gold; a clean kill throws the ticks further */
+.sh-hitmark.kill{--hm:var(--gold); --hm-far:28px; --hm-len:14px}
+.sh-hitmark.kill.clean{--hm-far:36px; --hm-len:17px}
+/* a hit that landed on armour: grey, small, and it does not ring */
+.sh-hitmark.dull{--hm:#9aa6b8; --hm-far:16px; --hm-len:9px}
+.sh-hitmark.dull b{display:none}
+/* the owl giving one up */
+.sh-hitmark.boss{--hm:var(--gold); --hm-far:46px; --hm-len:22px}
+.sh-hitmark.boss i{width:4px}
+/* and the one you should not have taken */
+.sh-hitmark.bad{--hm:var(--crimson); --hm-far:30px; --hm-len:15px}
+@media (prefers-reduced-motion:reduce){
+  .sh-reticle.perfect .r-dot{animation:none}
+  .sh-hitmark.show i,.sh-hitmark.show b,.sh-loose.go::after{animation-duration:.01ms}
+}
 
 /* the lock: the bow has decided what it is looking at, and says so. Gold
    means the arrow will find it; red means do not loose. */

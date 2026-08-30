@@ -18,7 +18,10 @@ class BoatRaceMission {
 
   static CONFIG = {
     seed: 20260829,         // only a fallback — a run normally brings its own
-    hoopSpacing: 150,       // average; the real gap breathes with the corners
+    // Average gap between gates; the real one breathes with the corners.
+    // Twice what it was: half as many rings down the same channel, so a
+    // gate is a thing you set up for rather than one you fall through.
+    hoopSpacing: 300,
     hoopRadius: 12.5,
     hoopRadiusScale: 1,
     hoopHeight: 7.6,        // ring centre above the waterline
@@ -28,9 +31,11 @@ class BoatRaceMission {
     riskMult: 3,            // and what it pays for going there
     startTime: 80,
     trialLimit: 300,        // a time trial still has to end sometime
-    timePerHoop: 3.4,
+    // Half the rings buying the same clock: each one is worth twice what
+    // it was, or a prize run would run out of time before the finish.
+    timePerHoop: 6.8,
     timePerfectBonus: 1.2,
-    trialGain: 1.5,         // seconds *off* the clock per ring, in time trial
+    trialGain: 3.0,         // seconds *off* the clock per ring, in time trial
     trialPerfectBonus: 1.0,
     moneyPerHoop: 250,
     moneyScale: 1,
@@ -106,8 +111,13 @@ class BoatRaceMission {
     return C;
   }
 
+  /* The sky is still the seed's to choose; the sea is not. Every race is
+     run on a storm sea now — it is the water this boat was built for, and
+     a run that drew glass was a different, duller game. Forced last, so
+     nothing can deal its way out of it. */
   static conditionsFor(seed, mod) {
-    return Object.assign(Conditions.forSeed(seed), (mod && mod.cond) || {});
+    return Object.assign(Conditions.forSeed(seed), (mod && mod.cond) || {},
+                         { sea: 'storm' });
   }
 
   // everything the setup UI needs, without touching the GPU
@@ -643,7 +653,15 @@ class BoatRaceMission {
     Sky.resetPreset();
     this.scene = null;
     if (this.hud) {
+      // these three live outside the screens, so nothing else will hide
+      // them on the way out: leave them lit and the next mission inherits
+      // a SURFING badge over the top of its own game
       this.hud.vignette.style.opacity = 0;
+      this.hud.vignette.classList.remove('boost');
+      if (this.hud.surf) {
+        this.hud.surf.style.opacity = 0;
+        this.hud.surf.classList.remove('on');
+      }
       this.hud.flash.style.opacity = 0;
       if (this.hud.ghost) this.hud.ghost.classList.remove('show');
       if (this.hud.setup) this.hud.setup.innerHTML = '';
@@ -1557,9 +1575,13 @@ class BoatRaceMission {
     const sp01 = U.clamp((b.speed - 20) / (b.tune.boostTop - 20), 0, 1);
     h.vignette.style.opacity = String(sp01 * 0.85);
     h.vignette.classList.toggle('boost', b.boosting);
+    // written every frame, not only while surfing: the opacity is inline,
+    // so it wins over the stylesheet, and a badge that is only ever turned
+    // *on* stays lit for the rest of the run — and, before it was cleared
+    // in dispose(), for the rest of the session
     const surfing = b.surf > 0.22 && !b.airborne;
     h.surf.classList.toggle('on', surfing);
-    if (surfing) h.surf.style.opacity = String(U.clamp(b.surf, 0, 1) * 0.9);
+    h.surf.style.opacity = surfing ? String(U.clamp(b.surf, 0, 1) * 0.9) : '0';
   }
 }
 
