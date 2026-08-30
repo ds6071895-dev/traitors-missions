@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Claudia's Script Room</title>
+  <style>
+    :root { --ink:#f6f0e5; --muted:#aaa295; --paper:#171713; --panel:#22221d; --edge:#3b3930; --red:#b62939; --gold:#d6aa55; --green:#83b48b; }
+    * { box-sizing:border-box }
+    html { color-scheme:dark }
+    body { margin:0; min-height:100vh; color:var(--ink); background:radial-gradient(circle at 50% -20%,#4c1d20 0,#191814 38rem,#0e0e0c 100%); font:15px/1.5 Georgia,serif }
+    button,input,textarea,select { font:inherit }
+    button { color:var(--ink); border:1px solid var(--edge); background:#2a2923; border-radius:4px; padding:.55rem .8rem; cursor:pointer }
+    button:hover { border-color:var(--gold); background:#343229 }
+    button.primary { border-color:#d4515e; background:var(--red); font-weight:700 }
+    button.danger { color:#eaa1a7 }
+    header { position:sticky; z-index:10; top:0; display:flex; align-items:center; gap:1rem; padding:1rem 2rem; border-bottom:1px solid var(--edge); background:rgba(18,18,15,.96); backdrop-filter:blur(12px) }
+    h1 { margin:0; font-size:clamp(1.15rem,3vw,1.65rem); letter-spacing:.03em }
+    header p { margin:0; color:var(--muted); flex:1 }
+    .actions { display:flex; gap:.5rem; flex-wrap:wrap }
+    .layout { width:min(1500px,100%); margin:auto; display:grid; grid-template-columns:300px minmax(0,1fr); min-height:calc(100vh - 75px) }
+    aside { padding:1.25rem; border-right:1px solid var(--edge); background:rgba(20,20,17,.72) }
+    aside h2,.workspace h2 { margin:.2rem 0 .8rem; font-size:1rem; text-transform:uppercase; letter-spacing:.15em; color:var(--gold) }
+    label { display:block; color:var(--muted); font-size:.82rem; letter-spacing:.04em }
+    input,textarea { width:100%; color:var(--ink); background:#10100e; border:1px solid var(--edge); border-radius:4px; padding:.7rem }
+    input:focus,textarea:focus { outline:2px solid rgba(214,170,85,.35); border-color:var(--gold) }
+    #search { margin-bottom:1rem }
+    .vars { display:grid; gap:.65rem }
+    .vars input { margin-top:.2rem }
+    .hint { color:var(--muted); font-size:.85rem }
+    .status { display:flex; align-items:center; gap:.45rem; min-height:1.5rem; color:var(--green); font-size:.85rem }
+    .status::before { content:""; width:.45rem; height:.45rem; background:currentColor; border-radius:50% }
+    .nav { margin-top:1rem; display:grid; gap:.3rem; max-height:45vh; overflow:auto }
+    .nav button { text-align:left; background:transparent; border-color:transparent; padding:.45rem .6rem }
+    .nav button.active { color:var(--gold); background:#29271f; border-color:var(--edge) }
+    main { padding:clamp(1rem,3vw,2.5rem); min-width:0 }
+    .workspace { max-width:980px; margin:auto }
+    .section-head { display:flex; align-items:flex-start; gap:1rem; margin-bottom:1.2rem }
+    .section-head > div { flex:1 }
+    .section-head h2 { font-size:1.25rem; text-transform:none; letter-spacing:.04em; color:var(--ink) }
+    .section-head p { color:var(--muted); margin:0 }
+    .variable-bar { display:flex; flex-wrap:wrap; align-items:center; gap:.45rem; padding:.75rem; margin-bottom:1rem; border:1px solid var(--edge); background:#1c1b17; border-radius:5px }
+    .variable-bar span { color:var(--muted); margin-right:.25rem }
+    .variable-bar button { padding:.32rem .55rem; color:var(--gold); font-family:ui-monospace,monospace }
+    .take { margin:0 0 1rem; padding:1rem; border:1px solid var(--edge); border-radius:6px; background:rgba(34,34,29,.88) }
+    .take-head,.line-head { display:flex; align-items:center; justify-content:space-between; gap:.6rem }
+    .take-head { margin-bottom:.7rem }
+    .take-title { color:var(--gold); font-size:.82rem; text-transform:uppercase; letter-spacing:.12em }
+    .sentence { display:grid; grid-template-columns:2.2rem 1fr auto; gap:.55rem; align-items:start; margin:.55rem 0 }
+    .sentence .number { padding-top:.7rem; color:#777268; text-align:center }
+    textarea { resize:vertical; min-height:3.2rem }
+    .preview { margin:.25rem 0 .7rem 2.75rem; color:#c8c1b5; font-style:italic }
+    .add { width:100%; border-style:dashed; color:var(--muted); margin-top:.6rem }
+    .empty { padding:4rem 1rem; text-align:center; color:var(--muted); border:1px dashed var(--edge) }
+    .badge { display:inline-block; color:var(--gold); border:1px solid var(--edge); border-radius:10rem; padding:.15rem .55rem; font-size:.75rem }
+    .dialog { position:fixed; inset:0; z-index:20; display:none; place-items:center; padding:1rem; background:rgba(0,0,0,.76) }
+    .dialog.open { display:grid }
+    .dialog-box { width:min(650px,100%); padding:1.5rem; background:var(--panel); border:1px solid var(--edge); border-radius:7px; box-shadow:0 2rem 6rem #000 }
+    .dialog-box h2 { margin-top:0 }
+    .dialog-box .actions { justify-content:flex-end; margin-top:1rem }
+    @media(max-width:800px){ header{position:static;padding:1rem;align-items:flex-start;flex-wrap:wrap} header p{flex-basis:100%;order:3}.layout{grid-template-columns:1fr} aside{border-right:0;border-bottom:1px solid var(--edge)}.nav{max-height:220px}.sentence{grid-template-columns:1fr auto}.number{display:none}.preview{margin-left:0} }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>Claudia's Script Room</h1><p>Rewrite the night. Keep the braces.</p></div>
+    <div class="actions">
+      <button id="importButton">Import</button>
+      <button id="resetButton">Reset draft</button>
+      <button class="primary" id="downloadButton">Download script</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside>
+      <label for="search">Find a scene or line</label>
+      <input id="search" type="search" placeholder="Search the script…">
+      <h2>Preview values</h2>
+      <div class="vars" id="previewVars"></div>
+      <p class="hint">These values only affect the preview. The downloaded script keeps variables such as <code>{name}</code>.</p>
+      <div class="status" id="status">Draft saved locally</div>
+      <nav class="nav" id="nav"></nav>
+    </aside>
+
+    <main><div class="workspace" id="workspace"></div></main>
+  </div>
+
+  <input hidden type="file" id="fileInput" accept="application/json,.json">
+  <div class="dialog" id="resetDialog" role="dialog" aria-modal="true" aria-labelledby="resetTitle">
+    <div class="dialog-box">
+      <h2 id="resetTitle">Reset the whole draft?</h2>
+      <p>This restores every dialogue to the version currently shipped with the game. Your downloaded files will not be affected.</p>
+      <div class="actions"><button id="cancelReset">Keep editing</button><button class="danger" id="confirmReset">Reset everything</button></div>
+    </div>
+  </div>
+
+  <script src="js/core/util.js"></script>
+  <script src="js/scenes/claudia-lines.js"></script>
+  <script>
+  (() => {
+    'use strict';
+    const STORAGE_KEY = 'traitors.claudia-script-editor.v1';
+    const VARIABLE_DEFAULTS = { name:'Alex', mission:'The Highland Run', twist:'Double or Nothing', twistBlurb:'Every prize is doubled, but every mistake costs twice as much.', pot:'£12,000', count:'3' };
+    const clone = value => JSON.parse(JSON.stringify(value));
+    const original = { sets:clone(ClaudiaLines.SETS), table:clone(ClaudiaLines.TABLE), you:clone(ClaudiaLines.YOU) };
+    let data = loadDraft() || clone(original);
+    let selected = 'set:' + Object.keys(data.sets)[0];
+    let activeTextarea = null;
+
+    const $ = id => document.getElementById(id);
+    const nav = $('nav'), workspace = $('workspace'), search = $('search');
+    const preview = clone(VARIABLE_DEFAULTS);
+
+    function loadDraft() {
+      try {
+        const value = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        return validData(value && value.data) ? value.data : null;
+      } catch (_) { return null; }
+    }
+    function validData(value) {
+      return !!value && typeof value.sets === 'object' && Array.isArray(value.table) && Array.isArray(value.you);
+    }
+    function save() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ savedAt:new Date().toISOString(), data }));
+      $('status').textContent = 'Draft saved locally';
+    }
+    function fill(text) {
+      return String(text).replace(/\{(\w+)\}/g, (match,key) => preview[key] === undefined ? match : preview[key]);
+    }
+    function allVariables() {
+      const found = new Set(Object.keys(VARIABLE_DEFAULTS));
+      JSON.stringify(data).replace(/\{(\w+)\}/g, (_,key) => { found.add(key); return _; });
+      return [...found];
+    }
+    function buildPreviewFields() {
+      $('previewVars').innerHTML = allVariables().map(key => `<label>${escapeHtml(key)}<input data-preview="${escapeHtml(key)}" value="${escapeHtml(preview[key] ?? key)}"></label>`).join('');
+      $('previewVars').querySelectorAll('input').forEach(input => input.addEventListener('input', () => { preview[input.dataset.preview] = input.value; renderWorkspace(); }));
+    }
+    function items() {
+      const sets = Object.keys(data.sets).map(key => ({ id:'set:'+key, title:humanise(key), detail:`${data.sets[key].length} take${data.sets[key].length === 1 ? '' : 's'}` }));
+      return [...sets, {id:'table',title:'Contestants at the table',detail:`${data.table.length} lines`}, {id:'you',title:'Player responses',detail:`${data.you.length} choices`}];
+    }
+    function humanise(value) { return value.replace(/([a-z])([A-Z])/g,'$1 $2').replace(/^./, c => c.toUpperCase()); }
+    function matches(item, term) {
+      if (!term) return true;
+      const body = item.id === 'table' ? data.table : item.id === 'you' ? data.you : data.sets[item.id.slice(4)];
+      return (item.title + ' ' + JSON.stringify(body)).toLowerCase().includes(term);
+    }
+    function renderNav() {
+      const term = search.value.trim().toLowerCase();
+      nav.innerHTML = items().filter(item => matches(item,term)).map(item => `<button data-id="${item.id}" class="${item.id === selected ? 'active' : ''}">${escapeHtml(item.title)}<br><small>${item.detail}</small></button>`).join('') || '<p class="hint">No dialogue found.</p>';
+      nav.querySelectorAll('button').forEach(button => button.addEventListener('click', () => { selected = button.dataset.id; render(); window.scrollTo({top:0,behavior:'smooth'}); }));
+    }
+    function renderWorkspace() {
+      activeTextarea = null;
+      if (selected === 'table') return renderObjects('Contestants at the table','Lines spoken by the other contestants. “Accuses” affects how bots choose a line.',data.table,'table');
+      if (selected === 'you') return renderObjects('Player responses','The choices offered to the player at the round table.',data.you,'you');
+      const key = selected.slice(4), takes = data.sets[key];
+      if (!takes) { selected = 'set:' + Object.keys(data.sets)[0]; return render(); }
+      workspace.innerHTML = sectionHead(humanise(key), `${takes.length} alternate take${takes.length === 1 ? '' : 's'}. The game chooses one take from the run seed.`) + variableBar() + `<div id="takes">${takes.map((take,i) => takeHtml(take,i)).join('')}</div><button class="add" id="addTake">＋ Add alternate take</button>`;
+      bindTextareas();
+      workspace.querySelectorAll('[data-delete-take]').forEach(button => button.onclick = () => { if (takes.length === 1) return alert('A dialogue set needs at least one take.'); takes.splice(+button.dataset.deleteTake,1); changed(); });
+      workspace.querySelectorAll('[data-delete-line]').forEach(button => button.onclick = () => { const [t,l] = button.dataset.deleteLine.split(':').map(Number); if (takes[t].length === 1) return alert('A take needs at least one sentence.'); takes[t].splice(l,1); changed(); });
+      workspace.querySelectorAll('[data-add-line]').forEach(button => button.onclick = () => { takes[+button.dataset.addLine].push('New sentence.'); changed(); });
+      $('addTake').onclick = () => { takes.push(['New alternate take.']); changed(); };
+      bindVariableButtons();
+    }
+    function sectionHead(title,description) { return `<div class="section-head"><div><h2>${escapeHtml(title)}</h2><p>${escapeHtml(description)}</p></div><span class="badge">${selected.startsWith('set:') ? 'Claudia' : selected === 'table' ? 'Contestants' : 'Player'}</span></div>`; }
+    function variableBar() { return `<div class="variable-bar"><span>Insert variable:</span>${allVariables().map(v => `<button data-variable="${escapeHtml(v)}">{${escapeHtml(v)}}</button>`).join('')}</div>`; }
+    function takeHtml(take,takeIndex) {
+      return `<section class="take"><div class="take-head"><span class="take-title">Take ${takeIndex+1}</span><button class="danger" data-delete-take="${takeIndex}">Remove take</button></div>${take.map((line,lineIndex) => sentenceHtml(line,takeIndex,lineIndex)).join('')}<button class="add" data-add-line="${takeIndex}">＋ Add sentence / beat</button></section>`;
+    }
+    function sentenceHtml(line,takeIndex,lineIndex) {
+      return `<div class="sentence"><span class="number">${lineIndex+1}</span><textarea data-set-line="${takeIndex}:${lineIndex}" rows="2">${escapeHtml(line)}</textarea><button class="danger" data-delete-line="${takeIndex}:${lineIndex}" title="Remove sentence">×</button></div><div class="preview">“${escapeHtml(fill(line))}”</div>`;
+    }
+    function renderObjects(title,description,list,type) {
+      workspace.innerHTML = sectionHead(title,description) + variableBar() + `<div>${list.map((line,i) => objectHtml(line,i,type)).join('')}</div><button class="add" id="addObject">＋ Add ${type === 'table' ? 'contestant line' : 'player choice'}</button>`;
+      bindTextareas(); bindVariableButtons();
+      workspace.querySelectorAll('[data-delete-object]').forEach(button => button.onclick = () => { if (list.length === 1) return alert('Keep at least one line.'); list.splice(+button.dataset.deleteObject,1); changed(); });
+      workspace.querySelectorAll('[data-field]').forEach(input => input.oninput = () => { list[+input.dataset.index][input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value; save(); });
+      $('addObject').onclick = () => { list.push(type === 'table' ? {id:'t-new-'+Date.now(),text:'New contestant line.',accuse:false} : {id:'y-new-'+Date.now(),label:'New choice',text:'New player response.'}); changed(); };
+    }
+    function objectHtml(line,index,type) {
+      return `<section class="take"><div class="take-head"><span class="take-title">${type === 'table' ? 'Line' : 'Choice'} ${index+1}</span><button class="danger" data-delete-object="${index}">Remove</button></div><label>Internal ID<input data-index="${index}" data-field="id" value="${escapeHtml(line.id)}"></label>${type === 'you' ? `<label>Button label<input data-index="${index}" data-field="label" value="${escapeHtml(line.label)}"></label>` : `<label><input style="width:auto" type="checkbox" data-index="${index}" data-field="accuse" ${line.accuse ? 'checked' : ''}> Accuses another player</label>`}<label>Spoken line<textarea data-object-line="${index}" rows="3">${escapeHtml(line.text)}</textarea></label><div class="preview">“${escapeHtml(fill(line.text))}”</div></section>`;
+    }
+    function bindTextareas() {
+      workspace.querySelectorAll('textarea').forEach(textarea => {
+        textarea.onfocus = () => activeTextarea = textarea;
+        textarea.oninput = () => {
+          if (textarea.dataset.setLine) { const [t,l] = textarea.dataset.setLine.split(':').map(Number); data.sets[selected.slice(4)][t][l] = textarea.value; }
+          else if (textarea.dataset.objectLine) { (selected === 'table' ? data.table : data.you)[+textarea.dataset.objectLine].text = textarea.value; }
+          const p = textarea.closest('.take')?.querySelectorAll('.preview');
+          if (p) { const own = textarea.parentElement.nextElementSibling || p[0]; if (own?.classList.contains('preview')) own.textContent = '“' + fill(textarea.value) + '”'; else p[0].textContent = '“' + fill(textarea.value) + '”'; }
+          save();
+        };
+      });
+    }
+    function bindVariableButtons() {
+      workspace.querySelectorAll('[data-variable]').forEach(button => button.onclick = () => {
+        if (!activeTextarea) activeTextarea = workspace.querySelector('textarea');
+        if (!activeTextarea) return;
+        const token = '{' + button.dataset.variable + '}', start = activeTextarea.selectionStart, end = activeTextarea.selectionEnd;
+        activeTextarea.setRangeText(token,start,end,'end'); activeTextarea.dispatchEvent(new Event('input')); activeTextarea.focus();
+      });
+    }
+    function changed() { save(); buildPreviewFields(); render(); }
+    function render() { renderNav(); renderWorkspace(); }
+    function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function download() {
+      const payload = { format:'traitors-claudia-dialogue', version:1, exportedAt:new Date().toISOString(), instructions:'Send this JSON file back with a request to apply it. Variables inside braces must remain intact.', data };
+      const blob = new Blob([JSON.stringify(payload,null,2)+'\n'],{type:'application/json'}), link = document.createElement('a');
+      link.href = URL.createObjectURL(blob); link.download = 'claudia-dialogue-edits.json'; link.click(); setTimeout(() => URL.revokeObjectURL(link.href),1000);
+      $('status').textContent = 'Downloaded — ready to send';
+    }
+    async function importFile(file) {
+      try {
+        const parsed = JSON.parse(await file.text()), incoming = parsed.format === 'traitors-claudia-dialogue' ? parsed.data : parsed.data || parsed;
+        if (!validData(incoming)) throw new Error('This is not a Claudia dialogue export.');
+        data = clone(incoming); save(); buildPreviewFields(); render(); $('status').textContent = 'Imported and saved';
+      } catch (error) { alert(error.message || 'That file could not be imported.'); }
+    }
+
+    search.addEventListener('input',renderNav);
+    $('downloadButton').onclick = download;
+    $('importButton').onclick = () => $('fileInput').click();
+    $('fileInput').onchange = event => { if (event.target.files[0]) importFile(event.target.files[0]); event.target.value=''; };
+    $('resetButton').onclick = () => $('resetDialog').classList.add('open');
+    $('cancelReset').onclick = () => $('resetDialog').classList.remove('open');
+    $('confirmReset').onclick = () => { data=clone(original); localStorage.removeItem(STORAGE_KEY); $('resetDialog').classList.remove('open'); buildPreviewFields(); render(); save(); };
+    $('resetDialog').onclick = event => { if (event.target === $('resetDialog')) $('resetDialog').classList.remove('open'); };
+    buildPreviewFields(); render();
+  })();
+  </script>
+</body>
+</html>

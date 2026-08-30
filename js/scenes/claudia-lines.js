@@ -19,377 +19,353 @@
 const ClaudiaLines = (() => {
 
   const SETS = {
-
-    /* ---------------- the hill ---------------- */
-
-    welcome: [
-      ['Welcome to the Highlands.',
-       'Somewhere below us there is a castle, a fire, and a great deal of money.',
-       'Getting to it is the easy part.'],
-      ['There you are. Come up — the view is the best part of the day.',
-       'Three of you. One pot. And a whole evening to get through.'],
-      ['Good. You made it up the hill.',
-       'Look at it. Miles of nothing, and every bit of it is watching you.'],
+    "welcome": [
+      [
+        "Welcome to the Highlands."
+      ],
+      [
+        "Three of you. One pot. And a whole evening to get through."
+      ],
+      [
+        "Good. You made it up the hill."
+      ]
     ],
-
-    theRules: [
-      ['Here is how tonight works.',
-       'You will play for the pot. You will sit at the table and talk.',
-       'And then, by the fire, you will decide what you believe.'],
-      ['Two missions. One round table. One fire.',
-       'Everything you earn goes in the pot. The pot goes to whoever is still standing at the end of the night.'],
+    "theRules": [
+      [
+        "It's time for the first mission."
+      ]
     ],
-
-    roleIntro: [
-      ['But first — the only thing that matters.',
-       'Among the three of you there may be a Traitor.',
-       'There may not. I am not going to tell you which.'],
-      ['Before anything else, you should know what you are.',
-       'One of you may be a Traitor. It is possible that none of you is.',
-       'That is the last honest thing anybody will say tonight.'],
+    "roleIntro": [
+      [
+        "Among the three of you there may (or may not) be a Traitor."
+      ]
     ],
-
-    roleFaithful: [
-      ['You are a Faithful.',
-       'You want the pot, and you want it clean. Find the Traitor — if there is one at all.'],
-      ['You are a Faithful. Ordinary, honest, and completely in the dark.',
-       'Welcome to the worst seat in the game.'],
+    "roleFaithful": [
+      [
+        "You are a Faithful."
+      ]
     ],
-
-    roleTraitor: [
-      ['You are a Traitor.',
-       'Say nothing. Earn with them, sit with them, and be there at the end when the fire goes out.'],
-      ['You are the Traitor.',
-       'The pot is already yours. All you have to do is survive two other people deciding otherwise.'],
+    "roleTraitor": [
+      [
+        "You are a Traitor."
+      ]
     ],
-
-    firstMission: [
-      ['Now. Your first mission.',
-       '{mission}.',
-       'Everything you take from it goes into the pot.'],
-      ['Down you go. Tonight it is {mission}.',
-       'Earn well. You will want the money to be worth arguing about.'],
+    "firstMission": [
+      [
+        "Your first mission is {mission}."
+      ]
     ],
-
-    twist: [
-      ['One more thing. Tonight it is {twist}.',
-       '{twistBlurb}'],
-      ['And the Highlands have an opinion. {twist}.',
-       '{twistBlurb}'],
-      ['Oh — and {twist} is in play.',
-       '{twistBlurb}'],
+    "twist": [
+      [
+        "The twist is {twist}."
+      ]
     ],
-
-    noTwist: [
-      ['No complications tonight. Just the mission.'],
-      ['Nothing clever this time. Go and earn.'],
+    "noTwist": [
+      [
+        "No twists this time."
+      ]
     ],
-
-    sendOff: [
-      ['Off you go.'],
-      ['Good luck. You will need some of it.'],
-      ['Go on, then.'],
+    "sendOff": [
+      [
+        "Off you go."
+      ]
     ],
-
-    /* ---------------- the round table ---------------- */
-
-    tableOpen: [
-      ['Sit down.',
-       'The pot stands at {pot}.',
-       'That is the good news out of the way.'],
-      ['Come to the table.',
-       'You have {pot} between you, and one evening left to keep it.'],
+    "tableOpen": [
+      [
+        "Sit down."
+      ]
     ],
-
-    tablePrompt: [
-      ['So. Talk to each other.',
-       'Somebody at this table might be lying to you, and you have no way at all of knowing.'],
-      ['Look at the two faces opposite you.',
-       'One of them may have spent all afternoon deciding how to say nothing.'],
+    "tablePrompt": [
+      [
+        "So. Talk to each other.",
+        "Somebody at this table might be lying to you, and you have no way at all of knowing."
+      ],
+      [
+        "Look at the two faces opposite you.",
+        "One of them may have spent all afternoon deciding how to say nothing."
+      ]
     ],
-
-    tableYourTurn: [
-      ['And you. What do you make of them?'],
-      ['Your turn. Say something, or say nothing — both are answers.'],
+    "tableYourTurn": [
+      [
+        "And you. What do you make of them?"
+      ],
+      [
+        "Your turn."
+      ]
     ],
-
-    tableNoBanish: [
-      ['Now. Normally this is where somebody leaves us.',
-       'Not tonight. Nobody is banished at this table.',
-       'You will all go into the second mission, and you will all come to the fire.'],
-      ['You are expecting me to send one of you home.',
-       'I am not going to. Nobody leaves this table.',
-       'Whatever you have decided about each other, you take it to the fire with you.'],
+    "tableNoBanish": [
+      [
+        "Discussion is over. It is now time for the second mission"
+      ]
     ],
-
-    secondMission: [
-      ['Which brings us to your second mission. {mission}.',
-       'Add to the pot. It is the last chance you get.'],
-      ['One more mission. {mission}.',
-       'Whatever you bring back is what you will be fighting over by the fire.'],
+    "secondMission": [
+      [
+        "The second mission is {mission}."
+      ]
     ],
-
-    /* ---------------- the fire ---------------- */
-
-    fireOpen: [
-      ['Sit down. Closer to the fire.',
-       'The pot is {pot}. This is where you find out who it belongs to.'],
-      ['Here we are, then. {pot}, and a fire.',
-       'Everything from here is a choice you make out loud.'],
+    "fireOpen": [
+      [
+        "The pot is at {pot}. This is where you find out who it belongs to."
+      ],
+      [
+        "Here we are, then. {pot}, and a fire.",
+        "Everything from here is a choice you make out loud."
+      ]
     ],
-
-    fireRules: [
-      ['You have two options, and only two.',
-       'If every pouch says End Game, the game stops.',
-       'If even one pouch says Banish Again, all of you must vote someone out.'],
-      ['This is the endgame.',
-       'Ending has to be unanimous. One red flame means another banishment.',
-       'And when only two of you remain, the game ends automatically.'],
+    "fireRules": [
+      [
+        "You have two options, and only two.",
+        "If every pouch says End Game, the game stops.",
+        "If even one pouch says Banish Again, all of you must vote someone out."
+      ]
     ],
-
-    fireWarn: [
-      ['Be careful. If you end this game with a Traitor still sitting here, they take all of it.',
-       'And if there was never a Traitor at all — you will have burnt each other for nothing.'],
-      ['One warning. Ending it with a Traitor in the circle means they leave with everything.',
-       'Ending it too late means there is nobody left to share it with.'],
+    "fireWarn": [
+      [
+        "Be careful. If you end this game with a Traitor still sitting here, they take all of it.",
+        "And if there was never a Traitor at all — you will have burnt each other for nothing."
+      ],
+      [
+        "One warning. Ending it with a Traitor in the circle means they leave with everything.",
+        "Ending it too late means there is nobody left to share it with."
+      ]
     ],
-
-    voteDecide: [
-      ['So. End the game, or banish.',
-       'Choose.'],
-      ['End it, or one more name.',
-       'It is entirely up to the three of you.'],
-      ['Decide. End it, or banish.'],
+    "voteDecide": [
+      [
+        "Decide. End it, or banish."
+      ]
     ],
-
-    voteDecideTwo: [
-      ['Two of you left.',
-       'End it now and share it — or name each other one last time.'],
-      ['Just the two of you.',
-       'One of you may be about to walk away with all of it.'],
+    "voteDecideTwo": [
+      [
+        "Two left.",
+        "End it and share, or banish again."
+      ]
     ],
-
-    decisionPouches: [
-      ['The decisions are in.',
-       'I will take each pouch and put it in the fire, one person at a time.',
-       'End game first. Then anyone who chose to banish again.'],
+    "decisionPouches": [
+      [
+        "The decisions are in."
+      ]
     ],
-
-    decisionPouchIntro: [
-      ['{name}. Your decision pouch, please.'],
-      ['First, {name}. Hand me your decision.'],
-      ['{name}. Let us see what you chose.'],
+    "decisionPouchIntro": [
+      [
+        "{name}. Your decision pouch, please."
+      ],
+      [
+        "First, {name}. Hand me your decision."
+      ],
+      [
+        "{name}. Let us see what you chose."
+      ]
     ],
-
-    decisionPouchIntroYou: [
-      ['Your decision pouch. Give it to me.'],
-      ['And yours. Hand it over.'],
+    "decisionPouchIntroYou": [
+      [
+        "And yours. Hand it over."
+      ]
     ],
-
-    decisionPouchThrow: [
-      ['Into the fire.'],
-      ['Let the flame answer.'],
-      ['Here we go.'],
+    "decisionPouchThrow": [
+      [
+        "Into the fire."
+      ],
+      [
+        "Here we go."
+      ]
     ],
-
-    decisionEnd: [
-      ['{name} chose to end the game.'],
-      ['End game. That was {name}.'],
+    "decisionEnd": [
+      [
+        "{name} chose to end the game."
+      ],
+      [
+        "End game. That was {name}."
+      ]
     ],
-
-    decisionBanish: [
-      ['{name} chose to banish again.'],
-      ['Banish again. That was {name}.'],
+    "decisionBanish": [
+      [
+        "{name} chose to banish again."
+      ],
+      [
+        "Banish again. That was {name}."
+      ]
     ],
-
-    voteName: [
-      ['Banish it is.',
-       'Write a name. Say it out loud.'],
-      ['Then somebody has to go.',
-       'Name them.'],
+    "voteName": [
+      [
+        "Banish it is."
+      ],
+      [
+        "Then somebody has to go."
+      ]
     ],
-
-    voteNameTie: [
-      ['The vote is tied.',
-       'You will vote again. Write a name.'],
-      ['It is a tie.',
-       'Nobody leaves on a tied vote. Vote again.'],
+    "voteNameTie": [
+      [
+        "The vote is tied.",
+        "You will vote again. Write a name."
+      ]
     ],
-
-    pouchIntro: [
-      ['{name}. Take your pouch.',
-       'Give it to me.'],
-      ['{name}. Your pouch, please.',
-       'Whatever is in it, we all see it together.'],
+    "pouchIntro": [
+      [
+        "{name}. Give me your pouch."
+      ]
     ],
-
-    pouchThrow: [
-      ['I am going to put this in the fire.',
-       'And then we will all know.'],
-      ['Watch the flame.',
-       'It has never once been wrong.'],
-      ['Nobody move. Nobody say a word.',
-       'Watch what colour this burns.'],
+    "pouchThrow": [
+      [
+        "Let's see."
+      ]
     ],
-
-    revealFaithful: [
-      ['{name}...',
-       'was a Faithful.'],
-      ['Green.',
-       '{name} was a Faithful. You have burnt one of your own.'],
+    "revealFaithful": [
+      [
+        "{name}...",
+        "was a Faithful."
+      ],
+      [
+        "Green.",
+        "{name} was a Faithful."
+      ]
     ],
-
-    revealTraitor: [
-      ['{name}...',
-       'was a Traitor.'],
-      ['Red.',
-       '{name} was a Traitor. You found them.'],
+    "revealTraitor": [
+      [
+        "{name}...",
+        "was a Traitor."
+      ]
     ],
-
-    /* ---------------- the last pouches ----------------
-       The game is over and nobody knows it yet. These are the only
-       lines in the show that are not asking anybody for anything. */
-
-    endPouches: [
-      ['It is decided. The game is over.',
-       'But you do not get to go home not knowing.',
-       'Every one of you still standing has a pouch. We are going to open all of them.'],
-      ['Then that is that. Nobody else goes to the fire.',
-       'Except that every one of you is still carrying a pouch.',
-       'And I am going to burn them. One. At. A. Time.'],
+    "endPouches": [
+      [
+        "It is decided. The game is over.",
+        "But you do not get to go home not knowing."
+      ]
     ],
-
-    endPouchesCaught: [
-      ['That is one Traitor accounted for.',
-       'But I am not sending you home on a guess.',
-       'Everyone still standing hands me their pouch. All of them go in.'],
+    "endPouchesCaught": [
+      [
+        "That is one Traitor accounted for."
+      ]
     ],
-
-    finalTwoReveal: [
-      ['Two players remain. The game ends here.',
-       'You will reveal your identities one at a time.',
-       'Faithful first. And if a Traitor is still here, they will reveal last.'],
+    "finalTwoReveal": [
+      [
+        "Two players remain. The game ends here.",
+        "You will reveal your identities one at a time."
+      ]
     ],
-
-    finalPouchIntro: [
-      ['{name}.',
-       'Your pouch. In my hand.'],
-      ['{name}. Stand up.',
-       'Give it to me.'],
-      ['Next. {name}.',
-       'Hand it over.'],
+    "finalPouchIntro": [
+      [
+        "{name}.",
+        "Your pouch."
+      ],
+      [
+        "Next. {name}.",
+        "Hand it over."
+      ]
     ],
-
-    finalPouchLast: [
-      ['One pouch left.',
-       '{name}. This is the whole night, in my hand.'],
-      ['And the last one.',
-       '{name}. Everything comes down to this.'],
+    "finalPouchLast": [
+      [
+        "One pouch left.",
+        "{name}."
+      ],
+      [
+        "And the last one.",
+        "{name}."
+      ]
     ],
-
-    finalFaithful: [
-      ['{name}...',
-       'Faithful.'],
-      ['Green.',
-       '{name} was exactly what they said they were.'],
+    "finalFaithful": [
+      [
+        "{name}...",
+        "Faithful."
+      ]
     ],
-
-    finalTraitor: [
-      ['{name}...',
-       'TRAITOR.'],
-      ['Red. Red, all night.',
-       '{name} has been sitting there lying to your faces.'],
+    "finalTraitor": [
+      [
+        "{name}...",
+        "TRAITOR."
+      ]
     ],
-
-    /* ---------------- when the pouch is yours ----------------
-       `{name}` is "You" for the local player, and "You was a Traitor"
-       is not a sentence. Every set that puts the name inside a clause
-       therefore has a `…You` twin, and the scene reaches for it when
-       the pouch on the fire is your own. */
-
-    pouchIntroYou: [
-      ['And you.',
-       'Your pouch. Give it to me.'],
-      ['That leaves you.',
-       'Hand it over.'],
+    "pouchIntroYou": [
+      [
+        "Your pouch now."
+      ]
     ],
-
-    finalPouchYou: [
-      ['You reveal first.',
-       'Your pouch. Give it to me.'],
-      ['We start with you.',
-       'Hand me your pouch.'],
+    "finalPouchYou": [
+      [
+        "Hand me your pouch."
+      ]
     ],
-
-    finalPouchYouLast: [
-      ['And the last pouch is yours.',
-       'Give it to me. Everything is on this.'],
-      ['One left. Yours.',
-       'Hand it over, and we will all find out together.'],
+    "finalPouchYouLast": [
+      [
+        "One left. Yours."
+      ]
     ],
-
-    finalTraitorYou: [
-      ['Red.',
-       'You have been the Traitor all night.'],
-      ['It is red.',
-       'You sat there. You lied. And they let you.'],
+    "finalTraitorYou": [
+      [
+        "Red.",
+        "You have been the Traitor all night."
+      ],
+      [
+        "It is red.",
+        "You sat there. You lied. And they let you."
+      ]
     ],
-
-    finalFaithfulYou: [
-      ['Green.',
-       'You were Faithful. Exactly what you said you were.'],
-      ['Green, of course.',
-       'You told the truth all night and it very nearly cost you.'],
+    "finalFaithfulYou": [
+      [
+        "Green.",
+        "You were Faithful. Exactly what you said you were."
+      ],
+      [
+        "Green, of course.",
+        "You told the truth all night and it very nearly cost you."
+      ]
     ],
-
-    revealTraitorYou: [
-      ['Red.',
-       'You were the Traitor. And they found you.'],
+    "revealTraitorYou": [
+      [
+        "Red.",
+        "You were the Traitor."
+      ]
     ],
-
-    revealFaithfulYou: [
-      ['Green.',
-       'You were a Faithful. They burnt one of their own.'],
+    "revealFaithfulYou": [
+      [
+        "Green.",
+        "You were a Faithful."
+      ]
     ],
-
-    againAfterFaithful: [
-      ['So.',
-       'That is one of you gone, and nothing settled.',
-       'Same question. End it, or go again.'],
-      ['Well. That did not help.',
-       'Two of you now. And the same choice.'],
+    "againAfterFaithful": [
+      [
+        "Same question. End it, or go again."
+      ]
     ],
-
-    /* ---------------- the verdict ---------------- */
-
-    wonFaithful: [
-      ['It is over.',
-       'There is no Traitor left by this fire.',
-       'The pot is yours. {pot}. Every penny of it, honestly won.'],
+    "wonFaithful": [
+      [
+        "It is over.",
+        "There is no Traitor left by this fire.",
+        "The pot is yours. {pot}."
+      ]
     ],
-    wonFaithfulClean: [
-      ['It is over.',
-       'And I should tell you — there was never a Traitor here at all.',
-       'Three Faithfuls, all night, terrified of each other. {pot} is yours.'],
+    "wonFaithfulClean": [
+      [
+        "It is over.",
+        "There was never a Traitor here at all.",
+        "{pot} is yours."
+      ]
     ],
-    wonTraitor: [
-      ['It is over.',
-       'And you have all been extremely kind to a Traitor.',
-       '{pot}. Not shared. Yours.'],
+    "wonTraitor": [
+      [
+        "It is over.",
+        "And you have all been extremely kind to a Traitor.",
+        "{pot}. Not shared. Yours."
+      ]
     ],
-    lostFaithful: [
-      ['It is over.',
-       'You ended the night with a Traitor at your side.',
-       'They take the pot. You take the drive home.'],
+    "lostFaithful": [
+      [
+        "It is over.",
+        "You ended the night with a Traitor at your side.",
+        "They take the pot. You take the drive home."
+      ]
     ],
-    lostBurned: [
-      ['You were named, and the fire answered.',
-       'The pot goes on without you.'],
+    "lostBurned": [
+      [
+        "You were named.",
+        "The pot goes on without you."
+      ]
     ],
-    lostTraitorCaught: [
-      ['They found you.',
-       'The Faithfuls take the pot, and you take the long walk.'],
-    ],
+    "lostTraitorCaught": [
+      [
+        "They found you.",
+        "The Faithfuls take the pot, and you take the long walk."
+      ]
+    ]
   };
 
   /* ---------------- what the others say at the table ----------------
