@@ -6,15 +6,30 @@
    Claudia says so out loud, because a round table that ends without a
    banishment has to explain itself or it reads as a bug.
 
-   The scene has exactly one interactive moment: you choose what to say.
-   It changes nothing mechanically — the bots read it, and that is all
-   — and it is deliberately not dressed up as a move. You are not
-   solving anything at this table. You are deciding how you want to
-   look while you have no idea what is going on.
+   What used to happen here was a script: two bots read lines at each
+   other and you picked one of three replies. That is gone, and what
+   replaced it is the reason the room exists. The floor goes round the
+   table — thirty seconds each, one microphone live at a time, everyone
+   else muted at the source — and what gets said is whatever three
+   people actually say to each other.
 
-   Your line is the one thing here that is not spoken aloud. Everyone
-   else is performed; yours is read. Being dubbed by the host's voice
-   in your own mouth is worse than silence.
+   The board is up the whole time. That is the other half of it: an
+   accusation with nothing behind it is noise, so everybody can see
+   everybody's numbers from the mission they have just come off, and
+   the argument has something to be about.
+
+   There is nothing to click. The three canned statements that used to
+   be here went with the bots that read them: a menu of things to say
+   is what you build when the players cannot speak, and these ones can.
+   Your turn is your turn — talk, or do not, and press the button when
+   you are finished with it.
+
+   The fire is untouched by any of this. Its ballot is still the full
+   thing: end the game or banish again, unanimity to stop, names spoken
+   one at a time, and a tie voted over rather than broken.
+
+   And if somebody left a task unfinished out there, none of the above
+   happens. See `exposed.js`.
 ------------------------------------------------------------------ */
 class RoundtableScene {
 
@@ -22,8 +37,8 @@ class RoundtableScene {
     this.opts = opts;
     this.music = null;
     this.stage = null;
-    this._resolveSay = null;
-    this._sayTimer = null;
+    this._offNet = null;
+    this._floorDone = null;
   }
 
   build() {
@@ -43,17 +58,15 @@ class RoundtableScene {
   setShot(name, opts) { this.stage.setShot(name, opts); }
   setSpeaking(who) { this.stage.setSpeaking(who); }
 
-  // a bot's voice, off the same synthesiser: a different pitch and pace
-  // is a cheap impression of a different person, and it is enough
-  _voiceFor(seat) {
-    return { pitch: 0.84 + (seat % 3) * 0.15, rate: 0.90 + (seat % 2) * 0.09 };
-  }
+  /* A room with no fire in it, so there is nothing for a reveal to
+     burn — but the hook has to exist, because `exposed.js` plays in
+     here and at the fireplace and should not know which. */
+  takeEmbers() {}
 
   start() {
     const s = Session.state;
     const seed = s.seed;
     const m = s.missions[1] || {};
-    const L = (set, vars) => ClaudiaLines.beats(set, vars, seed + 5);
 
     Scenes.Cine.on(true);
     Scenes.Cine.bars(false);
@@ -62,6 +75,40 @@ class RoundtableScene {
     this.wind = AudioBus.wind();
     if (this.wind) this.wind.set(0.18);
 
+    this._listen();
+
+    /* One question first, and everything else waits on the answer:
+       is anybody about to be exposed? The host asks the session; all
+       three clients hear the same reply. */
+    this._exposure().then((e) => {
+      if (!this.stage) return;
+      if (e && e.playerId) {
+        Scenes.run(Exposed.beats(this, e, seed), this);
+        return;
+      }
+      Scenes.run(this._tableBeats(s, m, seed), this);
+    });
+  }
+
+  /* ---------------- the exposure question ---------------- */
+
+  _exposure() {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (e) => { if (done) return; done = true; off(); resolve(e); };
+      const off = Net.on((ev) => { if (ev.type === 'expose') finish(ev); });
+      this._offExpose = () => finish(null);
+      Exposed.request();
+      /* A guest whose host has gone quiet still has to get a table.
+         The wait is generous because it is once per gathering. */
+      setTimeout(() => finish(null), 4000);
+    });
+  }
+
+  /* ---------------- the ordinary table ---------------- */
+
+  _tableBeats(s, m, seed) {
+    const L = (set, vars) => ClaudiaLines.beats(set, vars, seed + 5);
     const speak = (set, vars, shots) => {
       const lines = L(set, vars);
       return lines.map((b, i) => ({
@@ -71,34 +118,20 @@ class RoundtableScene {
       }));
     };
 
-    // what the other two have decided to say tonight
-    const script = Bots.tableScript();
-    const botBeats = [];
-    script.forEach((entry, i) => {
-      const p = Session.playerById(entry.playerId);
-      if (!p) return;
-      const v = this._voiceFor(p.seat);
-      botBeats.push({
-        shot: 'on:' + p.id,
-        line: { text: entry.text, speaker: entry.speaker, who: p.id,
-                pitch: v.pitch, rate: v.rate },
-        hold: 0.45,
-        then: () => Net.send({ type: 'say', playerId: p.id,
-                               lineId: entry.lineId, text: entry.text }),
-      });
-      // your turn falls in the middle, where an interruption belongs
-      if (i === Math.floor(script.length / 2) - 1) botBeats.push({ ask: true });
-    });
-    if (!botBeats.some(b => b.ask)) botBeats.push({ ask: true });
-
-    const beats = [
+    return [
       { shot: 'wide', wait: 1.4 },
       ...speak('tableOpen', { pot: U.money(s.pot) }, ['table', 'claudia', null]),
+
+      // the numbers go up before anybody is asked to talk about them
+      { then: () => RoomUI.showBoard(s.debrief), shot: 'table', wait: 1.2 },
+      ...speak('floorBoard', {}, ['table', null]),
+
       ...speak('tablePrompt', {}, ['players', null]),
-      ...botBeats.map(b => (b.ask ? {
-        shot: 'players',
-        until: () => this._ask(),
-      } : b)),
+      ...speak('floorOpen', {}, ['claudia', null]),
+
+      { shot: 'players', until: () => this._floorRound() },
+
+      { then: () => { RoomUI.hideFloor(); RoomUI.hideBoard(); } },
       ...speak('tableNoBanish', {}, ['claudiaTight', null, null]),
       ...speak('secondMission', { mission: m.name || 'the second mission' }, ['claudia', null]),
       m.modName ? { card: { kicker: 'Tonight', title: m.modName,
@@ -107,68 +140,43 @@ class RoundtableScene {
       ...speak('sendOff'),
       { then: () => Net.send({ type: 'advance' }) },
     ].filter(Boolean);
-
-    Scenes.run(beats, this);
   }
 
-  /* ---------------- your line ---------------- */
+  /* ---------------- the floor ----------------
+     The host opens it and owns the clock. Every client just reacts to
+     what it is told: cut to whoever is up, open that one microphone,
+     and offer the statement panel when it is your turn. */
 
-  _ask() {
-    const s = Session.state;
-    const you = s.players.find(p => p.local);
-    const others = s.players.filter(p => p.id !== you.id && p.alive);
-    const target = others[Math.floor(Math.random() * others.length)] || { name: 'them' };
-
-    const panel = document.getElementById('say-options');
-    if (!panel) return Promise.resolve(true);
-
-    const options = ClaudiaLines.YOU.map(o => ({
-      id: o.id, label: o.label,
-      text: ClaudiaLines.fill(o.text, { name: target.name }),
-    }));
-
-    panel.innerHTML = '';
-    for (const o of options) {
-      const b = document.createElement('button');
-      b.className = 'btn say-btn';
-      b.innerHTML = `<span class="say-label">${o.label}</span><span class="say-text">“${o.text}”</span>`;
-      b.addEventListener('mouseenter', () => AudioBus.play('ui-hover'));
-      b.addEventListener('click', () => this._choose(o));
-      panel.appendChild(b);
-    }
-
-    if (this.stage) this.stage.setControls(false);
-    Screens.show('say');
-    return new Promise((resolve) => {
-      this._resolveSay = resolve;
-      /* Never let a cutscene wait for ever on somebody who has walked
-         away from the keyboard. Saying nothing is one of the answers, so
-         the timeout is a real choice rather than a failure. */
-      this._sayTimer = setTimeout(() => {
-        this._choose(options.find(o => o.id === 'y-hold') || options[0]);
-      }, 22000);
+  _listen() {
+    this._offNet = Net.on((e) => {
+      if (e.type !== 'floor') return;
+      this._onFloor(e);
     });
   }
 
-  _choose(option) {
-    if (!this._resolveSay) return;
-    clearTimeout(this._sayTimer);
-    this._sayTimer = null;
-    const resolve = this._resolveSay;
-    this._resolveSay = null;
+  _onFloor(e) {
+    if (!this.stage) return;
+    if (e.done || !e.playerId) {
+      RoomUI.hideFloor();
+      this.stage.setSpeaking(null);
+      if (this._floorDone) { const f = this._floorDone; this._floorDone = null; f(true); }
+      return;
+    }
+    RoomUI.showFloor(e);
+    this.stage.setShot('on:' + e.playerId);
+    this.stage.setSpeaking(e.playerId);
+  }
 
-    AudioBus.play('ui-click');
-    Screens.hideAll();
-    if (this.stage) this.stage.setControls(true);
-
-    const you = Session.state.players.find(p => p.local);
-    Net.send({ type: 'say', playerId: you.id, lineId: option.id, text: option.text });
-
-    // read, not performed
-    this.stage.setShot('players');
-    this.stage.setSpeaking(null);
-    Voice.say(option.text, { speaker: 'You', silent: true })
-      .then(() => { Voice.clear(); resolve(true); });
+  _floorRound() {
+    if (Session.isHost) Net.send({ type: 'openFloor', seconds: 30 });
+    return new Promise((resolve) => {
+      this._floorDone = resolve;
+      /* If the host vanishes mid-round the table must still end. This
+         is a backstop, not the clock — the clock is the host's. */
+      this._floorGuard = setTimeout(() => {
+        if (this._floorDone) { const f = this._floorDone; this._floorDone = null; f(true); }
+      }, 30000 * (Session.state.players.length + 1));
+    });
   }
 
   update(dt) {
@@ -177,9 +185,11 @@ class RoundtableScene {
   }
 
   dispose() {
-    clearTimeout(this._sayTimer);
-    this._sayTimer = null;
-    if (this._resolveSay) { const r = this._resolveSay; this._resolveSay = null; r(false); }
+    clearTimeout(this._floorGuard);
+    if (this._offNet) { this._offNet(); this._offNet = null; }
+    if (this._offExpose) { this._offExpose(); this._offExpose = null; }
+    if (this._floorDone) { const f = this._floorDone; this._floorDone = null; f(false); }
+    RoomUI.hideAll();
     if (this.music) { this.music.stop(0.9); this.music = null; }
     if (this.wind) { this.wind.stop(); this.wind = null; }
     if (this.stage) { this.stage.dispose(); this.stage = null; }

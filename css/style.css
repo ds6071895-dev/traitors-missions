@@ -1202,3 +1202,356 @@ body.nav-mode .btn:focus{outline:none}
 .title-foot .btn.ghost{align-self:center}
 /* a select carries its own focus ring badly, so it gets the same one */
 select.nav-on{outline-offset:2px}
+
+/* ==================================================================
+   THE PARTY
+   Everything below exists because there are two other people in the
+   room. It follows the same conventions as everything above it: gold
+   is the host and the UI, mint is good, crimson is bad, cyan is
+   information, and nothing that layers over the game is a `.screen`.
+   ================================================================== */
+
+/* ---------------- the front door ---------------- */
+
+.play-pair{display:flex; gap:10px; width:100%}
+.play-pair .btn{flex:1 1 0; min-width:0}
+.play-pair .pg-main{font-size:15px}
+
+/* ---------------- lobby ---------------- */
+
+.screen.lobby{align-items:center; justify-content:center; overflow-y:auto}
+.lobby-inner{
+  width:min(760px, 100%); display:flex; flex-direction:column; gap:16px;
+  align-items:center; text-align:center; margin:auto;
+}
+.brand.small .brand-title{font-size:clamp(30px,5vw,52px)}
+
+.lobby-you{
+  display:flex; gap:10px; align-items:flex-end; justify-content:center;
+  flex-wrap:wrap; width:100%;
+}
+.field{display:flex; flex-direction:column; gap:6px; text-align:left}
+.field>span{
+  font-size:10px; letter-spacing:.20em; text-transform:uppercase;
+  color:var(--muted); font-weight:700;
+}
+.field input{
+  font-family:var(--body); font-size:16px; font-weight:700; color:var(--paper);
+  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.18);
+  border-radius:10px; padding:11px 14px; min-width:220px; outline:none;
+}
+.field input:focus{border-color:var(--gold); background:rgba(242,193,78,.08)}
+.field input::placeholder{color:rgba(139,163,189,.6); font-weight:500}
+
+.lobby-cols{
+  display:grid; grid-template-columns:1fr 1fr; gap:14px; width:100%; text-align:left;
+}
+.lobby-panel{padding:20px; display:flex; flex-direction:column; gap:12px}
+.lp-head{
+  font-family:var(--display); font-size:20px; letter-spacing:.03em;
+  text-transform:uppercase; color:var(--gold);
+}
+.lp-note{margin:0; font-size:13px; line-height:1.5; color:var(--muted); flex:1}
+.lobby-panel .btn{width:100%}
+
+/* Four selects, because `UINav` already cycles a select with left and
+   right — so a gamepad dials a room code with no new input code, a
+   phone gets its native picker, and a keyboard can type a letter. */
+.code-entry{display:flex; gap:8px; justify-content:center}
+.code-slot{
+  font-family:var(--display); font-size:34px; line-height:1; text-align:center;
+  color:var(--gold); background:rgba(242,193,78,.06);
+  border:1px solid rgba(242,193,78,.3); border-radius:10px;
+  padding:8px 2px; width:100%; max-width:70px; cursor:pointer;
+  appearance:none; -webkit-appearance:none; text-align-last:center; outline:none;
+}
+.code-slot:focus, .code-slot.nav-on{
+  border-color:var(--gold); background:rgba(242,193,78,.16);
+  box-shadow:0 0 0 3px rgba(242,193,78,.25);
+}
+.code-slot option{background:var(--ink-2); color:var(--paper); font-size:16px}
+
+.lobby-room{width:100%; display:flex; flex-direction:column; gap:14px; padding:22px}
+.lr-code-label{
+  font-size:10px; letter-spacing:.24em; text-transform:uppercase; color:var(--muted);
+  font-weight:700;
+}
+.lr-code{
+  font-family:var(--display); font-size:clamp(46px,9vw,78px); line-height:1;
+  letter-spacing:.18em; color:var(--gold); text-shadow:0 0 34px rgba(242,193,78,.4);
+  padding-left:.18em;
+}
+.lobby-roster{display:flex; flex-direction:column; gap:7px}
+.lr-seat{
+  display:grid; grid-template-columns:26px 1fr auto; align-items:center; gap:10px;
+  padding:10px 13px; border-radius:10px; text-align:left;
+  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.09);
+}
+.lr-seat.you{border-color:rgba(242,193,78,.42); background:rgba(242,193,78,.09)}
+.lr-seat.empty{opacity:.35; border-style:dashed}
+.lr-seat-n{
+  font-family:var(--display); font-size:15px; color:var(--muted);
+  text-align:center;
+}
+.lr-name{font-weight:700; font-size:15px; overflow:hidden; text-overflow:ellipsis}
+.lr-tag{
+  font-size:9px; letter-spacing:.18em; text-transform:uppercase;
+  color:var(--gold); font-weight:800;
+}
+.lr-status{font-size:13px; color:var(--muted)}
+.lr-actions{display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
+
+.lobby-msg{
+  min-height:20px; font-size:13px; color:var(--muted); opacity:0;
+  transition:opacity .2s;
+}
+.lobby-msg.on{opacity:1}
+.lobby-msg.good{color:var(--mint)}
+.lobby-msg.bad{color:#ff8095}
+
+.lobby-foot{
+  display:flex; gap:14px; align-items:center; justify-content:center;
+  flex-wrap:wrap; margin-top:4px;
+}
+.lobby-hint{font-size:11px; color:rgba(139,163,189,.75)}
+.chip.on{border-color:rgba(125,252,208,.5); color:var(--mint)}
+
+/* ---------------- dressing room ----------------
+   The figure is on the canvas behind this, left of centre, so the
+   panel lives on the right and the page never covers them up. */
+
+.screen.dressing{align-items:center; justify-content:flex-end; overflow-y:auto}
+.dress-inner{
+  width:min(420px,100%); display:flex; flex-direction:column; gap:14px; margin:auto 0;
+}
+.dress-head h2{
+  font-family:var(--display); font-size:30px; margin:4px 0 4px;
+  letter-spacing:.02em; text-transform:uppercase;
+}
+.dress-head p{margin:0; font-size:12px; color:var(--muted); line-height:1.5}
+.dress-panel{display:flex; flex-direction:column; gap:14px; padding:20px}
+.dress-rows{display:flex; flex-direction:column; gap:9px}
+.dress-row{display:grid; grid-template-columns:66px 1fr auto; gap:10px; align-items:center}
+.dr-label{
+  font-size:10px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--muted); font-weight:700;
+}
+.dr-select{
+  font-family:var(--body); font-size:14px; font-weight:700; color:var(--paper);
+  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.16);
+  border-radius:9px; padding:9px 11px; width:100%; cursor:pointer;
+  appearance:none; -webkit-appearance:none; outline:none;
+}
+.dr-select:focus, .dr-select.nav-on{
+  border-color:var(--gold); background:rgba(242,193,78,.12);
+  box-shadow:0 0 0 3px rgba(242,193,78,.22);
+}
+.dr-select option{background:var(--ink-2); color:var(--paper)}
+.dr-swatch{
+  width:26px; height:26px; border-radius:7px; border:1px solid rgba(255,255,255,.28);
+  box-shadow:inset 0 -6px 10px rgba(0,0,0,.3);
+}
+.dress-actions{display:flex; gap:9px; justify-content:flex-end; flex-wrap:wrap}
+
+/* ---------------- the floor ----------------
+   Above the subtitle so it is never hidden behind it, and never a
+   `.screen`: it has to be readable over a vote panel and a mission. */
+
+#floor-bar{
+  position:fixed; left:50%; top:max(14px, env(safe-area-inset-top)); z-index:47;
+  transform:translate(-50%,-14px); opacity:0; pointer-events:none;
+  display:flex; align-items:center; gap:12px; padding:9px 9px 9px 16px;
+  border-radius:999px; background:rgba(8,16,26,.82); backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.12); box-shadow:var(--shadow);
+  transition:opacity .25s ease, transform .25s ease;
+}
+#floor-bar.on{opacity:1; transform:translate(-50%,0)}
+#floor-bar.mine{border-color:rgba(242,193,78,.55); background:rgba(30,22,6,.86)}
+.fb-who{
+  font-size:11px; letter-spacing:.16em; text-transform:uppercase; font-weight:800;
+  color:var(--paper); white-space:nowrap;
+}
+#floor-bar.mine .fb-who{color:var(--gold)}
+.fb-clock{font-family:var(--display); font-size:22px; line-height:1; color:var(--gold)}
+.fb-track{
+  width:88px; height:4px; border-radius:2px; background:rgba(255,255,255,.14);
+  overflow:hidden;
+}
+.fb-fill{
+  height:100%; background:var(--gold); transform-origin:left center;
+  transform:scaleX(1); transition:transform .12s linear;
+}
+.fb-mic{
+  font-size:9px; letter-spacing:.16em; text-transform:uppercase; font-weight:800;
+  color:var(--muted); padding:4px 9px; border-radius:999px;
+  background:rgba(255,255,255,.06);
+}
+.fb-mic.live{color:#0b1a12; background:var(--mint)}
+.fb-done{
+  pointer-events:all; font-family:var(--body); font-weight:800; font-size:10px;
+  letter-spacing:.12em; text-transform:uppercase; cursor:pointer;
+  padding:7px 13px; border-radius:999px; color:var(--paper);
+  background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.2);
+}
+.fb-done:hover{background:rgba(255,255,255,.16)}
+.fb-done.nav-on{border-color:var(--gold); box-shadow:0 0 0 3px rgba(242,193,78,.25)}
+
+/* ---------------- the board ----------------
+   It accuses nobody. That is the design: it prints what happened and
+   lets three people argue about what it means. */
+
+#board{
+  position:fixed; left:50%; bottom:max(16px, env(safe-area-inset-bottom)); z-index:44;
+  transform:translate(-50%,14px); opacity:0; pointer-events:none;
+  width:min(620px, calc(100% - 28px));
+  background:rgba(8,16,26,.86); backdrop-filter:blur(12px);
+  border:1px solid rgba(242,193,78,.22); border-radius:14px; padding:14px 16px;
+  box-shadow:var(--shadow); transition:opacity .3s ease, transform .3s ease;
+}
+#board.on{opacity:1; transform:translate(-50%,0)}
+.bd-head-line{
+  display:flex; align-items:baseline; gap:10px; margin-bottom:10px; flex-wrap:wrap;
+}
+.bd-head-line b{
+  font-family:var(--display); font-size:16px; letter-spacing:.04em;
+  text-transform:uppercase; color:var(--gold);
+}
+.bd-head-line span{font-size:10px; color:var(--muted)}
+.board-grid{display:flex; flex-direction:column; gap:4px; overflow-x:auto}
+.bd-row{
+  display:grid; grid-template-columns:minmax(64px,1.3fr) repeat(var(--bd-cols,5), 1fr);
+  gap:6px; align-items:center; padding:6px 8px; border-radius:8px; min-width:420px;
+}
+.bd-row span{
+  font-size:12px; font-weight:700; text-align:center; font-variant-numeric:tabular-nums;
+}
+.bd-row .bd-name{text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.bd-head{background:none; padding-bottom:2px}
+.bd-head span{
+  font-size:9px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--muted); font-weight:800;
+}
+.bd-row:not(.bd-head){background:rgba(255,255,255,.05)}
+.bd-row.you{background:rgba(242,193,78,.13); border:1px solid rgba(242,193,78,.3)}
+.bd-row.out{opacity:.45; text-decoration:line-through}
+
+.result-board{margin:14px 0 4px}
+.rb-head{
+  font-size:10px; letter-spacing:.20em; text-transform:uppercase; font-weight:800;
+  color:var(--muted); margin-bottom:8px;
+}
+.result-board .board-grid{gap:4px}
+
+/* ---------------- the field ----------------
+   Live standings during a mission, and — not incidentally — the reason
+   half the agenda tells are catchable at all. */
+
+#field{
+  position:fixed; right:max(14px, env(safe-area-inset-right)); top:22%; z-index:29;
+  opacity:0; pointer-events:none; transform:translateX(10px);
+  display:flex; flex-direction:column; gap:5px; min-width:170px;
+  transition:opacity .3s ease, transform .3s ease;
+}
+#field.on{opacity:1; transform:translateX(0)}
+.fd-row{
+  display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;
+  padding:6px 10px; border-radius:8px; background:rgba(8,16,26,.66);
+  border:1px solid rgba(255,255,255,.1); backdrop-filter:blur(6px);
+}
+.fd-row.you{border-color:rgba(242,193,78,.45); background:rgba(30,22,6,.7)}
+.fd-row.dim{opacity:.4}
+.fd-name{
+  font-size:11px; font-weight:800; letter-spacing:.04em;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.fd-val{
+  font-size:12px; font-weight:800; color:var(--gold);
+  font-variant-numeric:tabular-nums;
+}
+.fd-meter{
+  grid-column:1 / -1; height:3px; border-radius:2px;
+  background:rgba(255,255,255,.14); overflow:hidden;
+}
+.fd-meter i{
+  display:block; height:100%; background:var(--cyan); transform-origin:left center;
+}
+
+/* ---------------- your task ----------------
+   Only ever rendered from `Session.myAgenda()`, which is null for
+   everybody who is not a Traitor. */
+
+#agenda-chip{
+  position:fixed; left:max(14px, env(safe-area-inset-left));
+  bottom:max(90px, calc(env(safe-area-inset-bottom) + 90px)); z-index:29;
+  width:min(280px, 62vw); opacity:0; pointer-events:none; transform:translateY(8px);
+  padding:11px 14px; border-radius:12px; background:rgba(26,8,14,.82);
+  border:1px solid rgba(216,30,64,.45); backdrop-filter:blur(8px);
+  box-shadow:0 12px 34px rgba(120,10,30,.3);
+  transition:opacity .35s ease, transform .35s ease;
+}
+#agenda-chip.on{opacity:1; transform:translateY(0)}
+.ac-kicker{
+  font-size:8px; letter-spacing:.18em; text-transform:uppercase; font-weight:800;
+  color:#ff8095; margin-bottom:5px;
+}
+.ac-text{font-size:12px; font-weight:700; line-height:1.45; color:var(--paper)}
+.ac-prog{
+  margin-top:6px; font-size:10px; letter-spacing:.10em; text-transform:uppercase;
+  font-weight:800; color:var(--gold);
+}
+
+/* ---------------- narrow and short ---------------- */
+
+@media (max-width:720px){
+  .lobby-cols{grid-template-columns:1fr}
+  .play-pair{flex-direction:column}
+  .screen.dressing{justify-content:center; align-items:flex-end}
+  .dress-inner{width:100%; margin:0}
+  .dress-panel{padding:16px}
+  .dress-row{grid-template-columns:60px 1fr auto}
+  #field{top:auto; bottom:calc(env(safe-area-inset-bottom) + 96px); min-width:0}
+  .fd-row{padding:5px 8px}
+  #board{width:calc(100% - 20px)}
+  .bd-row{min-width:360px}
+  #agenda-chip{width:min(230px,54vw); bottom:calc(env(safe-area-inset-bottom) + 150px)}
+  .lr-code{letter-spacing:.12em}
+}
+
+@media (max-height:560px) and (orientation:landscape){
+  .lobby-inner{gap:10px}
+  .brand.small .brand-title{font-size:26px}
+  .lr-code{font-size:38px}
+  .lobby-panel{padding:14px}
+  .dress-panel{padding:14px}
+  .dress-rows{gap:6px}
+  #floor-bar{padding:6px 6px 6px 12px; gap:9px}
+  .fb-clock{font-size:18px}
+}
+
+/* Coarse pointers need a bigger target than a mouse does, and a select
+   is the one control a thumb genuinely gets right. */
+@media (pointer:coarse){
+  .code-slot{padding:12px 2px; font-size:30px}
+  .dr-select{padding:12px}
+  .fb-done{padding:9px 15px}
+}
+
+@media (prefers-reduced-motion:reduce){
+  #floor-bar, #board, #field, #agenda-chip{transition:none}
+}
+
+/* The microphone button. Deliberately not `#mute-btn`: game sound and
+   your own voice are different things and share no state. */
+#mic-btn{
+  position:fixed; right:max(14px, env(safe-area-inset-right));
+  bottom:max(14px, env(safe-area-inset-bottom)); z-index:48;
+  pointer-events:all; background:rgba(8,18,30,.6); border:1px solid rgba(255,255,255,.16);
+  color:var(--mint); width:38px; height:38px; border-radius:10px; cursor:pointer;
+  display:grid; place-items:center; padding:0; backdrop-filter:blur(8px);
+}
+#mic-btn[hidden]{display:none}
+#mic-btn:hover{background:rgba(8,18,30,.9)}
+#mic-btn .slash{opacity:0; transition:opacity .15s}
+#mic-btn.muted{color:#ff8fa3}
+#mic-btn.muted .slash{opacity:1}
+@media (pointer:coarse){ #mic-btn{width:46px; height:46px} }

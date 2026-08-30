@@ -263,7 +263,66 @@ class FinaleScene {
       else if (e.type === 'tally') this._paintTally();
     });
     this._tallyCount = 0;
-    this._drive();
+
+    /* Everything waits on one question, exactly as it does at the round
+       table: is anybody about to be exposed? If somebody left a task
+       unfinished out on that mission, the fire never gets lit as a
+       ballot at all — Claudia stops the room and the night is over. */
+    this._exposure().then((e) => {
+      if (!this._alive) return;
+      if (e && e.playerId) {
+        Scenes.run(Exposed.beats(this, e, Session.state.seed), this);
+        return;
+      }
+      this._drive();
+    });
+  }
+
+  _exposure() {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (ev) => { if (done) return; done = true; off(); resolve(ev); };
+      const off = Net.on((ev) => { if (ev.type === 'expose') finish(ev); });
+      this._waits.add(() => finish(null));
+      Exposed.request();
+      setTimeout(() => finish(null), 4000);
+    });
+  }
+
+  /* `exposed.js` plays in two rooms and only one of them has something
+     burning in it. This is the one that does. */
+  takeEmbers(embers, settle) {
+    this._embers = embers;
+    if (settle) this._settle = settle;
+  }
+
+  /* ---------------- the floor ----------------
+     Thirty seconds each before the ballot, exactly as at the table. It
+     is the same machinery and deliberately so: a fire where everybody
+     talks over each other is a fire where the loudest person wins, and
+     that is not the game. */
+  _floorRound() {
+    if (Session.isHost) Net.send({ type: 'openFloor', seconds: 30 });
+    return new Promise((resolve) => {
+      const off = Net.on((e) => {
+        if (e.type !== 'floor') return;
+        if (e.done || !e.playerId) {
+          off();
+          RoomUI.hideFloor();
+          if (this.stage) this.stage.setSpeaking(null);
+          resolve(true);
+          return;
+        }
+        RoomUI.showFloor(e);
+        if (this.stage) {
+          this.stage.setShot('on:' + e.playerId);
+          this.stage.setSpeaking(e.playerId);
+        }
+      });
+      this._waits.add(() => { off(); RoomUI.hideFloor(); resolve(false); });
+      setTimeout(() => { off(); RoomUI.hideFloor(); resolve(true); },
+                 30000 * (Session.alive().length + 1));
+    });
   }
 
   /* ---------------- waiting on the session ---------------- */
@@ -335,6 +394,15 @@ class FinaleScene {
     if (this.music) this.music.setGear(Math.min(2, 1 + this._round()), 3);
     const two = Session.alive().length <= 2;
     await this._say(two ? 'voteDecideTwo' : 'voteDecide', {}, 'fire');
+    if (!this._alive || Session.state.finale.stage !== 'decide') return;
+
+    /* Talk first, vote second — and one at a time. The board from the
+       second mission is up while they do it. */
+    RoomUI.showBoard(Session.state.debrief);
+    await this._say('floorOpen', {}, 'players');
+    if (!this._alive) return;
+    await this._floorRound();
+    RoomUI.hideBoard();
     if (!this._alive || Session.state.finale.stage !== 'decide') return;
 
     this._tallyCount = 0;
@@ -688,144 +756,36 @@ class FinaleScene {
     });
   }
 
-  /* The answer. Everything lands on the same frame — the colour, the
-     column, the sub, the shake and the card — because a reveal that
-     arrives in instalments is a reveal you have already guessed. What
-     comes *after* it is staggered instead: the embers, the second
-     flash, the settle. */
+  /* The answer, delegated. Everything that makes a reveal land lives
+     in `reveal.js` now, because the fire is no longer the only room
+     one can happen in — see the header there. What stays here is the
+     part that is about *this* scene: the held beat has to be released
+     first, and the fire's colour has to be walked back down over the
+     next five seconds by the frame loop below. */
   _flare(role, e) {
-    const traitor = role === 'traitor';
-    const col = traitor ? '#ff1f3a' : '#5cffa0';
-    const deep = traitor ? '#8c0a1c' : '#1f9c62';
-
     this._endHeldBeat();
-    AudioBus.play('fire-whoosh', { big: true });
-    AudioBus.play(traitor ? 'reveal-traitor' : 'reveal-faithful');
-    Input.rumble(traitor ? 1 : 0.7, traitor ? 900 : 480);
-    Input.haptic(traitor ? 110 : 50);
-
-    if (this.music) {
-      /* The held beat ducked the score to almost nothing over four
-         seconds and it is only part way back. Undo that first — a
-         reveal that lands while the band is still fading up is a reveal
-         that lands on nothing — then straight to top gear with no
-         glide, because a crossfade is a thing you notice. */
-      this.music.duck(0.95, 0.18);
-      this.music.setGear(3, 0.15);
-      this.music.setProgression(traitor ? 'dread' : 'hymn');
-      this.music.stinger('reveal');
-    }
-
-    const fire = this.stage.fire;
-    if (fire) {
-      // a column, not a campfire: it comes back down over five seconds
-      fire.userData.want = traitor ? 6.5 : 4.8;
-      fire.userData.light.color.set(col);
-      fire.userData.light.distance = 90;
-      fire.userData.flames.forEach((fl, i) => {
-        fl.material.color.set(i < 2 ? col : deep);
-        fl.material.opacity = 1;
-      });
-      this._settle = { t: 0, from: new THREE.Color(col) };
-      this._burstEmbers(col, traitor ? 1 : 0.72);
-    }
-
-    this.stage.shake(traitor ? 1.35 : 0.95);
-
-    /* Two flashes: a hard white-hot one on the frame itself, and the
-       colour bleeding back in behind it a tenth of a second later.
-       One flash reads as a glitch; two read as an explosion. */
-    const flash = document.getElementById('screen-flash');
-    if (flash) {
-      flash.style.transition = 'none';
-      flash.style.background = traitor ? 'rgba(255,235,238,0.92)' : 'rgba(238,255,246,0.85)';
-      flash.style.opacity = '1';
-      setTimeout(() => {
-        flash.style.transition = 'opacity .5s ease-out';
-        flash.style.background = traitor ? 'rgba(255,20,50,0.5)' : 'rgba(90,255,160,0.38)';
-      }, 70);
-      setTimeout(() => { flash.style.opacity = '0'; }, 190);
-      setTimeout(() => { flash.style.transition = ''; }, 900);
-    }
-
-    // and the word itself, over the top of all of it
-    const p = e && Session.playerById(e.playerId);
-    const who = p ? (p.local ? 'You were' : p.name + ' was') : 'The fire says';
-    Scenes.Cine.card({
-      kicker: who,
-      title: traitor ? 'TRAITOR' : 'FAITHFUL',
-      tone: traitor ? 'traitor' : 'faithful',
+    this._clearEmbers();
+    const out = Reveal.flare({
+      role,
+      stage: this.stage,
+      music: this.music,
+      playerId: e && e.playerId,
     });
+    this._embers = out.embers;
+    if (out.settle) this._settle = out.settle;
   }
-
-  /* ---------------- embers ----------------
-     One buffer of points thrown up out of the fire and left to fall
-     back through it. It is built per reveal and disposed on the next
-     one, because there is never more than one going at a time and a
-     pool would be more code than the thing it pools. */
 
   _burstEmbers(colour, strength) {
     this._clearEmbers();
-    const fire = this.stage.fire;
-    if (!fire) return;
-    const N = Math.round(180 * strength);
-    const pos = new Float32Array(N * 3);
-    const vel = new Float32Array(N * 3);
-    for (let i = 0; i < N; i++) {
-      const a = Math.random() * 6.283;
-      const r = Math.random() * 0.42;
-      pos[i * 3] = Math.cos(a) * r;
-      pos[i * 3 + 1] = 0.6 + Math.random() * 0.8;
-      pos[i * 3 + 2] = Math.sin(a) * r;
-      // mostly up: the spread is what makes it a burst rather than a jet
-      const up = 4.2 + Math.random() * 7.5 * strength;
-      vel[i * 3] = Math.cos(a) * (0.6 + Math.random() * 2.6);
-      vel[i * 3 + 1] = up;
-      vel[i * 3 + 2] = Math.sin(a) * (0.6 + Math.random() * 2.6);
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e4);
-    const mat = new THREE.PointsMaterial({
-      color: colour, size: 0.13, transparent: true, opacity: 1,
-      depthWrite: false, map: FXTex.dotTexture(), sizeAttenuation: true,
-      blending: THREE.AdditiveBlending,
-    });
-    const pts = new THREE.Points(geo, mat);
-    pts.frustumCulled = false;
-    pts.renderOrder = 4;
-    pts.position.copy(fire.position);
-    this.stage.scene.add(pts);
-    this._embers = { pts, geo, mat, vel, t: 0, life: 3.4 };
+    this._embers = Reveal.burstEmbers(this.stage, this.stage.fire, colour, strength);
   }
 
   _updateEmbers(dt) {
-    const em = this._embers;
-    if (!em) return;
-    em.t += dt;
-    const p = em.geo.attributes.position.array;
-    for (let i = 0; i < p.length; i += 3) {
-      p[i] += em.vel[i] * dt;
-      p[i + 1] += em.vel[i + 1] * dt;
-      p[i + 2] += em.vel[i + 2] * dt;
-      em.vel[i + 1] -= 6.2 * dt;                 // gravity, gently
-      em.vel[i] *= 1 - 1.1 * dt;                 // and air
-      em.vel[i + 2] *= 1 - 1.1 * dt;
-    }
-    em.geo.attributes.position.needsUpdate = true;
-    const k = U.clamp(em.t / em.life, 0, 1);
-    em.mat.opacity = 1 - k * k;
-    em.mat.size = 0.13 * (1 - k * 0.55);
-    if (k >= 1) this._clearEmbers();
+    this._embers = Reveal.updateEmbers(this.stage, this._embers, dt);
   }
 
   _clearEmbers() {
-    const em = this._embers;
-    if (!em) return;
-    this._embers = null;
-    if (this.stage) this.stage.scene.remove(em.pts);
-    em.geo.dispose();
-    em.mat.dispose();
+    this._embers = Reveal.clearEmbers(this.stage, this._embers);
   }
 
   async _verdict() {
@@ -1010,6 +970,7 @@ class FinaleScene {
     this._waits.clear();
     if (this._offNet) { this._offNet(); this._offNet = null; }
     this._closeVote();
+    RoomUI.hideAll();
     if (this.music) { this.music.stop(1.2); this.music = null; }
     if (this.wind) { this.wind.stop(); this.wind = null; }
     this._endHeldBeat();

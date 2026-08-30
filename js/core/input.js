@@ -30,6 +30,8 @@ const Input = (() => {
     back:      ['Escape', 'Backspace'],
     camera:    ['KeyC'],
     mute:      ['KeyM'],
+    // your own microphone, which is a different thing from game sound
+    mic:       ['KeyV', 'Touch4'],
   };
 
   const down = new Set();          // codes currently held
@@ -267,6 +269,7 @@ const Input = (() => {
     4:  ['focus'],
     6:  ['focus'],
     7:  ['fire', 'boost'],
+    3:  ['mic'],
     9:  ['pause'],
     10: ['sprint'],
     12: ['navUp'], 13: ['navDown'], 14: ['navLeft'], 15: ['navRight'],

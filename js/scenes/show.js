@@ -23,33 +23,39 @@
 const Show = (() => {
 
   let running = false;
+  let isHost = true;
   let offNet = null, restorePot = null;
 
   /* ---------------- starting and stopping ---------------- */
 
-  /* `opts.jumpTo` is the testing door: it fast-forwards the run before
+  /* A night belongs to a party. The host draws the seed and the
+     seating and tells the other two; all three arrive here with the
+     identical arguments, which is why nothing below has to care which
+     kind of client it is running on.
+
+     `opts.jumpTo` is the testing door: it fast-forwards the run before
      anything is attached, so the scene that comes up is the one asked
      for rather than the hill with a queue behind it. */
-  function begin(seed, opts = {}) {
+  function beginParty(opts = {}) {
     if (running) end();
-    Session.start(seed);
-    if (opts.jumpTo) Session.jumpTo(opts.jumpTo);
+    isHost = !!opts.host;
+    Session.startParty({
+      seed: opts.seed,
+      players: opts.players || [],
+      mode: isHost ? 'host' : 'guest',
+    });
+    if (opts.jumpTo && isHost) Session.jumpTo(opts.jumpTo);
     attach();
     enter(Session.state.phase, true);
-  }
-
-  function resume() {
-    if (running) return true;
-    if (!Session.resume()) return false;
-    attach();
-    enter(Session.state.phase, true);
-    return true;
   }
 
   function attach() {
     running = true;
-    Net.connect(Net.LocalTransport);
-    Bots.attach();
+    /* The one line that decides what kind of client this is. Above it
+       nothing knows, and nothing needs to. */
+    Net.connect(isHost ? Transports.HostTransport : Transports.GuestTransport);
+    VoiceChat.init();
+    VoiceChat.listen();
     /* The night's takings are the night's. `Session` adds them to its
        own pot when it is told the mission finished, so the sink here is
        deliberately a hole — banking twice would be worse than not
@@ -64,7 +70,9 @@ const Show = (() => {
     running = false;
     if (offNet) { offNet(); offNet = null; }
     if (restorePot) { restorePot(); restorePot = null; }
-    Bots.detach();
+    MissionNet.detach();
+    RoomUI.hideAll();
+    VoiceChat.openFloor();
     Net.disconnect();
     Scenes.stop();
     Missions.end();
@@ -109,8 +117,17 @@ const Show = (() => {
       Net.send({ type: 'result', earned: 0, completed: false });
       return;
     }
+    /* The mission is handed the party, its own agenda card and which
+       client it is. Everything else about it is a pure function of the
+       seed, which is why three machines can build the same water. */
     Missions.launch(m.id, {
       seed: m.seed, mode: m.mode, modId: m.modId, tod: 'auto', ghost: false,
+      party: true,
+      host: isHost,
+      players: Session.state.players.map(p => ({ id: p.id, name: p.name,
+                                                 look: p.look, local: !!p.local,
+                                                 alive: p.alive, seat: p.seat })),
+      agenda: Session.myAgenda(),
     });
   }
 
@@ -121,19 +138,26 @@ const Show = (() => {
      order they happened to subscribe in — which is exactly the kind of
      thing that works until somebody moves a line. */
 
-  function resultsAction(result) {
+  /* The board decides the money now, not your own scoreboard: three
+     people played that mission and the pot is what the three of them
+     managed between them. A solo fallback is kept for the case where
+     the board never arrived, so a dropped peer cannot strand a night. */
+  function resultsAction(result, board) {
     if (!running || !result) return null;
     const s = Session.state;
     const last = s.missionAt >= s.missions.length - 1;
-    const earned = Math.max(0, Math.round(result.earned || 0));
-    const completed = !!result.completed;
+    const earned = board
+      ? Math.max(0, Math.round(board.earned || 0))
+      : Math.max(0, Math.round(result.earned || 0));
+    const completed = board ? !!board.completed : !!result.completed;
+    const players = board ? (board.players || []) : [];
     let sent = false;
     return {
       label: last ? 'To the fire' : 'To the round table',
       go() {
         if (sent) return;
         sent = true;
-        Net.send({ type: 'result', earned, completed });
+        Net.send({ type: 'result', earned, completed, players });
       },
     };
   }
@@ -153,7 +177,14 @@ const Show = (() => {
     el('verdict-role').className = 'verdict-role ' + o.role;
 
     el('verdict-line').textContent =
-      o.reason === 'you-burned' ? 'You were banished, and the fire told them what you were.'
+      /* Exposed by an unfinished task. It is its own ending and it
+         needs its own sentence — "they found you" is not what
+         happened, and the Traitor should be told exactly what did. */
+      o.reason === 'agenda'
+        ? (o.role === 'traitor'
+            ? 'You left the work undone, and Claudia counted it.'
+            : 'The Traitor fumbled the job. You never had to name them.')
+      : o.reason === 'you-burned' ? 'You were banished, and the fire told them what you were.'
       : o.role === 'traitor'
         ? (won ? 'They never found you.' : 'They found you.')
         : (won ? (o.hadTraitor ? 'The Traitor was caught.'
@@ -180,6 +211,7 @@ const Show = (() => {
     if (won) AudioBus.play('reveal-faithful');
   }
 
-  return { begin, resume, end, showVerdict, resultsAction,
-           get running() { return running; } };
+  return { beginParty, end, showVerdict, resultsAction,
+           get running() { return running; },
+           get isHost() { return isHost; } };
 })();

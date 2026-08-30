@@ -195,6 +195,24 @@ class ShootoutMission {
              + (this.opts.bossRush ? ':boss' : '');
     this.rng = U.makeRng(this.seed);
 
+    /* ---- three archers, one wood ----
+       The forest is a pure function of the seed so nobody sends any of
+       it, but the flock cannot be: birds react to whoever is nearest,
+       and "nearest" is different on three machines. So the host
+       simulates the flock and the other two are told where every bird
+       is twenty times a second. It is the only way three people can
+       watch the same bird get away — which four of the eight agenda
+       cards depend on. */
+    this.party = !!opts.party;
+    this.isHost = !!opts.host;
+    this.roster = (opts.players || []).filter(p => !p.local);
+    this.meId = ((opts.players || []).find(p => p.local) || {}).id || 'you';
+    this.agenda = opts.agenda || null;
+    this.peers = new Map();
+    this.scores = new Map();
+    this._netAcc = 0;
+    this._fieldT = 0;
+
     this.state = 'idle';        // idle | countdown | live | between | finished | failed
     this._resetRun();
 
@@ -256,6 +274,12 @@ class ShootoutMission {
     this._recAcc = 0;
     this.ghostDelta = null;
     this._songT = 2;
+
+    /* Everything the shootout deck asks about. Gathered on every run,
+       Traitor or not — a counter that only exists when somebody has a
+       task is a counter that announces there is one. */
+    this.stats = { escapedNearMe: 0, missed: 0, perfectsLate: 0, lateShots: 0,
+                   roundsOffLine: 0, offLineT: 0, roundT: 0 };
   }
 
   /* =================== build =================== */
@@ -308,6 +332,9 @@ class ShootoutMission {
     this.arrows.setWind(wind.x, wind.z, wind.strength);
 
     this.flock = new FlyerKit.Flock(scene);
+    // a guest renders the flock; it does not decide anything about it
+    this.flock.puppet = this.party && !this.isHost;
+    this._buildPeers(scene);
 
     // the effects bundle — the boat's FXSystem drags a wake ribbon along
     // with it, and a wake needs water
@@ -422,6 +449,11 @@ class ShootoutMission {
   /* =================== lifecycle =================== */
 
   start() {
+    if (this.party) {
+      MissionNet.attach('shootout');
+      this._offEvents = MissionNet.on('event', (d, from) => this._onNetEvent(d, from));
+      RoomUI.showAgenda(this._agendaProgress());
+    }
     this.state = 'countdown';
     this.countdown = 3.999;
     this._lastBeep = 4;
@@ -464,6 +496,10 @@ class ShootoutMission {
     clearTimeout(this._flashT);
     clearTimeout(this._bannerT);
     clearTimeout(this._boonT2);
+    if (this._offEvents) { this._offEvents(); this._offEvents = null; }
+    for (const peer of this.peers.values()) Figure.dispose(peer.fig);
+    this.peers.clear();
+    if (this.party) { RoomUI.hideField(); RoomUI.hideAgenda(); }
     if (this.music) { this.music.stop(0.4); this.music = null; }
     if (this.windSnd) this.windSnd.stop();
     if (this._unlockWatch) this._unlockWatch();
@@ -555,6 +591,13 @@ class ShootoutMission {
     this._updateBow(bowDt);
     this._updateArrows(dt);
     this._updateFlock(dt);
+    this._broadcastFlock(rawDt);
+    this._updatePeers(rawDt, t);
+    this._updateField(rawDt);
+    this._trackLine(dt);
+    if (this.party && this.state === 'live') {
+      MissionNet.pose(rawDt, () => this._sendPose());
+    }
 
     if (this.state === 'live') {
       this.elapsed += dt;
@@ -725,6 +768,10 @@ class ShootoutMission {
   _loose(shot) {
     this.shots++;
     if (shot.perfect) this.cleanShots++;
+    if (this.roundIndex >= 3) {
+      this.stats.lateShots++;
+      if (shot.perfect) this.stats.perfectsLate++;
+    }
     if (this.arrowsLeft !== Infinity) this.arrowsLeft--;
     this.recoil = 0.028 + shot.power * 0.03;
     this.fovKick = 1.6 + shot.power * 2.4;
@@ -908,6 +955,8 @@ class ShootoutMission {
 
   _onHit(target, arrow, info) {
     const rule = (this.round && this.round.def.rule) || {};
+    // a guest asks; the host answers. See `_claimHit`.
+    if (this.party && !this.isHost) return this._claimHit(target, arrow, info);
     // "only a clean loose counts" — a soft arrow goes straight through
     if ((rule.cleanOnly || this.flags.cleanOnly) && !arrow.perfect) {
       this.fx.labels.add('TOO SOFT', target.pos, { className: 'bad', life: 0.8, rise: 6 });
@@ -959,6 +1008,10 @@ class ShootoutMission {
 
   _award(target, arrow, info) {
     const C = this.C;
+    if (this.party && this.isHost) {
+      MissionNet.event({ kind: 'kill', i: target.netId, playerId: this.meId,
+                         points: target.value || 0 });
+    }
     const rule = (this.round && this.round.def.rule) || {};
     this.kills++;
     this.chain = Math.min(this.chain + 1, C.chainCap);
@@ -1557,7 +1610,7 @@ class ShootoutMission {
        seeing how far short or wide the last one went. */
     this._burst(arrow.pos, what === 'tree' ? 7 : 9,
                 what === 'tree' ? '#6b543a' : '#8a7a5c', 4.5);
-    if (arrow.hits === 0) this._miss();
+    if (arrow.hits === 0) { this.stats.missed++; this._miss(); }
   }
 
   _miss() {
@@ -1586,6 +1639,186 @@ class ShootoutMission {
 
   /* -------- the flock -------- */
 
+  /* =================== three archers ===================
+     Everything in this block exists because the wood now has two other
+     people standing in it. None of it runs at all in solo practice. */
+
+  _buildPeers(scene) {
+    if (!this.party) return;
+    for (const p of this.roster) {
+      const fig = p.look ? Figure.build({ look: p.look, long: false })
+                         : Figure.build({ palette: Figure.paletteFor(p.seat || 1),
+                                          long: false });
+      fig.visible = false;
+      scene.add(fig);
+      this.peers.set(p.id, { fig, name: p.name, seen: false,
+                             pos: new THREE.Vector3(), yaw: 0, draw: 0, speed: 0 });
+      this.scores.set(p.id, 0);
+    }
+  }
+
+  _sendPose() {
+    return {
+      x: this.pos.x, y: this.pos.y, z: this.pos.z,
+      h: this.aimYaw, p: this.aimPitch,
+      d: this.bow && this.bow.draw ? 1 : 0,
+      v: this.speed01 * (this.sprinting ? 5.4 : 2.6),
+      m: Math.round(this.money),
+    };
+  }
+
+  _updatePeers(dt, t) {
+    if (!this.party) return;
+    MissionNet.update(dt);
+    for (const [id, peer] of this.peers) {
+      const iv = MissionNet.at(id);
+      if (!iv) { peer.fig.visible = false; continue; }
+      const a = iv.a, b = iv.b, k = iv.k;
+      peer.seen = true;
+      peer.fig.visible = true;
+      const x = U.lerp(a.x, b.x, k), z = U.lerp(a.z, b.z, k);
+      peer.fig.position.set(x, this.forest.heightAt(x, z), z);
+      /* A figure faces where it is aiming, which is what makes a person
+         thirty metres away readable as "about to shoot that bird" — and
+         readable as not bothering, which matters more. */
+      peer.fig.rotation.y = U.angLerp(a.h, b.h, k) + Math.PI;
+      Figure.setAiming(peer.fig, !!b.d);
+      Figure.setLocomotion(peer.fig, b.v || 0, 0);
+      Figure.update(peer.fig, dt, t);
+      peer.pos.set(x, peer.fig.position.y, z);
+      this.scores.set(id, b.m || 0);
+    }
+  }
+
+  /* -------- the flock, over the wire --------
+     A full snapshot rather than deltas. Twenty birds twenty times a
+     second is a few kilobytes, and a snapshot means a dropped packet
+     costs one frame of smoothness instead of leaving a guest with a
+     bird nobody can see. */
+
+  _broadcastFlock(dt) {
+    if (!this.party || !this.isHost) return;
+    this._netAcc += dt;
+    if (this._netAcc < 0.05) return;
+    this._netAcc = 0;
+    const a = [];
+    for (const f of this.flock.list) {
+      const st = f.netState();
+      st.t = f.typeId;
+      st.s = f.scale;
+      a.push(st);
+    }
+    MissionNet.event({ kind: 'flock', a });
+  }
+
+  /* A guest spawns anything it has not seen before and drops anything
+     that has stopped arriving. Spawn-on-sight rather than spawn events
+     because it is self-healing: a guest that misses a spawn message
+     recovers on the next snapshot instead of missing a bird all round. */
+  _applyFlock(list) {
+    if (!this.party || this.isHost || !this.flock) return;
+    const keep = new Set();
+    for (const st of list) {
+      keep.add(st.i);
+      let f = this.flock.byNetId(st.i);
+      if (!f) {
+        f = this.flock.spawn(st.t, {
+          netId: st.i, pos: new THREE.Vector3(st.x, st.y, st.z), scale: st.s || 1,
+        });
+        if (!f) continue;
+      }
+      f.netApply(st, 1 / 20);
+    }
+    for (let i = this.flock.list.length - 1; i >= 0; i--) {
+      const f = this.flock.list[i];
+      if (!keep.has(f.netId)) this.flock.remove(f);
+    }
+  }
+
+  _onNetEvent(d, from) {
+    if (!d) return;
+    if (d.kind === 'flock') { this._applyFlock(d.a || []); return; }
+
+    /* A bird got away. Everybody is told where, and each client decides
+       for itself whether it got away *from them* — which is the only
+       version of that question anybody can answer honestly. */
+    if (d.kind === 'escaped') {
+      const dx = d.x - this.pos.x, dz = d.z - this.pos.z;
+      if (Math.hypot(dx, dz) < 70) this.stats.escapedNearMe++;
+      return;
+    }
+
+    if (d.kind === 'kill') {
+      if (d.playerId !== this.meId) {
+        this.scores.set(d.playerId, (this.scores.get(d.playerId) || 0) + (d.points || 0));
+      }
+      return;
+    }
+
+    /* A guest says it hit something; the host is the one that decides
+       whether it did. This is the only contested call in the mission
+       and it is the only one arbitrated. */
+    if (d.kind === 'claim' && this.isHost) {
+      const f = this.flock.byNetId(d.i);
+      if (!f || f.dying || !f.alive) return;
+      const killed = f.hit(1);
+      if (killed) {
+        MissionNet.event({ kind: 'kill', i: d.i, playerId: d.playerId || from,
+                           points: f.value || 0 });
+      }
+      return;
+    }
+  }
+
+  /* On a guest, a hit is a request rather than a result: the arrow is
+     consumed and the local feedback plays at once, because a bow that
+     waits for a round trip before it feels like it hit anything feels
+     broken — but nothing about the bird changes here. */
+  _claimHit(target, arrow, info) {
+    MissionNet.event({ kind: 'claim', i: target.netId, playerId: this.meId,
+                       perfect: !!arrow.perfect }, Party.hostId);
+    this.hits++;
+    if (arrow.perfect) this.cleanHits++;
+    this._hitMark('');
+    return true;
+  }
+
+  _updateField(dt) {
+    if (!this.party) return;
+    this._fieldT -= dt;
+    if (this._fieldT > 0) return;
+    this._fieldT = 0.25;
+    if (this.agenda) RoomUI.showAgenda(this._agendaProgress());
+
+    const rows = [{ playerId: this.meId, name: 'You', m: Math.round(this.money) }];
+    for (const [id, peer] of this.peers) {
+      rows.push({ playerId: id, name: peer.name, m: this.scores.get(id) || 0,
+                  dim: !peer.seen });
+    }
+    rows.sort((a, b) => b.m - a.m);
+    RoomUI.showField(rows.map(r => ({
+      playerId: r.playerId, name: r.name, value: U.money(r.m), dim: r.dim,
+    })));
+  }
+
+  _agendaProgress() {
+    const card = this.agenda;
+    if (!card) return '';
+    const live = typeof Agendas !== 'undefined' ? Agendas.byId(card.id) : null;
+    if (!live || typeof live.progress !== 'function') return card.hud || '';
+    try { return live.progress(this.stats); } catch (e) { return card.hud || ''; }
+  }
+
+  /* -------- agenda telemetry --------
+     Time spent away from the shooting line, per round. "The line" is
+     the clearing everybody starts in; wandering off it is visible on
+     the field strip as a marker that has stopped moving with the rest. */
+  _trackLine(dt) {
+    if (this.state !== 'live') return;
+    this.stats.roundT += dt;
+    if (Math.hypot(this.pos.x, this.pos.z) > 46) this.stats.offLineT += dt;
+  }
+
   _updateFlock(dt) {
     this.flock.update(dt, {
       heightAt: (x, z) => this.forest.heightAt(x, z),
@@ -1607,6 +1840,14 @@ class ShootoutMission {
         if (f.escaped && !f.guard && !f.isAdd && this.round) {
           this.round.escaped++;
           this.escapes++;
+          /* Told to everybody, with a position on it. Three people
+             watched that bird leave and each of them can work out
+             whether it left over their own head. */
+          if (this.party) {
+            MissionNet.event({ kind: 'escaped', i: f.netId, x: f.pos.x, z: f.pos.z });
+            const dx = f.pos.x - this.pos.x, dz = f.pos.z - this.pos.z;
+            if (Math.hypot(dx, dz) < 70) this.stats.escapedNearMe++;
+          }
         }
       },
     });
@@ -1770,6 +2011,15 @@ class ShootoutMission {
     const R = this.round;
     if (!R) return;
     const C = this.C;
+
+    /* A whole round spent off the line. "Most of it" is four fifths,
+       which is loose enough that walking to a better angle is not a
+       task and tight enough that sitting one out is. */
+    if (this.stats.roundT > 4 && this.stats.offLineT > this.stats.roundT * 0.8) {
+      this.stats.roundsOffLine++;
+    }
+    this.stats.roundT = 0;
+    this.stats.offLineT = 0;
     const perfect = cleared && R.escaped === 0 && R.killed >= R.total;
 
     if (cleared) {
@@ -2231,6 +2481,8 @@ class ShootoutMission {
       boonsTaken: this.boonsTaken,
       elapsed: this.elapsed,
       par: this.par,
+      stats: Object.assign({}, this.stats,
+                           { missed: Math.max(0, this.shots - this.hits) }),
     }, part);
   }
 
@@ -2697,7 +2949,7 @@ Missions.register({
     + 'you have been building goes with it. And never, ever shoot the white dove.',
   icon: '02',
   maxPrize: 75000,
-  players: 'Solo',
+  players: '1-3',
   duration: '~3 min',
   order: 1,
   quickStart: {
@@ -2737,6 +2989,27 @@ Missions.register({
   keys: ['<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Q</kbd> run',
          '<kbd>Mouse</kbd> aim', '<kbd>Hold</kbd> draw, release to loose',
          '<kbd>RMB</kbd> steady', '<kbd>R</kbd> restart'],
+
+  /* The columns the wood argues about afterwards. Every card in the
+     shootout deck moves at least one of these, which is what makes a
+     completed task arguable rather than invisible. */
+  report: (r) => {
+    const st = r.stats || {};
+    return {
+      earned: r.earned,
+      completed: r.completed,
+      columns: ['Money', 'Kills', 'Accuracy', 'Missed', 'Escaped', 'Off line'],
+      cells: [
+        U.money(r.earned || 0),
+        String(r.kills || 0),
+        Math.round((r.accuracy || 0) * 100) + '%',
+        String(st.missed || 0),
+        String(st.escapedNearMe || 0),
+        String(st.roundsOffLine || 0),
+      ],
+      stats: st,
+    };
+  },
 
   resultRows: (r) => {
     const rows = [

@@ -1115,6 +1115,63 @@ const FlyerKit = (() => {
       return Math.hypot(cx, cy, cz) <= r;
     }
 
+    /* Wings, legs, flame and the hit flash — everything about a flyer
+       that is animation rather than decision. It is its own method
+       because a client that is not simulating the flock still has to
+       draw one: on a guest, the host says where every bird is and this
+       is the only part that still runs locally. */
+    animateParts(dt) {
+      if (this.wings) {
+        this.flap += dt * (this.type.flap || 0) * (this.flapRate || 1);
+        const a = Math.sin(this.flap) * (this.type.wingAmp || 0.7);
+        for (const w of this.wings) w.pivot.rotation.z = -w.side * a;
+      }
+      if (this.legs) {
+        // diagonal pairs, and a bound instead of a walk for the hoppers
+        const swing = this.type.hop && this.hopT
+          ? Math.sin(this.hopT) * 0.9 : Math.sin(this.gait * 3) * 0.55;
+        for (const l of this.legs) l.pivot.rotation.x = Math.sin(this.gait * 3 + l.phase) * 0.55;
+        if (this.type.hop && this.hopT) {
+          this.mesh.position.y += Math.max(0, Math.sin(this.hopT)) * 0.7;
+          for (const l of this.legs) l.pivot.rotation.x = swing;
+        }
+      }
+      if (this.mesh.userData.flame) {
+        const s = 1 + Math.sin(this.age * 9 + this.phase) * 0.18;
+        this.mesh.userData.flame.scale.setScalar(s);
+      }
+      if (this.hitFlash > 0) {
+        this.hitFlash -= dt;
+        this.mesh.visible = Math.floor(this.hitFlash * 40) % 2 === 0;
+        if (this.hitFlash <= 0) this.mesh.visible = true;
+      }
+    }
+
+    /* ---- puppetry ----
+       What a bird looks like on a client that is not deciding where it
+       goes. `netState` is what the host sends; `netApply` is a guest
+       putting it where it was told. Interpolation is deliberately not
+       done here — the mission holds the two most recent states and
+       blends them, because only the mission knows its own frame rate. */
+
+    netState() {
+      return { i: this.netId,
+               x: this.pos.x, y: this.pos.y, z: this.pos.z,
+               a: this.mesh.rotation.x, b: this.mesh.rotation.y, c: this.mesh.rotation.z,
+               h: this.hp, d: this.dying ? 1 : 0 };
+    }
+
+    netApply(st, dt) {
+      if (!st) return;
+      this.pos.set(st.x, st.y, st.z);
+      this.mesh.position.copy(this.pos);
+      this.mesh.rotation.set(st.a, st.b, st.c);
+      this.hp = st.h;
+      if (st.d && !this.dying) { this.dying = true; this.mark && (this.mark.visible = false); }
+      this.age += dt || 0;
+      this.animateParts(dt || 0);
+    }
+
     hit(power) {
       if (!this.alive || this.dying) return false;
       this.hp -= 1;
@@ -1233,30 +1290,7 @@ const FlyerKit = (() => {
         h.rotation.x = U.damp(h.rotation.x, relX, 4.5, dt);
       }
 
-      if (this.wings) {
-        this.flap += dt * (this.type.flap || 0) * (this.flapRate || 1);
-        const a = Math.sin(this.flap) * (this.type.wingAmp || 0.7);
-        for (const w of this.wings) w.pivot.rotation.z = -w.side * a;
-      }
-      if (this.legs) {
-        // diagonal pairs, and a bound instead of a walk for the hoppers
-        const swing = this.type.hop && this.hopT
-          ? Math.sin(this.hopT) * 0.9 : Math.sin(this.gait * 3) * 0.55;
-        for (const l of this.legs) l.pivot.rotation.x = Math.sin(this.gait * 3 + l.phase) * 0.55;
-        if (this.type.hop && this.hopT) {
-          this.mesh.position.y += Math.max(0, Math.sin(this.hopT)) * 0.7;
-          for (const l of this.legs) l.pivot.rotation.x = swing;
-        }
-      }
-      if (this.mesh.userData.flame) {
-        const s = 1 + Math.sin(this.age * 9 + this.phase) * 0.18;
-        this.mesh.userData.flame.scale.setScalar(s);
-      }
-      if (this.hitFlash > 0) {
-        this.hitFlash -= dt;
-        this.mesh.visible = Math.floor(this.hitFlash * 40) % 2 === 0;
-        if (this.hitFlash <= 0) this.mesh.visible = true;
-      }
+      this.animateParts(dt);
 
       // gone: too far, too old, or it has flown off the top
       // ...but a boss never wanders off on its own. It *is* the round;
@@ -1284,14 +1318,36 @@ const FlyerKit = (() => {
       const type = TYPES[typeId];
       if (!type) return null;
       const f = new Flyer(type, opts);
+      /* A stable name for one bird across three machines. The host
+         hands them out; a guest is told which one it is being sent. */
+      f.netId = opts.netId !== undefined ? opts.netId : (this._nextId = (this._nextId || 0) + 1);
+      f.typeId = typeId;
       this.scene.add(f.mesh);
       if (f.mark) this.scene.add(f.mark);
       this.list.push(f);
       return f;
     }
 
+    byNetId(id) { return this.list.find(f => f.netId === id) || null; }
+
+    remove(f) {
+      const i = this.list.indexOf(f);
+      if (i < 0) return;
+      Engine.disposeObject(f.mesh);
+      if (f.mark) Engine.disposeObject(f.mark);
+      this.list.splice(i, 1);
+    }
+
     // ctx: { heightAt, player, wind, bounds, onGone(flyer) }
     update(dt, ctx) {
+      /* A guest does not simulate the flock at all. It is told where
+         every bird is twenty times a second and its only job is to
+         keep the wings moving between those messages — which is why
+         `animateParts` had to come out of `update`. */
+      if (this.puppet) {
+        for (const f of this.list) f.animateParts(dt);
+        return;
+      }
       ctx.tmp = this._tmp;
       for (let i = this.list.length - 1; i >= 0; i--) {
         const f = this.list[i];

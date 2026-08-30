@@ -1,17 +1,26 @@
 # The Traitors
 
-A low-poly, vibrant browser game. Two ways in:
+A low-poly, vibrant browser game for **three real people**, with voice chat, played in
+a browser with no account and no install. Three ways in:
 
-- **PLAY** runs a whole night — a welcome on a Highland hill, a mission, a round table,
-  a second mission, and a finale at the fire where the pot is won or lost on one throw.
-  Three players: you and two bots.
+- **PLAY / CREATE ROOM / JOIN ROOM** runs a whole night for three — a welcome on a
+  Highland hill, a mission, a round table, a second mission, and a finale at the fire
+  where the pot is won or lost on one throw. You type a name, somebody reads out four
+  letters, and that is the entire sign-up.
 - **MISSIONS** is solo practice on the missions themselves. Two are built: **Boat Race**
   and **Shootout**.
+- **DRESSING ROOM** is where you decide who you are. Saved on your own machine; the
+  other two see exactly what you built.
 
-Open `index.html` in a browser. That's it — everything is plain `<script>` tags, so it
-works straight off disk (`file://`). If you'd rather use a server, run `./serve.sh`.
+Open `index.html` in a browser. Everything is plain `<script>` tags, so it works
+straight off disk (`file://`) for solo practice and the dressing room.
 
-Only external dependency is three.js from a CDN, plus two Google fonts. Claudia is
+**Multiplayer needs a real origin.** Microphones and WebRTC want a secure context, so
+for a night with other people the folder has to be served over http on localhost
+(`./serve.sh`) or over https for people on other machines. It is still a static folder
+— GitHub Pages or Netlify will do, and there is no build step and no server to run.
+
+Dependencies are three.js and Trystero from a CDN, plus two Google fonts. Claudia is
 spoken by the browser's own speech synthesiser; there are no audio files anywhere.
 
 ---
@@ -20,11 +29,12 @@ spoken by the browser's own speech synthesiser; there are no audio files anywher
 
 | Beat | What happens |
 | --- | --- |
-| **The hill** | Claudia welcomes you and tells you what you are. Nobody else is told. |
-| **Mission** | One of the missions, drawn from the seed, with a twist card dealt for you. Everything you earn goes into the night's pot. |
-| **The round table** | The three of you talk. You choose one thing to say. **Nobody is banished.** |
+| **The hill** | Claudia welcomes you and tells you what you are. Nobody else is told. A Traitor is also handed a task. |
+| **Mission** | One of the missions, drawn from the seed, played by all three of you at once. Everything anybody earns goes into the night's pot. |
+| **The board** | Everybody's numbers from that mission, side by side. It accuses nobody. |
+| **The round table** | Thirty seconds each, one microphone at a time. **Nobody is banished here.** |
 | **Mission** | The second one, with its own twist. The last chance to add to the pot. |
-| **The fire** | End the game, or banish one more — and open their pouch. |
+| **The fire** | Thirty seconds each again, then: end the game, or banish one more — and open their pouch. |
 
 ### The roles
 
@@ -35,6 +45,61 @@ Roles are drawn once, from the run's seed:
 
 You are told your own role on the hill. Nobody is ever told whether a Traitor exists.
 That is the whole game: a table where everyone may be honest and nobody can prove it.
+
+### The Traitor's task
+
+A Traitor is handed one small piece of work per mission, on the hill, on a card only
+they see. Not hard: the deck is written so that anybody who reads their card and pays
+attention will manage it. Complete it and nothing happens — nobody is told, and the
+night carries on exactly as it would have.
+
+Leave it undone and Claudia stops the room at the next gathering, before anybody has sat
+down, and the Faithfuls win on the spot.
+
+The Traitor is **not told they failed**. They walk into that room believing they got
+away with it.
+
+**Every task has a public tell, and that is the entire design.** A sabotage nobody can
+observe being performed is not a risk — it makes the round table unwinnable for the
+Faithfuls, which is exactly the failure this mechanic exists to avoid. So each card in
+`js/missions/agendas.js` carries a `tell` field naming the thing the other two can
+physically see or hear happen:
+
+| Task | What the others see |
+| --- | --- |
+| Cross the line last, within four seconds of the boat ahead | You are visibly last, close enough to look like a bad line |
+| Take three gates on the outside of the marker | The boat swings wide, three times, in open water |
+| Reach the last split with a full boost meter, then never spend it | The shared strip shows a full meter while you drift backwards |
+| Clip exactly two marker buoys | A clipped buoy knocks, splashes and swings |
+| Let three birds leave the clearing untouched | They fly out over everybody's heads |
+| Finish having missed eight arrows | Accuracy is a column on the shared board |
+| Keep shooting after round four and never find a perfect draw again | A perfect draw rings, and everyone hears yours go quiet |
+| Spend a whole round away from the shooting line | Your marker is missing from the line for a round |
+
+`tell` is not a comment — `test/agendas.test.js` asserts every card has one, and asserts
+that no card can be passed by doing nothing at all. Two cards originally could be, and
+were rewritten: a task you complete by forgetting it exists is a free pass with no tell
+on it.
+
+After every mission all three players see the same **board** — finish order, gates
+missed, accuracy, birds escaped, boost spent late. It never accuses anybody. It is on
+screen for the whole of the round table, and it is what turns "I think it was you" into
+an argument with something behind it.
+
+### Voice, and the floor
+
+The microphone is open in the lobby, the dressing room and the missions. At the round
+table and the fire it is not: the floor goes round the seats, thirty seconds each, and
+only the person holding it can be heard.
+
+That muting happens on the **sending** side — `track.enabled = false` at the microphone
+— so holding the floor is a fact about the room rather than a request the other two
+clients are trusted to honour. The clock belongs to the host, because a speaking turn
+timed in the speaker's own browser stops when their tab is throttled, which is exactly
+the moment they would rather it did not.
+
+Nothing here is required. A refused permission, no microphone, or a `file://` origin all
+land in the same place: the game says so once and the night carries on in text.
 
 ### The endgame
 
@@ -66,6 +131,8 @@ losing loses it. Nothing is banked until the fire goes out.
 | Pouch reveal | The camera unlocks only for the short cinematic as the pouch is thrown into the fire |
 | The fire | the vote is a panel of buttons; the same four inputs drive it |
 | Missions | as documented below, and gamepad and touch both work |
+| Your microphone | `V`, the pad's **Y/triangle**, or the button in the corner. It is separate from game sound, and it is on every screen |
+| A room code | four `<select>`s, so left/right on a pad dials a letter, a phone gets its native picker, and a keyboard can type A–Z |
 
 Claudia's voice comes from whatever the operating system has installed, which varies
 enormously, so the front screen has a picker. If there is no synthesiser at all — or the
@@ -265,12 +332,18 @@ js/
     input.js          named actions (throttle/steer/boost/…), keyboard + pad + touch
     audio.js          procedural Web Audio; sounds are registered recipes
     music.js          the runtime score: a step sequencer and three profiles
-    state.js          persistent save: prize pot, mission records, cast/roles/rounds
+    state.js          persistent save: prize pot, mission records, ghosts, settings
     screens.js        DOM screen stack + fade transitions
     missions.js       mission registry and lifecycle
-    session.js        the authority for a night: phases, roles, votes, pot
-    net.js            the transport seam — loopback today, a socket later
-    bots.js           the two players who are not real yet (deletable)
+    look.js           who you are: the dressing-room descriptor and its storage
+    party.js          the only file that knows what WebRTC is — rooms, codes, peers
+    session.js        the authority for a night: phases, roles, tasks, votes, pot
+    net.js            the transport seam — three methods, two implementations
+    transports.js     the host's reducer and the guest's mirror, on the wire
+    voicechat.js      microphones, peer audio, and the thirty-second floor
+    mission-net.js    three people inside one mission: poses, events, the board
+    lobby.js          a name, four letters, three people
+    roomui.js         the floor bar, the board, the field, your task, the mic button
     voice.js          Claudia out loud, and the subtitles that stand in for her
     uinav.js          gamepad and keyboard navigation for every menu
     scenes.js         scene runner + the beat sequencer the scenes are written in
@@ -285,10 +358,11 @@ js/
     boat.js           hull mesh + arcade physics (surf, launch, trick, land, collide)
     bow.js            the half-second draw, and arrows as real projectiles
     flyers.js         every creature and prop you can shoot, and how each moves
-    figure.js         a person, in primitives, with a four-handle rig
+    figure.js         a person, in primitives, on a full rig with a walk cycle
   fx/
     fx.js             particles, wake ribbon, shockwaves, floating labels
   missions/
+    agendas.js        the Traitor's secret tasks, each with a public tell
     modifiers.js      the pre-race card deck — declarative rule-benders
     boat-race.js      Mission 01
     shootout-rounds.js  the rounds a Shootout is built from, as data
@@ -298,42 +372,128 @@ js/
   scenes/
     claudia-lines.js  every spoken line in the show, as data
     stage.js          the hill dressed three ways, and first-person movement
+    dressing.js       the turntable, the studio light, and eight dials
+    reveal.js         the moment a role stops being a secret (fire optional)
     hill.js           the welcome
     roundtable.js     the talking
+    exposed.js        the task that was left undone
     fireplace.js      the endgame
     show.js           the director: which of the above is on screen
   main.js             boot, the front screens, briefing, results, attract ocean
+test/
+  harness.js          enough of a browser to run the logic layer in node
+  run.js              every suite; `node test/run.js`
+  session.test.js     a whole night driven through `dispatch`
+  privacy.test.js     the invariant everything else stands on
+  agendas.test.js     every card, at its own boundary
+  transport.test.js   a host and a guest, in one process, on a fake wire
+  look.test.js        the dressing room's data
 ```
 
-### The show is written for a server it does not have yet
+### The server is one of the three browsers
 
-Real multiplayer is next, so the night is already built the shape a server wants. Three
-rules make that true, and all three are load-bearing:
+There is no server. The host's browser *is* the authority: it owns `Session`, draws the
+roles and the tasks, holds the clock, and is the only client where `dispatch` does
+anything at all. The other two run the identical file in `guest` mode, where `dispatch`
+is inert and `state` is a mirror installed by `adopt()` from whatever the host last
+sent. Scenes cannot tell the difference, which is the point — they read `state`, they
+call `Net.send`, and that is exactly what they did when this was single-player.
+
+Transport is WebRTC over Trystero, which finds the other two through public relays. So
+the whole thing stays a static folder: no server to run, no server to deploy, and a
+four-letter room code is the entire matchmaking system.
+
+Three rules make it work, and all three are load-bearing:
 
 1. **One reducer.** Every change to a night goes through `Session.dispatch(action)`, and
    an action is a plain serialisable object — `{type:'vote', playerId, choice}` and so
    on. Nothing else may touch the state.
 2. **One seam.** Scenes never call `Session`. They send through `Net.send()` and learn
-   through `Net.on()`. `Net.LocalTransport` is ten lines that loop straight back into
-   the local session; a `SocketTransport` with the same three methods — open, send,
-   close — is the entire multiplayer client. Delivery is deferred by a microtask even
-   locally, so no scene can quietly come to depend on a reply arriving inside the same
-   call stack as the request.
+   through `Net.on()`. A transport is three methods — open, send, close — and there are
+   three of them: `LocalTransport` for solo practice, `HostTransport` (the reducer, plus
+   an audience) and `GuestTransport` (which owns nothing and asks for everything).
+   Delivery is deferred by a microtask even locally, so no scene can come to depend on a
+   reply arriving inside the same call stack as the request — which is the one habit
+   that would not have survived a network.
+
+   Two details in `transports.js` are not decoration. Every outbound event carries the
+   snapshot that goes with it, because a guest that received `phase:'finale'` before the
+   state that made it true would render the finale from the round table's data — and
+   that bug only ever appears on somebody else's machine. And an inbound action is
+   re-stamped with the peer it actually arrived from, so a client may only ever act as
+   itself.
 3. **The client is never told another role.** `Session` keeps the role table in a
-   closure and it is never in `state`. You get `Session.myRole()`, which is yours. The
-   fire is an `emit('reveal')` from the authority, not a lookup by the UI. Today that
-   rule is worth nothing; the moment there is a network it is the whole game, and it is
-   much easier to have never broken it. There is a test that walks the serialised
-   snapshot and asserts the word never appears in it.
+   closure and it is never in `state`. You get `Session.myRole()`, which is yours, and a
+   Traitor gets `Session.myAgenda()`, which is also only ever theirs. Everything else
+   leaves as an event: `reveal` when a pouch burns, `expose` when a task went
+   unfinished. `privateRoles()` is the single exception, it is host-only, and its one
+   caller addresses each entry to the person it belongs to.
 
-`bots.js` is the throwaway. It talks to the game through `Net` exactly as you do, and
-knows only what a remote client would know: its own role, the public state, and nothing
-else. When two humans replace it, nothing above it changes.
+   This used to be a rule worth nothing, because the other two clients were bots in this
+   process and a leak leaked to nobody. The snapshot is now a thing the host puts on a
+   wire and sends to two other people's browsers, so `test/privacy.test.js` walks it
+   through every phase of a hundred and twenty nights and asserts the word never appears
+   in it. (An earlier version of this README claimed that test existed. It did not.
+   It does now.)
 
-Nothing random is ever held as a live generator, because a live generator cannot survive
-a reload. Roles, the mission plan and every tie-break are pure functions of
-`(seed, purpose)` via `rngFor()`, so a night resumed from `localStorage` deals exactly
-the hand it dealt before — which is also the snapshot a server would send on reconnect.
+`bots.js` is gone, along with `Session._clientRole` and the twelve-person cast in
+`state.js` that nothing ever read. Nothing above the seam changed when they went, which
+was the point of writing it that way.
+
+Nothing random is ever held as a live generator. Roles, the tasks, the mission plan and
+every tie-break are pure functions of `(seed, purpose)` via `rngFor()`, so all three
+clients deal the identical hand from the seed the host sent, and a guest that reconnects
+mid-run is caught up by a snapshot rather than by replaying anything.
+
+**The handshake is the guest's to complete.** The host connects its transport the moment
+it starts the night, up to a round trip before either guest has finished its fade — so a
+catch-up sent on connect alone lands in an empty room. A guest says hello when it is
+actually listening, and repeats it until the host answers.
+
+### Three people inside one mission
+
+The world is not sent. Courses, forests, wave schedules and flock spawns are already
+pure functions of the mission seed, and all three clients were handed the same one — so
+`mission-net.js` synchronises only the three things a seed cannot know: where each
+person is, what they just did, and what they scored.
+
+- **Poses** go out fifteen times a second and are lossy by nature; remotes are drawn a
+  tick behind and interpolated, because a boat that is a frame late and smooth beats one
+  that is current and jumping.
+- **Events** are anything that must not be lost — an arrow loosed, a gate taken, a bird
+  killed.
+- **Reports** are the end of it: everyone's numbers, collected by the host into the one
+  board all three then argue over. Nobody's Continue button arms until it arrives,
+  because the pot is what the three of them managed between them.
+
+The **boat race** needs almost none of this: hulls are visual-only off interpolated
+snapshots, and boats deliberately do not collide, because three clients arbitrating
+contact is a desync with a splash on it and racing wheel-to-wheel does not need one.
+
+The **shootout** needs all of it. Birds flee from whoever is nearest, and "nearest" is a
+different answer on three machines — so the flock is **host-authoritative**. The host
+simulates it and broadcasts a full snapshot twenty times a second; guests run
+`Flock.puppet` mode, which is why `animateParts` had to come out of `Flyer.update`. A
+guest that hits something sends a claim and the host decides. That is the only contested
+call in the game and the only one arbitrated.
+
+### The dressing room
+
+A look is eight indices into lists in `look.js` — never a raw colour — so a look saved by
+an older build can never produce a figure with no coat on: an index out of range clamps.
+It goes three places at once (localStorage, the wire, `Figure.build`), which is why it
+is a plain object and not a class.
+
+The figure itself was rebuilt. The old rig had four handles and two rigid cylinders for
+legs, which meant a person could stand, sit and gesture but could never take a step —
+and somebody who slides is worse than somebody who is still. It is now a proper chain
+with knees and elbows, a face that blinks, and a walk cycle driven by one number. The
+dressing room cycles idle → walk → wave on a turntable, because the thing you are
+choosing is a person who moves and picking one from a mannequin is picking blind.
+
+Every control on that screen is a `<select>`. That is reuse, not laziness: `UINav`
+already cycles a select with left and right, so the whole screen is dialable on a
+gamepad and tappable on a phone without one line of input code in `dressing.js`.
 
 ### The hill is one shape with one guarantee
 
@@ -588,20 +748,36 @@ puts a real pause at every full stop, so a line written as one long clause is a 
 delivered in a rush. Takes are drawn from the run seed, so a second night is not a
 recital of the first and a shared seed is still a shared night.
 
-`{name}`, `{mission}`, `{twist}` and `{pot}` are filled by the caller. Bot lines carry
-`accuse: true` if they point at somebody; the bots weight their choice on it, which is
-why a Traitor bot spends its evening directing traffic.
+`{name}`, `{mission}`, `{twist}` and `{pot}` are filled by the caller.
+
+The `TABLE` and `YOU` lists in that file are no longer read by the game. They were the
+bots' script, and then briefly a menu of things you could say at the round table; a list
+of pre-written opinions is what you build for players who cannot talk to each other, and
+there are three microphones on that table now. They are kept only because
+`dialogue-editor.html` loads this file and edits them. If a written-dialogue mode never
+comes back, delete both.
 
 ### The save file
 
-`GameState` holds what survives between nights: the prize pot, mission records, the cast
+`GameState` holds what survives between nights: the prize pot, mission records, settings
 and an event log. Saves are keyed `traitors.save.v1`; bump `VERSION` in `state.js` if the
 shape changes.
 
-A night in progress lives in its own key, `traitors.session.v2`, and is offered back on
-the front screen if you left one unfinished. Roles are *not* in it — they are re-derived
-from the seed on resume, which is both why they cannot drift and why a saved night
-cannot be read out of local storage.
+It used to also carry a twelve-person cast with roles and suspicion scores on it, drawn
+up before there was anything to play. Nothing ever read it, and a role field in the one
+file that *is* written to disk was a leak waiting for a careless line, so it went with
+the bots. The version is unchanged because none of it was ever used: an older save
+simply arrives carrying a few keys nobody asks for.
+
+**A night in progress is not saved at all any more.** It used to be, under
+`traitors.session.v2`, and could be resumed from the front screen. A run is now three
+people being in the same room at the same time, and there is nothing on this machine
+that can bring that back — so `Session` writes none of it down, and the key is gone.
+
+Your look and your name are yours and do persist: `traitors.look.v1` and
+`traitors.name.v1`, written by the dressing room. Both follow the same discipline as
+everything else here — a corrupt or unavailable store is not an error, it is a fresh
+look.
 
 Per-course records live under `missions[id].runs`, keyed `mode:seed:modifier` by
 `GameState.runKey()`, because that whole triple is what a time or a score is a record
@@ -615,6 +791,29 @@ positions at 10 Hz rounded to a decimetre, plus the arc length at each sample �
 what lets the HUD show a real split rather than a distance. Losing the whole ghost store
 to a quota error must never cost you the prize pot, which is the entire reason it is not
 in the save.
+
+### Tests
+
+`node test/run.js`. No browser and no dependencies: the session, the transports, the
+agendas and the look layer have no DOM in them by design, so `test/harness.js` stubs
+only what they touch on the way past — `localStorage`, and a `THREE` that throws with a
+useful message if anything reaches for it.
+
+| Suite | What it holds down |
+| --- | --- |
+| `session.test.js` | A whole night through `dispatch`: both ballots, a tie and its revote, the auto-stop at two, and both endings a task can produce |
+| `privacy.test.js` | The invariant everything else stands on — no role in the state, at any phase, ever, until the verdict |
+| `agendas.test.js` | Every card either side of its own threshold, plus the two rules of the deck: a public tell, and no free passes |
+| `transport.test.js` | A host and a guest in one process on a fake wire, including a guest that connects late and a guest that tries to vote as somebody else |
+| `look.test.js` | That nothing you can put in localStorage produces a figure with no coat on |
+
+The whole thing takes about two seconds. Three of these have already earned their keep:
+`agendas.test.js` found two cards that could be passed by doing nothing at all,
+`transport.test.js` found a guest that registered its listener *after* sending the
+message it was waiting for a reply to, and the floor tests found that a speaking turn
+left open really does keep ticking through every remaining seat — which is correct
+behaviour, and held the suite open for a minute and a half until they learned to close
+it.
 
 ---
 

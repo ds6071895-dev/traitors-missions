@@ -1,32 +1,31 @@
 /* ------------------------------------------------------------------
-   state.js — the persistent game state.
+   state.js — what survives between nights.
 
-   Right now only the prize pot and mission records are used, but the
-   shape is the full Traitors model (cast, roles, rounds, banishments)
-   so the round table, murders and votes can be layered on later
-   without a save migration.
+   The prize pot, the per-course records, the ghosts and the settings.
+   Deliberately *not* the night in progress: a run is three people
+   being in the same room at the same time, and there is nothing on
+   this machine that could bring that back. `Session` owns the night
+   and writes none of it down.
+
+   It used to carry a twelve-person cast with roles and suspicion
+   scores on it, drawn up before there was anything to play. Nothing
+   ever read it, and a role field in the one file that *is* written to
+   disk was a leak waiting for a careless line — so it went with the
+   bots. The version is unchanged because none of it was ever used:
+   an older save simply arrives with a few keys nobody asks for.
 ------------------------------------------------------------------ */
 const GameState = (() => {
 
   const KEY = 'traitors.save.v1';
   const VERSION = 1;
 
-  const CAST = [
-    'Alina', 'Bex', 'Callum', 'Dev', 'Esme', 'Fitz',
-    'Greta', 'Hari', 'Ines', 'Jonah', 'Kira', 'Luca',
-  ];
-
   function fresh() {
     return {
       version: VERSION,
       createdAt: Date.now(),
-      player: { name: 'You', role: 'faithful', alive: true },
       prizePot: 0,
       round: 1,
       phase: 'lobby',            // lobby | mission | roundtable | endgame
-      cast: CAST.map((name, i) => ({
-        id: 'p' + i, name, role: 'faithful', alive: true, suspicion: 0,
-      })),
       missions: {},              // id -> { plays, completed, best:{...}, lastEarned }
       settings: { muted: false, camera: 'chase', quality: 'high' },
       log: [],                   // narrative events, for a future recap screen
@@ -158,23 +157,15 @@ const GameState = (() => {
     save();
   }
 
-  function assignTraitors(count = 3, rng = Math.random) {
-    data.cast.forEach(p => (p.role = 'faithful'));
-    const pool = data.cast.slice();
-    for (let i = 0; i < count && pool.length; i++) {
-      const idx = Math.floor(rng() * pool.length);
-      pool[idx].role = 'traitor';
-      pool.splice(idx, 1);
-    }
-    save();
-  }
-
-  const alive = () => data.cast.filter(p => p.alive);
-  const traitors = () => data.cast.filter(p => p.role === 'traitor' && p.alive);
+  /* `assignTraitors`, `alive` and `traitors` used to live here, over a
+     twelve-person cast that no run has ever used. Roles belong to
+     `Session` — drawn from the seed, held in a closure, never written
+     to disk — and a second, weaker copy of that idea in the file that
+     *is* written to disk was an invitation. They are gone. */
 
   return {
     load, save, reset, subscribe,
-    addToPot, missionRecord, recordMission, logEvent, assignTraitors, alive, traitors,
+    addToPot, missionRecord, recordMission, logEvent,
     runKey, runRecord, recordRun, getGhost, saveGhost,
     get data() { return data; },
     get prizePot() { return data.prizePot; },

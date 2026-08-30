@@ -19,6 +19,96 @@
 const ClaudiaLines = (() => {
 
   const SETS = {
+    "floorOpen": [
+      [
+        "You will speak one at a time.",
+        "Thirty seconds each. Nobody interrupts."
+      ],
+      [
+        "The room is going to go round.",
+        "Thirty seconds. Use them or waste them."
+      ],
+      [
+        "One voice at a time tonight.",
+        "Half a minute each, and then I want a decision."
+      ]
+    ],
+    "floorTo": [
+      [ "{name}. The room is yours." ],
+      [ "{name}. Go on." ],
+      [ "Thirty seconds, {name}." ],
+      [ "{name}. Say something worth hearing." ]
+    ],
+    "floorEnd": [
+      [ "Time." ],
+      [ "That is your thirty." ],
+      [ "Enough." ]
+    ],
+    "floorBoard": [
+      [
+        "The numbers from out there are in front of you.",
+        "They do not accuse anybody. You will have to do that yourselves."
+      ],
+      [
+        "Everything that happened on that mission is on the board.",
+        "Read it properly. It is all you are getting."
+      ]
+    ],
+    "exposeOpen": [
+      [
+        "Before anybody sits down.",
+        "Stay exactly where you are."
+      ],
+      [
+        "Nobody sit.",
+        "This will not take long."
+      ],
+      [
+        "Stop there.",
+        "All three of you."
+      ]
+    ],
+    "exposeTask": [
+      [
+        "One of you was given something to do out there tonight.",
+        "Something small. Something nobody was meant to notice.",
+        "It was not done."
+      ],
+      [
+        "A Traitor is asked for one thing on a night like this.",
+        "One quiet piece of work, out where you could all see it.",
+        "It went unfinished."
+      ],
+      [
+        "There was a task tonight. A private one.",
+        "It needed doing before you walked back in here.",
+        "It was left."
+      ]
+    ],
+    "exposeName": [
+      [ "{name}.", "You had one job, and you did not do it." ],
+      [ "It was you, {name}.", "And you left it undone." ],
+      [ "{name}.", "Look at me. You know exactly what this is." ]
+    ],
+    "exposeAfter": [
+      [
+        "{name} was a Traitor.",
+        "And a Traitor who cannot do the work is no use to anybody.",
+        "The Faithfuls have it. The pot is theirs."
+      ],
+      [
+        "There it is.",
+        "{name} was the Traitor, and {name} has just handed you the money.",
+        "The night is over."
+      ]
+    ],
+    "exposeNone": [
+      [
+        "Nothing.",
+        "Whatever was asked for tonight, it was done properly.",
+        "Sit down."
+      ]
+    ],
     "welcome": [
       [
         "Welcome to the Highlands."
@@ -368,10 +458,16 @@ const ClaudiaLines = (() => {
     ]
   };
 
-  /* ---------------- what the others say at the table ----------------
-     `accuse: true` means the line points at somebody. The bots weight
-     their pick on it, so a Traitor bot spends its evening directing
-     traffic and a Faithful bot spends it worrying out loud. */
+  /* ---------------- the old table script ----------------
+     These were the bots' lines, and then briefly a menu of things you
+     could say. The round table has three microphones on it now, and a
+     list of pre-written opinions is what you build for players who
+     cannot talk to each other. Nothing in the game reads either of
+     these any more.
+
+     They are kept because `dialogue-editor.html` loads this file and
+     edits them, and because a show that grows a written-dialogue mode
+     later would want them back. If that never happens, delete both. */
 
   const TABLE = [
     { id: 't-quiet', text: '{name} has been very quiet. That is usually something.', accuse: true },

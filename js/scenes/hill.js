@@ -35,10 +35,30 @@ class HillScene {
   setShot(name, opts) { this.stage.setShot(name, opts); }
   setSpeaking(who) { this.stage.setSpeaking(who); }
 
+  /* A guest is *told* what it is, by the one client entitled to say.
+     That message arrives a round trip after the scene opens, so the
+     hill waits for it rather than reading `myRole()` on the frame it
+     was built — which on a guest would reliably return null and hand
+     every Traitor in the game a Faithful card. */
+  _role() {
+    if (Session.myRole()) return Promise.resolve(Session.myRole());
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (r) => { if (done) return; done = true; off(); resolve(r); };
+      const off = Net.on(() => { if (Session.myRole()) finish(Session.myRole()); });
+      this._offRole = () => finish('faithful');
+      // a host that never says is a host that has gone; play it straight
+      setTimeout(() => finish(Session.myRole() || 'faithful'), 6000);
+    });
+  }
+
   start() {
+    this._role().then((role) => { if (this.stage) this._run(role); });
+  }
+
+  _run(role) {
     const s = Session.state;
     const seed = s.seed;
-    const role = Session.myRole();
     const m = s.missions[0] || {};
     const L = (set, vars) => ClaudiaLines.beats(set, vars, seed);
 
@@ -84,6 +104,23 @@ class HillScene {
       ...speak(role === 'traitor' ? 'roleTraitor' : 'roleFaithful'),
       { card: null, wait: 0.5 },
 
+      /* The task, for the one person who has one. It is a card rather
+         than a line because Claudia never says it out loud — two other
+         people are standing right there. */
+      ...(role === 'traitor' && Session.myAgenda(0) ? [
+        { shot: 'claudiaTight',
+          card: () => ({
+            kicker: 'And one more thing, quietly',
+            title: 'YOUR TASK',
+            sub: Session.myAgenda(0).text
+               + '<br><span style="opacity:.7">Finish it, or the fire will not need a vote.</span>',
+            tone: 'traitor',
+          }),
+          wait: 5.5 },
+        { card: null, wait: 0.4 },
+        { then: () => RoomUI.showAgenda() },
+      ] : []),
+
       ...speak('firstMission', twistVars, ['wide', 'claudia', null]),
 
       // the twist, announced rather than chosen
@@ -103,6 +140,8 @@ class HillScene {
   }
 
   dispose() {
+    if (this._offRole) { this._offRole(); this._offRole = null; }
+    RoomUI.hideAgenda();
     if (this.music) { this.music.stop(0.9); this.music = null; }
     if (this.wind) { this.wind.stop(); this.wind = null; }
     if (this.stage) { this.stage.dispose(); this.stage = null; }

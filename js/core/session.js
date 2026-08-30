@@ -20,6 +20,15 @@
    The run:
      hill -> mission 0 -> round table -> mission 1 -> finale -> verdict
 
+   There are two kinds of client now and only one of them is in charge.
+   A host owns this reducer outright: it draws the roles, it holds the
+   clock, and it is the only place `dispatch` does anything. A guest
+   runs the same file in `guest` mode, where `dispatch` is inert and
+   `state` is a mirror installed by `adopt()` from whatever the host
+   last sent. Scenes cannot tell the difference, which is the point —
+   they read `state`, they call `Net.send`, and that is all they ever
+   did.
+
    The roles, drawn once from the seed:
      50% the run has no traitor at all;
      otherwise exactly one, uniform over all three players — you too.
@@ -28,15 +37,19 @@
 ------------------------------------------------------------------ */
 const Session = (() => {
 
-  const KEY = 'traitors.session.v2';
-  const V = 2;
-  const SEATS = 3;                 // you + two, for now
+  const V = 3;
+  const SEATS = 3;                 // exactly three, and the show is written for it
+  const FLOOR_SECONDS = 30;        // how long one person gets to talk
 
   let state = null;
+  let mode = 'host';               // 'host' owns the reducer, 'guest' mirrors it
+  let toldRole = null;             // what a guest was privately told it is
+  let toldAgendas = null;          // and the tasks that came with it
+  let floorTimer = null;
 
   /* The one thing that must never be serialised. `seat` is which chair
      the traitor is in, or -1 for a run that simply has no traitor. */
-  let secret = { has: false, seat: -1 };
+  let secret = { has: false, seat: -1, agendas: null, exposed: null };
 
   const listeners = {
     change: new Set(),   // (state) — anything at all moved
@@ -47,6 +60,8 @@ const Session = (() => {
     nameReveal:new Set(),// ({ playerId, targetId }) — a name has been said aloud
     tally:  new Set(),   // ({ stage, result, counts })
     reveal: new Set(),   // ({ playerId, role }) — the only role that escapes
+    floor:  new Set(),   // ({ playerId, endsAt, seconds, done }) — who may speak
+    expose: new Set(),   // ({ playerId, role, agenda }) — an unfinished task
     outcome:new Set(),   // (outcome)
   };
 
@@ -71,6 +86,7 @@ const Session = (() => {
     cast:     0x2545f491,
     missions: 0x9e3779b9,
     tie:      0x85ebca6b,
+    agendas:  0xc2b2ae35,
   };
 
   function drawRoles(seed) {
@@ -122,28 +138,29 @@ const Session = (() => {
     return out;
   }
 
-  function castNames(seed) {
-    const r = rngFor(SALT.cast, seed);
-    const pool = ((GameState.data && GameState.data.cast) || [])
-      .map(c => c.name).filter(Boolean);
-    const fallback = ['Bex', 'Dev', 'Alina', 'Fitz', 'Greta', 'Luca'];
-    const bag = (pool.length >= SEATS - 1 ? pool : fallback).slice();
-    const out = [];
-    for (let i = 0; i < SEATS - 1 && bag.length; i++) {
-      out.push(bag.splice(Math.floor(r() * bag.length), 1)[0]);
-    }
-    return out;
+  /* ---------------- the traitor's tasks ----------------
+     One card per mission, drawn from the same seed as everything else
+     so a night can be replayed. Only a traitor is ever dealt one, and
+     it never touches `state` — it goes to that one client as a private
+     message, exactly like the role it belongs to. */
+
+  function drawAgendas(seed, missions) {
+    if (typeof Agendas === 'undefined') return null;
+    const r = rngFor(SALT.agendas, seed);
+    return (missions || []).map(m => Agendas.draw(m.id, r));
   }
 
   /* ---------------- lifecycle ---------------- */
 
-  function fresh(seed) {
-    const names = castNames(seed);
-    const players = [{ id: 'you', seat: 0, name: 'You', local: true, bot: false, alive: true }];
-    for (let i = 1; i < SEATS; i++) {
-      players.push({ id: 'p' + i, seat: i, name: names[i - 1] || ('Player ' + i),
-                     local: false, bot: true, alive: true });
-    }
+  function fresh(seed, roster) {
+    const players = (roster || []).slice(0, SEATS).map((p, i) => ({
+      id: p.id,
+      seat: i,
+      name: String(p.name || ('Player ' + (i + 1))).slice(0, 16),
+      look: p.look || null,     // how they dressed, so everyone draws them the same
+      local: !!p.local,
+      alive: true,
+    }));
     return {
       v: V,
       seed,
@@ -154,7 +171,8 @@ const Session = (() => {
       players,
       missions: planMissions(seed),
       pot: 0,
-      said: [],                 // round-table lines, in order
+      floor: null,              // { queue, playerId, endsAt, seconds, done }
+      debrief: null,            // the numbers everybody argues over
       finale: newFinale(),
       outcome: null,
     };
@@ -171,55 +189,54 @@ const Session = (() => {
                              pending: null, burned: [], lastTally: null,
                              queue: [], opened: [], reason: null });
 
-  function start(seed) {
-    const s = Number.isFinite(seed) ? (Math.floor(seed) >>> 0) || U.randomSeed() : U.randomSeed();
-    secret = drawRoles(s);
-    state = fresh(s);
+  /* A night starts from a party, not from nothing. The host draws the
+     roles and the tasks; a guest draws neither and is told its own by
+     the only client entitled to say. Nothing here is written to disk:
+     a run is three people being in the same place at the same time,
+     and there is nothing on this machine that can bring that back. */
+
+  function startParty(opts = {}) {
+    const seed = Number.isFinite(opts.seed)
+      ? (Math.floor(opts.seed) >>> 0) || U.randomSeed() : U.randomSeed();
+    mode = opts.mode === 'guest' ? 'guest' : 'host';
+    toldRole = null;
+    toldAgendas = null;
+    clearFloorTimer();
+    secret = mode === 'host'
+      ? Object.assign(drawRoles(seed), { agendas: null, exposed: null })
+      : { has: false, seat: -1, agendas: null, exposed: null };
+    state = fresh(seed, opts.players || []);
+    if (mode === 'host') secret.agendas = drawAgendas(seed, state.missions);
     syncGameState();
-    save();
     emit('phase', state.phase, null);
     emit('change', state);
     return state;
   }
 
-  function resume() {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (!parsed || parsed.v !== V || !parsed.state) return null;
-      state = parsed.state;
-      // roles are a pure function of the seed, so they are not saved and
-      // cannot drift: a resumed run is the same run
-      secret = drawRoles(state.seed);
-      if (!state.finale) state.finale = newFinale();
-      syncGameState();
-      emit('phase', state.phase, null);
-      emit('change', state);
-      return state;
-    } catch (e) { return null; }
+  /* ---------------- the guest's mirror ----------------
+     Installed, not reduced. It emits nothing: on a guest the events
+     that drive the scenes arrive from the host over `Net`, and firing
+     a second set from here would run every transition twice. */
+
+  function adopt(next) {
+    if (!next) return null;
+    state = next;
+    syncGameState();
+    return state;
   }
 
-  function saved() {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (!raw) return null;
-      const p = JSON.parse(raw);
-      if (!p || p.v !== V || !p.state || p.state.phase === 'verdict') return null;
-      return { seed: p.state.seed, phase: p.state.phase, pot: p.state.pot,
-               startedAt: p.state.startedAt };
-    } catch (e) { return null; }
-  }
-
-  function save() {
-    if (!state) return;
-    try { localStorage.setItem(KEY, JSON.stringify({ v: V, state })); } catch (e) {}
+  function setMyRole(role, agendas) {
+    toldRole = role === 'traitor' ? 'traitor' : 'faithful';
+    if (agendas) toldAgendas = agendas;
   }
 
   function abandon() {
+    clearFloorTimer();
     state = null;
-    secret = { has: false, seat: -1 };
-    try { localStorage.removeItem(KEY); } catch (e) {}
+    secret = { has: false, seat: -1, agendas: null, exposed: null };
+    toldRole = null;
+    toldAgendas = null;
+    mode = 'host';
     GameState.data.phase = 'lobby';
     GameState.save();
     emit('change', null);
@@ -240,8 +257,19 @@ const Session = (() => {
   const localPlayer = () => (state ? state.players.find(p => p.local) : null);
 
   function myRole() {
+    if (mode === 'guest') return toldRole;
     const me = localPlayer();
     return me ? roleOfSeat(me.seat) : null;
+  }
+
+  /* The card in your own pocket for the mission about to start, or
+     null — which is what a Faithful always gets, and what everybody
+     gets on the half of all nights that have no Traitor in them. */
+  function myAgenda(at) {
+    const i = at === undefined ? (state ? state.missionAt : 0) : at;
+    if (mode === 'guest') return (toldAgendas && toldAgendas[i]) || null;
+    if (myRole() !== 'traitor') return null;
+    return (secret.agendas && secret.agendas[i]) || null;
   }
 
   const alive = () => (state ? state.players.filter(p => p.alive) : []);
@@ -252,12 +280,15 @@ const Session = (() => {
      action, which is exactly what will go down the wire. */
 
   function dispatch(action) {
+    /* A guest asks; it does not decide. Its actions have already gone
+       down the wire by the time they get here, and running them locally
+       as well would give it a private, divergent copy of the night. */
+    if (mode !== 'host') return null;
     if (!state || !action) return null;
     let moved = false;
     switch (action.type) {
       case 'beat':    moved = doBeat(action); break;
       case 'advance': moved = doAdvance(); break;
-      case 'say':     moved = doSay(action); break;
       case 'result':  moved = doResult(action); break;
       case 'vote':    moved = doVote(action); break;
       case 'decisionPouch': moved = doDecisionPouch(action); break;
@@ -265,10 +296,65 @@ const Session = (() => {
       case 'speakName': moved = doSpeakName(action); break;
       case 'reveal':  moved = doReveal(); break;
       case 'pouch':   moved = doPouch(); break;
+      case 'openFloor':  moved = doOpenFloor(action); break;
+      case 'yieldFloor': moved = doYieldFloor(action); break;
+      case 'expose':     moved = doExpose(); break;
+      case 'exposeDone': moved = doExposeDone(); break;
       default: return null;
     }
-    if (moved) { save(); emit('change', state); }
+    if (moved) emit('change', state);
     return state;
+  }
+
+  /* ---------------- the floor ----------------
+     Thirty seconds each, and the clock belongs to the authority. A
+     speaking turn timed in the speaker's own browser ends when their
+     tab is throttled or their machine sleeps, which is precisely the
+     moment they would rather it did not. Everyone else would sit there
+     watching a countdown that had already stopped. */
+
+  function doOpenFloor(a) {
+    if (state.floor && !state.floor.done && state.floor.playerId) return false;
+    const seconds = Math.max(5, Math.min(120, a.seconds || FLOOR_SECONDS));
+    const order = alive().slice().sort((x, y) => x.seat - y.seat).map(p => p.id);
+    state.floor = { queue: order, playerId: null, endsAt: 0, seconds, done: false };
+    advanceFloor();
+    return false;                       // advanceFloor has already emitted
+  }
+
+  function advanceFloor() {
+    clearFloorTimer();
+    const f = state.floor;
+    if (!f) return;
+    let next = f.queue.shift();
+    while (next && !(playerById(next) || {}).alive) next = f.queue.shift();
+    if (!next) {
+      f.playerId = null; f.endsAt = 0; f.done = true;
+      emit('floor', { playerId: null, done: true });
+      emit('change', state);
+      return;
+    }
+    f.playerId = next;
+    f.endsAt = Date.now() + f.seconds * 1000;
+    emit('floor', { playerId: next, endsAt: f.endsAt, seconds: f.seconds, done: false });
+    emit('change', state);
+    floorTimer = setTimeout(() => {
+      if (state && state.floor && state.floor.playerId === next) advanceFloor();
+    }, f.seconds * 1000);
+  }
+
+  function clearFloorTimer() {
+    if (floorTimer) { clearTimeout(floorTimer); floorTimer = null; }
+  }
+
+  /* Sitting down early is allowed, and only the person standing up may
+     do it. */
+  function doYieldFloor(a) {
+    const f = state.floor;
+    if (!f || !f.playerId || f.done) return false;
+    if (a.playerId && a.playerId !== f.playerId) return false;
+    advanceFloor();
+    return false;
   }
 
   function setPhase(next) {
@@ -276,6 +362,8 @@ const Session = (() => {
     if (prev === next) return;
     state.phase = next;
     state.beat = 0;
+    clearFloorTimer();
+    state.floor = null;
     syncGameState();
     emit('phase', next, prev);
   }
@@ -295,14 +383,6 @@ const Session = (() => {
     return false;
   }
 
-  function doSay(a) {
-    if (state.phase !== 'table') return false;
-    if (!a.lineId || !playerById(a.playerId)) return false;
-    state.said.push({ playerId: a.playerId, lineId: a.lineId, text: a.text || null });
-    if (state.said.length > 60) state.said.shift();
-    return true;
-  }
-
   /* A mission has finished. In real multiplayer this arrives from the
      server, not from the winner's browser — which is why the pot is
      added here rather than by whoever happened to be playing. */
@@ -310,13 +390,94 @@ const Session = (() => {
     if (state.phase !== 'mission') return false;
     const m = state.missions[state.missionAt];
     if (!m || m.done) return false;
+    const reports = Array.isArray(a.players) ? a.players : [];
     m.earned = Math.max(0, Math.round(a.earned || 0));
     m.completed = !!a.completed;
     m.done = true;
     state.pot = Math.max(0, state.pot + m.earned);
+    state.debrief = buildDebrief(m, reports);
+    judgeAgenda(reports);
     GameState.logEvent('mission', `${m.name}: ${U.money(m.earned)} into the pot`, { id: m.id });
     if (state.missionAt === 0) setPhase('table');
     else { state.finale = newFinale(); setPhase('finale'); }
+    return true;
+  }
+
+  /* ---------------- the board ----------------
+     Everyone's numbers, side by side, and no opinion about them. It is
+     public because it has to be: a task that leaves no trace anybody
+     can point at is not a risk, it is a formality. What the board never
+     does is accuse — it prints what happened and lets three people
+     argue about what it means. */
+
+  function buildDebrief(m, reports) {
+    const byId = new Map(reports.map(r => [r.playerId, r]));
+    return {
+      missionId: m.id,
+      missionName: m.name,
+      columns: (reports[0] && reports[0].columns) || [],
+      rows: state.players.map(p => {
+        const r = byId.get(p.id) || {};
+        return { playerId: p.id, name: p.name, seat: p.seat,
+                 place: r.place || null, earned: Math.max(0, Math.round(r.earned || 0)),
+                 cells: r.cells || [] };
+      }).sort((x, y) => (x.place || 99) - (y.place || 99) || x.seat - y.seat),
+    };
+  }
+
+  /* ---------------- the task, marked ----------------
+     Marked here, and told to nobody. The Traitor walks into the next
+     room believing they got away with it, which is the only version of
+     this worth watching. */
+
+  function judgeAgenda(reports) {
+    if (mode !== 'host' || !secret.has) return;
+    const card = (secret.agendas || [])[state.missionAt];
+    if (!card || typeof card.check !== 'function') return;
+    const traitor = state.players.find(p => p.seat === secret.seat);
+    if (!traitor || !traitor.alive) return;
+    const report = reports.find(r => r.playerId === traitor.id);
+    let done = false;
+    try { done = !!card.check((report && report.stats) || {}); }
+    catch (e) { console.warn('agenda check failed open:', e); done = true; }
+    if (!done) secret.exposed = { playerId: traitor.id, card };
+  }
+
+  /* ---------------- exposure ----------------
+     Claudia stops the room before anybody sits down. The reveal is an
+     event, like every other role that ever escapes this file, and the
+     verdict waits until the ceremony has actually played — `endGame`
+     is called by `exposeDone`, not by this. */
+
+  /* Always answers, even when the answer is "nobody". A guest that
+     asked and heard nothing back cannot tell a clean night from a
+     message still in flight, and would have to guess with a timer. */
+  function doExpose() {
+    if (mode !== 'host') return false;
+    if (!secret.exposed) { emit('expose', { playerId: null }); return false; }
+    const { playerId, card } = secret.exposed;
+    const p = playerById(playerId);
+    if (!p || !p.alive) {
+      secret.exposed = null;
+      emit('expose', { playerId: null });
+      return false;
+    }
+    secret.exposed = null;
+    secret.exposedShown = playerId;
+    p.alive = false;
+    clearFloorTimer();
+    state.floor = null;
+    GameState.logEvent('expose', `${p.name} left a task unfinished`, { id: p.id });
+    emit('expose', { playerId: p.id, name: p.name, role: 'traitor',
+                     agenda: card ? card.text : null,
+                     tell: card ? card.tell : null });
+    return true;
+  }
+
+  function doExposeDone() {
+    if (mode !== 'host' || !secret.exposedShown) return false;
+    secret.exposedShown = null;
+    endGame('agenda');
     return true;
   }
 
@@ -579,25 +740,34 @@ const Session = (() => {
   }
 
   return {
-    start, resume, saved, save, abandon, dispatch, on,
-    myRole, alive, playerById,
+    startParty, adopt, setMyRole, abandon, dispatch, on,
+    myRole, myAgenda, alive, playerById,
+    get isHost() { return mode === 'host'; },
+    get mode() { return mode; },
     get state() { return state; },
     get active() { return !!state && state.phase !== 'verdict'; },
     get running() { return !!state; },
     // a serialised copy, which is exactly what a server would have sent
     snapshot() { return state ? JSON.parse(JSON.stringify(state)) : null; },
 
-    /* The bots' own roles. This exists only because the other two
-       clients happen to live in this process: each of them is entitled
-       to know what it is, exactly as you are entitled to know what you
-       are. It refuses on the local player so nothing can launder your
-       own hidden information through it, and it leaves with bots.js the
-       day those two clients are real people. */
-    _clientRole(playerId) {
-      const p = playerById(playerId);
-      if (!p || !p.bot) return null;
-      return roleOfSeat(p.seat);
+    /* What the host has to tell each client about itself, and the one
+       reason anything in here may read the role table on someone
+       else's behalf. It is host-only and it is consumed by exactly one
+       caller — `HostTransport`, which addresses each entry to the one
+       person it belongs to. Nothing it returns ever goes in `state`. */
+    privateRoles() {
+      if (mode !== 'host' || !state) return [];
+      return state.players.map(p => ({
+        playerId: p.id,
+        role: roleOfSeat(p.seat),
+        agendas: roleOfSeat(p.seat) === 'traitor' ? (secret.agendas || null) : null,
+      }));
     },
+
+    /* Whether a ceremony is owed at the next gathering. Host-only, and
+       deliberately a boolean: the name is not something a scene needs
+       before the reveal it is about to play. */
+    hasExposure() { return mode === 'host' && !!secret.exposed; },
     /* Test seam. Fast-forwards a fresh run to a later phase with the
        missions marked as played and the pot filled in, so the fire can
        be worked on without driving a boat twice to get to it. It goes
@@ -616,7 +786,6 @@ const Session = (() => {
         state.missionAt = Math.max(0, state.missions.length - 1);
         state.finale = newFinale();
         setPhase('finale');
-        save();
         emit('change', state);
       }
       return state;

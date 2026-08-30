@@ -50,8 +50,9 @@
     </header>
 
     <p class="play-blurb">
-      Three of you. Two missions, a round table and a fire.<br>
-      One of you may be a Traitor. It is possible that none of you is.
+      Three of you, in the same room, on the same call.<br>
+      Two missions, a round table and a fire. One of you may be a Traitor.<br>
+      It is possible that none of you is.
     </p>
 
     <div class="play-actions">
@@ -59,14 +60,23 @@
         <span class="pg-main">PLAY</span>
         <span class="pg-sub">A full night, start to fire</span>
       </button>
+      <div class="play-pair">
+        <button class="btn wide ghost" id="play-create" data-nav>
+          <span class="pg-main">CREATE ROOM</span>
+          <span class="pg-sub">Get a code, read it out</span>
+        </button>
+        <button class="btn wide ghost" id="play-join" data-nav>
+          <span class="pg-main">JOIN ROOM</span>
+          <span class="pg-sub">Somebody sent you four letters</span>
+        </button>
+      </div>
       <button class="btn wide ghost" id="play-missions" data-nav>
         <span class="pg-main">MISSIONS</span>
         <span class="pg-sub">Practise them on your own</span>
       </button>
-      <!-- testing only: skips the missions and opens on the fire -->
-      <button class="btn wide dev" id="play-finale" data-nav>
-        <span class="pg-main">STRAIGHT TO THE FIRE</span>
-        <span class="pg-sub">Testing — skips both missions</span>
+      <button class="btn wide ghost" id="play-dressing" data-nav>
+        <span class="pg-main">DRESSING ROOM</span>
+        <span class="pg-sub">How you turn up</span>
       </button>
     </div>
 
@@ -80,6 +90,88 @@
         <select id="voice-select" data-nav aria-label="Claudia's voice"></select>
       </label>
       <button class="chip" id="play-mute" data-nav>Sound</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LOBBY ============ -->
+<section class="screen lobby" data-screen="lobby">
+  <div class="lobby-inner">
+    <header class="brand small">
+      <div class="brand-kicker">The Party</div>
+      <h1 class="brand-title">THE<span>TRAITORS</span></h1>
+      <div class="brand-rule"></div>
+    </header>
+
+    <div class="lobby-you">
+      <label class="field">
+        <span>Your name</span>
+        <input id="lobby-name" type="text" maxlength="16" spellcheck="false"
+               autocomplete="off" placeholder="Type a name" data-nav>
+      </label>
+      <button class="chip" id="lobby-dress" data-nav>Dressing room</button>
+      <button class="chip" id="lobby-mic-btn" data-nav>Mic: off</button>
+    </div>
+
+    <div class="lobby-cols" id="lobby-cols">
+      <div class="panel lobby-panel">
+        <div class="lp-head">Create a room</div>
+        <p class="lp-note">You become the host. Read the four letters out to the
+          other two.</p>
+        <button class="btn primary wide" id="lobby-host" data-nav>CREATE ROOM</button>
+      </div>
+
+      <div class="panel lobby-panel">
+        <div class="lp-head">Join a room</div>
+        <p class="lp-note">Four letters. Left and right change one, up and down
+          move along.</p>
+        <div class="code-entry" id="code-entry"></div>
+        <button class="btn primary wide" id="lobby-join" data-nav>JOIN ROOM</button>
+      </div>
+    </div>
+
+    <div class="panel lobby-room" id="lobby-room" hidden>
+      <div class="lr-code-label">Room code</div>
+      <div class="lr-code" id="lobby-code">····</div>
+      <div class="lobby-roster" id="lobby-roster"></div>
+      <div class="lr-status" id="lobby-status">Waiting for players… 1/3</div>
+      <div class="lr-actions">
+        <button class="btn ghost" id="lobby-leave" data-nav>Leave</button>
+        <button class="btn primary" id="lobby-start" data-nav disabled>START THE NIGHT</button>
+      </div>
+    </div>
+
+    <div class="lobby-msg" id="lobby-msg"></div>
+
+    <footer class="lobby-foot">
+      <button class="btn ghost" id="lobby-back" data-back data-nav>Back</button>
+      <span class="lobby-hint">No login. No account. Just a name and four letters.</span>
+    </footer>
+  </div>
+</section>
+
+<!-- ============ DRESSING ROOM ============ -->
+<section class="screen dressing" data-screen="dressing">
+  <div class="dress-inner">
+    <div class="dress-head">
+      <div class="brand-kicker">Dressing Room</div>
+      <h2>How you turn up</h2>
+      <p>Saved on this machine. The other two see exactly this.</p>
+    </div>
+
+    <div class="dress-panel panel">
+      <label class="field">
+        <span>Name</span>
+        <input id="dress-name" type="text" maxlength="16" spellcheck="false"
+               autocomplete="off" placeholder="Type a name" data-nav>
+      </label>
+      <div class="dress-rows" id="dress-rows"></div>
+    </div>
+
+    <div class="dress-actions">
+      <button class="btn ghost" id="dress-random" data-nav>Surprise me</button>
+      <button class="btn ghost" id="dress-back" data-back data-nav>Back</button>
+      <button class="btn primary" id="dress-save" data-nav>Save</button>
     </div>
   </div>
 </section>
@@ -100,7 +192,7 @@
 
     <div class="mission-head">
       <h2>Missions</h2>
-      <p>Solo practice. No table, no fire, nothing to lose.</p>
+      <p>Solo practice. No table, no fire, no one lying to you.</p>
     </div>
 
     <div class="mission-list" id="mission-list"></div>
@@ -351,6 +443,10 @@
 
     <div class="result-rows" id="result-rows"></div>
 
+    <!-- everybody's numbers, in a party run. It is the same board the
+         round table argues over, and it accuses nobody. -->
+    <div class="result-board" id="result-board" hidden></div>
+
     <div class="result-total">
       <span>Added to the pot</span>
       <b id="result-earned">£0</b>
@@ -370,13 +466,6 @@
 </section>
 
 <!-- ============ ROUND TABLE — your line ============ -->
-<section class="screen say" data-screen="say">
-  <div class="say-panel">
-    <div class="say-kicker">Your turn</div>
-    <div class="say-options" id="say-options"></div>
-  </div>
-</section>
-
 <!-- ============ THE FIRE — the vote ============ -->
 <section class="screen vote" data-screen="vote">
   <div class="vote-panel">
@@ -413,9 +502,63 @@
   </div>
 </section>
 
+<!-- ============ PARTY OVERLAYS ============
+     Not screens: all three have to be readable over a vote panel, a
+     mission HUD or a cutscene, so they layer like the subtitle does. -->
+<div id="floor-bar">
+  <div class="fb-who" id="floor-who"></div>
+  <div class="fb-clock" id="floor-clock">0:30</div>
+  <div class="fb-track"><div class="fb-fill" id="floor-fill"></div></div>
+  <div class="fb-mic" id="floor-mic">mic off</div>
+  <button class="fb-done" id="floor-done" data-nav hidden>I've said enough</button>
+</div>
+
+<!-- Your own microphone, which is a different thing from game sound and
+     therefore a different button. Present whenever there is somebody to
+     talk to; V on a keyboard, Y/triangle on a pad. -->
+<button id="mic-btn" title="Mute microphone (V)" aria-label="Mute microphone" hidden>
+  <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+    <path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z" fill="currentColor"/>
+    <path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round"/>
+    <path class="slash" d="M4 20L20 4" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round"/>
+  </svg>
+</button>
+
+<!-- The field: who else is out there and how they are doing. It is
+     also, deliberately, where half the agenda tells become visible —
+     a boost meter that stops moving is a thing the other two can see. -->
+<div id="field"></div>
+
+<div id="board">
+  <div class="bd-head-line">
+    <b id="board-title">The mission</b>
+    <span>What happened out there. It accuses nobody.</span>
+  </div>
+  <div class="board-grid" id="board-grid"></div>
+</div>
+
+<div id="agenda-chip" hidden>
+  <div class="ac-kicker">Your task · nobody else can see this</div>
+  <div class="ac-text" id="agenda-text"></div>
+  <div class="ac-prog" id="agenda-prog"></div>
+</div>
+
 <div id="boot"><div class="boot-inner"><div class="boot-spin"></div><span>Loading the loch…</span></div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+
+<!-- The one module in the build. Trystero ships ESM only, and one shim
+     that hangs it on the window is cheaper than converting two hundred
+     kilobytes of plain scripts into modules to import it properly.
+     `party.js` waits on the event rather than assuming it has landed. -->
+<script type="module">
+  import { joinRoom, selfId } from
+    'https://cdn.jsdelivr.net/npm/trystero@0.25.4/dist/nostr.mjs/+esm';
+  window.Trystero = { joinRoom, selfId };
+  window.dispatchEvent(new Event('trystero:ready'));
+</script>
 <script src="js/core/util.js"></script>
 <script src="js/core/engine.js"></script>
 <script src="js/core/input.js"></script>
@@ -426,9 +569,15 @@
 <script src="js/core/missions.js"></script>
 <script src="js/core/voice.js"></script>
 <script src="js/core/uinav.js"></script>
+<script src="js/core/look.js"></script>
+<script src="js/core/party.js"></script>
 <script src="js/core/session.js"></script>
 <script src="js/core/net.js"></script>
-<script src="js/core/bots.js"></script>
+<script src="js/core/transports.js"></script>
+<script src="js/core/voicechat.js"></script>
+<script src="js/core/mission-net.js"></script>
+<script src="js/core/lobby.js"></script>
+<script src="js/core/roomui.js"></script>
 <script src="js/core/scenes.js"></script>
 <script src="js/world/sky.js"></script>
 <script src="js/world/water.js"></script>
@@ -441,6 +590,7 @@
 <script src="js/fx/fx.js"></script>
 <script src="js/entities/bow.js"></script>
 <script src="js/entities/flyers.js"></script>
+<script src="js/missions/agendas.js"></script>
 <script src="js/missions/modifiers.js"></script>
 <script src="js/missions/boat-race.js"></script>
 <script src="js/missions/shootout-rounds.js"></script>
@@ -449,9 +599,12 @@
 <script src="js/missions/coming-soon.js"></script>
 <script src="js/scenes/claudia-lines.js"></script>
 <script src="js/scenes/stage.js"></script>
+<script src="js/scenes/dressing.js"></script>
+<script src="js/scenes/reveal.js"></script>
 <script src="js/scenes/hill.js"></script>
 <script src="js/scenes/roundtable.js"></script>
 <script src="js/scenes/fireplace.js"></script>
+<script src="js/scenes/exposed.js"></script>
 <script src="js/scenes/show.js"></script>
 <script src="js/main.js"></script>
 </body>

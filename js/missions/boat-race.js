@@ -209,6 +209,30 @@ class BoatRaceMission {
     this.combo = 0;
     this.comboT = 0;
     this.bestCombo = 0;
+    /* ---- the other two ----
+       The channel is a pure function of the seed, so all three clients
+       built the same water and nobody has to send any of it. What does
+       go on the wire is where each boat is, and that is all. There is
+       deliberately no contact between hulls: three clients arbitrating
+       a collision is a desync with a splash on it, and racing wheel to
+       wheel does not need one to work. */
+    this.party = !!opts.party;
+    this.roster = (opts.players || []).filter(p => !p.local);
+    this.meId = ((opts.players || []).find(p => p.local) || {}).id || 'you';
+    this.agenda = opts.agenda || null;
+    this.peers = new Map();
+    this.finishes = new Map();
+    this._buoyHit = new Set();
+    this._fieldT = 0;
+
+    /* Everything the agenda deck can ask a question about. Collected
+       whether or not there is an agenda tonight, because a statistic
+       that only appears when somebody has a task to do is a statistic
+       that tells everyone there is a task. */
+    this.stats = { wideGates: [], buoysClipped: 0, boostInLastThird: 0,
+                   gatesMissed: 0, place: 1, of: 1, finishGap: 0,
+                   finished: false };
+
     this.gatesHit = 0;
     this.perfects = 0;
     this.riskHits = 0;
@@ -310,6 +334,7 @@ class BoatRaceMission {
 
     this.buoys = CourseKit.buildBuoys(this.path, { spacing: 135 });
     scene.add(this.buoys.mesh);
+    this._buildPeers(scene);
 
     this.startGate = this._buildGateArch(6, '#22d3ee', 'START');
     this.finishGate = this._buildGateArch(this.path.total - 22, '#ffd166', 'FINISH');
@@ -594,6 +619,112 @@ class BoatRaceMission {
      The recording is your own best run on this exact setup: same seed, same
      mode, same modifier. Anything else would be a lie about where you are. */
 
+  /* -------- the other two boats --------
+     Painted from the look each of them chose in the dressing room, so
+     the boat coming past you is recognisably a person rather than a
+     colour. Solid, unlike the ghost: these are not information, they
+     are two people you are racing. */
+  _buildPeers(scene) {
+    if (!this.party) return;
+    for (const p of this.roster) {
+      const look = p.look ? Look.resolve(p.look) : null;
+      const accent = look ? look.accent : '#f2c14e';
+      const coat = look ? look.coat : '#3b4757';
+      const mesh = Boat.buildMesh({
+        hull: coat, hullLo: coat, stripe: accent, stripe2: accent,
+        bottom: '#1d2b34', bottomLo: '#16222a',
+        deck: '#cfd9e2', deckDk: '#9fb0bd', accent, glass: '#e8fbff',
+      });
+      const group = new THREE.Group();
+      group.add(mesh);
+      group.visible = false;
+      scene.add(group);
+      this.peers.set(p.id, { group, name: p.name, s: 0, boost: 1, speed: 0,
+                             seen: false });
+    }
+  }
+
+  _sendPose() {
+    const b = this.boat;
+    const f = this.world.lastFrame;
+    return {
+      x: b.pos.x, y: b.pos.y, z: b.pos.z,
+      h: b.heading, p: b.pitch, r: b.roll,
+      s: f ? f.s : 0, b: b.boost, v: b.speed,
+    };
+  }
+
+  _updatePeers(dt) {
+    if (!this.party) return;
+    MissionNet.update(dt);
+    for (const [id, peer] of this.peers) {
+      const iv = MissionNet.at(id);
+      if (!iv) { peer.group.visible = false; continue; }
+      const a = iv.a, b = iv.b, k = iv.k;
+      peer.seen = true;
+      peer.group.visible = true;
+      peer.group.position.set(U.lerp(a.x, b.x, k), U.lerp(a.y, b.y, k),
+                              U.lerp(a.z, b.z, k));
+      peer.group.rotation.set(U.lerp(a.p, b.p, k), U.angLerp(a.h, b.h, k),
+                              U.lerp(a.r, b.r, k), 'YXZ');
+      peer.s = b.s || 0;
+      peer.boost = b.b === undefined ? 1 : b.b;
+      peer.speed = b.v || 0;
+    }
+  }
+
+  /* -------- the strip everybody can see --------
+     Position down the channel and, crucially, the boost meter. One of
+     the agenda cards is "use no boost in the final third", and this is
+     the only reason anybody could ever catch it. */
+  _updateField(dt) {
+    if (!this.party) return;
+    this._fieldT -= dt;
+    if (this._fieldT > 0) return;
+    this._fieldT = 0.2;
+    if (this.agenda) RoomUI.showAgenda(this._agendaProgress());
+
+    const f = this.world.lastFrame;
+    const rows = [{ playerId: this.meId, name: 'You', s: f ? f.s : 0,
+                    boost: this.boat.boost, done: this.state !== 'racing' }];
+    for (const [id, peer] of this.peers) {
+      rows.push({ playerId: id, name: peer.name, s: peer.s, boost: peer.boost,
+                  done: this.finishes.has(id), dim: !peer.seen });
+    }
+    rows.sort((a, b) => b.s - a.s);
+    RoomUI.showField(rows.map((r, i) => ({
+      playerId: r.playerId, name: r.name,
+      value: r.done ? 'in' : ('P' + (i + 1)),
+      meter: r.boost, dim: r.dim,
+    })));
+  }
+
+  /* -------- buoys --------
+     Clipping one knocks it, splashes and makes a noise, which is the
+     whole point: it is the loudest tell in the deck and the easiest
+     thing in the world to do by accident. */
+  _checkBuoys() {
+    if (this.state !== 'racing') return;
+    const items = this.buoys && this.buoys.items;
+    if (!items) return;
+    const bx = this.boat.pos.x, bz = this.boat.pos.z;
+    for (let i = 0; i < items.length; i++) {
+      if (this._buoyHit.has(i)) continue;
+      const it = items[i];
+      const dx = bx - it.x, dz = bz - it.z;
+      if (dx * dx + dz * dz > 16) continue;          // 4m
+      this._buoyHit.add(i);
+      this.stats.buoysClipped++;
+      AudioBus.play('miss');
+      Input.rumble(0.25, 110);
+      this.fx.labels.add('BUOY', new THREE.Vector3(it.x, this.boat.pos.y + 2, it.z),
+        { className: 'bad', life: 1.0, rise: 6 });
+      this.fx.sparks.emit(it.x, this.boat.pos.y + 1, it.z,
+        (Math.random() - 0.5) * 6, 6 + Math.random() * 5, (Math.random() - 0.5) * 6,
+        1.6, 0.8, new THREE.Color('#cfe9ff'));
+    }
+  }
+
   _buildGhost() {
     const data = GameState.getGhost('boat-race', this.key);
     if (!data || !data.n) return;
@@ -727,10 +858,48 @@ class BoatRaceMission {
     this._lastBeep = 4;
     Screens.show('hud');
     this._setCenter('', '');
+    if (this.party) {
+      MissionNet.attach('boat-race');
+      this._offEvents = MissionNet.on('event', (d, from) => this._onPeerEvent(d, from));
+      RoomUI.showAgenda(this._agendaProgress());
+    }
+  }
+
+  /* Finishing is the one thing every client has to agree about, and it
+     needs no arbitration: everybody hears everybody cross, and a place
+     is just how many crossed first. Anyone who never finishes is last,
+     which is also true. */
+  _onPeerEvent(d, from) {
+    if (!d || d.kind !== 'finish') return;
+    this.finishes.set(d.playerId || from, d.t);
+  }
+
+  _placeNow() {
+    const mine = this.elapsed;
+    let ahead = 0, best = -Infinity;
+    for (const [id, t] of this.finishes) {
+      if (id === this.meId) continue;
+      if (t < mine) { ahead++; best = Math.max(best, t); }
+    }
+    return { place: ahead + 1, of: this.peers.size + 1,
+             gap: best === -Infinity ? 0 : Math.max(0, mine - best) };
+  }
+
+  /* The private line on your own HUD. Nobody else has this element,
+     let alone this text — `Session.myAgenda()` is null for everybody
+     who is not a Traitor. */
+  _agendaProgress() {
+    const card = this.agenda;
+    if (!card) return '';
+    const live = typeof Agendas !== 'undefined' ? Agendas.byId(card.id) : null;
+    if (!live || typeof live.progress !== 'function') return card.hud || '';
+    try { return live.progress(this.stats); } catch (e) { return card.hud || ''; }
   }
 
   dispose() {
     clearTimeout(this._reportT);
+    if (this._offEvents) { this._offEvents(); this._offEvents = null; }
+    if (this.party) { RoomUI.hideField(); RoomUI.hideAgenda(); }
     clearTimeout(this._flashT);
     clearTimeout(this._stretchT);
     if (this.engineSnd) this.engineSnd.stop();
@@ -767,6 +936,11 @@ class BoatRaceMission {
     this.time = this.startTime;
     this.deduct = 0;
     this.money = 0; this.combo = 0; this.comboT = 0; this.bestCombo = 0;
+    this._splitTaken = false;
+    this._buoyHit = new Set();
+    this.stats = { wideGates: [], buoysClipped: 0, boostInLastThird: 0,
+                   boostAtSplit: 0, gatesMissed: 0, place: 1, of: 1,
+                   finishGap: 0, finished: false };
     this.gatesHit = 0; this.perfects = 0; this.riskHits = 0; this.stretchHits = 0;
     this.tricks = 0; this.trickMoney = 0; this.grazeMoney = 0; this.grazeT = 0;
     this._airHints = 0;
@@ -858,8 +1032,16 @@ class BoatRaceMission {
     if (racing) {
       this.elapsed += dt;
       if (this.mode === 'prize') this.time -= dt;
+      /* Boost burned in the last third of the channel. Measured as
+         time spent actually boosting, not as a button press, so
+         holding the key with an empty meter is not a defence. */
+      const fr = this.world.lastFrame;
+      if (this.boat.boosting && fr && fr.s > this.path.total * (2 / 3)) {
+        this.stats.boostInLastThird += dt;
+      }
       this._updateCombo(dt);
       this._checkGates();
+      this._checkBuoys();
       this._checkGraze(dt);
       this._checkStretch();
       this._checkFeature();
@@ -869,6 +1051,9 @@ class BoatRaceMission {
       if (this.mode === 'trial' && this.elapsed > this.C.trialLimit) this._fail('TOO SLOW');
     }
     this._updateGhost(dt);
+    this._updatePeers(dt);
+    this._updateField(rawDt);
+    if (this.party && racing) MissionNet.pose(rawDt, () => this._sendPose());
 
     this.buoys.update();
     if (this.rockFoam) this.rockFoam(dt);
@@ -1005,7 +1190,16 @@ class BoatRaceMission {
           else if (sweet < best.sweet) best = { h, sweet };
         }
         if (best) this._hitRing(best.h, best.sweet);
-        else this._missGate(gate);
+        else {
+          /* Missed, but *how* missed matters. Going round the outside
+             of the marker is one of the tasks, so it is counted
+             separately from clipping the frame — and it is the version
+             the other two can actually see from behind you. */
+          const latC = (ix - gate.cx) * rx + (iz - gate.cz) * rz;
+          const wide = Math.abs(latC) > (gate.rings[0].radius * 1.35);
+          if (wide) this.stats.wideGates.push(gate.i === undefined ? gate.s : gate.i);
+          this._missGate(gate);
+        }
       } else if (dCur > 55) {
         this._missGate(gate);
       }
@@ -1109,6 +1303,7 @@ class BoatRaceMission {
   _missGate(gate) {
     const C = this.C;
     gate.state = 'miss';
+    this.stats.gatesMissed++;
     for (const h of gate.rings) if (h.state === 'pending') this._dimRing(h, 'miss');
     const at = gate.rings[0].pos;
 
@@ -1207,6 +1402,14 @@ class BoatRaceMission {
   _finish() {
     if (this.state !== 'racing') return;
     this.state = 'finished';
+    if (this.party) {
+      MissionNet.event({ kind: 'finish', playerId: this.meId, t: this.elapsed });
+      const pl = this._placeNow();
+      this.stats.place = pl.place;
+      this.stats.of = pl.of;
+      this.stats.finishGap = pl.gap;
+      this.stats.finished = true;
+    }
     const C = this.C;
     const trial = this.mode === 'trial';
     const finalTime = trial ? this._clock() : 0;
@@ -1251,6 +1454,10 @@ class BoatRaceMission {
   _fail(headline) {
     if (this.state !== 'racing') return;
     this.state = 'failed';
+    // never crossing the line is last, which is both simple and true
+    this.stats.place = this.peers.size + 1;
+    this.stats.of = this.peers.size + 1;
+    this.stats.finished = false;
     AudioBus.play('miss');
     this._setCenter(headline || "TIME'S UP", 'Press R to try again', 'bad');
     this.timeScaleTarget = 0.5;
@@ -1290,6 +1497,9 @@ class BoatRaceMission {
       bestCombo: this.bestCombo,
       par: this.targets.par,
       targetKind: this.targets.kind,
+      place: this.stats.place,
+      of: this.stats.of,
+      stats: Object.assign({}, this.stats),
     }, part);
   }
 
@@ -1752,7 +1962,7 @@ Missions.register({
     + 'every gate, double money and not a second of extra clock — is where the run is won.',
   icon: '01',
   maxPrize: 60000,
-  players: 'Solo',
+  players: '1-3',
   duration: '~2 min',
   order: 0,
   setup: true,                      // this mission has a pre-race setup panel
@@ -1782,6 +1992,29 @@ Missions.register({
          '<kbd>Space</kbd> boost / roll', '<kbd>R</kbd> restart'],
 
   // the scoreboard, in this mission's own nouns
+  /* What this client tells the other two about its own run. The
+     columns are chosen so that every agenda in the boat-race deck
+     leaves a mark in at least one of them — that is the difference
+     between a secret task and an unfalsifiable one. */
+  report: (r) => {
+    const st = r.stats || {};
+    return {
+      earned: r.earned,
+      completed: r.completed,
+      place: r.place || null,
+      columns: ['Place', 'Gates', 'Missed', 'Wide', 'Buoys', 'Late boost'],
+      cells: [
+        r.place ? 'P' + r.place : '—',
+        r.hoops + '/' + r.totalHoops,
+        String(st.gatesMissed || 0),
+        String((st.wideGates || []).length),
+        String(st.buoysClipped || 0),
+        (st.boostInLastThird || 0).toFixed(1) + 's',
+      ],
+      stats: st,
+    };
+  },
+
   resultRows: (r) => {
     const trial = r.mode === 'trial';
     const rows = [

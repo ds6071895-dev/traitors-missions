@@ -299,6 +299,23 @@ const Game = (() => {
 
   /* ---------------- results ---------------- */
 
+  /* What this client sends the host about its own run. A mission that
+     wants a say in the board provides `report(result)`; anything that
+     does not still turns up on it with a name and a number, because a
+     player missing from the board reads as a bug rather than a mission
+     that has not been taught to fill one in. */
+  function reportFor(def, r) {
+    const base = {
+      earned: Math.max(0, Math.round(r.earned || 0)),
+      completed: !!r.completed,
+      place: r.place || null,
+      columns: [], cells: [], stats: {},
+    };
+    if (!def || typeof def.report !== 'function') return base;
+    try { return Object.assign(base, def.report(r) || {}); }
+    catch (e) { console.warn('mission report failed:', e); return base; }
+  }
+
   function showResults({ def, opts, result, isBest }) {
     const r = result;
     // the scoreboard is the mission's own language — gates and knots mean
@@ -359,16 +376,43 @@ const Game = (() => {
     /* In a run there is nowhere to go but onward, so the three practice
        buttons collapse to one. The mission engine does not know the
        difference and should not have to. */
-    const run = (typeof Show !== 'undefined' && Show.running) ? Show.resultsAction(r) : null;
+    const inRun = typeof Show !== 'undefined' && Show.running;
     for (const id of ['result-retry', 'result-new', 'result-menu']) {
-      document.getElementById(id).hidden = !!run;
+      document.getElementById(id).hidden = inRun;
     }
     const cont = document.getElementById('result-continue');
-    cont.hidden = !run;
-    if (run) {
-      cont.textContent = run.label;
-      cont.onclick = () => { AudioBus.play('ui-click'); cont.disabled = true; run.go(); };
-      cont.disabled = false;
+    const boardEl = document.getElementById('result-board');
+    cont.hidden = !inRun;
+    boardEl.hidden = true;
+
+    if (inRun) {
+      const arm = (board) => {
+        const run = Show.resultsAction(r, board);
+        if (!run) return;
+        if (board) {
+          boardEl.style.setProperty('--bd-cols', String(RoomUI.boardCols(board)));
+          boardEl.innerHTML = '<div class="rb-head">Everybody\'s night</div>'
+                            + '<div class="board-grid">' + RoomUI.boardHTML(board) + '</div>';
+          boardEl.hidden = false;
+        }
+        cont.textContent = run.label;
+        cont.onclick = () => { AudioBus.play('ui-click'); cont.disabled = true; run.go(); };
+        cont.disabled = false;
+        UINav.scan();
+      };
+
+      /* Three people played that mission, so the pot is not known until
+         all three have reported. Until then there is nothing to press:
+         a Continue that banked only your own share would be wrong on
+         two machines out of three. */
+      if (MissionNet.live) {
+        cont.textContent = 'Waiting for the others…';
+        cont.disabled = true;
+        cont.onclick = null;
+        MissionNet.report(reportFor(def, r)).then(arm);
+      } else {
+        arm(null);
+      }
     }
 
     Screens.show('results', { def });
@@ -427,16 +471,34 @@ const Game = (() => {
     });
   }
 
-  function startShow(resume, opts) {
+  /* The front door goes to the lobby now, not into a night. There is
+     nobody to play with until three people are in a room, so PLAY is a
+     door rather than a start button. */
+  function toLobby(mode) {
     AudioBus.resume();
     Voice.unlock();
     AudioBus.play('ui-click');
     Screens.transition(() => {
-      disposeAttract();
+      if (typeof Show !== 'undefined' && Show.running) Show.end({ abandon: true });
       Missions.end();
-      Screens.hideAll();
-      if (!(resume && Show.resume())) Show.begin(U.randomSeed(), opts);
-    }, 420);
+      showAttract();
+      Screens.show('lobby', { mode });
+    }, 320);
+  }
+
+  function toDressing() {
+    AudioBus.resume();
+    AudioBus.play('ui-click');
+    Screens.transition(() => Screens.show('dressing', { from: 'play' }), 320);
+  }
+
+  /* Called by `Lobby` once three people are in and the host has said
+     go. Everything before this point is a menu; everything after it
+     belongs to `Show`. */
+  function enterShow() {
+    disposeAttract();
+    Missions.end();
+    Screens.hideAll();
   }
 
   /* ---------------- boot ---------------- */
@@ -455,10 +517,14 @@ const Game = (() => {
       delete GameState.settings.setup;
       GameState.save();
     }
+    Look.load();
     Engine.init(document.getElementById('gl'));
     Input.init();
     Voice.init();
     UINav.init();
+    Lobby.init();
+    Dressing.init();
+    RoomUI.init();
 
     // audio can only start after a real user gesture, and so can speech
     const kick = () => {
@@ -519,15 +585,14 @@ const Game = (() => {
     Screens.register('hud', {});
     Screens.register('hud-shoot', {});
     Screens.register('pause', {});
-    Screens.register('say', {});
     Screens.register('vote', {});
     Screens.register('verdict', {});
 
     /* ---- the front door ---- */
-    document.getElementById('play-go').onclick = () => startShow(false);
-    // testing only: a fresh night with both missions already banked
-    document.getElementById('play-finale').onclick =
-      () => startShow(false, { jumpTo: 'finale' });
+    document.getElementById('play-go').onclick = () => toLobby(null);
+    document.getElementById('play-create').onclick = () => toLobby('host');
+    document.getElementById('play-join').onclick = () => toLobby('join');
+    document.getElementById('play-dressing').onclick = toDressing;
     document.getElementById('play-missions').onclick = () => {
       AudioBus.resume(); AudioBus.play('ui-click');
       Screens.transition(() => { renderMissionList(); Screens.show('title'); });
@@ -553,10 +618,12 @@ const Game = (() => {
       Show.end({ abandon: true });
       toPlay();
     };
+    /* Another night is the same three people, so it goes back to the
+       room they are already standing in rather than the front door. */
     document.getElementById('verdict-again').onclick = () => {
       AudioBus.play('ui-click');
       Show.end({ abandon: true });
-      startShow(false);
+      toLobby(null);
     };
 
     document.getElementById('brief-back').onclick = () => {
@@ -627,7 +694,8 @@ const Game = (() => {
     document.getElementById('boot').classList.add('gone');
   }
 
-  return { boot, toMenu, toPlay, launch, showResults, renderPlay };
+  return { boot, toMenu, toPlay, toLobby, enterShow, showAttract, launch,
+           showResults, renderPlay };
 })();
 
 window.addEventListener('DOMContentLoaded', () => {

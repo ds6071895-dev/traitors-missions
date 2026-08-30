@@ -94,10 +94,14 @@ const Stage = (() => {
       // The local contestant is the camera. Claudia and the two other
       // contestants are the three people visible in first person.
       if (p.local) { mySeat = seat; figures.push(null); continue; }
-      const fig = Figure.build({
-        palette: Figure.paletteFor(p.seat), height: 1.70 + (p.seat % 3) * 0.04,
-        hair: p.seat % 2 ? 'short' : 'bun', long: false,
-      });
+      /* How they dressed, which everybody agreed on in the lobby. A
+         player who somehow arrived without a look still has to be
+         somebody, so the old seat-derived palette is the fallback. */
+      const fig = p.look
+        ? Figure.build({ look: p.look, long: false })
+        : Figure.build({ palette: Figure.paletteFor(p.seat),
+                         height: 1.70 + (p.seat % 3) * 0.04,
+                         hair: p.seat % 2 ? 'short' : 'bun', long: false });
       fig.position.set(x, y, z);
       fig.rotation.y = Math.atan2(cPos.x - x, cPos.z - z);
       fig.userData.playerId = p.id;
