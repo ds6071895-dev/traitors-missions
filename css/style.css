@@ -26,6 +26,7 @@
 body.touch{ --bl-foot: calc(6vh + 146px); }
 
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{height:100%}
 body{
   margin:0; overflow:hidden; background:#06101c; color:var(--paper);
@@ -376,9 +377,8 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .mi-icon{font-family:var(--display); font-size:21px; line-height:1; color:var(--cyan);
   text-shadow:0 0 18px rgba(63,224,255,.7)}
 
-/* Arriving here from the front door's MISSION PARTY card: the list is
-   the same list, so the invitations say so for a moment rather than
-   the screen becoming a different screen. */
+/* The mission list can spotlight its inline invitation controls when
+   needed without creating a second mission-party menu. */
 .mission-list.inviting .mission-invite{
   border-color:var(--cyan); animation:invitePulse 2.2s ease-in-out infinite;
 }

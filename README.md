@@ -396,7 +396,6 @@ js/
     shootout-rounds.js  the rounds a Shootout is built from, as data
     shootout-twists.js  the Shootout's own card deck
     shootout.js       Mission 02
-    coming-soon.js    locked placeholders / worked example
   scenes/
     claudia-lines.js  every spoken line in the show, as data
     stage.js          the hill dressed three ways, and first-person movement
@@ -707,8 +706,7 @@ hand of modifiers, the payout multiplier, the record key and whether a ghost exi
 `main.js` only ever renders what `preview()` returns, so it never learns what a sea state
 is.
 
-`coming-soon.js` holds three locked placeholders — delete a `locked: true` and fill in
-`create()` to turn one into a real mission.
+Only implemented missions are registered and shown in the mission series.
 
 ### Reusing the world
 

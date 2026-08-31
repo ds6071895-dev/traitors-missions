@@ -233,23 +233,17 @@ const Game = (() => {
 
   /* ---------------- title screen ---------------- */
 
-  /* The missions screen doubles as the mission party's front door: you
-     are already looking at the thing you want to play with two friends,
-     so the invitation is a button on it rather than a separate menu you
-     have to find and then re-choose the mission inside. `inviteMode` is
-     only the copy at the top changing — the buttons are always there. */
-  let inviteMode = false;
+  /* The missions screen is also the mission party's front door: each
+     implemented mission has its own invitation button, so there is no
+     separate menu that makes you choose the mission twice. */
 
   function renderMissionList() {
     const note = document.getElementById('mission-note');
     if (note) {
-      note.textContent = inviteMode
-        ? 'Pick one. Whoever you invite plays that mission and nothing else.'
-        : 'Solo practice, or hit INVITE and play one with two friends.';
-      note.classList.toggle('inviting', inviteMode);
+      note.textContent = 'Solo practice, or hit INVITE and play one with two friends.';
     }
     const list = document.getElementById('mission-list');
-    list.className = 'mission-list' + (inviteMode ? ' inviting' : '');
+    list.className = 'mission-list';
     list.innerHTML = '';
     for (const m of Missions.all()) {
       const rec = GameState.data.missions[m.id];
@@ -307,7 +301,6 @@ const Game = (() => {
         invite.addEventListener('mouseenter', () => AudioBus.play('ui-hover'));
         invite.addEventListener('click', () => {
           AudioBus.resume(); AudioBus.play('ui-click');
-          inviteMode = false;
           Screens.transition(() => MissionParty.openFor(m.id), 320);
         });
         side.appendChild(invite);
@@ -351,12 +344,8 @@ const Game = (() => {
     });
   }
 
-  /* The missions list, optionally saying why you are looking at it. The
-     front door's MISSION PARTY card comes through here rather than
-     opening a room of its own, because a room has to be a room *for*
-     something and only this screen knows what is on offer. */
-  function toMissions(opts = {}) {
-    inviteMode = !!opts.invite;
+  /* The missions list offers solo play and an invite beside each mission. */
+  function toMissions() {
     AudioBus.resume();
     AudioBus.play('ui-click');
     Screens.transition(() => {
@@ -772,10 +761,8 @@ const Game = (() => {
     document.getElementById('play-go').onclick = () => toLobby();
     document.getElementById('play-dressing').onclick = toDressing;
     document.getElementById('play-missions').onclick = () => toMissions();
-    document.getElementById('play-party').onclick = () => toMissions({ invite: true });
     document.getElementById('title-back').onclick = () => {
       AudioBus.play('ui-click');
-      inviteMode = false;
       Screens.show('play');
       renderPlay();
     };
@@ -826,6 +813,7 @@ const Game = (() => {
 
     document.getElementById('pause-resume').onclick = resume;
     document.getElementById('pause-restart').onclick = () => {
+      if (Missions.active && Missions.active.party) return;
       Engine.setPaused(false);
       Screens.show(hudScreen());
       if (Missions.active && Missions.active.restart) Missions.active.restart();

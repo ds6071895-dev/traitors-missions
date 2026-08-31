@@ -567,10 +567,6 @@ class ShootoutMission {
     if (wantAim && !this._aimOn) { Input.setMouseAim(true); this._aimOn = true; }
     if (!wantAim && this._aimOn) { Input.setMouseAim(false); this._aimOn = false; }
 
-    if (Input.pressed('restart') && (this.state === 'live' || this.state === 'failed'
-                                     || this.state === 'between')) {
-      this.restart();
-    }
     if (Input.pressed('pause') && this.state !== 'finished') { this._pause(); return; }
     if (Input.pressed('mute')) AudioBus.toggleMute();
 
@@ -1729,7 +1725,15 @@ class ShootoutMission {
       peer.seen = true;
       peer.fig.visible = true;
       const x = U.lerp(a.x, b.x, k), z = U.lerp(a.z, b.z, k);
-      peer.fig.position.set(x, this.forest.heightAt(x, z), z);
+      /* The sender's Y is its actual foot height. In particular it uses
+         ForestKit.walkAt(), which includes the starting platform and
+         follows terrain with the same smoothing as the player sees.
+         Recomputing raw heightAt() here put remote players through the
+         deck and made their legs clip on slopes. */
+      const y = Number.isFinite(a.y) && Number.isFinite(b.y)
+        ? U.lerp(a.y, b.y, k)
+        : this.forest.walkAt(x, z);
+      peer.fig.position.set(x, y, z);
       /* A figure faces where it is aiming, which is what makes a person
          thirty metres away readable as "about to shoot that bird" — and
          readable as not bothering, which matters more. */
@@ -2694,7 +2698,7 @@ class ShootoutMission {
     Input.setMouseAim(false);
     this._aimOn = false;
     AudioBus.play('miss');
-    this._setCenter(reason || 'RUN OVER', 'Press R to try again', 'bad');
+    this._setCenter(reason || 'RUN OVER', '', 'bad');
     this.timeScaleTarget = 0.45;
     // what you have banked is yours, less what the doves cost
     const earned = Math.round(Math.max(0, this.money - this.penalty) * this.payout
@@ -2778,6 +2782,7 @@ class ShootoutMission {
     Engine.setPaused(true);
     Input.setMouseAim(false);
     this._aimOn = false;
+    document.getElementById('pause-restart').hidden = !!this.party;
     Screens.show('pause');
   }
 
@@ -3261,7 +3266,7 @@ Missions.register({
   ],
   keys: ['<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Q</kbd> run',
          '<kbd>Mouse</kbd> aim', '<kbd>Hold</kbd> draw, release to loose',
-         '<kbd>RMB</kbd> steady', '<kbd>R</kbd> restart'],
+         '<kbd>RMB</kbd> steady'],
 
   /* The columns the wood argues about afterwards. Every card in this
      deck moves one of these — and every card's alibi moves another one

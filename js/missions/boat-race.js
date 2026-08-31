@@ -1094,9 +1094,6 @@ class BoatRaceMission {
     if (!this.scene) return;
     if (Engine.isPaused()) return;
 
-    if (Input.pressed('restart') && (this.state === 'racing' || this.state === 'failed')) {
-      this.restart();
-    }
     if (Input.pressed('pause') && this.state === 'racing') {
       this._pause();
       return;
@@ -1583,7 +1580,7 @@ class BoatRaceMission {
     this.stats.of = this.peers.size + 1;
     this.stats.finished = false;
     AudioBus.play('miss');
-    this._setCenter(headline || "TIME'S UP", 'Press R to try again', 'bad');
+    this._setCenter(headline || "TIME'S UP", '', 'bad');
     this.timeScaleTarget = 0.5;
     // half the rings still count — unless you took the modifier that says
     // they do not
@@ -1657,6 +1654,7 @@ class BoatRaceMission {
 
   _pause() {
     Engine.setPaused(true);
+    document.getElementById('pause-restart').hidden = !!this.party;
     Screens.show('pause');
   }
 
@@ -2115,7 +2113,7 @@ Missions.register({
     '<b>Run the wall.</b> Shaving rock or cliff at speed pays while you hold it.',
   ],
   keys: ['<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive',
-         '<kbd>Space</kbd> boost / roll', '<kbd>R</kbd> restart'],
+         '<kbd>Space</kbd> boost / roll'],
 
   // the scoreboard, in this mission's own nouns
   /* What this client tells the other two about its own run. Every card

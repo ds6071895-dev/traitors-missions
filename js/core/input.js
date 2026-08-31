@@ -25,7 +25,6 @@ const Input = (() => {
     lookDown:  ['ArrowDown'],
     focus:     ['ShiftLeft', 'ShiftRight', 'Mouse2', 'Touch2'],
     pause:     ['Escape', 'KeyP'],
-    restart:   ['KeyR'],
     confirm:   ['Enter', 'NumpadEnter'],
     back:      ['Escape', 'Backspace'],
     camera:    ['KeyC'],
