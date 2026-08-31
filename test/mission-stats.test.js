@@ -37,9 +37,10 @@ const stubs = {
                 attach: noop, update: noop },
   GameState: { recordRun: () => ({ isBest: false }), getGhost: () => null,
                saveGhost: noop, runKey: () => 'k', logEvent: noop },
+  ForestConditions: { describe: () => '' },
 };
 
-const ctx = H.load(['js/core/util.js', 'js/missions/agendas.js',
+const ctx = H.load(['js/core/util.js', 'js/missions/agendas.js', 'js/missions/shootout-rounds.js',
                     'js/missions/boat-race.js', 'js/missions/shootout.js'], stubs);
 const BR = ctx.BoatRaceMission;
 const SH = ctx.ShootoutMission;
@@ -112,6 +113,8 @@ test('lead time is time in front of everybody, and solo is nobody', () => {
 
 test('the stall the card wants is one stall, not six little ones', () => {
   const r = racer();
+  tick(r, 1.2, { s: 0, speed: 1 });
+  eq(r.stats.longestStop, 0, 'waiting on the start line is not open water');
   tick(r, 0.6, { s: 100, speed: 1 });
   tick(r, 0.6, { s: 110, speed: 20 });        // moving again
   tick(r, 0.6, { s: 200, speed: 1 });
@@ -143,13 +146,41 @@ test('the run reports what the deck asks for', () => {
   }
 });
 
+test('every generated channel offers at least three optional gold lines', () => {
+  const generate = (seed, half = 64) => {
+    const r = {
+      C: BR.CONFIG, seed, flags: {}, scene: { add: noop },
+      path: {
+        total: 4200,
+        at: (s) => ({ point: { x: 0, z: s }, tangent: { x: 0, z: 1 }, half }),
+        featureAt: () => null,
+      },
+      _buildHoopFrame: () => ({}),
+      _curvature: () => 0.5,
+      _moveRing: BR.prototype._moveRing,
+      _makeRing(gate, at, lat, variant) {
+        return { gate, lat, risk: variant === 'risk' || variant === 'finalRisk' };
+      },
+    };
+    return BR.prototype._buildGates.call(r);
+  };
+  for (let seed = 1; seed <= 200; seed++) {
+    const gates = generate(seed);
+    const choices = gates.filter(g => g.rings.some(h => h.risk) && g.rings.some(h => !h.risk));
+    ok(choices.length >= 3, 'seed ' + seed + ' offers only ' + choices.length + ' choices');
+  }
+  const narrow = generate(1, 25)
+    .filter(g => g.rings.some(h => h.risk) && g.rings.some(h => !h.risk));
+  ok(narrow.length >= 3, 'even an all-narrows synthetic channel keeps three choices');
+});
+
 section('shootout — the counters the deck reads');
 
 function shooter(o = {}) {
   const st = { escapedNearMe: 0, missed: 0, perfectsLate: 0, lateShots: 0,
                roundsOffLine: 0, offLineT: 0, roundT: 0, doves: 0, bestChain: 0,
                topOfField: false, doveRecovered: false, doveRecoverT: 0,
-               cleanRoundAfterWalk: false };
+               cleanRoundAfterWalk: false, finished: false };
   return Object.assign({
     stats: st, state: 'live', money: 0, penalty: 0, elapsed: 0, bestChain: 0,
     pos: { x: 0, z: 0 }, _doveMark: null, _walkPending: false,
@@ -157,6 +188,7 @@ function shooter(o = {}) {
     // the real one: the dove clock is judged against the same number
     // the other two are reading off the strip
     _net: SH.prototype._net,
+    _finishRoundAgenda: SH.prototype._finishRoundAgenda,
   }, o);
 }
 
@@ -266,6 +298,69 @@ test('sitting one out and coming back clean is the whole card', () => {
   const card = ctx.Agendas.byId('sh-long-walk');
   ok(card.check(s.stats), 'the task is done');
   ok(card.cover(s.stats), 'and the alibi is standing up');
+});
+
+test('a guest finalizes their own walk telemetry from host round results', () => {
+  const s = shooter({ isHost: false, roundIndex: 0, _agendaRoundSeen: -1,
+                      round: { index: 0 }, state: 'live' });
+  s.stats.roundT = 30; s.stats.offLineT = 28;
+  SH.prototype._applyWorldState.call(s, {
+    lastRound: { index: 0, cleared: true }, roundIndex: 0,
+    round: null, state: 'between', betweenT: 2,
+  });
+  eq(s.stats.roundsOffLine, 1, 'the guest records the round they sat out');
+
+  s.roundIndex = 1; s.round = { index: 1 }; s.state = 'live';
+  s.stats.roundT = 30; s.stats.offLineT = 0;
+  s._roundShots = 6; s._roundMisses = 0;
+  SH.prototype._applyWorldState.call(s, {
+    lastRound: { index: 1, cleared: true }, roundIndex: 1,
+    round: null, state: 'between', betweenT: 2,
+  });
+  ok(s.stats.cleanRoundAfterWalk, 'the guest can earn the clean return alibi');
+});
+
+test('every guard round produces a dove even at hostile RNG edges', () => {
+  for (const random of [() => 0, () => 1]) {
+    const seen = [];
+    const s = shooter({
+      round: {
+        def: { guards: 0.2, spawn: { mode: 'sweep', types: ['raven'], behaviour: 'cruise' },
+               waves: ['scatter'] },
+        wave: 0, spawned: 0, total: 2, guardSpawned: 0, time: 10,
+      },
+      _wavePlacement: () => ({}),
+      _spawnOne: (id) => { seen.push(id); return {}; },
+    });
+    const old = ctx.Math.random;
+    ctx.Math.random = random;
+    SH.prototype._spawnWave.call(s, 2);
+    ctx.Math.random = old;
+    eq(s.round.spawned, 2, 'both quarry still spawn');
+    ok(seen.includes('dove'), 'a dove is guaranteed');
+    ok(seen.length <= 4, 'the wave is bounded');
+  }
+});
+
+test('every prize schedule contains a round that can offer the guaranteed dove', () => {
+  for (let seed = 1; seed <= 2000; seed++) {
+    const eligible = ctx.ShootoutRounds.schedule(seed).some(r =>
+      r.def.guards > 0 && r.def.spawn.mode !== 'formation');
+    ok(eligible, 'seed ' + seed + ' contains no dove-capable round');
+  }
+});
+
+test('the final report preserves actual missed arrows', () => {
+  const s = shooter({
+    C: SH.CONFIG, shots: 12, hits: 9, doves: 0, bestChain: 0, kills: 0,
+    opts: {}, modeDef: { name: 'Prize' }, mode: 'prize', peers: new Map(),
+    scores: new Map(), key: 'k', money: 0, bonusMoney: 0, bossMoney: 0,
+    roundIndex: 0, roundCount: 10, roundsCleared: 0, perfectRounds: 0,
+    bossesDown: 0, boonsTaken: 0, elapsed: 1, par: 0, payout: 1,
+  });
+  s.stats.missed = 10; // piercing/twin arrows make shots - hits an invalid substitute
+  const result = SH.prototype._buildResult.call(s, {});
+  eq(result.stats.missed, 10, 'reporting does not replace the event counter');
 });
 
 if (require.main === module) H.report();

@@ -288,11 +288,13 @@ class ShootoutMission {
                    roundsOffLine: 0, offLineT: 0, roundT: 0,
                    doves: 0, bestChain: 0, topOfField: false,
                    doveRecovered: false, doveRecoverT: 0,
-                   cleanRoundAfterWalk: false };
+                   cleanRoundAfterWalk: false, finished: false };
     this._doveMark = null;        // the dip on the strip, waiting to be paid back
     this._walkPending = false;    // a round was sat out; the next one answers for it
     this._roundShots = 0;
     this._roundMisses = 0;
+    this._lastRound = null;
+    this._agendaRoundSeen = -1;
   }
 
   /* =================== build =================== */
@@ -1769,6 +1771,7 @@ class ShootoutMission {
       betweenT: this.betweenT || 0,
       round: R ? { time: R.time, killed: R.killed, spawned: R.spawned,
                    escaped: R.escaped, doves: R.doves } : null,
+      lastRound: this._lastRound,
       boss: this.boss ? { phase: this.boss.phase, hits: this.boss.hits,
                           open: this.boss.open, down: this.boss.down,
                           staggerT: this.boss.staggerT } : null,
@@ -1804,6 +1807,17 @@ class ShootoutMission {
   _applyWorldState(world) {
     if (!world || this.isHost) return;
     if (this.state === 'failed') return;
+    /* The host owns round outcomes, but each device owns its player's
+       movement and arrows. Finalize that local agenda telemetry when the
+       host announces the round result; otherwise a guest can never complete
+       the long-walk card. */
+    const last = world.lastRound;
+    if (last && last.index > this._agendaRoundSeen) {
+      if (this.round && this.round.index === last.index) {
+        this._finishRoundAgenda(!!last.cleared);
+      }
+      this._agendaRoundSeen = last.index;
+    }
     if (world.roundIndex >= 0 && world.roundIndex !== this.roundIndex
         && this.state !== 'finished' && this.state !== 'failed') {
       this._beginRound(world.roundIndex);
@@ -1890,12 +1904,7 @@ class ShootoutMission {
       return;
     }
 
-    if (d.kind === 'kill') {
-      if (d.playerId !== this.meId) {
-        this.scores.set(d.playerId, (this.scores.get(d.playerId) || 0) + (d.points || 0));
-      }
-      return;
-    }
+    if (d.kind === 'kill') return; // the sender's net score arrives in its 20 Hz pose
 
     if (d.kind === 'claimResult') {
       if (d.playerId === this.meId) this._applyClaimResult(d);
@@ -2002,10 +2011,11 @@ class ShootoutMission {
       rows.push({ playerId: id, name: peer.name, m: this.scores.get(id) || 0,
                   dim: !peer.seen });
     }
-    rows.sort((a, b) => b.m - a.m);
+    rows.sort((a, b) => b.m - a.m || String(a.playerId).localeCompare(String(b.playerId)));
     // top of the strip, as the strip itself has it — the alibi for two
     // of the four cards in this deck is exactly this row being first
-    this.stats.topOfField = rows.length > 1 && rows[0].playerId === this.meId;
+    this.stats.topOfField = rows.length > 1
+      && rows.every(r => r.playerId === this.meId || mine > r.m);
     RoomUI.showField(rows.map(r => ({
       playerId: r.playerId, name: r.name, value: U.money(r.m), dim: r.dim,
     })));
@@ -2204,6 +2214,7 @@ class ShootoutMission {
       spawnT: 0.6,
       wave: 0,
       waveShape: null,
+      guardSpawned: 0,
       facing: sched.facing,
       speedScale: this.C.speedScale * (1 + (sched.scale - 1) * 0.5) * (d.spawn.speed || 1),
     };
@@ -2243,34 +2254,15 @@ class ShootoutMission {
     if (!R) return;
     const C = this.C;
 
-    /* A whole round spent off the line. "Most of it" is four fifths,
-       which is loose enough that walking to a better angle is not a
-       task and tight enough that sitting one out is. */
-    const walked = this.stats.roundT > 4
-                   && this.stats.offLineT > this.stats.roundT * 0.8;
-    if (walked) this.stats.roundsOffLine++;
-    this.stats.roundT = 0;
-    this.stats.offLineT = 0;
-    const perfect = cleared && R.escaped === 0 && R.killed >= R.total;
-
-    /* The round after a walk. Coming back and clearing one without
-       putting a single arrow in the trees is the only answer to "where
-       were you" that nobody follows up, so it is the alibi on that card
-       — and it has to be the *next* round, not any round, or it would
-       be a thing that happened to be true rather than a thing you did. */
-    if (this._walkPending) {
-      if (cleared && this._roundShots >= 3 && this._roundMisses === 0) {
-        this.stats.cleanRoundAfterWalk = true;
-      }
-      this._walkPending = false;
-    }
-    if (walked) this._walkPending = true;
+    this._finishRoundAgenda(cleared);
+    this._lastRound = { index: R.index, cleared: !!cleared };
 
     if (cleared) {
       this.roundsCleared++;
       const timeBonus = Math.round(Math.max(0, R.time) * C.roundTimeBonus);
       const boonPay = this._boonPay();
       let bonus = (C.roundClearBonus + timeBonus) * C.moneyScale * boonPay;
+      const perfect = R.escaped === 0 && R.killed >= R.total;
       if (perfect) {
         bonus += C.perfectRoundBonus * C.moneyScale * boonPay;
         this.perfectRounds++;
@@ -2308,6 +2300,29 @@ class ShootoutMission {
     }
     this.state = 'between';
     this.betweenT = 2.0;
+  }
+
+  _finishRoundAgenda(cleared) {
+    /* A whole round spent off the line. "Most of it" is four fifths,
+       which is loose enough that walking to a better angle is not a
+       task and tight enough that sitting one out is. */
+    const walked = this.stats.roundT > 4
+                   && this.stats.offLineT > this.stats.roundT * 0.8;
+    if (walked) this.stats.roundsOffLine++;
+    this.stats.roundT = 0;
+    this.stats.offLineT = 0;
+    /* The round after a walk. Coming back and clearing one without
+       putting a single arrow in the trees is the only answer to "where
+       were you" that nobody follows up, so it is the alibi on that card
+       — and it has to be the *next* round, not any round, or it would
+       be a thing that happened to be true rather than a thing you did. */
+    if (this._walkPending) {
+      if (cleared && this._roundShots >= 3 && this._roundMisses === 0) {
+        this.stats.cleanRoundAfterWalk = true;
+      }
+      this._walkPending = false;
+    }
+    if (walked) this._walkPending = true;
   }
 
   _loseLife(why) {
@@ -2391,15 +2406,9 @@ class ShootoutMission {
     R.wave = waveNo + 1;
     R.waveShape = shape;
     if (spec.mode === 'formation') { R.spawned += this._spawnFormation(n); return; }
-    for (let i = 0; i < n; i++) {
-      // a dove is not quarry, so it never counts against the round's tally
-      const guard = Math.random() < (R.def.guards || 0);
-      const typeAt = shape === 'relay' || shape === 'roulette'
-        ? (waveNo + i) % spec.types.length
-        : (Math.random() * spec.types.length) | 0;
-      const typeId = guard ? 'dove' : spec.types[typeAt];
-      const place = this._wavePlacement(shape, waveNo, i, n, spec);
-      const f = this._spawnOne(typeId, spec.behaviour, {
+    const spawn = (typeId, slot) => {
+      const place = this._wavePlacement(shape, waveNo, slot, n, spec);
+      return this._spawnOne(typeId, spec.behaviour, {
         ang: place.ang,
         dist: place.dist,
         height: place.height,
@@ -2411,10 +2420,24 @@ class ShootoutMission {
         speedMult: place.speedMult,
         life: R.time + 4,
       });
-      if (f && !guard) R.spawned++;
-      // and a dove sent instead of quarry still owes you the quarry
-      if (guard) i--;
-      if (R.spawned >= R.total) break;
+    };
+    for (let i = 0; i < n && R.spawned < R.total; i++) {
+      /* A dove is extra, never a replacement for quarry. Guarantee one by
+         the final batch of any guard round so the dove agenda cannot lose
+         to random chance. Keeping it extra also bounds the loop when a
+         hostile RNG returns "dove" forever. */
+      const guardChance = R.def.guards || 0;
+      const finalBatch = R.spawned + (n - i) >= R.total;
+      const guard = guardChance > 0
+        && (Math.random() < guardChance || (!R.guardSpawned && finalBatch));
+      if (guard) {
+        const dove = spawn('dove', i + n);
+        if (dove) R.guardSpawned++;
+      }
+      const typeAt = shape === 'relay' || shape === 'roulette'
+        ? (waveNo + i) % spec.types.length
+        : (Math.random() * spec.types.length) | 0;
+      if (spawn(spec.types[typeAt], i)) R.spawned++;
     }
   }
 
@@ -2643,6 +2666,10 @@ class ShootoutMission {
   _finish() {
     if (this.state === 'finished' || this.state === 'failed') return;
     this.state = 'finished';
+    const mine = Math.round(this._net());
+    this.stats.topOfField = this.peers.size > 0
+      && [...this.peers.keys()].every(id => mine > (this.scores.get(id) || 0));
+    this.stats.finished = true;
     if (this.music) { this.music.stop(1.2); this.music = null; }
     // hand the mouse back before the scoreboard arrives
     Input.setMouseAim(false);
@@ -2661,6 +2688,7 @@ class ShootoutMission {
   _fail(reason) {
     if (this.state === 'finished' || this.state === 'failed') return;
     this.state = 'failed';
+    this.stats.finished = false;
     if (this.music) { this.music.stop(1.2); this.music = null; }
     // hand the mouse back before the scoreboard arrives
     Input.setMouseAim(false);
@@ -2726,8 +2754,7 @@ class ShootoutMission {
       elapsed: this.elapsed,
       par: this.par,
       stats: Object.assign({}, this.stats,
-                           { missed: Math.max(0, this.shots - this.hits),
-                             doves: this.doves, bestChain: this.bestChain,
+                           { doves: this.doves, bestChain: this.bestChain,
                              kills: this.kills }),
     }, part);
   }

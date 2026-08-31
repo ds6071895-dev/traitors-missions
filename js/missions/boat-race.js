@@ -396,6 +396,7 @@ class BoatRaceMission {
     const C = this.C;
     const rng = U.makeRng(this.seed + 101);
     const gates = [];
+    const riskCandidates = [];
     const baseR = C.hoopRadius * C.hoopRadiusScale;
     const riskR = baseR * C.riskRadiusScale;
 
@@ -466,8 +467,16 @@ class BoatRaceMission {
       // ...but only where the two rings are actually two lines. In a throat
       // they would overlap, and a gold ring you cannot miss is not a choice.
       const room = Math.abs(riskLat - safeLat) > safeR + rR + 2;
+      const candidate = {
+        gate, at, riskLat, riskKind, room, added: false,
+        // Emergency two-line layout for an exceptionally narrow seed.
+        forcedSafeLat: -side * (at.half - safeR - 1),
+        forcedRiskLat: side * (at.half - rR - 1),
+      };
+      riskCandidates.push(candidate);
       if (room && (this.flags.allRisk || rng() < chance)) {
         gate.rings.push(this._makeRing(gate, at, riskLat, riskKind));
+        candidate.added = true;
       }
 
       this.gateMultSum += final ? C.finalMult : 1;
@@ -483,7 +492,35 @@ class BoatRaceMission {
       if (final) step *= 0.86;
       s += step;
     }
+
+    /* One agenda asks the player to refuse three genuinely optional gold
+       rings. Random decoration must not be allowed to make that instruction
+       impossible, so sparse seeds are topped up from gates that already
+       proved they have room for two distinct lines. */
+    let riskChoices = riskCandidates.reduce((n, c) => n + (c.added ? 1 : 0), 0);
+    for (const c of riskCandidates.filter(x => x.room)) {
+      if (riskChoices >= 3) break;
+      if (c.added) continue;
+      c.gate.rings.push(this._makeRing(c.gate, c.at, c.riskLat, c.riskKind));
+      c.added = true;
+      riskChoices++;
+    }
+    for (const c of riskCandidates.filter(x => !x.room)) {
+      if (riskChoices >= 3) break;
+      const safe = c.gate.rings.find(h => !h.risk);
+      this._moveRing(safe, c.at, c.forcedSafeLat);
+      c.gate.rings.push(this._makeRing(c.gate, c.at, c.forcedRiskLat, c.riskKind));
+      riskChoices++;
+    }
     return gates;
+  }
+
+  _moveRing(h, at, lat) {
+    if (!h) return;
+    const nx = -at.tangent.z, nz = at.tangent.x;
+    const x = at.point.x + nx * lat, z = at.point.z + nz * lat;
+    h.x = x; h.z = z; h.lat = lat;
+    if (h.pos && typeof h.pos.set === 'function') h.pos.set(x, h.pos.y || 0, z);
   }
 
   // radians of heading change across a 180 m window centred on s
@@ -952,7 +989,8 @@ class BoatRaceMission {
     /* A boat that has stopped. Kept as the longest single stall rather
        than a total, because three tenths of a second six times is
        traffic, and one whole second is a decision somebody made. */
-    if (this.boat.speed < 3) {
+    const openWater = where > total * 0.05 && where < total * 0.95;
+    if (openWater && this.boat.speed < 3) {
       this._stopT += dt;
       st.longestStop = Math.max(st.longestStop, this._stopT);
     } else this._stopT = 0;

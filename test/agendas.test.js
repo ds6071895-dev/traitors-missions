@@ -113,8 +113,9 @@ test('let five birds through', () => {
   const c = card('sh-open-net');
   ok(!c.check(hand({ escapedNearMe: 4 })), 'four is not five');
   ok(c.check(hand({ escapedNearMe: 5 })), 'five is');
-  ok(c.cover(hand({ topOfField: true })), 'top of the strip covers it');
+  ok(c.cover(hand({ topOfField: true, finished: true })), 'finishing top of the strip covers it');
   ok(!c.cover(hand({ topOfField: false })), 'and nothing else does');
+  ok(!c.cover(hand({ topOfField: true, finished: false })), 'leading early is not an alibi');
 });
 
 test('a dove, paid back before anybody reads it', () => {
@@ -201,11 +202,15 @@ test('a twist that makes a card impossible takes it out of the deck', () => {
     const r = ctx.U.makeRng(s);
     ok(A.draw('boat-race', r, { noBoost: true }).id !== 'br-burn-early',
        'dealt "burn the meter" into a run with no meter');
-    ok(A.draw('boat-race', r, { allRisk: true }).id !== 'br-cold-gold',
-       'dealt "decline the gold" into a run where every ring is gold');
     ok(A.draw('shootout', r, { suddenDeath: true }).id !== 'sh-dove',
        'dealt "shoot a dove" into a run a dove ends');
   }
+});
+
+test('Bonus Hunt keeps the safe line beside every gold ring', () => {
+  const cold = A.byId('br-cold-gold');
+  ok(!cold.needs || cold.needs({ allRisk: true }),
+     'Bonus Hunt wrongly removes a task whose safe alternatives still exist');
 });
 
 /* The gate is for cards a twist makes *impossible*, never for cards it

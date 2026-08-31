@@ -95,9 +95,6 @@ const Agendas = (() => {
         tell: 'Gold is most of the money in this channel. Three declined and you come back short of two people who ran the same water, which is arithmetic anybody can do at a table.',
         alibi: 'Thread everything else dead centre and drop nothing. Eight perfect passes and a clean sheet pays the gold back, and the board shows an immaculate run rather than a cheap one.',
         hud: 'Decline 3 gold rings',
-        // Golden Channel puts a gold ring in every gate and no safe one
-        // beside it, so there is nothing to decline in favour of
-        needs: (f) => !f.allRisk,
         check: (s) => n(s.goldDeclined) >= 3,
         cover: (s) => n(s.perfects) >= 8 && n(s.gatesMissed) === 0,
         progress: (s) => n(s.goldDeclined) + ' / 3 gold left on the water · '
@@ -134,9 +131,12 @@ const Agendas = (() => {
         alibi: 'Finish top of the strip regardless. Nobody counts the ones that got away from the person who took the most.',
         hud: 'Let 5 through',
         check: (s) => n(s.escapedNearMe) >= 5,
-        cover: (s) => s.topOfField === true,
+        cover: (s) => s.finished === true && s.topOfField === true,
         progress: (s) => n(s.escapedNearMe) + ' / 5 let through · '
-                       + (s.topOfField ? 'top of the strip, alibi holding' : 'not top of the strip'),
+                       + (s.finished && s.topOfField
+                          ? 'finished top, alibi holding'
+                          : s.topOfField ? 'top now — hold it to the finish'
+                          : 'not top of the strip'),
       },
       {
         id: 'sh-dove',
@@ -191,16 +191,20 @@ const Agendas = (() => {
      `needs` says no to them is not dealt, because being handed a task
      the run has made impossible is not a risk — it is a sentence, and
      the Traitor would be exposed for something nobody could have done.
-     If the twist rules out everything, the whole deck comes back: a
-     hard card beats no card at all. */
+     If a future combination rules out the whole deck, no card is dealt. */
   function draw(missionId, rng, flags) {
     const deck = DECKS[missionId];
     if (!deck || !deck.length) return null;
     const f = flags || {};
     const pool = deck.filter(c => typeof c.needs !== 'function' || c.needs(f));
-    const use = pool.length ? pool : deck;
-    const r = typeof rng === 'function' ? rng() : Math.random();
-    return use[Math.floor(r * use.length) % use.length];
+    // Never fall back to cards the run explicitly ruled out. Current
+    // twists always leave something in each deck, but returning no card is
+    // still fairer than exposing somebody for an impossible instruction.
+    if (!pool.length) return null;
+    const use = pool;
+    const r = n(typeof rng === 'function' ? rng() : Math.random());
+    const i = Math.max(0, Math.min(use.length - 1, Math.floor(r * use.length)));
+    return use[i];
   }
 
   const forMission = (missionId) => DECKS[missionId] || [];
