@@ -32,16 +32,17 @@ spoken by the browser's own speech synthesiser; there are no audio files anywher
 | **The hill** | Claudia welcomes you and tells you what you are. Nobody else is told. A Traitor is also handed a task. |
 | **Mission** | One of the missions, drawn from the seed, played by all three of you at once. Everything anybody earns goes into the night's pot. |
 | **The board** | Everybody's numbers from that mission, side by side. It accuses nobody. |
-| **The round table** | Thirty seconds each, one microphone at a time. **Nobody is banished here.** |
+| **The round table** | An open floor: every microphone live at once, no turns, talk over each other. **Nobody is banished here.** |
 | **Mission** | The second one, with its own twist. The last chance to add to the pot. |
-| **The fire** | Thirty seconds each again, then: end the game, or banish one more — and open their pouch. |
+| **The fire** | Back to one voice at a time — thirty seconds each — then: end the game, or banish one more, and open their pouch. |
 
 ### The roles
 
 Roles are drawn once, from the run's seed:
 
-- **half of all nights contain no Traitor at all**;
-- otherwise exactly one, uniform over all three players — you included.
+- **a quarter of all nights contain no Traitor at all**;
+- the other three quarters have exactly one, uniform over all three players — which
+  makes any one of you, yourself included, the Traitor on a quarter of all nights.
 
 You are told your own role on the hill. Nobody is ever told whether a Traitor exists.
 That is the whole game: a table where everyone may be honest and nobody can prove it.
@@ -59,44 +60,70 @@ down, and the Faithfuls win on the spot.
 The Traitor is **not told they failed**. They walk into that room believing they got
 away with it.
 
-**Every task has a public tell, and that is the entire design.** A sabotage nobody can
-observe being performed is not a risk — it makes the round table unwinnable for the
-Faithfuls, which is exactly the failure this mechanic exists to avoid. So each card in
-`js/missions/agendas.js` carries a `tell` field naming the thing the other two can
-physically see or hear happen:
+**Every task has a public tell, and every task has a way out.** That pair is the whole
+design. A sabotage nobody can observe being performed is not a risk — it makes the round
+table unwinnable for the Faithfuls. A sabotage nobody can survive performing is not a
+game either — it makes the night unwinnable for the Traitor. So every card in
+`js/missions/agendas.js` carries both: a `tell`, naming the thing the other two can
+physically see or hear happen, and an `alibi` — a second, far harder run of play that
+leaves the same number somewhere nobody can argue with.
 
-| Task | What the others see |
-| --- | --- |
-| Cross the line last, within four seconds of the boat ahead | You are visibly last, close enough to look like a bad line |
-| Take three gates on the outside of the marker | The boat swings wide, three times, in open water |
-| Reach the last split with a full boost meter, then never spend it | The shared strip shows a full meter while you drift backwards |
-| Clip exactly two marker buoys | A clipped buoy knocks, splashes and swings |
-| Let three birds leave the clearing untouched | They fly out over everybody's heads |
-| Finish having missed eight arrows | Accuracy is a column on the shared board |
-| Keep shooting after round four and never find a perfect draw again | A perfect draw rings, and everyone hears yours go quiet |
-| Spend a whole round away from the shooting line | Your marker is missing from the line for a round |
+Any Traitor can complete these. Only a very good one completes them and walks into the
+round table with the board arguing on their side. The gap between those two is the
+evening.
 
-`tell` is not a comment — `test/agendas.test.js` asserts every card has one, and asserts
-that no card can be passed by doing nothing at all. Two cards originally could be, and
-were rewritten: a task you complete by forgetting it exists is a free pass with no tell
-on it.
+| Task | What the others see | The way out |
+| --- | --- | --- |
+| Cross the line last | Last is the first column on the board | Lead the field for half the race and lose it by under 1.5s. Nobody suspects the boat that was winning |
+| Spend the whole boost meter before halfway, and arrive dry | The shared strip carries everybody's meter: yours flatlines early and never comes back | Win it anyway. A dry meter and a hull in front is the best drive anyone at that table will see |
+| Three times, line up a gold ring and take the safe one instead | Gold is most of the money, and you come back short of two people who ran the same water | Thread everything else dead centre: eight perfect passes and nothing dropped pays the gold back |
+| Stop dead in open water for a full second | Your marker stops on the strip while two boats keep going | Take the second back — finish inside two seconds of the boat ahead and it is a story about the recovery |
+| Let five birds leave the clearing past you | Every escape is called out to all three of you, where it happened | Finish top of the strip anyway. Nobody counts the escapes of whoever took the most |
+| Put an arrow through a dove | The fine comes off your total in front of everyone — the one number out there that can go backwards | Shoot it into the middle of a flock and be above your old total within eight seconds |
+| Put ten arrows into empty air | A hole in the board, and ten whistles the other two can hear | Hold a chain of twelve while you do it. Ten misses in a hail of arrows is a style |
+| Spend a whole round away from the shooting line | Your figure is missing from the line and your row stops climbing | Walk back in and clear the *next* round without a single miss |
 
-After every mission all three players see the same **board** — finish order, gates
-missed, accuracy, birds escaped, boost spent late. It never accuses anybody. It is on
-screen for the whole of the round table, and it is what turns "I think it was you" into
-an argument with something behind it.
+Neither field is a comment. `test/agendas.test.js` asserts every card has a tell and an
+alibi, that no card can be passed by doing nothing, and that no *alibi* can be earned by
+doing nothing either. `test/mission-stats.test.js` then drives the missions' own trackers
+and asserts they produce the numbers the cards read — a counter that sits in a stats
+object and is never written is a card that can only ever fail, which is a bug this deck
+has already had once.
+
+A card is also never dealt into a run that has made it impossible: the twist's flags
+travel with the mission plan, and Cold Engine will not hand anybody "spend your whole
+boost meter". Hard is the point; impossible is a sentence.
+
+After every mission all three players see the same **board**, and its columns are chosen
+so that each card's tell *and* its alibi are both on it — place beside time spent in
+front, misses beside best chain, doves beside money. It never accuses anybody. It is on
+screen for the whole round table, and it is what turns "I think it was you" into an
+argument with something behind it — and, on a very good night, what turns it into an
+argument the Traitor wins.
 
 ### Voice, and the floor
 
-The microphone is open in the lobby, the dressing room and the missions. At the round
-table and the fire it is not: the floor goes round the seats, thirty seconds each, and
-only the person holding it can be heard.
+The microphone is open in the lobby, the dressing room, the missions and the round
+table. The table is deliberately a free-for-all: all three microphones live at once for
+the length of the discussion, no turns, no order, cut in whenever you like. Nobody is
+banished there, so there is nothing that needs protecting from an argument — and an
+argument answered two turns later has stopped being one. A clock runs on the discussion
+as a whole, and any of you may press **I've said enough**; when everybody has, the table
+moves on early.
+
+At the fire it is not open. There the floor goes round the seats, thirty seconds each,
+and only the person holding it can be heard — that is the room where names get said.
 
 That muting happens on the **sending** side — `track.enabled = false` at the microphone
 — so holding the floor is a fact about the room rather than a request the other two
-clients are trusted to honour. The clock belongs to the host, because a speaking turn
-timed in the speaker's own browser stops when their tab is throttled, which is exactly
-the moment they would rather it did not.
+clients are trusted to honour. Either way the clock belongs to the host, because a
+discussion timed in a player's own browser stops when their tab is throttled, which is
+exactly the moment they would rather it did not.
+
+Nobody is announced at the open table, so the edit listens to the room: whoever has been
+the loudest voice for about a second gets the camera, a quiet room widens back out to
+the two faces opposite you, and every cut holds for a few seconds — an edit that chases
+every interruption is unwatchable.
 
 Nothing here is required. A refused permission, no microphone, or a `file://` origin all
 land in the same place: the game says so once and the night carries on in text.
@@ -363,6 +390,7 @@ js/
     fx.js             particles, wake ribbon, shockwaves, floating labels
   missions/
     agendas.js        the Traitor's secret tasks, each with a public tell
+                      and a way out of it
     modifiers.js      the pre-race card deck — declarative rule-benders
     boat-race.js      Mission 01
     shootout-rounds.js  the rounds a Shootout is built from, as data
@@ -386,6 +414,7 @@ test/
   session.test.js     a whole night driven through `dispatch`
   privacy.test.js     the invariant everything else stands on
   agendas.test.js     every card, at its own boundary
+  mission-stats.test.js  the missions really do count what the cards read
   transport.test.js   a host and a guest, in one process, on a fake wire
   look.test.js        the dressing room's data
 ```
@@ -803,12 +832,15 @@ useful message if anything reaches for it.
 | --- | --- |
 | `session.test.js` | A whole night through `dispatch`: both ballots, a tie and its revote, the auto-stop at two, and both endings a task can produce |
 | `privacy.test.js` | The invariant everything else stands on — no role in the state, at any phase, ever, until the verdict |
-| `agendas.test.js` | Every card either side of its own threshold, plus the two rules of the deck: a public tell, and no free passes |
+| `agendas.test.js` | Every card and every alibi either side of its own threshold, plus the rules of the deck: a public tell, a way out, no free passes and no free alibis |
+| `mission-stats.test.js` | The other half of the deck: the missions' own trackers, driven frame by frame, producing the numbers the cards judge |
 | `transport.test.js` | A host and a guest in one process on a fake wire, including a guest that connects late and a guest that tries to vote as somebody else |
 | `look.test.js` | That nothing you can put in localStorage produces a figure with no coat on |
 
-The whole thing takes about two seconds. Three of these have already earned their keep:
+The whole thing takes about two seconds. Four of these have already earned their keep:
 `agendas.test.js` found two cards that could be passed by doing nothing at all,
+`mission-stats.test.js` found a card reading a counter the boat race declared and never
+once wrote,
 `transport.test.js` found a guest that registered its listener *after* sending the
 message it was waiting for a reply to, and the floor tests found that a speaking turn
 left open really does keep ticking through every remaining seat — which is correct

@@ -1395,6 +1395,16 @@ select.nav-on{outline-offset:2px}
 }
 .fb-done:hover{background:rgba(255,255,255,.16)}
 .fb-done.nav-on{border-color:var(--gold); box-shadow:0 0 0 3px rgba(242,193,78,.25)}
+.fb-done:disabled{opacity:.5; cursor:default; background:rgba(255,255,255,.06)}
+.fb-done:disabled:hover{background:rgba(255,255,255,.06)}
+
+/* The open table: everybody's microphone, nobody's turn. Mint rather
+   than gold, because gold on this bar has meant "it is your thirty
+   seconds" all night and this is the opposite of that. */
+#floor-bar.open{border-color:rgba(125,252,208,.45); background:rgba(8,26,20,.84)}
+#floor-bar.open .fb-who{color:var(--mint)}
+#floor-bar.open .fb-clock{color:var(--mint)}
+#floor-bar.open .fb-fill{background:var(--mint)}
 
 /* ---------------- the board ----------------
    It accuses nobody. That is the design: it prints what happened and
@@ -1499,6 +1509,15 @@ select.nav-on{outline-offset:2px}
   margin-top:6px; font-size:10px; letter-spacing:.10em; text-transform:uppercase;
   font-weight:800; color:var(--gold);
 }
+/* The way out. Dim while it is only a possibility, lit the moment the
+   run actually supports it — which is the only warning a Traitor gets
+   that the story they are about to tell is currently true. */
+.ac-alibi{
+  margin-top:7px; padding-top:7px; border-top:1px solid rgba(255,255,255,.10);
+  font-size:10px; line-height:1.45; font-weight:600; color:rgba(255,255,255,.52);
+}
+.ac-alibi.held{color:#7ee0a8}
+#agenda-chip.done{border-color:rgba(126,224,168,.5)}
 
 /* ---------------- narrow and short ---------------- */
 

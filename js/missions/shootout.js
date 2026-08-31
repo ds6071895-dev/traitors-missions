@@ -277,9 +277,20 @@ class ShootoutMission {
 
     /* Everything the shootout deck asks about. Gathered on every run,
        Traitor or not — a counter that only exists when somebody has a
-       task is a counter that announces there is one. */
+       task is a counter that announces there is one.
+
+       The second half of these are the alibis: the money strip, the
+       chain, and what you did with the round after you walked back in.
+       A card is only worth dealing if both halves are measurable. */
     this.stats = { escapedNearMe: 0, missed: 0, perfectsLate: 0, lateShots: 0,
-                   roundsOffLine: 0, offLineT: 0, roundT: 0 };
+                   roundsOffLine: 0, offLineT: 0, roundT: 0,
+                   doves: 0, bestChain: 0, topOfField: false,
+                   doveRecovered: false, doveRecoverT: 0,
+                   cleanRoundAfterWalk: false };
+    this._doveMark = null;        // the dip on the strip, waiting to be paid back
+    this._walkPending = false;    // a round was sat out; the next one answers for it
+    this._roundShots = 0;
+    this._roundMisses = 0;
   }
 
   /* =================== build =================== */
@@ -601,6 +612,7 @@ class ShootoutMission {
 
     if (this.state === 'live') {
       this.elapsed += dt;
+      this._trackDove();
       this._updateChain(dt);
       this._recordGhost(dt);
       this._updateGhost();
@@ -767,6 +779,7 @@ class ShootoutMission {
 
   _loose(shot) {
     this.shots++;
+    this._roundShots++;
     if (shot.perfect) this.cleanShots++;
     if (this.roundIndex >= 3) {
       this.stats.lateShots++;
@@ -1580,8 +1593,17 @@ class ShootoutMission {
     const C = this.C;
     const mult = this.flags.doveMult || 1;
     const cost = C.doveCost * mult;
+    /* The dip, timed from here. Everybody's row on the strip is their
+       money less their fines, so a dove is the one event in this wood
+       that makes a number go backwards where two other people can see
+       it — and the only way past that is to put it back before they
+       have finished reading it. */
+    this._doveMark = { at: this._net(), t: this.elapsed };
+    this.stats.doveRecovered = false;
+    this.stats.doveRecoverT = 0;
     this.penalty += cost;
     this.doves++;
+    this.stats.doves = this.doves;
     this.chain = 0; this.chainT = 0;
     if (this.round) this.round.time = Math.max(0, this.round.time - C.doveTime);
     target.kill();
@@ -1610,7 +1632,7 @@ class ShootoutMission {
        seeing how far short or wide the last one went. */
     this._burst(arrow.pos, what === 'tree' ? 7 : 9,
                 what === 'tree' ? '#6b543a' : '#8a7a5c', 4.5);
-    if (arrow.hits === 0) { this.stats.missed++; this._miss(); }
+    if (arrow.hits === 0) { this.stats.missed++; this._roundMisses++; this._miss(); }
   }
 
   _miss() {
@@ -1657,13 +1679,20 @@ class ShootoutMission {
     }
   }
 
+  /* What you are worth right now: everything taken, less every fine.
+     This is the number on the strip, and it is deliberately the one
+     that can fall — a dove or a sting takes it backwards in front of
+     two other people, which is what makes those cards a risk instead
+     of a chore. */
+  _net() { return Math.max(0, this.money - this.penalty); }
+
   _sendPose() {
     return {
       x: this.pos.x, y: this.pos.y, z: this.pos.z,
       h: this.aimYaw, p: this.aimPitch,
       d: this.bow && this.bow.draw ? 1 : 0,
       v: this.speed01 * (this.sprinting ? 5.4 : 2.6),
-      m: Math.round(this.money),
+      m: Math.round(this._net()),
     };
   }
 
@@ -1790,23 +1819,43 @@ class ShootoutMission {
     this._fieldT = 0.25;
     if (this.agenda) RoomUI.showAgenda(this._agendaProgress());
 
-    const rows = [{ playerId: this.meId, name: 'You', m: Math.round(this.money) }];
+    const mine = Math.round(this._net());
+    const rows = [{ playerId: this.meId, name: 'You', m: mine }];
     for (const [id, peer] of this.peers) {
       rows.push({ playerId: id, name: peer.name, m: this.scores.get(id) || 0,
                   dim: !peer.seen });
     }
     rows.sort((a, b) => b.m - a.m);
+    // top of the strip, as the strip itself has it — the alibi for two
+    // of the four cards in this deck is exactly this row being first
+    this.stats.topOfField = rows.length > 1 && rows[0].playerId === this.meId;
     RoomUI.showField(rows.map(r => ({
       playerId: r.playerId, name: r.name, value: U.money(r.m), dim: r.dim,
     })));
   }
 
+  /* The task, how far along it is, and whether the alibi is standing
+     up right now — read from the same stats the host will judge on, so
+     the chip can never promise something the verdict disagrees with. */
   _agendaProgress() {
     const card = this.agenda;
     if (!card) return '';
-    const live = typeof Agendas !== 'undefined' ? Agendas.byId(card.id) : null;
-    if (!live || typeof live.progress !== 'function') return card.hud || '';
-    try { return live.progress(this.stats); } catch (e) { return card.hud || ''; }
+    if (typeof Agendas === 'undefined') return card.hud || '';
+    return Agendas.state(card.id, this.stats) || card.hud || '';
+  }
+
+  /* Paying back a dove. The clock runs from the shot and stops the
+     instant the strip is above where it was — eight seconds being about
+     as long as anybody watches a number that moved. */
+  _trackDove() {
+    const m = this._doveMark;
+    if (!m) return;
+    const st = this.stats;
+    st.doveRecoverT = Math.max(0, this.elapsed - m.t);
+    if (this._net() > m.at) {
+      st.doveRecovered = st.doveRecoverT <= 8;
+      this._doveMark = null;
+    }
   }
 
   /* -------- agenda telemetry --------
@@ -1817,6 +1866,9 @@ class ShootoutMission {
     if (this.state !== 'live') return;
     this.stats.roundT += dt;
     if (Math.hypot(this.pos.x, this.pos.z) > 46) this.stats.offLineT += dt;
+    // the chain is half of one card's alibi, and a chip that only learned
+    // about it at the end of the night would be no use to anybody
+    this.stats.bestChain = this.bestChain;
   }
 
   _updateFlock(dt) {
@@ -1957,6 +2009,8 @@ class ShootoutMission {
     if (!sched) { this._finish(); return; }
 
     this.roundIndex = index;
+    this._roundShots = 0;
+    this._roundMisses = 0;
     const d = sched.def;
     this.round = {
       def: d,
@@ -2015,12 +2069,25 @@ class ShootoutMission {
     /* A whole round spent off the line. "Most of it" is four fifths,
        which is loose enough that walking to a better angle is not a
        task and tight enough that sitting one out is. */
-    if (this.stats.roundT > 4 && this.stats.offLineT > this.stats.roundT * 0.8) {
-      this.stats.roundsOffLine++;
-    }
+    const walked = this.stats.roundT > 4
+                   && this.stats.offLineT > this.stats.roundT * 0.8;
+    if (walked) this.stats.roundsOffLine++;
     this.stats.roundT = 0;
     this.stats.offLineT = 0;
     const perfect = cleared && R.escaped === 0 && R.killed >= R.total;
+
+    /* The round after a walk. Coming back and clearing one without
+       putting a single arrow in the trees is the only answer to "where
+       were you" that nobody follows up, so it is the alibi on that card
+       — and it has to be the *next* round, not any round, or it would
+       be a thing that happened to be true rather than a thing you did. */
+    if (this._walkPending) {
+      if (cleared && this._roundShots >= 3 && this._roundMisses === 0) {
+        this.stats.cleanRoundAfterWalk = true;
+      }
+      this._walkPending = false;
+    }
+    if (walked) this._walkPending = true;
 
     if (cleared) {
       this.roundsCleared++;
@@ -2482,7 +2549,9 @@ class ShootoutMission {
       elapsed: this.elapsed,
       par: this.par,
       stats: Object.assign({}, this.stats,
-                           { missed: Math.max(0, this.shots - this.hits) }),
+                           { missed: Math.max(0, this.shots - this.hits),
+                             doves: this.doves, bestChain: this.bestChain,
+                             kills: this.kills }),
     }, part);
   }
 
@@ -2990,21 +3059,25 @@ Missions.register({
          '<kbd>Mouse</kbd> aim', '<kbd>Hold</kbd> draw, release to loose',
          '<kbd>RMB</kbd> steady', '<kbd>R</kbd> restart'],
 
-  /* The columns the wood argues about afterwards. Every card in the
-     shootout deck moves at least one of these, which is what makes a
-     completed task arguable rather than invisible. */
+  /* The columns the wood argues about afterwards. Every card in this
+     deck moves one of these — and every card's alibi moves another one
+     the other way, so the same row reads as a confession or as the best
+     shooting anybody did all night depending on how it was earned. Ten
+     misses beside a chain of twelve is a style. Ten beside a chain of
+     three is a conversation. */
   report: (r) => {
     const st = r.stats || {};
     return {
       earned: r.earned,
       completed: r.completed,
-      columns: ['Money', 'Kills', 'Accuracy', 'Missed', 'Escaped', 'Off line'],
+      columns: ['Money', 'Kills', 'Best chain', 'Missed', 'Escaped', 'Doves', 'Off line'],
       cells: [
         U.money(r.earned || 0),
         String(r.kills || 0),
-        Math.round((r.accuracy || 0) * 100) + '%',
+        '×' + String(st.bestChain || 0),
         String(st.missed || 0),
         String(st.escapedNearMe || 0),
+        String(st.doves || 0),
         String(st.roundsOffLine || 0),
       ],
       stats: st,

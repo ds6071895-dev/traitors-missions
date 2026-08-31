@@ -1,11 +1,13 @@
 /* ------------------------------------------------------------------
    voicechat.js — three people actually talking.
 
-   The mic is open in the lobby, the dressing room and the missions,
-   because half of what makes this game work is two people shouting at
-   each other about a bird that got away. At the round table and the
-   fire it stops being a conversation and becomes a floor: one person
-   speaks for thirty seconds and everybody else is muted.
+   The mic is open in the lobby, the dressing room, the missions and
+   the round table, because half of what makes this game work is two
+   people shouting at each other — about a bird that got away, or about
+   which of them was nowhere near the boat when it mattered. At the
+   fire, and only there, it stops being a conversation and becomes a
+   floor: one person speaks for thirty seconds and everybody else is
+   muted, because that is the room where names get said.
 
    That muting happens on the *sending* side. `track.enabled = false`
    stops the audio at the microphone, which means holding the floor is
@@ -160,6 +162,17 @@ const VoiceChat = (() => {
 
   const level = (id) => levels.get(id) || 0;
 
+  /* Who is actually talking, when nobody has been given a turn. The
+     round table is an open microphone, so the only thing that knows
+     who has the room is the room itself. Ours is not in here: the
+     local player is the camera at the table, and a meter on your own
+     voice would only ever be telling you what you already know. */
+  function loudest(min = 0.12) {
+    let best = null, top = min;
+    for (const [id, v] of levels) if (v > top) { top = v; best = id; }
+    return best;
+  }
+
   /* ---------------- the gate ----------------
      One function decides whether our microphone is live, and it is the
      only thing that ever touches `track.enabled`. */
@@ -207,7 +220,7 @@ const VoiceChat = (() => {
 
   return {
     init, listen, start, stop, on, setMuted, toggleMuted, setFloor, openFloor,
-    level, levels,
+    level, levels, loudest,
     get available() { return available; },
     get muted() { return muted; },
     get speaking() { return floorId; },

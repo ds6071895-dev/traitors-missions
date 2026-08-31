@@ -30,8 +30,9 @@
    did.
 
    The roles, drawn once from the seed:
-     50% the run has no traitor at all;
-     otherwise exactly one, uniform over all three players — you too.
+     25% the run has no traitor at all;
+     the other 75% has exactly one, uniform over all three players —
+     which is a quarter of all nights each, you included.
    You are told your own role. Nobody is ever told whether a traitor
    exists.
 ------------------------------------------------------------------ */
@@ -39,7 +40,8 @@ const Session = (() => {
 
   const V = 3;
   const SEATS = 3;                 // exactly three, and the show is written for it
-  const FLOOR_SECONDS = 30;        // how long one person gets to talk
+  const FLOOR_SECONDS = 30;        // one turn, when the floor goes round
+  const TABLE_SECONDS = 150;       // the whole open discussion, when it does not
 
   let state = null;
   let mode = 'host';               // 'host' owns the reducer, 'guest' mirrors it
@@ -91,7 +93,7 @@ const Session = (() => {
 
   function drawRoles(seed) {
     const r = rngFor(SALT.roles, seed);
-    const has = r() < 0.5;                      // half of all runs are clean
+    const has = r() < 0.75;                     // a quarter of all runs are clean
     return { has, seat: has ? r.int(0, SEATS - 1) : -1 };
   }
 
@@ -118,7 +120,7 @@ const Session = (() => {
       const missionSeed = r.int(1, 0x7ffffff) >>> 0;
       const mode = def.modes ? Object.keys(def.modes)[0] : null;
 
-      let modId = null, modName = null, modBlurb = null, payout = 1;
+      let modId = null, modName = null, modBlurb = null, payout = 1, modFlags = null;
       if (def.setup && typeof def.preview === 'function') {
         try {
           const p = def.preview({ seed: missionSeed, mode, tod: 'auto', modId: null, ghost: false });
@@ -127,12 +129,16 @@ const Session = (() => {
             const card = hand[Math.floor(r() * hand.length)];
             modId = card.id; modName = card.name; modBlurb = card.blurb;
             payout = card.payout || 1;
+            /* The twist's own flags, kept with the plan. The agenda deck
+               reads them, so a night with no boost is never the night
+               somebody is dealt "spend your whole boost meter". */
+            modFlags = card.flags || null;
           }
         } catch (e) { /* a mission that cannot preview simply gets no twist */ }
       }
 
       out.push({ id: def.id, name: def.name, seed: missionSeed, mode,
-                 modId, modName, modBlurb, payout,
+                 modId, modName, modBlurb, modFlags, payout,
                  earned: null, completed: null, done: false });
     }
     return out;
@@ -147,7 +153,7 @@ const Session = (() => {
   function drawAgendas(seed, missions) {
     if (typeof Agendas === 'undefined') return null;
     const r = rngFor(SALT.agendas, seed);
-    return (missions || []).map(m => Agendas.draw(m.id, r));
+    return (missions || []).map(m => Agendas.draw(m.id, r, m.modFlags));
   }
 
   /* ---------------- lifecycle ---------------- */
@@ -171,7 +177,7 @@ const Session = (() => {
       players,
       missions: planMissions(seed),
       pot: 0,
-      floor: null,              // { queue, playerId, endsAt, seconds, done }
+      floor: null,              // { all, queue, playerId, ready, endsAt, seconds, done }
       debrief: null,            // the numbers everybody argues over
       finale: newFinale(),
       outcome: null,
@@ -264,7 +270,7 @@ const Session = (() => {
 
   /* The card in your own pocket for the mission about to start, or
      null — which is what a Faithful always gets, and what everybody
-     gets on the half of all nights that have no Traitor in them. */
+     gets on the quarter of all nights that have no Traitor in them. */
   function myAgenda(at) {
     const i = at === undefined ? (state ? state.missionAt : 0) : at;
     if (mode === 'guest') return (toldAgendas && toldAgendas[i]) || null;
@@ -307,17 +313,49 @@ const Session = (() => {
   }
 
   /* ---------------- the floor ----------------
-     Thirty seconds each, and the clock belongs to the authority. A
-     speaking turn timed in the speaker's own browser ends when their
-     tab is throttled or their machine sleeps, which is precisely the
-     moment they would rather it did not. Everyone else would sit there
-     watching a countdown that had already stopped. */
+     Two shapes, and the difference is the whole character of the room.
+
+     A *turn* floor goes round the seats: one microphone, thirty
+     seconds, nobody interrupts. That is the fire, where names are
+     about to be said and the loudest voice must not be the one that
+     decides.
+
+     An *open* floor is the round table: every microphone live at once
+     for the length of the discussion, anybody may cut in at any moment,
+     and it ends when the clock runs out or everybody still in it has
+     said they are finished. Nobody is banished at the table, so there
+     is nothing there that needs protecting from an argument.
+
+     Either way the clock belongs to the authority. A discussion timed
+     in a player's own browser ends when their tab is throttled or their
+     machine sleeps, which is precisely the moment they would rather it
+     did not. Everyone else would sit there watching a countdown that
+     had already stopped. */
 
   function doOpenFloor(a) {
-    if (state.floor && !state.floor.done && state.floor.playerId) return false;
-    const seconds = Math.max(5, Math.min(120, a.seconds || FLOOR_SECONDS));
+    if (state.floor && !state.floor.done && (state.floor.all || state.floor.playerId)) {
+      return false;
+    }
+    const fallback = a.all ? TABLE_SECONDS : FLOOR_SECONDS;
+    const seconds = Math.max(5, Math.min(600, a.seconds || fallback));
+
+    if (a.all) {
+      const f = { all: true, queue: [], playerId: null, ready: [],
+                  endsAt: Date.now() + seconds * 1000, seconds, done: false };
+      state.floor = f;
+      clearFloorTimer();
+      emit('floor', { all: true, playerId: null, endsAt: f.endsAt,
+                      seconds, ready: [], done: false });
+      emit('change', state);
+      floorTimer = setTimeout(() => {
+        if (state && state.floor === f) closeFloor();
+      }, seconds * 1000);
+      return false;                     // the emits above have already gone
+    }
+
     const order = alive().slice().sort((x, y) => x.seat - y.seat).map(p => p.id);
-    state.floor = { queue: order, playerId: null, endsAt: 0, seconds, done: false };
+    state.floor = { all: false, queue: order, playerId: null, ready: [],
+                    endsAt: 0, seconds, done: false };
     advanceFloor();
     return false;                       // advanceFloor has already emitted
   }
@@ -328,12 +366,7 @@ const Session = (() => {
     if (!f) return;
     let next = f.queue.shift();
     while (next && !(playerById(next) || {}).alive) next = f.queue.shift();
-    if (!next) {
-      f.playerId = null; f.endsAt = 0; f.done = true;
-      emit('floor', { playerId: null, done: true });
-      emit('change', state);
-      return;
-    }
+    if (!next) { closeFloor(); return; }
     f.playerId = next;
     f.endsAt = Date.now() + f.seconds * 1000;
     emit('floor', { playerId: next, endsAt: f.endsAt, seconds: f.seconds, done: false });
@@ -343,15 +376,43 @@ const Session = (() => {
     }, f.seconds * 1000);
   }
 
+  /* The one way a floor of either shape ends. */
+  function closeFloor() {
+    clearFloorTimer();
+    const f = state ? state.floor : null;
+    if (!f || f.done) return;
+    f.done = true; f.playerId = null; f.endsAt = 0;
+    emit('floor', { playerId: null, all: !!f.all, done: true });
+    emit('change', state);
+  }
+
   function clearFloorTimer() {
     if (floorTimer) { clearTimeout(floorTimer); floorTimer = null; }
   }
 
-  /* Sitting down early is allowed, and only the person standing up may
-     do it. */
+  /* "I have said enough." On a turn floor that is sitting down early,
+     and only the person standing up may do it. On an open floor nobody
+     is holding anything, so it is not a turn being handed back — it is
+     a vote to move on, and the table only moves when everybody still
+     sitting at it has cast one. */
   function doYieldFloor(a) {
     const f = state.floor;
-    if (!f || !f.playerId || f.done) return false;
+    if (!f || f.done) return false;
+
+    if (f.all) {
+      const p = a.playerId ? playerById(a.playerId) : localPlayer();
+      if (!p || !p.alive) return false;
+      if (f.ready.indexOf(p.id) < 0) {
+        f.ready.push(p.id);
+        emit('floor', { all: true, playerId: null, endsAt: f.endsAt,
+                        seconds: f.seconds, ready: f.ready.slice(), done: false });
+        emit('change', state);
+      }
+      if (alive().every(x => f.ready.indexOf(x.id) >= 0)) closeFloor();
+      return false;
+    }
+
+    if (!f.playerId) return false;
     if (a.playerId && a.playerId !== f.playerId) return false;
     advanceFloor();
     return false;

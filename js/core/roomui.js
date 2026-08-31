@@ -6,10 +6,12 @@
    same way the subtitle does, because all three need to be readable
    while a vote panel is up or a mission is running.
 
-   - The floor bar: whose thirty seconds it is, how many are left, and
-     whether your microphone is actually open. The clock is drawn from
-     the host's `endsAt`, never counted locally, so all three people
-     see the same number.
+   - The floor bar: who may speak, how long is left, and whether your
+     microphone is actually open. At the fire that is one name and
+     thirty seconds; at the round table it is all three of you at once
+     for as long as the discussion lasts. The clock is drawn from the
+     host's `endsAt`, never counted locally, so all three people see
+     the same number.
    - The board: everybody's numbers from the mission that just
      finished. It never accuses anyone. It is the evidence a Faithful
      argues from and the thing a Traitor has to explain.
@@ -19,7 +21,7 @@
 const RoomUI = (() => {
 
   const el = (id) => document.getElementById(id);
-  let floorEnds = 0, floorWho = null, tick = null;
+  let floorEnds = 0, floorWho = null, floorTotal = 30, floorOpen = false, tick = null;
 
   const esc = (s) => String(s === undefined || s === null ? '' : s)
     .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -29,14 +31,18 @@ const RoomUI = (() => {
   function showFloor(e) {
     const bar = el('floor-bar');
     if (!bar) return;
-    if (!e || e.done || !e.playerId) { hideFloor(); return; }
+    if (!e || e.done || (!e.playerId && !e.all)) { hideFloor(); return; }
+    if (e.all) { showOpenFloor(e, bar); return; }
 
+    floorOpen = false;
     floorWho = e.playerId;
     floorEnds = e.endsAt || 0;
+    floorTotal = e.seconds || 30;
     const p = Session.playerById(e.playerId);
     const mine = p && p.local;
 
     bar.classList.add('on');
+    bar.classList.remove('open');
     bar.classList.toggle('mine', !!mine);
     el('floor-who').textContent = mine ? 'YOU ARE SPEAKING'
                                        : ((p ? p.name : 'Somebody') + ' is speaking');
@@ -47,6 +53,8 @@ const RoomUI = (() => {
     const done = el('floor-done');
     if (done) {
       done.hidden = !mine;
+      done.disabled = false;
+      done.textContent = "I've said enough";
       done.onclick = mine ? () => {
         AudioBus.play('ui-click');
         Net.send({ type: 'yieldFloor', playerId: e.playerId });
@@ -60,23 +68,62 @@ const RoomUI = (() => {
     if (!tick) tick = setInterval(paintTick, 120);
   }
 
+  /* The round table. Nobody holds this floor, so the bar is not about
+     whose turn it is — it is the clock on the discussion and a button
+     that says you are done with it. Every microphone stays open the
+     whole time, including while somebody else is mid-sentence. */
+  function showOpenFloor(e, bar) {
+    floorOpen = true;
+    floorWho = null;
+    floorEnds = e.endsAt || 0;
+    floorTotal = e.seconds || 150;
+
+    const me = Session.state ? Session.state.players.find(p => p.local) : null;
+    const alive = Session.alive ? Session.alive() : [];
+    const ready = e.ready || [];
+    const mineReady = !!(me && ready.indexOf(me.id) >= 0);
+
+    bar.classList.add('on', 'open');
+    bar.classList.remove('mine');
+    el('floor-who').textContent = ready.length
+      ? 'ANYONE MAY SPEAK — ' + ready.length + ' of ' + alive.length + ' finished'
+      : 'ANYONE MAY SPEAK — TALK OVER EACH OTHER';
+
+    const done = el('floor-done');
+    if (done) {
+      done.hidden = !(me && me.alive);
+      done.disabled = mineReady;
+      done.textContent = mineReady ? 'Waiting for the others…' : "I've said enough";
+      done.onclick = mineReady ? null : () => {
+        AudioBus.play('ui-click');
+        Net.send({ type: 'yieldFloor', playerId: me ? me.id : null });
+      };
+    }
+
+    VoiceChat.openFloor();
+    paintTick();
+    if (!tick) tick = setInterval(paintTick, 120);
+  }
+
   function hideFloor() {
     const bar = el('floor-bar');
-    floorWho = null; floorEnds = 0;
+    floorWho = null; floorEnds = 0; floorOpen = false; floorTotal = 30;
     if (tick) { clearInterval(tick); tick = null; }
     const done = el('floor-done');
-    if (done) { done.hidden = true; done.onclick = null; }
-    if (bar) bar.classList.remove('on', 'mine');
+    if (done) { done.hidden = true; done.disabled = false; done.onclick = null; }
+    if (bar) bar.classList.remove('on', 'mine', 'open');
     VoiceChat.openFloor();
   }
+
+  const mmss = (s) => Math.floor(s / 60) + ':'
+    + (s % 60 < 10 ? '0' : '') + Math.floor(s % 60);
 
   function paintTick() {
     if (!floorEnds) return;
     const left = Math.max(0, (floorEnds - Date.now()) / 1000);
-    const total = 30;
-    el('floor-clock').textContent = '0:' + (left < 10 ? '0' : '') + Math.floor(left);
+    el('floor-clock').textContent = mmss(left);
     const fill = el('floor-fill');
-    if (fill) fill.style.transform = 'scaleX(' + U.clamp(left / total, 0, 1) + ')';
+    if (fill) fill.style.transform = 'scaleX(' + U.clamp(left / floorTotal, 0, 1) + ')';
     const mic = el('floor-mic');
     if (mic) {
       const live = VoiceChat.available && !VoiceChat.gagged;
@@ -130,9 +177,10 @@ const RoomUI = (() => {
 
   /* ---------------- the field ----------------
      Everybody's standing, live, during a mission. It is a scoreboard
-     and it is also evidence: three of the eight agenda cards are only
-     catchable because this strip is on screen while they are being
-     performed. A row is `{ playerId, name, value, meter, dim }`. */
+     and it is also the evidence: every card in the agenda deck moves a
+     row on this strip at the moment it is being performed, and half of
+     them are only survivable because a very good player can move it
+     back. A row is `{ playerId, name, value, meter, dim }`. */
 
   function showField(rows) {
     const wrap = el('field');
@@ -162,17 +210,32 @@ const RoomUI = (() => {
      everybody who is not a Traitor — so there is no branch here that
      could accidentally render somebody else's card. */
 
+  /* `progress` is either a plain line or, from a mission that tracks
+     the deck properly, `{ prog, done, covered, alibi }` — the second
+     half being whether the alibi is currently standing up. A Traitor
+     who cannot see the state of their own cover would never gamble on
+     it, and the gamble is the entire point of the card. */
   function showAgenda(progress) {
     const chip = el('agenda-chip');
     if (!chip) return;
     const card = Session.myAgenda ? Session.myAgenda() : null;
     if (!card) { hideAgenda(); return; }
+    const st = (progress && typeof progress === 'object') ? progress : null;
+    const line = st ? st.prog : progress;
     el('agenda-text').textContent = card.text || '';
     const prog = el('agenda-prog');
     if (prog) {
-      prog.textContent = progress || card.hud || '';
+      prog.textContent = line || card.hud || '';
       prog.hidden = !prog.textContent;
     }
+    const alibi = el('agenda-alibi');
+    if (alibi) {
+      const text = (st && st.alibi) || card.alibi || '';
+      alibi.textContent = text ? 'The way out — ' + text : '';
+      alibi.hidden = !text;
+      alibi.classList.toggle('held', !!(st && st.covered));
+    }
+    chip.classList.toggle('done', !!(st && st.done));
     chip.hidden = false;
     chip.classList.add('on');
   }
@@ -227,5 +290,6 @@ const RoomUI = (() => {
   return { init, toggleMic, paintMic,
            showFloor, hideFloor, showBoard, hideBoard, showAgenda, hideAgenda,
            hideAll, paintTick, boardHTML, boardCols, showField, hideField,
-           get floorWho() { return floorWho; } };
+           get floorWho() { return floorWho; },
+           get floorOpen() { return floorOpen; } };
 })();

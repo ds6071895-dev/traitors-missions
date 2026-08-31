@@ -108,6 +108,24 @@ class BoatRaceMission {
      All of this is static so the briefing screen can show you exactly
      what you are about to race without building a world first. */
 
+  /* The full shape of what a run reports, in one place, so that a
+     counter cannot exist at the start of a race and quietly not exist
+     after a restart. */
+  static freshStats() {
+    return {
+      // the line
+      place: 1, of: 1, finishGap: 0, finished: false, elapsed: 0,
+      // the meter, which everybody can see all race
+      boostSpentEarly: 0, boostAtSplit: 0, boostAtFinish: 1,
+      boostInLastThird: 0, ledAtSplit: false,
+      // the gates
+      goldDeclined: 0, goldTaken: 0, perfects: 0, gatesMissed: 0,
+      wideGates: [], buoysClipped: 0,
+      // the strip
+      leadTime: 0, longestStop: 0,
+    };
+  }
+
   static normalise(opts = {}) {
     const seed = Number.isFinite(opts.seed)
       ? (Math.floor(opts.seed) >>> 0) || BoatRaceMission.CONFIG.seed
@@ -229,9 +247,10 @@ class BoatRaceMission {
        whether or not there is an agenda tonight, because a statistic
        that only appears when somebody has a task to do is a statistic
        that tells everyone there is a task. */
-    this.stats = { wideGates: [], buoysClipped: 0, boostInLastThird: 0,
-                   gatesMissed: 0, place: 1, of: 1, finishGap: 0,
-                   finished: false };
+    this.stats = BoatRaceMission.freshStats();
+    this._splitTaken = false;
+    this._stopT = 0;              // the stall being timed right now
+    this._prevBoost = 1;          // to measure the meter going down
 
     this.gatesHit = 0;
     this.perfects = 0;
@@ -675,7 +694,7 @@ class BoatRaceMission {
 
   /* -------- the strip everybody can see --------
      Position down the channel and, crucially, the boost meter. One of
-     the agenda cards is "use no boost in the final third", and this is
+     the agenda cards is "burn the whole meter before halfway", and this is
      the only reason anybody could ever catch it. */
   _updateField(dt) {
     if (!this.party) return;
@@ -885,15 +904,65 @@ class BoatRaceMission {
              gap: best === -Infinity ? 0 : Math.max(0, mine - best) };
   }
 
-  /* The private line on your own HUD. Nobody else has this element,
-     let alone this text — `Session.myAgenda()` is null for everybody
-     who is not a Traitor. */
+  /* -------- what the deck asks about --------
+     Every one of these is also on the shared strip at the moment it is
+     being recorded, which is the whole design of the deck: the task is
+     never done privately, only done well. Gathered on every run,
+     Traitor or not, for the same reason as everything else here — a
+     counter that only exists when there is a task announces the task.
+
+     `where` is distance down the channel, which is the number the strip
+     is drawn from, so "in front" here means in front there. */
+  _trackAgenda(dt) {
+    const st = this.stats;
+    const fr = this.world.lastFrame;
+    const where = fr ? fr.s : 0;
+    const total = this.path.total || 1;
+
+    // the meter, in the two halves of the channel the cards care about
+    const spent = Math.max(0, this._prevBoost - this.boat.boost);
+    if (where < total * 0.5) st.boostSpentEarly += spent;
+    if (this.boat.boosting && where > total * (2 / 3)) st.boostInLastThird += dt;
+    this._prevBoost = this.boat.boost;
+
+    // the standing, live, off the same positions the strip is drawn
+    // from — so the private chip and the public strip never disagree
+    let ahead = 0;
+    for (const [, p] of this.peers) if (p.s > where) ahead++;
+    if (this.peers.size) { st.place = ahead + 1; st.of = this.peers.size + 1; }
+    const inFront = this.peers.size > 0 && ahead === 0;
+    if (inFront) st.leadTime += dt;
+
+    // the last split: what you brought to it, and whether you led into it
+    if (!this._splitTaken && where > total * (2 / 3)) {
+      this._splitTaken = true;
+      st.boostAtSplit = this.boat.boost;
+      st.ledAtSplit = inFront;
+    }
+
+    /* A boat that has stopped. Kept as the longest single stall rather
+       than a total, because three tenths of a second six times is
+       traffic, and one whole second is a decision somebody made. */
+    if (this.boat.speed < 3) {
+      this._stopT += dt;
+      st.longestStop = Math.max(st.longestStop, this._stopT);
+    } else this._stopT = 0;
+
+    st.elapsed = this.elapsed;
+    st.perfects = this.perfects;
+    st.goldTaken = this.riskHits;
+  }
+
+  /* The private chip on your own HUD: the task, how far along it is,
+     and — the half that makes this deck worth playing — whether the
+     alibi is still standing. Nobody else has this element, let alone
+     this text: `Session.myAgenda()` is null for everybody who is not a
+     Traitor. */
   _agendaProgress() {
     const card = this.agenda;
     if (!card) return '';
-    const live = typeof Agendas !== 'undefined' ? Agendas.byId(card.id) : null;
-    if (!live || typeof live.progress !== 'function') return card.hud || '';
-    try { return live.progress(this.stats); } catch (e) { return card.hud || ''; }
+    if (typeof Agendas === 'undefined') return card.hud || '';
+    return Agendas.state(card.id, this.stats) || card.hud || '';
   }
 
   dispose() {
@@ -937,10 +1006,10 @@ class BoatRaceMission {
     this.deduct = 0;
     this.money = 0; this.combo = 0; this.comboT = 0; this.bestCombo = 0;
     this._splitTaken = false;
+    this._stopT = 0;
+    this._prevBoost = 1;
     this._buoyHit = new Set();
-    this.stats = { wideGates: [], buoysClipped: 0, boostInLastThird: 0,
-                   boostAtSplit: 0, gatesMissed: 0, place: 1, of: 1,
-                   finishGap: 0, finished: false };
+    this.stats = BoatRaceMission.freshStats();
     this.gatesHit = 0; this.perfects = 0; this.riskHits = 0; this.stretchHits = 0;
     this.tricks = 0; this.trickMoney = 0; this.grazeMoney = 0; this.grazeT = 0;
     this._airHints = 0;
@@ -1032,13 +1101,7 @@ class BoatRaceMission {
     if (racing) {
       this.elapsed += dt;
       if (this.mode === 'prize') this.time -= dt;
-      /* Boost burned in the last third of the channel. Measured as
-         time spent actually boosting, not as a button press, so
-         holding the key with an empty meter is not a defence. */
-      const fr = this.world.lastFrame;
-      if (this.boat.boosting && fr && fr.s > this.path.total * (2 / 3)) {
-        this.stats.boostInLastThird += dt;
-      }
+      this._trackAgenda(dt);
       this._updateCombo(dt);
       this._checkGates();
       this._checkBuoys();
@@ -1085,6 +1148,9 @@ class BoatRaceMission {
     if (this.countdown <= 0) {
       this.state = 'racing';
       this.boat.boost = this.flags.noBoost ? 0 : 1;
+      // the "burn it early" card measures the meter going down, so the
+      // first frame of the race must not read as a meter already spent
+      this._prevBoost = this.boat.boost;
     }
   }
 
@@ -1219,7 +1285,12 @@ class BoatRaceMission {
 
     // anything else on this gate was a road not taken, not a miss
     for (const other of gate.rings) {
-      if (other !== h && other.state === 'pending') this._dimRing(other, 'skipped');
+      if (other === h || other.state !== 'pending') continue;
+      /* A gold ring you were lined up for and did not take. It is the
+         difference between a cheap run and an unlucky one, and it is
+         the only trace the cold-gold card leaves. */
+      if (other.risk && !h.risk) this.stats.goldDeclined++;
+      this._dimRing(other, 'skipped');
     }
 
     const perfect = radialDist < h.radius * 0.30;
@@ -1402,13 +1473,19 @@ class BoatRaceMission {
   _finish() {
     if (this.state !== 'racing') return;
     this.state = 'finished';
+    /* The line, as the deck sees it: what was left in the meter when
+       you crossed it, and how long it took you. Recorded on every run,
+       because a statistic that only appears in a party is one that
+       appears exactly when somebody has a task. */
+    this.stats.boostAtFinish = this.boat.boost;
+    this.stats.elapsed = this.elapsed;
+    this.stats.finished = true;
     if (this.party) {
       MissionNet.event({ kind: 'finish', playerId: this.meId, t: this.elapsed });
       const pl = this._placeNow();
       this.stats.place = pl.place;
       this.stats.of = pl.of;
       this.stats.finishGap = pl.gap;
-      this.stats.finished = true;
     }
     const C = this.C;
     const trial = this.mode === 'trial';
@@ -1499,7 +1576,9 @@ class BoatRaceMission {
       targetKind: this.targets.kind,
       place: this.stats.place,
       of: this.stats.of,
-      stats: Object.assign({}, this.stats),
+      stats: Object.assign({}, this.stats,
+                           { perfects: this.perfects, goldTaken: this.riskHits,
+                             elapsed: this.elapsed }),
     }, part);
   }
 
@@ -1992,24 +2071,27 @@ Missions.register({
          '<kbd>Space</kbd> boost / roll', '<kbd>R</kbd> restart'],
 
   // the scoreboard, in this mission's own nouns
-  /* What this client tells the other two about its own run. The
-     columns are chosen so that every agenda in the boat-race deck
-     leaves a mark in at least one of them — that is the difference
-     between a secret task and an unfalsifiable one. */
+  /* What this client tells the other two about its own run. Every card
+     in the boat-race deck moves one of these columns, and — this is the
+     half the new deck turns on — every card's alibi moves a *second*
+     one the other way. Last place next to an empty Led column is a
+     confession; last place next to the longest Led on the board is a
+     heartbreak. The columns do not accuse anybody. They just make both
+     readings available. */
   report: (r) => {
     const st = r.stats || {};
     return {
       earned: r.earned,
       completed: r.completed,
       place: r.place || null,
-      columns: ['Place', 'Gates', 'Missed', 'Wide', 'Buoys', 'Late boost'],
+      columns: ['Place', 'Gates', 'Gold', 'Led', 'Stalled', 'Boost left'],
       cells: [
         r.place ? 'P' + r.place : '—',
         r.hoops + '/' + r.totalHoops,
-        String(st.gatesMissed || 0),
-        String((st.wideGates || []).length),
-        String(st.buoysClipped || 0),
-        (st.boostInLastThird || 0).toFixed(1) + 's',
+        String(r.riskHits || 0),
+        (st.leadTime || 0).toFixed(0) + 's',
+        (st.longestStop || 0).toFixed(1) + 's',
+        Math.round((st.boostAtFinish === undefined ? 1 : st.boostAtFinish) * 100) + '%',
       ],
       stats: st,
     };

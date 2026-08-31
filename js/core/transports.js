@@ -115,7 +115,9 @@ const Transports = (() => {
            itself stays on the host, because the host is the only client
            allowed to decide whether it was done. */
         const agendas = (r.agendas || []).map(c => (c
-          ? { id: c.id, text: c.text, tell: c.tell, hud: c.hud || null } : null));
+          ? { id: c.id, text: c.text, tell: c.tell, alibi: c.alibi || null,
+              hud: c.hud || null }
+          : null));
         Party.post('wire', { ev: { type: 'role', role: r.role,
                                    agendas: r.agendas ? agendas : null } }, p.id);
       }

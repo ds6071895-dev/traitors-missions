@@ -52,16 +52,25 @@ test('a party of three is seated in order, with looks and no bots', () => {
   eq(st.phase, 'hill', 'starts on the hill');
 });
 
-test('half of all nights have no traitor at all', () => {
+test('a quarter of all nights have no traitor at all', () => {
   const ctx = fresh();
   let withTraitor = 0;
   const N = 600;
+  const seats = [0, 0, 0];
   for (let s = 1; s <= N; s++) {
     ctx.Session.startParty({ seed: s, players: PLAYERS, mode: 'host' });
-    if (ctx.Session._peek().has) withTraitor++;
+    const peek = ctx.Session._peek();
+    if (peek.has) { withTraitor++; seats[peek.seat]++; }
   }
   const frac = withTraitor / N;
-  ok(frac > 0.42 && frac < 0.58, 'traitor fraction was ' + frac.toFixed(3));
+  ok(frac > 0.70 && frac < 0.80, 'traitor fraction was ' + frac.toFixed(3));
+  /* And the other three quarters are split evenly, which is the half
+     of the draw a player can actually feel: any one of the three of
+     you, you included, is the Traitor on a quarter of all nights. */
+  for (let i = 0; i < 3; i++) {
+    const f = seats[i] / N;
+    ok(f > 0.18 && f < 0.32, 'seat ' + i + ' was the traitor on ' + f.toFixed(3));
+  }
 });
 
 test('a guest never draws roles and is told nothing until it is told', () => {
@@ -184,6 +193,56 @@ test('abandoning a night stops the clock with it', () => {
   eq(ctx.Session.state, null, 'and the night is gone, timer and all');
 });
 
+/* The round table does not go round. Everybody's microphone is live at
+   once, the clock is on the discussion rather than on a turn, and
+   "I've said enough" is a vote to move on rather than a turn handed
+   back. */
+
+test('an open table opens once, for everybody, and runs on one clock', () => {
+  const ctx = fresh();
+  ctx.Session.startParty({ seed: 34, players: PLAYERS, mode: 'host' });
+  const seen = [];
+  ctx.Session.on('floor', (f) => seen.push(f));
+  ctx.Session.dispatch({ type: 'openFloor', all: true, seconds: 60 });
+  eq(seen.length, 1, 'one event, not one per seat');
+  ok(seen[0].all && !seen[0].playerId, 'and it names nobody');
+  eq(ctx.Session.state.floor.seconds, 60, 'the clock is on the discussion');
+  ok(ctx.Session.state.floor.endsAt > Date.now(), 'and it is running');
+  ctx.Session.dispatch({ type: 'openFloor', all: true, seconds: 60 });
+  eq(seen.length, 1, 'a second open while one is running is ignored');
+  ctx.Session.abandon();
+});
+
+test('the table ends when everybody has said they are finished', () => {
+  const ctx = fresh();
+  ctx.Session.startParty({ seed: 35, players: PLAYERS, mode: 'host' });
+  const seen = [];
+  ctx.Session.on('floor', (f) => seen.push(f));
+  ctx.Session.dispatch({ type: 'openFloor', all: true, seconds: 60 });
+  ctx.Session.dispatch({ type: 'yieldFloor', playerId: 'b' });
+  ctx.Session.dispatch({ type: 'yieldFloor', playerId: 'b' });
+  eq(ctx.Session.state.floor.ready, ['b'], 'saying it twice says it once');
+  ok(!ctx.Session.state.floor.done, 'and one of three does not end it');
+  ctx.Session.dispatch({ type: 'yieldFloor', playerId: 'a' });
+  ctx.Session.dispatch({ type: 'yieldFloor', playerId: 'c' });
+  ok(ctx.Session.state.floor.done, 'all three does');
+  ok(seen[seen.length - 1].done, 'and the room is told');
+  ctx.Session.abandon();
+});
+
+test('a dead player cannot hold the table open', () => {
+  const ctx = fresh();
+  ctx.Session.startParty({ seed: 36, players: PLAYERS, mode: 'host' });
+  ctx.Session.state.players[2].alive = false;
+  ctx.Session.dispatch({ type: 'openFloor', all: true, seconds: 60 });
+  ctx.Session.dispatch({ type: 'yieldFloor', playerId: 'c' });
+  eq(ctx.Session.state.floor.ready, [], 'their vote is not counted');
+  ctx.Session.dispatch({ type: 'yieldFloor', playerId: 'a' });
+  ctx.Session.dispatch({ type: 'yieldFloor', playerId: 'b' });
+  ok(ctx.Session.state.floor.done, 'and the living two end it between them');
+  ctx.Session.abandon();
+});
+
 test('changing phase closes any floor that was open', () => {
   const ctx = fresh();
   ctx.Session.startParty({ seed: 33, players: PLAYERS, mode: 'host' });
@@ -212,15 +271,20 @@ function runWithTraitor(ctx, agendaPasses) {
   ctx.Session.dispatch({ type: 'advance' });
   const reports = ctx.Session.state.players.map(p => ({
     playerId: p.id, name: p.name, earned: 1000, columns: ['A'], cells: ['x'],
+    /* A hand that satisfies every card in the deck, and one that
+       satisfies none of them — which card the seed happened to deal is
+       not this file's business. */
     stats: p.id === traitor.id
-      ? (agendaPasses ? { escapedNearMe: 99, missed: 99, perfectsLate: 0,
-                          roundsOffLine: 9, place: 3, of: 3, finishGap: 1,
-                          finished: true, buoysClipped: 2, wideGates: [1, 2, 3],
-                          boostInLastThird: 0 }
-                      : { escapedNearMe: 0, missed: 0, perfectsLate: 5,
-                          roundsOffLine: 0, place: 1, of: 3, finishGap: 40,
-                          finished: true, buoysClipped: 0, wideGates: [],
-                          boostInLastThird: 9 })
+      ? (agendaPasses ? { finished: true, place: 3, of: 3, finishGap: 1,
+                          elapsed: 100, leadTime: 60, longestStop: 1.4,
+                          boostSpentEarly: 1, boostAtFinish: 0, goldDeclined: 3,
+                          escapedNearMe: 5, missed: 10, doves: 1,
+                          roundsOffLine: 1 }
+                      : { finished: true, place: 1, of: 3, finishGap: 40,
+                          elapsed: 100, leadTime: 0, longestStop: 0,
+                          boostSpentEarly: 0, boostAtFinish: 1, goldDeclined: 0,
+                          escapedNearMe: 0, missed: 0, doves: 0,
+                          roundsOffLine: 0 })
       : {},
   }));
   ctx.Session.dispatch({ type: 'result', earned: 3000, completed: true, players: reports });

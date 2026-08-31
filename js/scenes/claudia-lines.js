@@ -175,6 +175,23 @@ const ClaudiaLines = (() => {
         "One of them may have spent all afternoon deciding how to say nothing."
       ]
     ],
+    /* The open table. She says out loud that there are no turns,
+       because a room that has spent the whole night being told to wait
+       its turn will otherwise wait for one. */
+    "tableTalk": [
+      [
+        "Nobody has a turn here.",
+        "Talk. All three of you. Over each other if you have to."
+      ],
+      [
+        "No order. No thirty seconds. No waiting to be asked.",
+        "If somebody says a thing you do not believe, say so while they are still saying it."
+      ],
+      [
+        "The table is open and it stays open.",
+        "Interrupt each other. I am not refereeing this."
+      ]
+    ],
     "tableYourTurn": [
       [
         "And you. What do you make of them?"
