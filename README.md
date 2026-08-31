@@ -495,6 +495,11 @@ person is, what they just did, and what they scored.
   board all three then argue over. Nobody's Continue button arms until it arrives,
   because the pot is what the three of them managed between them.
 
+Mission loading has a host-owned ready gate as well. Shader compilation and world building
+can differ by seconds between devices, so no countdown starts until every active client has
+attached to that mission. Every packet is tagged with the mission id; a late packet from the
+water cannot become an event in the wood.
+
 The **boat race** needs almost none of this: hulls are visual-only off interpolated
 snapshots, and boats deliberately do not collide, because three clients arbitrating
 contact is a desync with a splash on it and racing wheel-to-wheel does not need one.
@@ -566,10 +571,11 @@ there are real pauses at full stops and Chrome's fifteen-second truncation never
 rate 0.92 and duck the score under every line.
 
 And never depend on it. No synthesiser, muted, or a voice that fires no events: all of
-them fall through to subtitles held for `1.6s + 45ms/char`, and the scene above cannot
-tell the difference. `Voice.say()` always resolves, exactly once, whatever the browser
-does. Your own line at the round table is deliberately silent — being dubbed by the
-host's voice in your own mouth is worse than reading it.
+them use the same text-derived subtitle clock, and the scene above cannot tell the
+difference. A system voice is presentation rather than timing; `Voice.say()` resolves on
+that common deadline, exactly once, whatever the browser does. Your own line at the round
+table is deliberately silent — being dubbed by the host's voice in your own mouth is worse
+than reading it.
 
 ### Scenes are beat lists
 

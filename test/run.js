@@ -3,7 +3,7 @@ const { execFileSync } = require('child_process');
 const path = require('path');
 
 const suites = ['session.test.js', 'privacy.test.js', 'agendas.test.js',
-                'mission-stats.test.js', 'transport.test.js', 'look.test.js',
+                'mission-stats.test.js', 'transport.test.js', 'mission-net.test.js', 'look.test.js',
                 'party.test.js', 'mission-party.test.js'];
 
 let bad = 0;

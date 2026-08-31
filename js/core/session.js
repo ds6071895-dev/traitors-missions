@@ -63,6 +63,8 @@ const Session = (() => {
     tally:  new Set(),   // ({ stage, result, counts })
     reveal: new Set(),   // ({ playerId, role }) — the only role that escapes
     floor:  new Set(),   // ({ playerId, endsAt, seconds, done }) — who may speak
+    scene:  new Set(),   // ({ phase }) — every client has built the new room
+    sync:   new Set(),   // ({ key }) — every client reached a public scene barrier
     expose: new Set(),   // ({ playerId, role, agenda }) — an unfinished task
     outcome:new Set(),   // (outcome)
   };
@@ -174,10 +176,16 @@ const Session = (() => {
       phase: 'hill',            // hill | mission | table | finale | verdict
       beat: 0,                  // shared scene beat, for when scenes sync
       missionAt: 0,
+      resultReady: [],          // players who have left the shared scoreboard
+      pendingResult: null,      // host-authored board while the others read it
       players,
       missions: planMissions(seed),
       pot: 0,
       floor: null,              // { all, queue, playerId, ready, endsAt, seconds, done }
+      scene: { phase: 'hill', ready: [], started: false },
+      syncReady: {},            // barrier key -> player ids that have arrived
+      syncPassed: [],           // public scene barriers already released
+      exposure: null,           // the public answer once Claudia has asked
       debrief: null,            // the numbers everybody argues over
       finale: newFinale(),
       outcome: null,
@@ -207,6 +215,7 @@ const Session = (() => {
     mode = opts.mode === 'guest' ? 'guest' : 'host';
     toldRole = null;
     toldAgendas = null;
+    claimedOutcome = null;
     clearFloorTimer();
     secret = mode === 'host'
       ? Object.assign(drawRoles(seed), { agendas: null, exposed: null })
@@ -224,11 +233,36 @@ const Session = (() => {
      that drive the scenes arrive from the host over `Net`, and firing
      a second set from here would run every transition twice. */
 
-  function adopt(next) {
+  function adopt(next, playerId) {
     if (!next) return null;
+    /* `local` is a point of view, not shared state. The authority's
+       snapshot naturally marks the authority as local; installing that
+       marker unchanged made every guest vote, camera and "you" line act
+       as though it belonged to the host. Keep the id we were launched
+       with, or take the transport's explicit peer id on a reconnect. */
+    const mine = playerId || (state && state.players
+      && (state.players.find(p => p.local) || {}).id) || null;
+    if (Array.isArray(next.players) && mine) {
+      next.players.forEach(p => { p.local = p.id === mine; });
+    }
+    if (next.outcome && mine) next.outcome = personalizeOutcome(next.outcome, mine, next);
     state = next;
+    claimGuestOutcome(mine);
     syncGameState();
     return state;
+  }
+
+  let claimedOutcome = null;
+
+  function claimGuestOutcome(playerId) {
+    if (mode !== 'guest' || !state || !state.outcome || !playerId) return;
+    const key = String(state.startedAt) + ':' + playerId;
+    if (claimedOutcome === key || GameState.data.lastOutcomeClaim === key) return;
+    claimedOutcome = key;
+    const amount = Math.max(0, Math.round(state.outcome.banked || 0));
+    if (amount > 0) GameState.addToPot(amount);
+    GameState.data.lastOutcomeClaim = key;
+    GameState.save();
   }
 
   function setMyRole(role, agendas) {
@@ -242,6 +276,7 @@ const Session = (() => {
     secret = { has: false, seat: -1, agendas: null, exposed: null };
     toldRole = null;
     toldAgendas = null;
+    claimedOutcome = null;
     mode = 'host';
     GameState.data.phase = 'lobby';
     GameState.save();
@@ -296,6 +331,7 @@ const Session = (() => {
       case 'beat':    moved = doBeat(action); break;
       case 'advance': moved = doAdvance(); break;
       case 'result':  moved = doResult(action); break;
+      case 'readyResult': moved = doReadyResult(action); break;
       case 'vote':    moved = doVote(action); break;
       case 'decisionPouch': moved = doDecisionPouch(action); break;
       case 'name':    moved = doName(action); break;
@@ -304,6 +340,8 @@ const Session = (() => {
       case 'pouch':   moved = doPouch(); break;
       case 'openFloor':  moved = doOpenFloor(action); break;
       case 'yieldFloor': moved = doYieldFloor(action); break;
+      case 'sceneReady': moved = doSceneReady(action); break;
+      case 'syncReady':  moved = doSyncReady(action); break;
       case 'expose':     moved = doExpose(); break;
       case 'exposeDone': moved = doExposeDone(); break;
       default: return null;
@@ -425,8 +463,51 @@ const Session = (() => {
     state.beat = 0;
     clearFloorTimer();
     state.floor = null;
+    state.scene = { phase: next, ready: [], started: false };
+    state.syncReady = {};
+    state.syncPassed = [];
+    state.exposure = null;
+    state.resultReady = [];
+    state.pendingResult = null;
     syncGameState();
     emit('phase', next, prev);
+  }
+
+  /* A scene begins only after all three browsers have built it. Without
+     this, the fastest GPU can be a line of dialogue ahead before the
+     slowest one has even installed its event listeners. */
+  function doSceneReady(a) {
+    const sc = state.scene || (state.scene = { phase: state.phase, ready: [], started: false });
+    if (sc.phase !== state.phase || (a.phase && a.phase !== state.phase)) return false;
+    if (sc.started) { emit('scene', { phase: state.phase }); return false; }
+    const p = a.playerId ? playerById(a.playerId) : localPlayer();
+    if (!p || sc.ready.indexOf(p.id) >= 0) return false;
+    sc.ready.push(p.id);
+    if (!sc.started && state.players.every(q => sc.ready.indexOf(q.id) >= 0)) {
+      sc.started = true;
+      emit('scene', { phase: state.phase });
+    }
+    return true;
+  }
+
+  /* Explicit barriers cover the places where private material gives
+     clients different-length beat lists (the role/task cards) before
+     they return to shared dialogue. */
+  function doSyncReady(a) {
+    const key = String(a.key || '').slice(0, 80);
+    if (!key) return false;
+    if (state.syncPassed.indexOf(key) >= 0) { emit('sync', { key }); return false; }
+    const p = a.playerId ? playerById(a.playerId) : localPlayer();
+    if (!p) return false;
+    const ready = state.syncReady[key] || (state.syncReady[key] = []);
+    if (ready.indexOf(p.id) >= 0) return false;
+    ready.push(p.id);
+    if (state.players.every(q => ready.indexOf(q.id) >= 0)) {
+      state.syncPassed.push(key);
+      delete state.syncReady[key];
+      emit('sync', { key });
+    }
+    return true;
   }
 
   function doBeat(a) {
@@ -462,6 +543,34 @@ const Session = (() => {
     if (state.missionAt === 0) setPhase('table');
     else { state.finale = newFinale(); setPhase('finale'); }
     return true;
+  }
+
+  /* In a network run the board is shared but reading time is not. The
+     host supplies the authoritative result; every player supplies only
+     readiness. The next room opens once both facts are present. Direct
+     `result` remains the solo/server seam used by tests and fallbacks. */
+  function doReadyResult(a) {
+    if (state.phase !== 'mission') return false;
+    const p = a.playerId ? playerById(a.playerId) : localPlayer();
+    if (!p || !p.alive) return false;
+    let moved = false;
+    if (state.resultReady.indexOf(p.id) < 0) {
+      state.resultReady.push(p.id);
+      moved = true;
+    }
+    if (a.authority) {
+      state.pendingResult = {
+        earned: Math.max(0, Math.round(a.earned || 0)),
+        completed: !!a.completed,
+        players: Array.isArray(a.players) ? a.players : [],
+      };
+      moved = true;
+    }
+    if (state.pendingResult
+        && alive().every(q => state.resultReady.indexOf(q.id) >= 0)) {
+      return doResult(state.pendingResult);
+    }
+    return moved;
   }
 
   /* ---------------- the board ----------------
@@ -515,13 +624,18 @@ const Session = (() => {
      message still in flight, and would have to guess with a timer. */
   function doExpose() {
     if (mode !== 'host') return false;
-    if (!secret.exposed) { emit('expose', { playerId: null }); return false; }
+    if (!secret.exposed) {
+      state.exposure = { checked: true, playerId: null };
+      emit('expose', { playerId: null });
+      return true;
+    }
     const { playerId, card } = secret.exposed;
     const p = playerById(playerId);
     if (!p || !p.alive) {
       secret.exposed = null;
+      state.exposure = { checked: true, playerId: null };
       emit('expose', { playerId: null });
-      return false;
+      return true;
     }
     secret.exposed = null;
     secret.exposedShown = playerId;
@@ -529,9 +643,10 @@ const Session = (() => {
     clearFloorTimer();
     state.floor = null;
     GameState.logEvent('expose', `${p.name} left a task unfinished`, { id: p.id });
-    emit('expose', { playerId: p.id, name: p.name, role: 'traitor',
-                     agenda: card ? card.text : null,
-                     tell: card ? card.tell : null });
+    state.exposure = { checked: true, playerId: p.id, name: p.name,
+                       agenda: card ? card.text : null,
+                       tell: card ? card.tell : null };
+    emit('expose', Object.assign({ role: 'traitor' }, state.exposure));
     return true;
   }
 
@@ -691,7 +806,9 @@ const Session = (() => {
     const order = living.slice().sort((a, b) => {
       const ar = roleOfSeat(a.seat) === 'traitor' ? 1 : 0;
       const br = roleOfSeat(b.seat) === 'traitor' ? 1 : 0;
-      return ar - br || Number(a.local) - Number(b.local) || a.seat - b.seat;
+      /* Shared ordering must never depend on which browser calls someone
+         local. Hold a surviving Traitor for last, then use fixed seats. */
+      return ar - br || a.seat - b.seat;
     });
     f.stage = 'pouches';
     f.reason = reason;
@@ -741,7 +858,9 @@ const Session = (() => {
        Traitor does not otherwise stop it, and a banished local player
        still watches the final pair reveal before the verdict. */
     if (alive().length <= 2) {
-      openPouches(p.local ? 'you-burned' : 'final-two');
+      /* Whose pouch this is is client-local. Store the shared reason and
+         personalise it when each snapshot is installed. */
+      openPouches('final-two');
       return true;
     }
 
@@ -758,6 +877,23 @@ const Session = (() => {
   }
 
   /* ---------------- the verdict ---------------- */
+
+  function personalizeOutcome(outcome, playerId, sourceState) {
+    if (!outcome) return outcome;
+    const card = (outcome.roles || []).find(p => p.id === playerId);
+    if (!card) return outcome;
+    const st = sourceState || state;
+    const burned = st && st.finale && st.finale.burned;
+    const lastBurned = burned && burned.length ? burned[burned.length - 1].id : null;
+    const personalReason = outcome.baseReason === 'final-two' && lastBurned === playerId
+      ? 'you-burned' : (outcome.baseReason || outcome.reason);
+    return Object.assign({}, outcome, {
+      reason: personalReason,
+      role: card.role,
+      won: !!card.winner,
+      banked: Math.max(0, Math.round(card.payout || 0)),
+    });
+  }
 
   function endGame(reason) {
     const living = alive();
@@ -781,9 +917,13 @@ const Session = (() => {
     const won = !!(me && winnerIds.has(me.id));
     const banked = me ? (payoutById.get(me.id) || 0) : 0;
     if (banked > 0) GameState.addToPot(banked);
+    if (me) {
+      GameState.data.lastOutcomeClaim = String(state.startedAt) + ':' + me.id;
+      GameState.save();
+    }
 
-    state.outcome = {
-      won, reason, role, traitorAlive,
+    const publicOutcome = {
+      won, reason, baseReason: reason, role, traitorAlive,
       hadTraitor: secret.has,
       pot: state.pot,
       banked,
@@ -793,6 +933,7 @@ const Session = (() => {
                                        winner: winnerIds.has(p.id),
                                        payout: payoutById.get(p.id) || 0 })),
     };
+    state.outcome = personalizeOutcome(publicOutcome, me && me.id, state);
     state.finale.stage = 'over';
     GameState.logEvent('verdict', won ? 'Won the pot' : 'Lost the pot',
                        { reason, role, banked });

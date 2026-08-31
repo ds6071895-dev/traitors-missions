@@ -870,7 +870,7 @@ class BoatRaceMission {
   /* =================== lifecycle =================== */
 
   start() {
-    this.state = 'countdown';
+    this.state = this.party ? 'waiting' : 'countdown';
     this.countdown = 3.999;
     this.engineSnd = AudioBus.engine();
     this.ambSnd = AudioBus.ambience();
@@ -881,6 +881,14 @@ class BoatRaceMission {
       MissionNet.attach('boat-race');
       this._offEvents = MissionNet.on('event', (d, from) => this._onPeerEvent(d, from));
       RoomUI.showAgenda(this._agendaProgress());
+      this._setCenter('READY', 'Waiting for everybody…', 'count');
+      MissionNet.waitForStart().then(() => {
+        if (!this.scene || this.state !== 'waiting') return;
+        this.state = 'countdown';
+        this.countdown = 3.999;
+        this._lastBeep = 4;
+        this._setCenter('', '');
+      });
     }
   }
 
@@ -890,7 +898,8 @@ class BoatRaceMission {
      which is also true. */
   _onPeerEvent(d, from) {
     if (!d || d.kind !== 'finish') return;
-    this.finishes.set(d.playerId || from, d.t);
+    /* Identity comes from the wire, never from a claim inside it. */
+    this.finishes.set(from, d.t);
   }
 
   _placeNow() {
@@ -1481,7 +1490,7 @@ class BoatRaceMission {
     this.stats.elapsed = this.elapsed;
     this.stats.finished = true;
     if (this.party) {
-      MissionNet.event({ kind: 'finish', playerId: this.meId, t: this.elapsed });
+      MissionNet.event({ kind: 'finish', t: this.elapsed });
       const pl = this._placeNow();
       this.stats.place = pl.place;
       this.stats.of = pl.of;

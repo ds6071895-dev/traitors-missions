@@ -31,10 +31,10 @@ function makeBus() {
     post(from, channel, data, toPeer) {
       // structured-clone the way a real channel would, so nothing can
       // pass a live object reference between "machines"
-      const copy = JSON.parse(JSON.stringify(data === undefined ? null : data));
       for (const [id, deliver] of ends) {
         if (id === from) continue;
         if (toPeer && id !== toPeer) continue;
+        const copy = JSON.parse(JSON.stringify(data === undefined ? null : data));
         deliver(channel, copy, from);
       }
     },
@@ -109,11 +109,52 @@ await atest('a guest is handed the host\'s state without running the reducer', a
   eq(g1.Session.state.missions.map(m => m.id),
      host.Session.state.missions.map(m => m.id), 'same running order');
   eq(g1.Session.mode, 'guest', 'and it knows what it is');
+  eq(g1.Session.state.players.find(p => p.local).id, 'gst1',
+     'the snapshot is localised to the receiving player');
+  eq(host.Session.state.players.find(p => p.local).id, 'host',
+     'without changing the authority\'s point of view');
 });
 
-await atest('an action from a guest is decided by the host and comes back', async () => {
+await atest('public scenes and private-script joins wait for every browser', async () => {
+  const { host, g1, g2 } = await party(1001);
+  host.Net.send({ type: 'sceneReady', phase: 'hill' });
+  g1.Net.send({ type: 'sceneReady', phase: 'hill' });
+  await flush(); await flush();
+  ok(!host.Session.state.scene.started, 'two loaded clients do not start without the third');
+  g2.Net.send({ type: 'sceneReady', phase: 'hill' });
+  await flush(); await flush();
+  ok(host.Session.state.scene.started && g1.Session.state.scene.started,
+     'the room starts together');
+
+  host.Net.send({ type: 'syncReady', key: 'private-done' });
+  g2.Net.send({ type: 'syncReady', key: 'private-done' });
+  await flush(); await flush();
+  eq(host.Session.state.syncPassed, [], 'a shared line cannot outrun private material');
+  g1.Net.send({ type: 'syncReady', key: 'private-done' });
+  await flush(); await flush();
+  eq(g2.Session.state.syncPassed, ['private-done'], 'all clients cross the same barrier');
+});
+
+await atest('mission results advance only when everybody leaves the board', async () => {
+  const { host, g1, g2 } = await party(1002);
+  host.Net.send({ type: 'advance' });
+  await flush(); await flush();
+  g1.Net.send({ type: 'readyResult', earned: 999999, completed: true, players: [] });
+  g2.Net.send({ type: 'readyResult', earned: 999999, completed: true, players: [] });
+  await flush(); await flush();
+  eq(host.Session.state.phase, 'mission', 'guests can be ready but cannot author the result');
+  host.Net.send({ type: 'readyResult', earned: 1234, completed: true, players: [] });
+  await flush(); await flush();
+  eq(host.Session.state.phase, 'table', 'the last ready player releases the room');
+  eq(g1.Session.state.pot, 1234, 'only the host-authored board reaches the pot');
+});
+
+await atest('only the host may advance the running order', async () => {
   const { host, g1, g2 } = await party(102);
   g1.Net.send({ type: 'advance' });
+  await flush(); await flush();
+  eq(host.Session.state.phase, 'hill', 'a guest cannot skip the shared scene');
+  host.Net.send({ type: 'advance' });
   await flush(); await flush();
   eq(host.Session.state.phase, 'mission', 'the host moved');
   eq(g1.Session.state.phase, 'mission', 'the guest that asked was told');
@@ -179,11 +220,14 @@ await atest('a guest joining mid-run lands on the phase in progress', async () =
 
   const g2 = makeClient('gst2', false, bus);
   g2.Session.startParty({ seed: 0, players: seat(g2, 'gst2'), mode: 'guest' });
+  let caughtPhase = null;
+  g2.Net.on(e => { if (e.type === 'phase' && e.catchUp) caughtPhase = e.phase; });
   g2.Net.connect(g2.Transports.GuestTransport);
   await flush(); await flush(); await flush();
 
   eq(g2.Session.state.phase, 'table', 'and the guest arrives where it actually is');
   eq(g2.Session.state.pot, 1200, 'with the pot as it stands');
+  eq(caughtPhase, 'table', 'and its director is explicitly reconciled');
 });
 
 section('transport — what a client may claim');
@@ -318,6 +362,23 @@ await atest('an exposure reaches both guests as an event', async () => {
     await flush(); await flush();
     eq(g1.Session.state.phase, 'verdict', 'and the night ends on every machine');
     eq(g1.Session.state.outcome.reason, 'agenda', 'for the right reason');
+    for (const [id, ctx] of [['host', host], ['gst1', g1], ['gst2', g2]]) {
+      const card = ctx.Session.state.outcome.roles.find(r => r.id === id);
+      eq(ctx.Session.state.players.find(p => p.local).id, id, id + ' still owns its seat');
+      eq(ctx.Session.state.outcome.role, card.role, id + ' sees its own role in the verdict');
+      eq(ctx.Session.state.outcome.won, card.winner, id + ' sees its own win state');
+      eq(ctx.Session.state.outcome.banked, card.payout, id + ' sees its own payout');
+      eq(ctx.GameState.prizePot, card.payout, id + ' banks only its own share');
+    }
+
+    let caughtVerdict = null;
+    g1.Net.disconnect();
+    g1.Net.on((e) => {
+      if (e.type === 'phase' && e.catchUp) caughtVerdict = e.phase;
+    });
+    g1.Net.connect(g1.Transports.GuestTransport);
+    await flush(); await flush();
+    eq(caughtVerdict, 'verdict', 'a reconnect opens the terminal screen as catch-up');
     return;
   }
   throw new Error('no seed in the sweep produced a failed agenda');

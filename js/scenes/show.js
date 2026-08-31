@@ -61,7 +61,7 @@ const Show = (() => {
        deliberately a hole — banking twice would be worse than not
        banking at all. */
     restorePot = Missions.setPotSink(() => {});
-    offNet = Net.on((e) => { if (e.type === 'phase') enter(e.phase, false); });
+    offNet = Net.on((e) => { if (e.type === 'phase') enter(e.phase, !!e.catchUp); });
     GameState.logEvent('show', 'A new night begins', { seed: Session.state.seed });
   }
 
@@ -89,7 +89,13 @@ const Show = (() => {
        still burning behind it and still has Claudia standing in it — so
        this has to bail out before the swap, or the last shot of the
        night gets torn down at the moment it pays off. */
-    if (phase === 'verdict') return;
+    if (phase === 'verdict') {
+      /* A live finale owns its last Claudia line before opening this
+         panel. A reconnect has no ceremony left to resume, so its
+         catch-up snapshot opens the already-personalised verdict now. */
+      if (first && Session.state.outcome) showVerdict(Session.state.outcome);
+      return;
+    }
     const swap = () => {
       Scenes.stop();
       Missions.end();
@@ -157,7 +163,7 @@ const Show = (() => {
       go() {
         if (sent) return;
         sent = true;
-        Net.send({ type: 'result', earned, completed, players });
+        Net.send({ type: 'readyResult', earned, completed, players });
       },
     };
   }
@@ -192,8 +198,9 @@ const Show = (() => {
                : 'A Traitor was still sitting there when you ended it.');
 
     // everyone's cards, face up at last
+    const me = Session.state && Session.state.players.find(p => p.local);
     el('verdict-cast').innerHTML = o.roles.map(p => {
-      const you = p.id === 'you';
+      const you = !!(me && p.id === me.id);
       return `<div class="vc ${p.role} ${p.alive ? '' : 'out'}">`
            + `<span class="vc-name">${you ? 'You' : p.name}</span>`
            + `<span class="vc-role">${p.role === 'traitor' ? 'TRAITOR' : 'FAITHFUL'}</span>`

@@ -30,6 +30,8 @@ const Scenes = (() => {
   const dom = {};
   let active = null;          // the live scene instance
   let token = 0;              // bumps on every stop, orphaning old beats
+  let startOff = null;
+  let startTimer = null;
 
   function cache() {
     if (dom.root) return;
@@ -128,6 +130,47 @@ const Scenes = (() => {
     return mine === token;
   }
 
+  /* A named rendezvous inside a scene. It is mostly invisible because
+     public beat lists have deterministic timing; the hill uses it after
+     the private role/task material, where those lists intentionally
+     differ from one player to the next. */
+  function barrier(key) {
+    const s = typeof Session !== 'undefined' ? Session.state : null;
+    const shared = typeof Party !== 'undefined' && Party.connected;
+    if (!s || !s.players || s.players.length < 2 || !Net.connected || !shared) {
+      return Promise.resolve(true);
+    }
+    if ((s.syncPassed || []).indexOf(key) >= 0) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        off();
+        clearInterval(retry);
+        pending.delete(cancel);
+        resolve(true);
+      };
+      const cancel = () => {
+        if (done) return;
+        done = true;
+        off();
+        clearInterval(retry);
+        pending.delete(cancel);
+        resolve(false);
+      };
+      const off = Net.on(e => { if (e.type === 'sync' && e.key === key) finish(); });
+      pending.add(cancel);
+      const ready = () => Net.send({ type: 'syncReady', key });
+      ready();
+      const retry = setInterval(ready, 600);
+      /* Cover an event that crossed between the state check and listener. */
+      Promise.resolve().then(() => {
+        if (Session.state && (Session.state.syncPassed || []).indexOf(key) >= 0) finish();
+      });
+    });
+  }
+
   /* ---------------- lifecycle ---------------- */
 
   function play(instance) {
@@ -140,12 +183,34 @@ const Scenes = (() => {
       if (active === instance) instance.update(dt, t);
       Input.endFrame();
     });
-    if (instance.start) instance.start();
+    const begin = () => {
+      if (active !== instance) return;
+      clearInterval(startTimer); startTimer = null;
+      if (startOff) { startOff(); startOff = null; }
+      if (instance.start) instance.start();
+    };
+    const s = typeof Session !== 'undefined' ? Session.state : null;
+    const shared = typeof Party !== 'undefined' && Party.connected;
+    if (s && s.players && s.players.length > 1 && Net.connected && shared
+        && s.phase !== 'mission' && s.phase !== 'verdict') {
+      if (s.scene && s.scene.phase === s.phase && s.scene.started) begin();
+      else {
+        const phase = s.phase;
+        startOff = Net.on(e => { if (e.type === 'scene' && e.phase === phase) begin(); });
+        const ready = () => {
+          if (active === instance) Net.send({ type: 'sceneReady', phase });
+        };
+        ready();
+        startTimer = setInterval(ready, 600);
+      }
+    } else begin();
     return instance;
   }
 
   function stop() {
     token++;
+    clearInterval(startTimer); startTimer = null;
+    if (startOff) { startOff(); startOff = null; }
     pending.forEach(fn => { try { fn(); } catch (e) {} });
     pending.clear();
     Voice.stop();
@@ -189,7 +254,7 @@ const Scenes = (() => {
     }
   });
 
-  return { play, stop, run, wait, Cine,
+  return { play, stop, run, wait, barrier, Cine,
            get active() { return active; },
            get running() { return !!active; } };
 })();

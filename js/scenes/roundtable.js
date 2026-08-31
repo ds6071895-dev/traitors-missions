@@ -114,12 +114,23 @@ class RoundtableScene {
   /* ---------------- the exposure question ---------------- */
 
   _exposure() {
+    if (Session.state.exposure && Session.state.exposure.checked) {
+      return Promise.resolve(Session.state.exposure);
+    }
     return new Promise((resolve) => {
       let done = false;
       const finish = (e) => { if (done) return; done = true; off(); resolve(e); };
-      const off = Net.on((ev) => { if (ev.type === 'expose') finish(ev); });
+      const off = Net.on((ev) => {
+        if (ev.type === 'expose') finish(ev);
+        else if (Session.state.exposure && Session.state.exposure.checked) {
+          finish(Session.state.exposure);
+        }
+      });
       this._offExpose = () => finish(null);
       Exposed.request();
+      if (Session.state.exposure && Session.state.exposure.checked) {
+        finish(Session.state.exposure);
+      }
       /* A guest whose host has gone quiet still has to get a table.
          The wait is generous because it is once per gathering. */
       setTimeout(() => finish(null), 4000);
@@ -159,7 +170,7 @@ class RoundtableScene {
                             sub: m.modBlurb || '', tone: 'twist' }, wait: 2.2 } : null,
       m.modName ? { card: null } : null,
       ...speak('sendOff'),
-      { then: () => Net.send({ type: 'advance' }) },
+      { then: () => { if (Session.isHost) Net.send({ type: 'advance' }); } },
     ].filter(Boolean);
   }
 
@@ -170,8 +181,10 @@ class RoundtableScene {
 
   _listen() {
     this._offNet = Net.on((e) => {
-      if (e.type !== 'floor') return;
-      this._onFloor(e);
+      if (e.type === 'floor') this._onFloor(e);
+      else if (Session.state.floor && Session.state.floor.done && this._floorDone) {
+        this._onFloor(Session.state.floor);
+      }
     });
   }
 
@@ -207,9 +220,16 @@ class RoundtableScene {
   }
 
   _openTable() {
-    if (Session.isHost) Net.send({ type: 'openFloor', all: true });
     return new Promise((resolve) => {
       this._floorDone = resolve;
+      const floor = Session.state.floor;
+      if (floor && floor.done) {
+        this._floorDone = null;
+        resolve(true);
+        return;
+      }
+      if (floor && floor.all) this._onFloor(floor);
+      else if (Session.isHost) Net.send({ type: 'openFloor', all: true });
       /* If the host vanishes — before the discussion opens, or in the
          middle of it — the table must still end. This is a backstop,
          not the clock; the clock is the host's, and once the host has

@@ -62,6 +62,10 @@ const Net = (() => {
         Session.on('nameReveal',(n)     => emit({ type: 'nameReveal',...n })),
         Session.on('tally',   (t)       => emit({ type: 'tally',   ...t })),
         Session.on('reveal',  (r)       => emit({ type: 'reveal',  ...r })),
+        Session.on('floor',   (f)       => emit({ type: 'floor',   ...f })),
+        Session.on('scene',   (s)       => emit({ type: 'scene',   ...s })),
+        Session.on('sync',    (s)       => emit({ type: 'sync',    ...s })),
+        Session.on('expose',  (x)       => emit({ type: 'expose',  ...x })),
         Session.on('outcome', (o)       => emit({ type: 'outcome', outcome: o })),
       ];
     },

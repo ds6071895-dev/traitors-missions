@@ -477,22 +477,19 @@ const MissionParty = (() => {
 
   /* ---------------- somebody left ----------------
      A night dies when one of three goes, because a round table cannot
-     be run with an empty chair. A mission party does not: these
-     missions are all `1-3`, the wood is a pure function of the seed,
-     and the two who are left are still in a room together. So this is
-     a line of text and a repaint, not an ending — unless it was the
-     host, which `party.js` reports as an error of its own. */
+     be run with an empty chair. A mission party can lose a guest: the
+     host remains authoritative and the players still present carry on.
+     It cannot lose its host. Mission worlds and results are arbitrated
+     there, so pretending a guest can finish alone leaves it in a frozen
+     imitation of the run. */
   function peerLeft(seat) {
     if (!armed) return false;
     const who = (seat && seat.name) ? seat.name : 'Somebody';
 
-    /* The host is the exception. It owned the setup and it owned the
-       start button, so a room without one is a waiting room that will
-       never open — there is nothing to stay for. A run already in the
-       air is a different matter and is left to finish: the wood is a
-       pure function of the seed and it is all still there. */
+    /* The host is the exception. It owns both setup and live mission
+       authority, so every guest ends the shared run immediately rather
+       than waiting forever for world snapshots or a final board. */
     if (seat && seat.host && !Party.isHost) {
-      if (running) { say(who + ' left. You are finishing this one alone.'); return true; }
       leave();
       Game.toMenu();
       return true;

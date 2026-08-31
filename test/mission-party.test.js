@@ -166,6 +166,7 @@ const DEFS = {
    tested is the wire, and the wire does not have a screen. */
 function stubs(seedOf) {
   const launched = [];
+  const menu = [];
   const el = () => new Proxy({}, {
     get: (t, k) => (k === 'addEventListener' || k === 'select' || k === 'focus'
                      ? () => {}
@@ -175,6 +176,7 @@ function stubs(seedOf) {
   });
   return {
     launched,
+    menu,
     globals: {
       document: { getElementById: el, activeElement: null },
       location: { href: 'https://example.test/index.html', hash: '' },
@@ -188,7 +190,7 @@ function stubs(seedOf) {
       AudioBus: { resume: () => {}, play: () => {} },
       Voice: { unlock: () => {} },
       Engine: { setPaused: () => {} },
-      Game: { enterShow: () => {}, showAttract: () => {}, toMenu: () => {} },
+      Game: { enterShow: () => {}, showAttract: () => {}, toMenu: () => menu.push(true) },
       VoiceChat: { init: () => {}, listen: () => {}, stop: () => {},
                    on: () => {}, available: false, muted: true },
       RoomUI: { paintMic: () => {}, toggleMic: async () => {} },
@@ -205,7 +207,8 @@ function machine(swarm, id, seedOf) {
   const ctx = Swarm.makeClient(swarm, id, true,
     ['js/core/party.js', 'js/core/mission-party.js'], s.globals);
   ctx.MissionParty.init();
-  return { ctx, MP: ctx.MissionParty, Party: ctx.Party, launched: s.launched };
+  return { ctx, MP: ctx.MissionParty, Party: ctx.Party,
+           launched: s.launched, menu: s.menu };
 }
 
 async function party() {
@@ -381,6 +384,28 @@ async function party() {
                          opts: { seed: 1 }, players: [] });
     await settle();
     eq(g.launched.length, 0, 'and it did not');
+  });
+
+  await atest('losing the authority ends a shared run instead of freezing it', async () => {
+    const swarm6 = makeSwarm();
+    const h = machine(swarm6, 'peerH6', 50);
+    const g = machine(swarm6, 'peerG6', 51);
+    await h.MP.openFor('shootout');
+    await settle();
+    await g.MP.joinCode(h.Party.code, 'shootout');
+    await settle();
+    h.MP.start();
+    await settle();
+    ok(g.MP.running, 'the shared run was live');
+
+    /* `main.js` owns this one line in the browser; this harness loads
+       only Party and MissionParty, so install the same hand-off. */
+    g.Party.on('left', (_id, seat) => g.MP.peerLeft(seat));
+    h.MP.leave();
+    await settle();
+    ok(!g.Party.connected, 'the guest closed the authority-less room');
+    ok(!g.MP.running, 'the run was not left waiting for host snapshots');
+    eq(g.menu.length, 1, 'and it returned to a safe screen');
   });
 
   report();

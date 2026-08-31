@@ -140,6 +140,14 @@ const Voice = (() => {
       const done = () => settle(t, resolve);
       live = { resolve, timer: null, keepalive: null };
 
+      /* Speech engines and installed voices have wildly different
+         `onend` timing. Resolve the beat on one text-derived clock on
+         every machine; the synthesiser is presentation, never the show
+         clock. This is what keeps subtitles, cameras and public actions
+         together when one player has a neural voice and another has no
+         speech synthesis at all. */
+      const duration = readTime(body);
+
       /* `silent` is not a fallback, it is a choice: your own line at the
          table is read, not performed, because hearing yourself dubbed by
          the host's voice is worse than reading it. */
@@ -147,7 +155,7 @@ const Voice = (() => {
         ? (opts.voiceURI ? (voices.find(v => v.voiceURI === opts.voiceURI) || best()) : best())
         : null;
       if (!supported || muted || opts.silent || !voice) {
-        live.timer = setTimeout(done, readTime(body));
+        live.timer = setTimeout(done, duration);
         return;
       }
 
@@ -156,9 +164,12 @@ const Voice = (() => {
       const parts = sentences(body);
       let i = 0, finished = false;
 
-      // if the synthesiser goes quiet without telling us, the scene still moves
-      const budget = readTime(body) * 1.9 + 3000;
-      live.timer = setTimeout(() => { if (t === token) { try { synth.cancel(); } catch (e) {} done(); } }, budget);
+      // The same deadline is used with or without a synthesiser.
+      live.timer = setTimeout(() => {
+        if (t !== token) return;
+        try { synth.cancel(); } catch (e) {}
+        done();
+      }, duration);
 
       // Chrome stops speaking after ~15s unless nudged
       live.keepalive = setInterval(() => {
@@ -168,7 +179,7 @@ const Voice = (() => {
 
       const next = () => {
         if (t !== token || finished) return;
-        if (i >= parts.length) { finished = true; done(); return; }
+        if (i >= parts.length) { finished = true; return; }
         const u = new SpeechSynthesisUtterance(parts[i++]);
         u.voice = voice;
         u.lang = voice.lang || 'en-GB';

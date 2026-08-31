@@ -37,9 +37,14 @@ const Transports = (() => {
     ['tally',      (t)       => ({ type: 'tally',      ...t })],
     ['reveal',     (r)       => ({ type: 'reveal',     ...r })],
     ['floor',      (f)       => ({ type: 'floor',      ...f })],
+    ['scene',      (s)       => ({ type: 'scene',      ...s })],
+    ['sync',       (s)       => ({ type: 'sync',       ...s })],
     ['expose',     (x)       => ({ type: 'expose',     ...x })],
     ['outcome',    (o)       => ({ type: 'outcome',    outcome: o })],
   ];
+  const GUEST_ACTIONS = new Set([
+    'vote', 'name', 'yieldFloor', 'sceneReady', 'syncReady', 'readyResult',
+  ]);
 
   /* ---------------- host ---------------- */
 
@@ -74,10 +79,11 @@ const Transports = (() => {
           return;
         }
         if (msg.type !== 'action' || !msg.action) return;
+        if (!GUEST_ACTIONS.has(msg.action.type)) return;
         /* An action is stamped with the peer it actually arrived from.
            A client may only ever act as itself, and this is the one
            place that can be enforced. */
-        const action = Object.assign({}, msg.action, { playerId: peerId });
+        const action = Object.assign({}, msg.action, { playerId: peerId, authority: false });
         Session.dispatch(action);
       });
 
@@ -92,13 +98,17 @@ const Transports = (() => {
       this._emit = null;
     },
 
-    send(action) { Session.dispatch(action); },
+    send(action) {
+      const own = Object.assign({}, action, { authority: true });
+      if (own.type === 'readyResult') own.playerId = Party.selfId();
+      Session.dispatch(own);
+    },
 
     /* -------- private -------- */
 
     _broadcast(ev, toPeer) {
-      if (!Session.state) { Party.post('wire', { ev }, toPeer); return; }
-      Party.post('wire', { ev, state: Session.snapshot() }, toPeer);
+      if (!Session.state) { Party.post('wire', { ev, at: Date.now() }, toPeer); return; }
+      Party.post('wire', { ev, state: Session.snapshot(), at: Date.now() }, toPeer);
     },
 
     _catchUp() {
@@ -106,7 +116,7 @@ const Transports = (() => {
       const roles = Session.privateRoles();
       for (const p of Session.state.players) {
         if (p.local) continue;
-        this._broadcast({ type: 'state', state: Session.snapshot() }, p.id);
+        this._broadcast({ type: 'state', state: Session.snapshot(), catchUp: true }, p.id);
         if (this._sentRoles.has(p.id)) continue;
         const r = roles.find(x => x.playerId === p.id);
         if (!r) continue;
@@ -130,7 +140,8 @@ const Transports = (() => {
 
     open(emit) {
       this._emit = emit;
-      this._got = false;
+      this._gotState = false;
+      this._gotRole = false;
 
       /* Listen first, then speak. The reply to a hello can arrive on
          the same tick the hello was sent — it does on a loopback, and
@@ -138,14 +149,42 @@ const Transports = (() => {
          after the send loses exactly the message the send was for. */
       this._off = Party.on('wire', (msg) => {
         if (!msg || !msg.ev) return;
-        this._got = true;
         /* State first, always. See rule 1 at the top of this file. */
-        if (msg.state) Session.adopt(msg.state);
+        const before = Session.state && Session.state.phase;
+        if (msg.state) {
+          /* Host absolute timestamps are meaningless if two device clocks
+             differ. Preserve the remaining duration at send time and put
+             it onto this device's clock. */
+          if (msg.at && msg.state.floor && msg.state.floor.endsAt) {
+            const left = Math.max(0, msg.state.floor.endsAt - msg.at);
+            msg.state.floor.endsAt = Date.now() + left;
+          }
+          Session.adopt(msg.state, Party.selfId());
+        }
         if (msg.ev.type === 'role') {
           Session.setMyRole(msg.ev.role, msg.ev.agendas);
+          this._gotRole = true;
           return;
         }
-        if (msg.ev.type === 'state') { emit({ type: 'state', state: Session.state }); return; }
+        if (msg.ev.type === 'state') {
+          this._gotState = true;
+          emit({ type: 'state', state: Session.state });
+          /* A catch-up snapshot is allowed to be the first news this
+             client gets. Reconcile the director as well as the reducer. */
+          if (before && Session.state && (before !== Session.state.phase
+              || (msg.ev.catchUp && Session.state.phase === 'verdict'))) {
+            emit({ type: 'phase', phase: Session.state.phase, prev: before, catchUp: true });
+          }
+          return;
+        }
+        if (msg.ev.type === 'floor' && Session.state && Session.state.floor) {
+          emit(Object.assign({}, msg.ev, { endsAt: Session.state.floor.endsAt }));
+          return;
+        }
+        if (msg.ev.type === 'outcome' && Session.state && Session.state.outcome) {
+          emit({ type: 'outcome', outcome: Session.state.outcome });
+          return;
+        }
         emit(msg.ev);
       });
 
@@ -155,7 +194,7 @@ const Transports = (() => {
          otherwise leave a guest sitting on the hill with no role and
          no state for the whole night. */
       const hello = () => {
-        if (this._got) return;
+        if (this._gotState && this._gotRole) return;
         Party.post('wire', { type: 'hello' }, Party.hostId);
       };
       hello();
@@ -176,5 +215,5 @@ const Transports = (() => {
     },
   };
 
-  return { HostTransport, GuestTransport, EVENTS };
+  return { HostTransport, GuestTransport, EVENTS, GUEST_ACTIONS };
 })();

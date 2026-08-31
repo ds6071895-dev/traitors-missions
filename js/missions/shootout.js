@@ -210,6 +210,7 @@ class ShootoutMission {
     this.agenda = opts.agenda || null;
     this.peers = new Map();
     this.scores = new Map();
+    this._claims = new Map();
     this._netAcc = 0;
     this._fieldT = 0;
 
@@ -233,6 +234,7 @@ class ShootoutMission {
     this.sprinting = false;
     this.stepPhase = 0;
     this._respawn = [];
+    if (this._claims) this._claims.clear();
     this.boss = null;
     if (this.music) { this.music.stop(0.4); this.music = null; }
     this.lockT = 0; this.lockName = ''; this.lockGuard = false;
@@ -465,7 +467,7 @@ class ShootoutMission {
       this._offEvents = MissionNet.on('event', (d, from) => this._onNetEvent(d, from));
       RoomUI.showAgenda(this._agendaProgress());
     }
-    this.state = 'countdown';
+    this.state = this.party ? 'waiting' : 'countdown';
     this.countdown = 3.999;
     this._lastBeep = 4;
     this.windSnd = AudioBus.wind();
@@ -474,6 +476,16 @@ class ShootoutMission {
     Screens.show('hud-shoot');
     this._setCenter('', '');
     this._banner(this.forestName, ForestConditions.describe(this.cond));
+    if (this.party) {
+      this._setCenter('READY', 'Waiting for everybody…', 'count');
+      MissionNet.waitForStart().then(() => {
+        if (!this.scene || this.state !== 'waiting') return;
+        this.state = 'countdown';
+        this.countdown = 3.999;
+        this._lastBeep = 4;
+        this._setCenter('', '');
+      });
+    }
   }
 
   restart() {
@@ -594,7 +606,8 @@ class ShootoutMission {
     this._updateMove(rawDt);
 
     if (this.state === 'countdown') this._updateCountdown(rawDt);
-    if (this.state === 'live' || this.state === 'between') this._updateRound(dt);
+    if ((!this.party || this.isHost)
+        && (this.state === 'live' || this.state === 'between')) this._updateRound(dt);
 
     this._updateBuffs(rawDt);
     this._lockScan(rawDt);
@@ -618,8 +631,8 @@ class ShootoutMission {
       this._updateGhost();
     }
 
-    this._updateResidents(dt);
-    if (this.state === 'live') this._updateBoss(dt);
+    if (!this.party || this.isHost) this._updateResidents(dt);
+    if (this.state === 'live' && (!this.party || this.isHost)) this._updateBoss(dt);
 
     // the wood keeps living between rounds
     this._songT -= dt;
@@ -968,13 +981,13 @@ class ShootoutMission {
 
   _onHit(target, arrow, info) {
     const rule = (this.round && this.round.def.rule) || {};
-    // a guest asks; the host answers. See `_claimHit`.
-    if (this.party && !this.isHost) return this._claimHit(target, arrow, info);
     // "only a clean loose counts" — a soft arrow goes straight through
     if ((rule.cleanOnly || this.flags.cleanOnly) && !arrow.perfect) {
       this.fx.labels.add('TOO SOFT', target.pos, { className: 'bad', life: 0.8, rise: 6 });
       return false;                            // not consumed: keep flying
     }
+    // a guest asks; the host answers. See `_claimHit`.
+    if (this.party && !this.isHost) return this._claimHit(target, arrow, info);
 
     if (target.guard) { this._dove(target, info); return true; }
 
@@ -1480,15 +1493,23 @@ class ShootoutMission {
   _boonPay() { return this.buffs.purse > 0 ? 2 : 1; }
 
   // a weak point taking an arrow: the whole point of the fight
-  _bossHurt(target, info) {
+  _bossAuthorityHit(target, bite) {
+    const B = this.boss;
+    if (!B) return;
+    B.hits += bite;
+    const P = ShootoutMission.BOSS_PHASES[B.phase] || { need: 99 };
+    if (B.hits >= P.need) this._bossStagger();
+  }
+
+  _bossHurt(target, info, affectWorld = true) {
     const B = this.boss;
     const C = this.C;
-    if (!B) return;
     // an ember arrow bites twice, which is what makes the charm worth
     // turning your back on the owl for
     const bite = this.buffs.ember > 0 ? 2 : 1;
-    B.hits += bite;
-    const P = ShootoutMission.BOSS_PHASES[B.phase] || { need: 99, name: '' };
+    if (affectWorld && B) B.hits += bite;
+    const P = B ? (ShootoutMission.BOSS_PHASES[B.phase] || { need: 99, name: '' })
+                : { need: 99, name: 'THE GREAT OWL' };
     const pay = C.bossHitMoney * this._chainMult() * C.moneyScale * this._boonPay() * bite;
     this.money += pay;
     this.chain = Math.min(this.chain + 1, C.chainCap);
@@ -1507,7 +1528,7 @@ class ShootoutMission {
     AudioBus.play('boss-hurt', {});
     if (this.music) this.music.stinger('hurt');
 
-    if (B.hits >= P.need) this._bossStagger();
+    if (affectWorld && B && B.hits >= P.need) this._bossStagger();
   }
 
   _bossStagger() {
@@ -1735,16 +1756,30 @@ class ShootoutMission {
       const st = f.netState();
       st.t = f.typeId;
       st.s = f.scale;
+      /* A boss's open weak point is gameplay state, not decoration. A
+         guest cannot infer it from the transform snapshot because only
+         the host advances the boss brain. */
+      if (f.type.boss) st.w = f.weakName || null;
       a.push(st);
     }
-    MissionNet.event({ kind: 'flock', a });
+    const R = this.round;
+    MissionNet.event({ kind: 'flock', a, world: {
+      state: this.state,
+      roundIndex: this.roundIndex,
+      betweenT: this.betweenT || 0,
+      round: R ? { time: R.time, killed: R.killed, spawned: R.spawned,
+                   escaped: R.escaped, doves: R.doves } : null,
+      boss: this.boss ? { phase: this.boss.phase, hits: this.boss.hits,
+                          open: this.boss.open, down: this.boss.down,
+                          staggerT: this.boss.staggerT } : null,
+    } });
   }
 
   /* A guest spawns anything it has not seen before and drops anything
      that has stopped arriving. Spawn-on-sight rather than spawn events
      because it is self-healing: a guest that misses a spawn message
      recovers on the next snapshot instead of missing a bird all round. */
-  _applyFlock(list) {
+  _applyFlock(list, world) {
     if (!this.party || this.isHost || !this.flock) return;
     const keep = new Set();
     for (const st of list) {
@@ -1757,16 +1792,94 @@ class ShootoutMission {
         if (!f) continue;
       }
       f.netApply(st, 1 / 20);
+      if (f.type.boss) f.weakName = st.w || null;
     }
     for (let i = this.flock.list.length - 1; i >= 0; i--) {
       const f = this.flock.list[i];
       if (!keep.has(f.netId)) this.flock.remove(f);
     }
+    this._applyWorldState(world);
+  }
+
+  _applyWorldState(world) {
+    if (!world || this.isHost) return;
+    if (this.state === 'failed') return;
+    if (world.roundIndex >= 0 && world.roundIndex !== this.roundIndex
+        && this.state !== 'finished' && this.state !== 'failed') {
+      this._beginRound(world.roundIndex);
+    }
+    if (this.round && world.round) {
+      this.round.time = world.round.time;
+      this.round.killed = world.round.killed;
+      this.round.spawned = world.round.spawned;
+      this.round.escaped = world.round.escaped;
+      this.round.doves = world.round.doves;
+    }
+    if (!world.round) this.round = null;
+
+    /* Guests render the host's owl rather than running a second boss
+       brain. Keep the HUD, aim marker and hit feedback on the same
+       phase as the authority snapshot. */
+    if (world.boss) {
+      const flyer = this.flock.list.find(f => f.type.boss) || null;
+      const hadBoss = !!this.boss;
+      const previous = this.boss && this.boss.phase;
+      const wasDown = !!(this.boss && this.boss.down);
+      this.boss = Object.assign({}, this.boss || {}, world.boss, { flyer });
+      if (flyer && !world.boss.open) flyer.weakName = null;
+      if (!hadBoss) {
+        if (this.music) { this.music.stop(0.55); this.music = null; }
+        this.music = Music.boss();
+        this.music.setGear(Math.max(0, world.boss.phase), 0.1);
+        this.music.setIntensity(0.75);
+        AudioBus.play('owl-screech', {});
+        this._banner('THE GREAT OWL', 'It has been watching you all evening', 'boss');
+      }
+      if (previous !== undefined && previous !== world.boss.phase
+          && world.boss.phase >= 0) {
+        const P = ShootoutMission.BOSS_PHASES[world.boss.phase];
+        if (P) {
+          this._banner(P.name, P.call, 'boss');
+          if (this.music) {
+            this.music.setGear(P.gear, world.boss.phase === 3 ? 0.4 : 2);
+            this.music.setIntensity(0.8 + world.boss.phase * 0.07);
+            this.music.stinger('phase');
+          }
+        }
+      }
+      if (!wasDown && world.boss.down) {
+        AudioBus.play('owl-death', {});
+        this._banner('THE GREAT OWL IS DOWN', '', 'perfect');
+        if (this.music) {
+          this.music.stinger('down');
+          this.music.stop(3.6);
+          this.music = null;
+        }
+      }
+    } else {
+      this.boss = null;
+    }
+    if (world.state === 'finished') {
+      if (this.state !== 'finished' && this.state !== 'failed') this._finish();
+      return;
+    }
+    if (world.state === 'failed') {
+      this._fail('THE SHARED RUN ENDED');
+      return;
+    }
+    if (world.state === 'live' || world.state === 'between') {
+      this.state = world.state;
+      this.betweenT = world.betweenT;
+    }
   }
 
   _onNetEvent(d, from) {
     if (!d) return;
-    if (d.kind === 'flock') { this._applyFlock(d.a || []); return; }
+    const authoritative = d.kind === 'flock' || d.kind === 'kill'
+      || d.kind === 'escaped' || d.kind === 'claimResult';
+    if (authoritative && this.isHost) return;
+    if (authoritative && !this.isHost && Party.hostId && from !== Party.hostId) return;
+    if (d.kind === 'flock') { this._applyFlock(d.a || [], d.world); return; }
 
     /* A bird got away. Everybody is told where, and each client decides
        for itself whether it got away *from them* — which is the only
@@ -1784,17 +1897,53 @@ class ShootoutMission {
       return;
     }
 
+    if (d.kind === 'claimResult') {
+      if (d.playerId === this.meId) this._applyClaimResult(d);
+      return;
+    }
+
     /* A guest says it hit something; the host is the one that decides
        whether it did. This is the only contested call in the mission
        and it is the only one arbitrated. */
     if (d.kind === 'claim' && this.isHost) {
       const f = this.flock.byNetId(d.i);
       if (!f || f.dying || !f.alive) return;
-      const killed = f.hit(1);
-      if (killed) {
-        MissionNet.event({ kind: 'kill', i: d.i, playerId: d.playerId || from,
-                           points: f.value || 0 });
+      const rule = (this.round && this.round.def.rule) || {};
+      let effect = 'hit';
+      if ((rule.cleanOnly || this.flags.cleanOnly) && !d.perfect) {
+        effect = 'reject';
+      } else if (f.guard) {
+        effect = 'dove';
+        f.kill();
+        if (this.round) this.round.time = Math.max(0, this.round.time - this.C.doveTime);
+        if (this.flags.suddenDeath) this._fail('A DOVE WAS SHOT');
+      } else if (f.type.boon) {
+        effect = 'boon';
+        f.kill();
+      } else if (f.type.boss) {
+        const B = this.boss;
+        const a = d.a || [], b = d.b || [];
+        const fromV = new THREE.Vector3(+a[0] || 0, +a[1] || 0, +a[2] || 0);
+        const seg = new THREE.Vector3((+b[0] || 0) - fromV.x,
+                                     (+b[1] || 0) - fromV.y,
+                                     (+b[2] || 0) - fromV.z);
+        const len = seg.length();
+        const open = B && B.open && B.staggerT <= 0 && f.weakName;
+        if (!open || !f.weakSegHit(fromV, seg, Math.max(len, 1e-4))) effect = 'reject';
+        else {
+          effect = 'boss';
+          this._bossAuthorityHit(f, d.bite > 1 ? 2 : 1);
+        }
+      } else {
+        const killed = f.hit(U.clamp(+d.power || 1, 0.05, 4));
+        effect = killed ? 'kill' : 'hit';
+        if (killed && this.round && !f.resident && !f.isAdd) {
+          this.round.killed = Math.min(this.round.total, this.round.killed + 1);
+        }
       }
+      const p = f.pos;
+      MissionNet.event({ kind: 'claimResult', playerId: from, i: d.i, effect,
+                         x: p.x, y: p.y, z: p.z, points: f.value || 0 }, from);
       return;
     }
   }
@@ -1804,12 +1953,40 @@ class ShootoutMission {
      waits for a round trip before it feels like it hit anything feels
      broken — but nothing about the bird changes here. */
   _claimHit(target, arrow, info) {
-    MissionNet.event({ kind: 'claim', i: target.netId, playerId: this.meId,
-                       perfect: !!arrow.perfect }, Party.hostId);
-    this.hits++;
-    if (arrow.perfect) this.cleanHits++;
+    this._claims.set(target.netId, {
+      target,
+      arrow: { perfect: !!arrow.perfect, power: arrow.power || 1, hits: arrow.hits || 1 },
+      info: { point: info.point.clone ? info.point.clone() : new THREE.Vector3(info.point.x, info.point.y, info.point.z) },
+    });
+    MissionNet.event({ kind: 'claim', i: target.netId,
+                       perfect: !!arrow.perfect, power: arrow.power || 1,
+                       bite: this.buffs.ember > 0 ? 2 : 1,
+                       a: [arrow.prev.x, arrow.prev.y, arrow.prev.z],
+                       b: [arrow.pos.x, arrow.pos.y, arrow.pos.z] }, Party.hostId);
     this._hitMark('');
     return true;
+  }
+
+  _applyClaimResult(d) {
+    const claim = this._claims.get(d.i);
+    this._claims.delete(d.i);
+    if (!claim) return;
+    const target = claim.target;
+    const arrow = claim.arrow;
+    const info = claim.info;
+    if (d.x !== undefined) info.point.set(d.x, d.y, d.z);
+
+    if (d.effect === 'reject') {
+      this.fx.labels.add('NOT COUNTED', info.point, { className: 'bad', life: 0.8, rise: 6 });
+      return;
+    }
+    if (d.effect === 'dove') { this._dove(target, info); return; }
+    this.hits++;
+    if (arrow.perfect) this.cleanHits++;
+    if (d.effect === 'boon') { this._takeBoon(target, info); return; }
+    if (d.effect === 'boss') { this._bossHurt(target, info, false); return; }
+    if (d.effect === 'kill') { this._award(target, arrow, info); return; }
+    this._hitMark('');
   }
 
   _updateField(dt) {

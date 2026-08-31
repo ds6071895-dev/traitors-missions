@@ -279,12 +279,23 @@ class FinaleScene {
   }
 
   _exposure() {
+    if (Session.state.exposure && Session.state.exposure.checked) {
+      return Promise.resolve(Session.state.exposure);
+    }
     return new Promise((resolve) => {
       let done = false;
       const finish = (ev) => { if (done) return; done = true; off(); resolve(ev); };
-      const off = Net.on((ev) => { if (ev.type === 'expose') finish(ev); });
+      const off = Net.on((ev) => {
+        if (ev.type === 'expose') finish(ev);
+        else if (Session.state.exposure && Session.state.exposure.checked) {
+          finish(Session.state.exposure);
+        }
+      });
       this._waits.add(() => finish(null));
       Exposed.request();
+      if (Session.state.exposure && Session.state.exposure.checked) {
+        finish(Session.state.exposure);
+      }
       setTimeout(() => finish(null), 4000);
     });
   }
@@ -302,25 +313,41 @@ class FinaleScene {
      talks over each other is a fire where the loudest person wins, and
      that is not the game. */
   _floorRound() {
-    if (Session.isHost) Net.send({ type: 'openFloor', seconds: 30 });
     return new Promise((resolve) => {
+      let done = false;
+      const finish = (ok) => {
+        if (done) return;
+        done = true;
+        off();
+        RoomUI.hideFloor();
+        if (this.stage) this.stage.setSpeaking(null);
+        resolve(ok);
+      };
       const off = Net.on((e) => {
-        if (e.type !== 'floor') return;
-        if (e.done || !e.playerId) {
-          off();
-          RoomUI.hideFloor();
-          if (this.stage) this.stage.setSpeaking(null);
-          resolve(true);
+        const current = e.type === 'floor' ? e : Session.state.floor;
+        if (!current) return;
+        if (current.done || !current.playerId) {
+          finish(true);
           return;
         }
-        RoomUI.showFloor(e);
+        if (e.type !== 'floor') return;
+        RoomUI.showFloor(current);
         if (this.stage) {
           this.stage.setShot('on:' + e.playerId);
           this.stage.setSpeaking(e.playerId);
         }
       });
-      this._waits.add(() => { off(); RoomUI.hideFloor(); resolve(false); });
-      setTimeout(() => { off(); RoomUI.hideFloor(); resolve(true); },
+      const floor = Session.state.floor;
+      if (floor && floor.done) { finish(true); return; }
+      if (floor && floor.playerId) {
+        RoomUI.showFloor(floor);
+        if (this.stage) {
+          this.stage.setShot('on:' + floor.playerId);
+          this.stage.setSpeaking(floor.playerId);
+        }
+      } else if (Session.isHost) Net.send({ type: 'openFloor', seconds: 30 });
+      this._waits.add(() => finish(false));
+      setTimeout(() => finish(true),
                  30000 * (Session.alive().length + 1));
     });
   }
@@ -497,8 +524,12 @@ class FinaleScene {
       }], this);
       if (!this._alive) return;
 
+      await Scenes.barrier('name-' + this._round() + '-'
+        + Session.state.finale.nameRound + '-' + voter.id);
+      if (!this._alive) return;
+
       const before = voter.id;
-      Net.send({ type: 'speakName', playerId: voter.id });
+      if (Session.isHost) Net.send({ type: 'speakName', playerId: voter.id });
       await this._waitFor(() => Session.state.phase !== 'finale'
         || Session.state.finale.stage !== 'names'
         || Session.state.finale.nameQueue[0] !== before);
@@ -578,6 +609,9 @@ class FinaleScene {
     await this._say('decisionPouchThrow', { name: target.name }, 'claudiaTight', salt);
     if (!this._alive) return this._abort();
 
+    await Scenes.barrier('decision-' + this._round() + '-' + target.id + '-throw');
+    if (!this._alive) return this._abort();
+
     Voice.clear();
     if (this.music) { this.music.duck(0.14, 1.5); }
     this._heartOn = true;
@@ -605,22 +639,41 @@ class FinaleScene {
     this.stage.setCinematic(false);
     await this._say(choice === 'end' ? 'decisionEnd' : 'decisionBanish',
                     { name: target.name }, 'on:' + target.id, salt);
+    await Scenes.barrier('decision-' + this._round() + '-' + target.id + '-complete');
     this.stage.lookAt(null);
   }
 
   _burnDecision(playerId) {
     return new Promise((resolve) => {
       let cancel = null;
-      const off = Net.on((e) => {
-        if (e.type !== 'decision' || e.playerId !== playerId) return;
+      let done = false;
+      const finish = (choice, e) => {
+        if (done) return;
+        done = true;
         off();
         if (cancel) this._waits.delete(cancel);
-        this._decisionFlare(e.choice, e);
-        resolve(e.choice);
+        this._decisionFlare(choice, e || { playerId, choice });
+        resolve(choice);
+      };
+      const off = Net.on((e) => {
+        if (e.type === 'decision' && e.playerId === playerId) {
+          finish(e.choice, e);
+          return;
+        }
+        const recovered = (Session.state.finale.decisionsShown || [])
+          .find(x => x.playerId === playerId);
+        if (recovered) finish(recovered.choice, recovered);
       });
-      cancel = () => { off(); this._waits.delete(cancel); resolve('end'); };
+      cancel = () => {
+        if (done) return;
+        done = true;
+        off(); this._waits.delete(cancel); resolve('end');
+      };
       this._waits.add(cancel);
-      Net.send({ type: 'decisionPouch', playerId });
+      const shown = (Session.state.finale.decisionsShown || [])
+        .find(x => x.playerId === playerId);
+      if (shown) { finish(shown.choice, shown); return; }
+      if (Session.isHost) Net.send({ type: 'decisionPouch', playerId });
     });
   }
 
@@ -685,6 +738,11 @@ class FinaleScene {
     await this._say('pouchThrow', { name: target.name }, 'claudiaTight', salt);
     if (!this._alive) return this._abort();
 
+    const ceremonyKey = 'pouch-' + this._round() + '-'
+      + ((spec.action && spec.action.type) || 'reveal') + '-' + target.id;
+    await Scenes.barrier(ceremonyKey + '-throw');
+    if (!this._alive) return this._abort();
+
     /* The held beat. The score drops to a pulse, the subtitle goes, the
        riser starts, and the camera creeps in on the fire — four things
        all saying the same thing, which is that nothing else is going to
@@ -712,7 +770,7 @@ class FinaleScene {
     await Scenes.wait(0.85);
 
     // the answer
-    const role = await this._burn(spec.action);
+    const role = await this._burn(spec.action, target.id);
     if (!this._alive) return this._abort();
 
     // it is allowed to just burn for a while
@@ -723,6 +781,7 @@ class FinaleScene {
 
     this.stage.setCinematic(false);
     await this._say(spec.reveal(role), { name: target.name }, 'claudia', salt);
+    await Scenes.barrier(ceremonyKey + '-complete');
     this.stage.lookAt(null);
   }
 
@@ -743,16 +802,33 @@ class FinaleScene {
   }
 
   // dispatch the reveal and wait for the authority to say what it was
-  _burn(action) {
+  _burn(action, playerId) {
     return new Promise((resolve) => {
-      const off = Net.on((e) => {
-        if (e.type !== 'reveal') return;
+      let done = false;
+      const finish = (role, e) => {
+        if (done) return;
+        done = true;
         off();
-        this._flare(e.role, e);
-        resolve(e.role);
+        this._flare(role, e || { playerId, role });
+        resolve(role);
+      };
+      const off = Net.on((e) => {
+        if (e.type === 'reveal' && (!playerId || e.playerId === playerId)) {
+          finish(e.role, e);
+          return;
+        }
+        const f = Session.state.finale;
+        const recovered = (f.opened || []).concat(f.burned || []).find(x => x.id === playerId);
+        if (recovered) finish(recovered.role, { playerId, role: recovered.role });
       });
-      this._waits.add(() => { off(); resolve('faithful'); });
-      Net.send(action || { type: 'reveal' });
+      this._waits.add(() => {
+        if (done) return;
+        done = true; off(); resolve('faithful');
+      });
+      const f = Session.state.finale;
+      const shown = (f.opened || []).concat(f.burned || []).find(x => x.id === playerId);
+      if (shown) { finish(shown.role, { playerId, role: shown.role }); return; }
+      if (Session.isHost) Net.send(action || { type: 'reveal' });
     });
   }
 

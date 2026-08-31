@@ -512,7 +512,12 @@ const Game = (() => {
           boardEl.hidden = false;
         }
         cont.textContent = run.label;
-        cont.onclick = () => { AudioBus.play('ui-click'); cont.disabled = true; run.go(); };
+        cont.onclick = () => {
+          AudioBus.play('ui-click');
+          cont.disabled = true;
+          cont.textContent = 'Waiting for everybody…';
+          run.go();
+        };
         cont.disabled = false;
         UINav.scan();
       };

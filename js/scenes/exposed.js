@@ -71,7 +71,8 @@ const Exposed = (() => {
       { card: null },
 
       ...speak('exposeAfter', { name }, ['claudia', null, 'players']),
-      { then: () => Net.send({ type: 'exposeDone' }) },
+      { then: () => Scenes.barrier('exposure-ceremony-complete') },
+      { then: () => { if (Session.isHost) Net.send({ type: 'exposeDone' }); } },
     ];
   }
 

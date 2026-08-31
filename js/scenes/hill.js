@@ -121,6 +121,8 @@ class HillScene {
         { then: () => RoomUI.showAgenda() },
       ] : []),
 
+      { then: () => Scenes.barrier('hill-private-complete') },
+
       ...speak('firstMission', twistVars, ['wide', 'claudia', null]),
 
       // the twist, announced rather than chosen
@@ -130,7 +132,7 @@ class HillScene {
       m.modName ? { card: null } : null,
 
       ...speak('sendOff'),
-      { then: () => Net.send({ type: 'advance' }) },
+      { then: () => { if (Session.isHost) Net.send({ type: 'advance' }); } },
     ].filter(Boolean), this);
   }
 

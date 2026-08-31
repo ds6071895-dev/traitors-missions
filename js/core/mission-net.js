@@ -37,6 +37,10 @@ const MissionNet = (() => {
   let boardWaiters = [];
   let board = null;
   let reportTimer = null;
+  let started = false;
+  let startWaiters = [];
+  let readyTimer = null;
+  const readyPeers = new Set();
 
   const listeners = { pose: new Set(), event: new Set(), board: new Set() };
   function on(evt, fn) {
@@ -67,24 +71,55 @@ const MissionNet = (() => {
     boardWaiters = [];
     remotes.clear();
     reports.clear();
+    started = false;
+    startWaiters = [];
+    readyPeers.clear();
 
     offs.push(Party.on('sync', (msg, peerId) => {
-      if (!msg || msg.k !== 'pose') return;
+      if (!msg || msg.k !== 'pose' || msg.m !== missionId) return;
       takePose(peerId, msg);
     }));
 
     offs.push(Party.on('mev', (msg, peerId) => {
-      if (!msg) return;
+      if (!msg || msg.m !== missionId) return;
       if (msg.k === 'event') { emit('event', msg.data, peerId); return; }
       if (msg.k === 'report') { takeReport(peerId, msg.data); return; }
-      if (msg.k === 'board') { settle(msg.board); return; }
+      if (msg.k === 'board') {
+        if (!Party.isHost && (!Party.hostId || peerId === Party.hostId)) settle(msg.board);
+        return;
+      }
+      if (msg.k === 'ready') { if (Party.isHost) takeReady(peerId); return; }
+      if (msg.k === 'start') {
+        if (!Party.isHost && (!Party.hostId || peerId === Party.hostId)) settleStart();
+        return;
+      }
     }));
 
-    offs.push(Party.on('left', (peerId) => { remotes.delete(peerId); }));
+    offs.push(Party.on('left', (peerId) => {
+      remotes.delete(peerId);
+      if (!Party.isHost) return;
+      /* Mission parties may continue after a guest leaves. Re-evaluate
+         both gates immediately: if the departing guest was the only
+         device still loading or the only report still outstanding,
+         nobody should sit through an infinite ready screen or timeout. */
+      takeReady(Party.selfId());
+      if (reports.size && reports.size >= expectedReportCount()) publish();
+    }));
+    if (Party.isHost) {
+      takeReady(Party.selfId());
+    } else {
+      const ready = () => {
+        if (!live || started) return;
+        Party.post('mev', { k: 'ready', m: missionId }, Party.hostId);
+      };
+      ready();
+      readyTimer = setInterval(ready, 600);
+    }
     return true;
   }
 
   function detach() {
+    const abandonedStarts = startWaiters;
     offs.forEach(off => { try { off(); } catch (e) {} });
     offs = [];
     live = false;
@@ -95,6 +130,12 @@ const MissionNet = (() => {
     board = null;
     clearTimeout(reportTimer);
     reportTimer = null;
+    clearInterval(readyTimer);
+    readyTimer = null;
+    started = false;
+    startWaiters = [];
+    abandonedStarts.forEach(fn => { try { fn(false); } catch (e) {} });
+    readyPeers.clear();
     acc = 0;
   }
 
@@ -110,7 +151,7 @@ const MissionNet = (() => {
     acc = 0;
     const p = make();
     if (!p) return;
-    Party.post('sync', { k: 'pose', p, n: Date.now() });
+    Party.post('sync', { k: 'pose', m: missionId, p, n: Date.now() });
   }
 
   function takePose(playerId, msg) {
@@ -146,7 +187,7 @@ const MissionNet = (() => {
 
   function event(data, toPeer) {
     if (!live) return;
-    Party.post('mev', { k: 'event', data }, toPeer);
+    Party.post('mev', { k: 'event', m: missionId, data }, toPeer);
   }
 
   const toHost = (data) => event(data, Party.hostId);
@@ -162,7 +203,7 @@ const MissionNet = (() => {
     if (Party.isHost) {
       takeReport(me, mine);
     } else {
-      Party.post('mev', { k: 'report', data: mine }, Party.hostId);
+      Party.post('mev', { k: 'report', m: missionId, data: mine }, Party.hostId);
     }
     if (board) return Promise.resolve(board);
     return new Promise((resolve) => { boardWaiters.push(resolve); });
@@ -175,11 +216,15 @@ const MissionNet = (() => {
        still alive; in a mission party it is whoever is in the room,
        which may well be two. Falling back to `Party.MAX` made a pair
        sit through the straggler timeout every single time. */
-    const expected = Session.state
-      ? Session.state.players.filter(p => p.alive).length
-      : Math.max(1, Party.roster().length);
+    const expected = expectedReportCount();
     if (reports.size >= expected) { publish(); return; }
     if (!reportTimer) reportTimer = setTimeout(publish, REPORT_TIMEOUT);
+  }
+
+  function expectedReportCount() {
+    return Session.state
+      ? Session.state.players.filter(p => p.alive).length
+      : Math.max(1, Party.roster().length);
   }
 
   function publish() {
@@ -194,8 +239,51 @@ const MissionNet = (() => {
       completed: rows.some(r => r.completed),
       players: rows,
     };
-    Party.post('mev', { k: 'board', board: built });
+    Party.post('mev', { k: 'board', m: missionId, board: built });
     settle(built);
+  }
+
+  /* Loading a forest and compiling its shaders takes a very different
+     amount of time on three devices. Nobody's countdown begins until all
+     current players have attached to this mission. Guests repeat Ready
+     until the host releases the gate, so attach order cannot lose it. */
+  function expectedPlayers() {
+    if (typeof Session !== 'undefined' && Session.state) {
+      return Session.state.players.filter(p => p.alive).map(p => p.id);
+    }
+    return Party.roster().map(p => p.id);
+  }
+
+  function takeReady(playerId) {
+    if (!live || !Party.isHost || !playerId) return;
+    if (expectedPlayers().indexOf(playerId) < 0) return;
+    if (started) {
+      if (playerId !== Party.selfId()) {
+        Party.post('mev', { k: 'start', m: missionId }, playerId);
+      }
+      return;
+    }
+    readyPeers.add(playerId);
+    const expected = expectedPlayers();
+    if (!started && expected.length && expected.every(id => readyPeers.has(id))) {
+      Party.post('mev', { k: 'start', m: missionId });
+      settleStart();
+    }
+  }
+
+  function settleStart() {
+    if (started) return;
+    started = true;
+    clearInterval(readyTimer);
+    readyTimer = null;
+    const waiting = startWaiters;
+    startWaiters = [];
+    waiting.forEach(fn => { try { fn(true); } catch (e) { console.warn(e); } });
+  }
+
+  function waitForStart() {
+    if (!live || started) return Promise.resolve(true);
+    return new Promise(resolve => { startWaiters.push(resolve); });
   }
 
   function settle(b) {
@@ -207,7 +295,7 @@ const MissionNet = (() => {
   }
 
   return { attach, detach, pose, update, at, seen, others, event, toHost,
-           report, on,
+           report, waitForStart, on,
            get live() { return live; },
            get board() { return board; } };
 })();
