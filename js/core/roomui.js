@@ -146,8 +146,12 @@ const RoomUI = (() => {
     const head = '<div class="bd-row bd-head"><span class="bd-name"></span>'
       + cols.map(c => '<span>' + esc(c) + '</span>').join('') + '</div>';
     const body = rows.map(r => {
+      /* A night knows who everybody is; a mission party has no session
+         at all, so "you" falls back to the peer id — which is the same
+         id either way, because a player id *is* a peer id. */
       const p = typeof Session !== 'undefined' ? Session.playerById(r.playerId) : null;
-      const you = p && p.local;
+      const mine = typeof Party !== 'undefined' ? Party.selfId() : null;
+      const you = p ? !!p.local : (!!mine && r.playerId === mine);
       const out = p && !p.alive;
       return '<div class="bd-row' + (you ? ' you' : '') + (out ? ' out' : '') + '">'
         + '<span class="bd-name">' + esc(you ? 'You' : (r.name || '—')) + '</span>'
@@ -211,10 +215,18 @@ const RoomUI = (() => {
      could accidentally render somebody else's card. */
 
   /* `progress` is either a plain line or, from a mission that tracks
-     the deck properly, `{ prog, done, covered, alibi }` — the second
-     half being whether the alibi is currently standing up. A Traitor
-     who cannot see the state of their own cover would never gamble on
-     it, and the gamble is the entire point of the card. */
+     the deck properly, `{ prog, done, covered }`.
+
+     The card still carries its alibi and this deliberately does not
+     draw it. Spelled out on the HUD it read as a second instruction —
+     do this, then do that — when it is nothing of the kind: it is the
+     harder way to do the one task, and a Traitor who is handed it in
+     words plays the sentence instead of the mission. So the chip
+     carries the task and how far along it is, and nothing else.
+
+     The cover is still tracked and still says so, in the border going
+     gold the moment the run itself supports the story. Which story
+     that is, is the game. */
   function showAgenda(progress) {
     const chip = el('agenda-chip');
     if (!chip) return;
@@ -228,13 +240,7 @@ const RoomUI = (() => {
       prog.textContent = line || card.hud || '';
       prog.hidden = !prog.textContent;
     }
-    const alibi = el('agenda-alibi');
-    if (alibi) {
-      const text = (st && st.alibi) || card.alibi || '';
-      alibi.textContent = text ? 'The way out — ' + text : '';
-      alibi.hidden = !text;
-      alibi.classList.toggle('held', !!(st && st.covered));
-    }
+    chip.classList.toggle('covered', !!(st && st.covered));
     chip.classList.toggle('done', !!(st && st.done));
     chip.hidden = false;
     chip.classList.add('on');

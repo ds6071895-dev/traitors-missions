@@ -90,11 +90,21 @@ const VoiceChat = (() => {
      night in silence wondering why nobody is talking. */
   function listen() { watchPeers(); }
 
+  /* `watched` is the room object we last hooked, not a flag: leaving and
+     joining again hands back a *different* room, and a boolean would
+     have left the second one silent. */
+  let watched = null;
+
   function watchPeers() {
-    if (watching || !Party.room) return;
-    watching = true;
-    Party.room.onPeerStream((peerStream, peerId) => attach(peerId, peerStream));
-    Party.on('left', (peerId) => detach(peerId));
+    const room = Party.room;
+    if (!room || watched === room) return;
+    watched = room;
+    Party.hook(room, 'onPeerStream',
+               (peerStream, peerId) => attach(peerId, peerStream));
+    if (!watching) {
+      watching = true;
+      Party.on('left', (peerId) => detach(peerId));
+    }
   }
 
   function attach(peerId, peerStream) {
@@ -208,6 +218,10 @@ const VoiceChat = (() => {
     available = false;
     floorId = null;
     for (const id of [...peers.keys()]) detach(id);
+    /* Forget which room we were listening to as well. The next one is a
+       different object and has to be hooked again, and leaving this set
+       would make a rejoined room silent. */
+    watched = null;
     emit('state');
   }
 

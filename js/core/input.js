@@ -147,6 +147,9 @@ const Input = (() => {
     const pad = document.getElementById('touch-controls');
     if (!pad) return;
     if (isTouch) pad.classList.add('visible');
+    /* The stylesheet stacks the bottom-left corner off one number, and
+       on a touchscreen a thumbstick is sitting in it. */
+    document.body.classList.toggle('touch', isTouch);
 
     const stick = pad.querySelector('.stick-zone');
     const knob = pad.querySelector('.stick-knob');

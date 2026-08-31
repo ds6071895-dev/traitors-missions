@@ -20,7 +20,7 @@ const Dressing = (() => {
   let fig = null, turntable = null;
   let draft = null;
   let back = 'play';
-  let clock = 0, cycle = 0;
+  let clock = 0, cycle = 0, dolly = 0;
 
   /* ---------------- the studio ---------------- */
 
@@ -31,9 +31,11 @@ const Dressing = (() => {
 
     camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
 
-    /* Three lights, and the rim is the one doing the work: a flat-
-       shaded figure against a dark ground has no silhouette without
-       something behind it. */
+    /* Three lights, and the rim is the one doing the work: a figure
+       against a dark ground has no silhouette without something
+       behind it. The key is warm and high on the right, which is what
+       gives the face its shadow side — worth having now that there is
+       a face for it to fall across. */
     const key = new THREE.DirectionalLight('#fff2d8', 2.0);
     key.position.set(2.4, 3.4, 3.0);
     const fill = new THREE.DirectionalLight('#9fc4e8', 0.65);
@@ -101,8 +103,31 @@ const Dressing = (() => {
       Figure.update(fig, dt, clock);
     }
 
-    camera.position.set(0.62, 1.22, 3.15);
-    camera.lookAt(0, 0.98, 0);
+    /* The camera moves with the beat, and it has to.
+
+       The walk needs the whole figure in frame; that is what the walk
+       is here for. The idle and the wave do not, and this is the one
+       screen in the game whose entire job is choosing a face — which
+       was being decided at forty pixels across, from a wide shot of
+       somebody two and a half metres away. So it comes in to a
+       chest-up shot whenever nobody is walking and pulls back out the
+       moment they start, damped, so the move is a move rather than a
+       cut.
+
+       On a wide screen the aim is pushed to the right of the figure,
+       which puts the figure over on the left where the stylesheet has
+       always said it is — the panel sits on the right and stops
+       covering them up. On a phone the panel is full width and centred
+       underneath, so the figure is centred too; offsetting there would
+       walk them off the side of a narrow frame. */
+    dolly = U.damp(dolly, beat === 'walk' ? 0 : 1, 2.2, dt);
+    const dist = U.lerp(2.85, 1.95, dolly);
+    const camY = U.lerp(1.20, 1.42, dolly);
+    const aimY = U.lerp(0.96, 1.30, dolly);
+
+    const wide = camera.aspect > 1.2;
+    camera.position.set(U.lerp(0.55, 0.40, dolly), camY, dist);
+    camera.lookAt(wide ? U.lerp(0.66, 0.46, dolly) : 0, aimY, 0);
     Input.endFrame();
   }
 
@@ -168,7 +193,7 @@ const Dressing = (() => {
   function enter(data) {
     back = (data && data.from) || 'play';
     draft = Look.normalise(Look.get());
-    clock = 0; cycle = 0;
+    clock = 0; cycle = 0; dolly = 0;
     if (!view) build();
     Engine.setView(view, frame);
     dressFigure();

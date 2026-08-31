@@ -18,18 +18,28 @@ const Game = (() => {
 
   /* ---------------- attract mode ---------------- */
 
+  /* The hour the menus are set at, and it is not a decoration.
+
+     The front door has a drawn backdrop over this ocean — a loch at
+     dusk, hills, a castle on the horizon — and the water has to be the
+     same time of day as the picture it is standing in, or the join is
+     a bright blue sea under a dark blue sky. `Conditions` already owns
+     every hour the game has; this asks for one of them by name rather
+     than hand-mixing a fourth. */
+  const ATTRACT_COND = { time: 'dusk', sea: 'slight', wind: 0.85 };
+
   function buildAttract() {
     const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(Sky.PALETTE.fog, 500, 3200);
     const camera = new THREE.PerspectiveCamera(58, 1, 0.5, 20000);
 
-    const sun = new THREE.DirectionalLight('#fff6de', 1.55);
-    sun.position.copy(Sky.SUN_DIR).multiplyScalar(300);
-    scene.add(sun, new THREE.HemisphereLight('#d6f2ff', '#4e9fb4', 1.15));
+    // must run before `Sky.build`: the haze is baked into the vertices
+    const hour = Conditions.apply(ATTRACT_COND);
+    scene.fog = new THREE.Fog(Sky.PALETTE.fog, hour.time.fog.near, hour.time.fog.far);
+    scene.add(Conditions.lights(ATTRACT_COND));
 
     Sky.build(scene, U.makeRng(4242));
     Water.build(scene);
-    Water.setFog(320, 3400, Sky.PALETTE.fog);
+    Water.setFog(hour.time.waterFog.near, hour.time.waterFog.far, Sky.PALETTE.fog);
 
     const state = { t: 0, x: 0, z: 0 };
     const look = new THREE.Vector3();
@@ -55,6 +65,11 @@ const Game = (() => {
 
   function showAttract() {
     if (!attract) attract = buildAttract();
+    /* The water is one module shared with every mission, so whichever
+       channel was last raced left its own palette and sea state in it.
+       The sky does not need this — its colours were baked into the
+       dome when the scene was built — but the sea does, every time. */
+    else Conditions.apply(ATTRACT_COND);
     Engine.setView(attract.view, attract.frame);
   }
 
@@ -62,6 +77,8 @@ const Game = (() => {
     if (!attract) return;
     Engine.disposeObject(attract.scene);
     attract = null;
+    // the preset is global; hand it back the way the missions do
+    Sky.resetPreset();
   }
 
   /* ---------------- pre-race setup ----------------
@@ -216,8 +233,23 @@ const Game = (() => {
 
   /* ---------------- title screen ---------------- */
 
+  /* The missions screen doubles as the mission party's front door: you
+     are already looking at the thing you want to play with two friends,
+     so the invitation is a button on it rather than a separate menu you
+     have to find and then re-choose the mission inside. `inviteMode` is
+     only the copy at the top changing — the buttons are always there. */
+  let inviteMode = false;
+
   function renderMissionList() {
+    const note = document.getElementById('mission-note');
+    if (note) {
+      note.textContent = inviteMode
+        ? 'Pick one. Whoever you invite plays that mission and nothing else.'
+        : 'Solo practice, or hit INVITE and play one with two friends.';
+      note.classList.toggle('inviting', inviteMode);
+    }
     const list = document.getElementById('mission-list');
+    list.className = 'mission-list' + (inviteMode ? ' inviting' : '');
     list.innerHTML = '';
     for (const m of Missions.all()) {
       const rec = GameState.data.missions[m.id];
@@ -246,19 +278,41 @@ const Game = (() => {
         });
       }
       row.appendChild(card);
-      if (!m.locked && m.quickStart) {
-        const quick = document.createElement('button');
-        quick.className = 'mission-quick';
-        quick.innerHTML = `<span class="mq-icon">${m.quickStart.icon || '◆'}</span>`
-                        + `<span>${m.quickStart.label}</span>`;
-        quick.title = m.quickStart.title || m.quickStart.label;
-        quick.addEventListener('mouseenter', () => AudioBus.play('ui-hover'));
-        quick.addEventListener('click', () => {
+
+      if (!m.locked) {
+        const side = document.createElement('div');
+        side.className = 'mission-side';
+
+        if (m.quickStart) {
+          const quick = document.createElement('button');
+          quick.className = 'mission-quick';
+          quick.innerHTML = `<span class="mq-icon">${m.quickStart.icon || '◆'}</span>`
+                          + `<span>${m.quickStart.label}</span>`;
+          quick.title = m.quickStart.title || m.quickStart.label;
+          quick.addEventListener('mouseenter', () => AudioBus.play('ui-hover'));
+          quick.addEventListener('click', () => {
+            AudioBus.resume(); AudioBus.play('ui-click');
+            const opts = Object.assign(defaultSetup(m), m.quickStart.opts || {});
+            launch(m.id, opts);
+          });
+          side.appendChild(quick);
+        }
+
+        /* One button, one room, one link. It does not ask which mission
+           — you pressed it on the mission. */
+        const invite = document.createElement('button');
+        invite.className = 'mission-invite';
+        invite.title = 'Open a room for ' + m.name + ' and get a link to send';
+        invite.innerHTML = '<span class="mi-icon">⌾</span><span>Invite</span>';
+        invite.addEventListener('mouseenter', () => AudioBus.play('ui-hover'));
+        invite.addEventListener('click', () => {
           AudioBus.resume(); AudioBus.play('ui-click');
-          const opts = Object.assign(defaultSetup(m), m.quickStart.opts || {});
-          launch(m.id, opts);
+          inviteMode = false;
+          Screens.transition(() => MissionParty.openFor(m.id), 320);
         });
-        row.appendChild(quick);
+        side.appendChild(invite);
+
+        row.appendChild(side);
       }
       list.appendChild(row);
     }
@@ -297,6 +351,23 @@ const Game = (() => {
     });
   }
 
+  /* The missions list, optionally saying why you are looking at it. The
+     front door's MISSION PARTY card comes through here rather than
+     opening a room of its own, because a room has to be a room *for*
+     something and only this screen knows what is on offer. */
+  function toMissions(opts = {}) {
+    inviteMode = !!opts.invite;
+    AudioBus.resume();
+    AudioBus.play('ui-click');
+    Screens.transition(() => {
+      Missions.end();
+      Engine.setPaused(false);
+      showAttract();
+      renderMissionList();
+      Screens.show('title');
+    }, 320);
+  }
+
   /* ---------------- results ---------------- */
 
   /* What this client sends the host about its own run. A mission that
@@ -305,7 +376,11 @@ const Game = (() => {
      player missing from the board reads as a bug rather than a mission
      that has not been taught to fill one in. */
   function reportFor(def, r) {
+    /* The name travels with the report. A night could look one up in
+       the session; a mission party has no session, and a board of three
+       rows all called "—" was what that cost. */
     const base = {
+      name: Look.getName() || 'Player',
       earned: Math.max(0, Math.round(r.earned || 0)),
       completed: !!r.completed,
       place: r.place || null,
@@ -377,13 +452,54 @@ const Game = (() => {
        buttons collapse to one. The mission engine does not know the
        difference and should not have to. */
     const inRun = typeof Show !== 'undefined' && Show.running;
+    /* A mission party is neither of the two cases this screen was
+       built for. There is nothing onward to go to — no table, no fire —
+       but "race again" would silently drop the other two, so it gets
+       the run's single button pointed back at the room they are all
+       still sitting in. */
+    const inParty = !inRun && typeof MissionParty !== 'undefined' && MissionParty.running;
     for (const id of ['result-retry', 'result-new', 'result-menu']) {
-      document.getElementById(id).hidden = inRun;
+      document.getElementById(id).hidden = inRun || inParty;
     }
     const cont = document.getElementById('result-continue');
     const boardEl = document.getElementById('result-board');
-    cont.hidden = !inRun;
+    cont.hidden = !inRun && !inParty;
     boardEl.hidden = true;
+
+    if (inParty) {
+      const arm = (board) => {
+        if (board) {
+          boardEl.style.setProperty('--bd-cols', String(RoomUI.boardCols(board)));
+          boardEl.innerHTML = '<div class="rb-head">Everybody\'s run</div>'
+                            + '<div class="board-grid">' + RoomUI.boardHTML(board) + '</div>';
+          boardEl.hidden = false;
+        }
+        cont.textContent = 'Back to the room';
+        cont.disabled = false;
+        cont.onclick = () => {
+          AudioBus.play('ui-click');
+          cont.disabled = true;
+          MissionParty.backToRoom();
+        };
+        UINav.scan();
+      };
+      if (MissionNet.live) {
+        cont.textContent = 'Waiting for the others…';
+        cont.disabled = true;
+        cont.onclick = null;
+        /* The host is the one that collects the board and it has its
+           own patience for a straggler. Nothing collects it if the
+           host itself walked out mid-mission, though, and a button
+           that says "waiting" forever is worse than a scoreboard with
+           only your own name on it. */
+        let done = false;
+        const once = (board) => { if (done) return; done = true; arm(board); };
+        MissionNet.report(reportFor(def, r)).then(once);
+        setTimeout(() => once(null), 18000);
+      } else {
+        arm(null);
+      }
+    }
 
     if (inRun) {
       const arm = (board) => {
@@ -424,6 +540,8 @@ const Game = (() => {
 
   function renderPlay() {
     document.getElementById('play-pot').textContent = U.money(GameState.prizePot);
+    const you = document.getElementById('play-you');
+    if (you) you.textContent = Look.getName() || 'You';
 
     syncMuteChip();
     voicesDrawn = 0;
@@ -438,27 +556,20 @@ const Game = (() => {
     }
   }
 
-  /* The OS voice list is wildly different from machine to machine and
-     the best one is often not the default, so this is a real setting
-     rather than a hidden preference. It is refreshed on entry because
-     Chrome hands back an empty list until it feels like it. */
+  /* Claudia's voice used to be a dropdown on the front door, and it was
+     the wrong thing to put there: a list of forty system voices with
+     names like `Microsoft David Desktop` is not a choice anybody wants
+     to make before a game, and it was the only control on the screen
+     that could not be understood at a glance.
+
+     `voice.js` still picks the best one it can find, and a saved
+     preference is still honoured — this is only the picker going away.
+     The list is still nudged into loading, because Chrome hands back
+     an empty one until something asks. */
   let voicesDrawn = 0;
   function renderVoices() {
-    const sel = document.getElementById('voice-select');
-    if (!sel) return;
-    const list = Voice.supported ? Voice.list() : [];
-    if (!list.length) {
-      sel.innerHTML = '<option>Subtitles only</option>';
-      sel.disabled = true;
-      // it usually arrives a moment later
-      if (voicesDrawn++ < 6) setTimeout(renderVoices, 400);
-      return;
-    }
-    sel.disabled = false;
-    const chosen = GameState.settings.voiceURI || (Voice.current && Voice.current.uri);
-    sel.innerHTML = list.map(v =>
-      `<option value="${v.uri}"${v.uri === chosen ? ' selected' : ''}>${v.name} — ${v.lang}</option>`
-    ).join('');
+    if (!Voice.supported) return;
+    if (!Voice.list().length && voicesDrawn++ < 6) setTimeout(renderVoices, 400);
   }
 
   function toPlay() {
@@ -473,8 +584,14 @@ const Game = (() => {
 
   /* The front door goes to the lobby now, not into a night. There is
      nobody to play with until three people are in a room, so PLAY is a
-     door rather than a start button. */
-  function toLobby(mode) {
+     door rather than a start button.
+
+     It used to take a mode and open a room on the way through when
+     that mode was `host`, which is how the front door came to have a
+     CREATE ROOM on it. It does not take one any more: opening a room
+     is a thing you do in the lobby by pressing the button that says
+     so, and there is now exactly one way to do it. */
+  function toLobby() {
     AudioBus.resume();
     Voice.unlock();
     AudioBus.play('ui-click');
@@ -482,7 +599,7 @@ const Game = (() => {
       if (typeof Show !== 'undefined' && Show.running) Show.end({ abandon: true });
       Missions.end();
       showAttract();
-      Screens.show('lobby', { mode });
+      Screens.show('lobby');
     }, 320);
   }
 
@@ -490,6 +607,44 @@ const Game = (() => {
     AudioBus.resume();
     AudioBus.play('ui-click');
     Screens.transition(() => Screens.show('dressing', { from: 'play' }), 320);
+  }
+
+  /* ---------------- somebody left ----------------
+     A room is three people. There is no fourth waiting to be dealt in,
+     no rejoining a night halfway through and no sensible way to run a
+     round table with an empty chair — so when one of the three goes,
+     the room goes with them, for everybody, immediately.
+
+     Doing anything else was worse than it sounds. The night carried on
+     around a player who could not vote, the host kept broadcasting
+     phases to a peer that was not there, and the two who were left
+     found out at the round table rather than at the moment it
+     happened. Ending it is the honest answer and it is also the only
+     one the rest of the code can act on.
+
+     Peers that were never seated do not count: a fourth turned away at
+     the door, or a guest that gave up knocking on the wrong code, has
+     no seat to leave. `party.js` hands the seat over with the peer id
+     precisely so this can tell the difference. */
+  function roomClosed(why) {
+    if (!Party.connected) return;
+    /* A mission party does not die when one of three leaves. Every
+       mission here plays with one, two or three, the world is a pure
+       function of the seed, and the two who are left are still in a
+       room together — so it says so and carries on. */
+    if (typeof MissionParty !== 'undefined' && MissionParty.armed) return;
+    if (typeof Show !== 'undefined' && Show.running) Show.end({ abandon: true });
+    // `Lobby.leave` and not `Party.leave`: the lobby holds two latches
+    // about being in a room, and they have to come down with it
+    Lobby.leave();
+    Engine.setPaused(false);
+    Screens.transition(() => {
+      Missions.end();
+      showAttract();
+      Screens.show('lobby');
+      Lobby.paint();
+      Lobby.say(why, 'bad');
+    }, 320);
   }
 
   /* Called by `Lobby` once three people are in and the host has said
@@ -523,8 +678,23 @@ const Game = (() => {
     Voice.init();
     UINav.init();
     Lobby.init();
+    MissionParty.init();
     Dressing.init();
     RoomUI.init();
+
+    /* Above every screen, because a room can be lost from any of
+       them — the lobby, a mission, the middle of a vote.
+
+       Deferred by a tick: this arrives from inside the transport's own
+       peer-left callback, and the first thing it does is tear the room
+       down underneath it. Two people leaving at once queue two of
+       these, and the second finds itself already out. */
+    Party.on('left', (peerId, seat) => {
+      if (!seat) return;
+      if (typeof MissionParty !== 'undefined' && MissionParty.peerLeft(seat)) return;
+      const who = seat.name || 'Somebody';
+      setTimeout(() => roomClosed(who + ' left. The room is closed.'), 0);
+    });
 
     // audio can only start after a real user gesture, and so can speech
     const kick = () => {
@@ -589,27 +759,26 @@ const Game = (() => {
     Screens.register('verdict', {});
 
     /* ---- the front door ---- */
-    document.getElementById('play-go').onclick = () => toLobby(null);
-    document.getElementById('play-create').onclick = () => toLobby('host');
-    document.getElementById('play-join').onclick = () => toLobby('join');
+    /* One door. PLAY opens the lobby and nothing else — no room is
+       created on the way through it, because a code you did not ask
+       for is a code you have to explain to two other people. The
+       lobby's own CREATE ROOM is the only thing in the game that
+       opens one. */
+    document.getElementById('play-go').onclick = () => toLobby();
     document.getElementById('play-dressing').onclick = toDressing;
-    document.getElementById('play-missions').onclick = () => {
-      AudioBus.resume(); AudioBus.play('ui-click');
-      Screens.transition(() => { renderMissionList(); Screens.show('title'); });
-    };
+    document.getElementById('play-missions').onclick = () => toMissions();
+    document.getElementById('play-party').onclick = () => toMissions({ invite: true });
     document.getElementById('title-back').onclick = () => {
-      AudioBus.play('ui-click'); Screens.show('play'); renderPlay();
+      AudioBus.play('ui-click');
+      inviteMode = false;
+      Screens.show('play');
+      renderPlay();
     };
     document.getElementById('play-mute').onclick = () => {
       const m = AudioBus.toggleMute();
       GameState.settings.muted = m; GameState.save();
       Voice.setMuted(m);
       syncMute(m); syncMuteChip();
-    };
-    document.getElementById('voice-select').onchange = (e) => {
-      Voice.setVoice(e.target.value);
-      AudioBus.play('ui-click');
-      Voice.say('There you are.', { speaker: 'Claudia' });
     };
 
     /* ---- the verdict ---- */
@@ -623,7 +792,7 @@ const Game = (() => {
     document.getElementById('verdict-again').onclick = () => {
       AudioBus.play('ui-click');
       Show.end({ abandon: true });
-      toLobby(null);
+      toLobby();
     };
 
     document.getElementById('brief-back').onclick = () => {
@@ -689,13 +858,17 @@ const Game = (() => {
 
     showAttract();
     Screens.show('play');
+    /* A `#p=CODE&m=mission` in the address bar is somebody's invitation.
+       It is read here rather than earlier so the mission registry is
+       already full and the screen can say the mission's name. */
+    MissionParty.openFromLink();
     Engine.start();
 
     document.getElementById('boot').classList.add('gone');
   }
 
-  return { boot, toMenu, toPlay, toLobby, enterShow, showAttract, launch,
-           showResults, renderPlay };
+  return { boot, toMenu, toMissions, toPlay, toLobby, enterShow, showAttract,
+           launch, showResults, renderPlay, renderMissionList };
 })();
 
 window.addEventListener('DOMContentLoaded', () => {

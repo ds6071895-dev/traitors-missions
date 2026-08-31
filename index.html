@@ -14,6 +14,101 @@
 
 <canvas id="gl"></canvas>
 
+<!-- ============ THE BACKDROP ============
+     The menus used to be a stack of dark gradients over the attract
+     ocean, which is a lot of atmosphere and no *place*. This is the
+     place: a loch at dusk, the far shore behind it, and the castle
+     everybody is being driven to, sitting on the horizon where the
+     rendered water meets the drawn sky.
+
+     It is drawn rather than modelled on purpose. The ocean underneath
+     is still live — it is the water in front of the hills — and a
+     silhouette costs nothing to render and never has to be lit,
+     which means the front door opens instantly on a cold machine
+     instead of waiting on a scene nobody plays in. -->
+<div id="menu-bg" aria-hidden="true">
+  <div class="mb-sky"></div>
+  <div class="mb-stars"></div>
+  <div class="mb-aurora"></div>
+  <div class="mb-moon"></div>
+  <div class="mb-haze"></div>
+  <div class="mb-loch"></div>
+
+  <svg class="mb-hills" viewBox="0 0 1600 470" preserveAspectRatio="none">
+    <defs>
+      <!-- The far shore. Two ridges: the distant one sits higher and
+           hazier, the near headland lower and almost black, and the
+           gap between those two facts is the entire sense of depth. -->
+      <path id="mb-ridge-far" d="M0,300 V214 L88,182 L168,204 L262,152
+        L344,186 L432,138 L524,176 L612,130 L702,172 L792,124 L884,166
+        L982,144 L1082,192 L1172,156 L1262,196 L1352,164 L1452,204
+        L1544,172 L1600,190 V300 Z"/>
+      <path id="mb-ridge-near" d="M0,300 V266 L118,240 L232,268 L332,212
+        L424,246 L524,196 L644,238 L764,180 L884,228 L1004,202 L1124,250
+        L1244,210 L1364,252 L1484,226 L1600,254 V300 Z"/>
+      <linearGradient id="mb-fade" x1="0" y1="300" x2="0" y2="470"
+                      gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#fff" stop-opacity=".45"/>
+        <stop offset=".55" stop-color="#fff" stop-opacity=".14"/>
+        <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+      </linearGradient>
+      <mask id="mb-refmask">
+        <rect x="0" y="300" width="1600" height="170" fill="url(#mb-fade)"/>
+      </mask>
+    </defs>
+
+    <!-- what is standing there -->
+    <use href="#mb-ridge-far"  fill="#1d3450"/>
+    <use href="#mb-ridge-near" fill="#0a1421"/>
+
+    <!-- and what the loch makes of it -->
+    <g mask="url(#mb-refmask)" transform="translate(0,600) scale(1,-1)">
+      <use href="#mb-ridge-far"  fill="#24405c"/>
+      <use href="#mb-ridge-near" fill="#0d1a2a"/>
+    </g>
+  </svg>
+
+  <!-- The castle. Its own element, because a silhouette with straight
+       towers is the one thing on this screen that must not be
+       stretched to fit a window. -->
+  <svg class="mb-castle" viewBox="0 0 260 152">
+    <g fill="#080f1a">
+      <!-- the rock it is standing on -->
+      <path d="M6,152 L26,138 L96,132 L172,134 L238,140 L254,152 Z"/>
+      <!-- curtain walls, keep, and two towers with their caps -->
+      <rect x="22" y="102" width="52" height="42"/>
+      <rect x="150" y="106" width="58" height="38"/>
+      <rect x="70" y="68"  width="82" height="76"/>
+      <rect x="30" y="60"  width="28" height="84"/>
+      <rect x="176" y="54" width="30" height="90"/>
+      <path d="M26,62 L44,32 L62,62 Z"/>
+      <path d="M172,56 L191,22 L210,56 Z"/>
+      <!-- crenellations along the top of the keep -->
+      <rect x="72"  y="62" width="9" height="8"/>
+      <rect x="90"  y="62" width="9" height="8"/>
+      <rect x="108" y="62" width="9" height="8"/>
+      <rect x="126" y="62" width="9" height="8"/>
+      <rect x="142" y="62" width="9" height="8"/>
+      <!-- and the flag, which is the only thing up there moving -->
+      <rect x="189" y="6" width="2" height="18"/>
+      <path d="M191,8 L212,13 L191,18 Z"/>
+    </g>
+    <!-- somebody is up, and it is the only warm thing on the horizon -->
+    <g class="mb-lit" fill="#f2c14e">
+      <rect x="38"  y="76"  width="7" height="10" rx="1.5"/>
+      <rect x="40"  y="114" width="7" height="10" rx="1.5"/>
+      <rect x="84"  y="84"  width="8" height="11" rx="1.5"/>
+      <rect x="106" y="110" width="8" height="11" rx="1.5"/>
+      <rect x="130" y="84"  width="8" height="11" rx="1.5"/>
+      <rect x="186" y="70"  width="7" height="10" rx="1.5"/>
+      <rect x="170" y="118" width="7" height="10" rx="1.5"/>
+    </g>
+  </svg>
+
+  <div class="mb-vig"></div>
+</div>
+
+
 <!-- world-anchored effects -->
 <div id="world-labels"></div>
 <div id="speed-vignette"></div>
@@ -40,57 +135,193 @@
 
 </div>
 
-<!-- ============ PLAY ============ -->
+<!-- ============ PLAY ============
+     The front door. It used to be a headline and three stacked
+     buttons, which told you what the game was called and nothing at
+     all about what was behind any of them.
+
+     It is a call sheet now. Four numbered cards, each one saying what
+     it is, who it needs and how long it takes, in the order you are
+     most likely to want them — and the one that is the whole game is
+     the one that looks like it. -->
 <section class="screen play" data-screen="play">
+
+  <!-- Embers off the fire the whole game ends at. Pure decoration,
+       pure CSS, and inert: nothing here is in the way of a click. -->
+  <div class="play-embers" aria-hidden="true">
+    <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+  </div>
+
   <div class="play-inner">
-    <header class="brand">
-      <div class="brand-kicker">The Highlands</div>
+
+    <header class="play-mark">
+      <div class="pm-seal" aria-hidden="true">
+        <svg viewBox="0 0 64 64">
+          <circle class="ps-ring" cx="32" cy="32" r="29"/>
+          <circle class="ps-ring thin" cx="32" cy="32" r="24.5"/>
+          <path class="ps-keep" d="M21 45V29h2.6v-3.6h2.6V29h3.5v-5.4h4.6V29h3.5v-3.6h2.6V29H43v16z"/>
+          <path class="ps-blade" d="M32 11.5l3.4 9.4h-6.8z"/>
+          <rect class="ps-bar" x="19" y="47.2" width="26" height="2.6" rx="1.3"/>
+        </svg>
+      </div>
+
+      <div class="brand-kicker">Ardross Castle · The Highlands</div>
       <h1 class="brand-title">THE<span>TRAITORS</span></h1>
-      <div class="brand-rule"></div>
+      <div class="pm-rule"><i></i></div>
+
+      <p class="play-blurb">
+        Three of you, in the same room, on the same call. Two missions, a round
+        table and a fire. <b>One of you may be a Traitor.</b>
+        It is possible that none of you is.
+      </p>
     </header>
 
-    <p class="play-blurb">
-      Three of you, in the same room, on the same call.<br>
-      Two missions, a round table and a fire. One of you may be a Traitor.<br>
-      It is possible that none of you is.
-    </p>
+    <nav class="play-deck">
+      <button class="pcard hero" id="play-go" data-nav>
+        <span class="pc-n">01</span>
+        <span class="pc-text">
+          <span class="pc-main">Play the Night</span>
+          <span class="pc-sub">A full run — missions, the table, the fire</span>
+        </span>
+        <span class="pc-meta"><b>3</b> players<i>~25 min</i></span>
+        <span class="pc-go" aria-hidden="true">→</span>
+      </button>
 
-    <div class="play-actions">
-      <button class="btn huge primary" id="play-go" data-nav>
-        <span class="pg-main">PLAY</span>
-        <span class="pg-sub">A full night, start to fire</span>
+      <button class="pcard" id="play-party" data-nav>
+        <span class="pc-n">02</span>
+        <span class="pc-text">
+          <span class="pc-main">Mission Party</span>
+          <span class="pc-sub">One mission, your friends, one link</span>
+        </span>
+        <span class="pc-meta"><b>2–3</b> players<i>~5 min</i></span>
+        <span class="pc-go" aria-hidden="true">→</span>
       </button>
-      <div class="play-pair">
-        <button class="btn wide ghost" id="play-create" data-nav>
-          <span class="pg-main">CREATE ROOM</span>
-          <span class="pg-sub">Get a code, read it out</span>
-        </button>
-        <button class="btn wide ghost" id="play-join" data-nav>
-          <span class="pg-main">JOIN ROOM</span>
-          <span class="pg-sub">Somebody sent you four letters</span>
-        </button>
-      </div>
-      <button class="btn wide ghost" id="play-missions" data-nav>
-        <span class="pg-main">MISSIONS</span>
-        <span class="pg-sub">Practise them on your own</span>
-      </button>
-      <button class="btn wide ghost" id="play-dressing" data-nav>
-        <span class="pg-main">DRESSING ROOM</span>
-        <span class="pg-sub">How you turn up</span>
-      </button>
-    </div>
 
-    <div class="play-foot">
+      <button class="pcard" id="play-missions" data-nav>
+        <span class="pc-n">03</span>
+        <span class="pc-text">
+          <span class="pc-main">Missions</span>
+          <span class="pc-sub">Practise them on your own</span>
+        </span>
+        <span class="pc-meta"><b>Solo</b><i>no lying</i></span>
+        <span class="pc-go" aria-hidden="true">→</span>
+      </button>
+
+      <button class="pcard" id="play-dressing" data-nav>
+        <span class="pc-n">04</span>
+        <span class="pc-text">
+          <span class="pc-main">Dressing Room</span>
+          <span class="pc-sub">How you turn up</span>
+        </span>
+        <span class="pc-meta"><b id="play-you">You</b><i>saved here</i></span>
+        <span class="pc-go" aria-hidden="true">→</span>
+      </button>
+    </nav>
+
+    <footer class="play-foot">
       <div class="pot mini">
         <span class="pot-label">Banked</span>
         <span class="pot-value" id="play-pot">£0</span>
       </div>
-      <label class="voice-pick">
-        <span>Claudia's voice</span>
-        <select id="voice-select" data-nav aria-label="Claudia's voice"></select>
-      </label>
       <button class="chip" id="play-mute" data-nav>Sound</button>
+      <span class="play-ver">Alpha v0.2</span>
+    </footer>
+
+  </div>
+</section>
+
+<!-- ============ MISSION PARTY ============
+     One mission, a room, and a link. The lobby next door opens a room
+     for a whole night; this opens one for a single mission, which is
+     the thing people actually ask for when they have twenty minutes
+     rather than an evening. See `js/core/mission-party.js`. -->
+<section class="screen mparty" data-screen="mparty">
+  <div class="mp-inner">
+
+    <header class="mp-head">
+      <div class="mp-icon" id="mp-icon">◆</div>
+      <div class="mp-head-text">
+        <div class="brand-kicker">Mission Party</div>
+        <h2 class="mp-title" id="mp-title">Mission</h2>
+        <p class="mp-tagline" id="mp-tagline"></p>
+      </div>
+    </header>
+
+    <div class="mp-cols">
+
+      <div class="panel mp-room">
+        <div class="mp-code-label">Room code</div>
+        <div class="mp-code" id="mp-code">····</div>
+
+        <div class="mp-link">
+          <input id="mp-link-field" class="mp-link-field" type="text" readonly
+                 spellcheck="false" autocomplete="off" aria-label="Invite link"
+                 placeholder="Opening a room…" data-nav>
+          <button class="btn primary mp-copy" id="mp-copy" data-nav>Copy</button>
+        </div>
+        <p class="mp-link-note">Send that link. It opens the game on this mission
+          and drops them straight into this room — no code to read out, no account,
+          no download.</p>
+
+        <div class="mp-roster" id="mp-roster"></div>
+        <div class="mp-status" id="mp-status">Opening a room…</div>
+
+        <div class="mp-room-actions">
+          <button class="chip" id="mp-mic" data-nav>Mic: off</button>
+          <button class="chip" id="mp-share" data-nav hidden>Share…</button>
+        </div>
+      </div>
+
+      <div class="panel mp-setup" id="mp-setup">
+        <div class="mp-setup-head">The run <span id="mp-owner">yours to choose</span></div>
+
+        <div class="setup-block" id="mp-mode-row">
+          <div class="setup-head">Mode</div>
+          <div class="seg" id="mp-mode"></div>
+        </div>
+
+        <div class="setup-block" id="mp-skip-row">
+          <button class="mp-skip" id="mp-skip" data-nav>
+            <span class="ms-icon" id="mp-skip-icon">◉</span>
+            <span class="ms-body">
+              <b id="mp-skip-name">Skip ahead</b>
+              <i id="mp-skip-note"></i>
+            </span>
+            <span class="ms-state" id="mp-skip-state">OFF</span>
+          </button>
+        </div>
+
+        <div class="setup-block">
+          <div class="setup-head" id="mp-place-lbl">Channel</div>
+          <div class="channel-name" id="mp-place">—</div>
+          <div class="channel-cond"><span id="mp-cond"></span></div>
+          <div class="channel-seed">
+            <input id="mp-seed" type="text" inputmode="numeric" spellcheck="false"
+                   autocomplete="off" aria-label="Seed" data-nav>
+            <button class="chip" id="mp-seed-daily" title="Today's, the same for everybody"
+                    data-nav>Today</button>
+            <button class="chip" id="mp-seed-roll" title="Draw a new one" data-nav>Roll</button>
+          </div>
+        </div>
+
+        <div class="setup-block" id="mp-twist-row">
+          <div class="setup-head" id="mp-twist-head"><span id="mp-twist-lbl">Twist</span>
+            <span class="setup-sub">keep one, or none</span></div>
+          <div class="mod-hand" id="mp-twists"></div>
+        </div>
+
+        <div class="mp-payout" id="mp-payout"></div>
+      </div>
+
     </div>
+
+    <div class="mp-msg" id="mp-msg"></div>
+
+    <footer class="mp-foot">
+      <button class="btn ghost" id="mp-leave" data-back data-nav>Leave</button>
+      <button class="btn primary" id="mp-start" data-nav disabled>START MISSION</button>
+    </footer>
+
   </div>
 </section>
 
@@ -123,9 +354,13 @@
 
       <div class="panel lobby-panel">
         <div class="lp-head">Join a room</div>
-        <p class="lp-note">Four letters. Left and right change one, up and down
-          move along.</p>
-        <div class="code-entry" id="code-entry"></div>
+        <p class="lp-note">Type the four letters somebody read out to you.</p>
+        <div class="code-entry">
+          <input id="code-input" class="code-field" type="text" maxlength="4"
+                 inputmode="latin" autocapitalize="characters" autocorrect="off"
+                 autocomplete="off" spellcheck="false" placeholder="CODE"
+                 aria-label="Room code" data-nav>
+        </div>
         <button class="btn primary wide" id="lobby-join" data-nav>JOIN ROOM</button>
       </div>
     </div>
@@ -192,7 +427,7 @@
 
     <div class="mission-head">
       <h2>Missions</h2>
-      <p>Solo practice. No table, no fire, no one lying to you.</p>
+      <p id="mission-note">Solo practice. No table, no fire, no one lying to you.</p>
     </div>
 
     <div class="mission-list" id="mission-list"></div>
@@ -543,9 +778,6 @@
   <div class="ac-kicker">Your task · nobody else can see this</div>
   <div class="ac-text" id="agenda-text"></div>
   <div class="ac-prog" id="agenda-prog"></div>
-  <!-- The alibi. Every card can be completed the loud way; this line is
-       the far harder way that leaves the board arguing for you. -->
-  <div class="ac-alibi" id="agenda-alibi" hidden></div>
 </div>
 
 <div id="boot"><div class="boot-inner"><div class="boot-spin"></div><span>Loading the loch…</span></div></div>
@@ -580,6 +812,7 @@
 <script src="js/core/voicechat.js"></script>
 <script src="js/core/mission-net.js"></script>
 <script src="js/core/lobby.js"></script>
+<script src="js/core/mission-party.js"></script>
 <script src="js/core/roomui.js"></script>
 <script src="js/core/scenes.js"></script>
 <script src="js/world/sky.js"></script>

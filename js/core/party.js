@@ -27,7 +27,7 @@ const Party = (() => {
 
   /* Trystero caps an action name at 12 bytes, so these are short on
      purpose rather than terse for its own sake. */
-  const CHANNELS = ['hello', 'roster', 'go', 'wire', 'sync', 'mev'];
+  const CHANNELS = ['hello', 'roster', 'go', 'wire', 'sync', 'mev', 'mp'];
 
   let room = null;
   let code = null;
@@ -37,15 +37,30 @@ const Party = (() => {
   let seats = new Map();            // peerId -> { id, name, look, seat, host }
   let send = {};                    // channel -> fn(data, toPeer)
   let joined = false;
+  let joinTimer = null;             // the guest's "did anyone answer?" watchdog
+  let knockTimer = null;            // and the hello it repeats until one does
+
+  /* Long, on purpose. Relay discovery on a cold room genuinely takes
+     five to ten seconds — a watchdog tight enough to feel responsive
+     would spend its time throwing out people who were about to get in,
+     which is a far worse failure than a slow one. Sixteen knocks. */
+  const KNOCK_EVERY = 1100;
+  const JOIN_WAIT   = 18000;
 
   const listeners = {
     roster: new Set(),   // (roster)
     peer:   new Set(),   // (peerId, entry)
-    left:   new Set(),   // (peerId)
+    left:   new Set(),   // (peerId, seat) — seat is null if they never had one
     go:     new Set(),   // ({ seed, players }) — the host has started the night
     wire:   new Set(),   // (envelope, fromPeer)
     sync:   new Set(),   // (payload, fromPeer)
     mev:    new Set(),   // (payload, fromPeer)
+    /* A mission party: three people in a room for one mission rather
+       than a whole night. It gets its own channel because the host is
+       broadcasting a *setup* — a seed, a twist, whether to skip to the
+       owl — and that is neither a pose nor a mission event, and it has
+       to keep arriving on a screen where no mission is running. */
+    mp:     new Set(),   // (payload, fromPeer)
     error:  new Set(),   // (message)
   };
 
@@ -99,12 +114,28 @@ const Party = (() => {
 
   const validCode = (c) => normaliseCode(c).length === CODE_LEN;
 
+  /* ---------------- the two API shapes ----------------
+     Trystero moved from callback-registering methods and `[send, recv]`
+     pairs to plain assignable properties and action objects. Nothing
+     above this line should have to care which one the CDN served, so
+     these two helpers absorb the difference. */
+
+  const peerIdOf = (from) =>
+    (from && typeof from === 'object' ? from.peerId : from);
+
+  function hook(target, prop, fn) {
+    if (!target) return;
+    if (typeof target[prop] === 'function') target[prop](fn);
+    else target[prop] = fn;
+  }
+
   /* ---------------- joining ---------------- */
 
   async function open(theCode, theProfile, asHost) {
     if (joined) leave();
     const T = await ready();
     code = normaliseCode(theCode);
+    const theRoomCode = code;
     host = !!asHost;
     profile = { name: (theProfile && theProfile.name) || 'Player',
                 look: (theProfile && theProfile.look) || null };
@@ -112,11 +143,33 @@ const Party = (() => {
     room = T.joinRoom({ appId: APP_ID }, 'traitors-' + code);
     joined = true;
 
+    /* Trystero 0.25 hands back an action *object* — `{ send, onMessage }`
+       — where older versions handed back a `[send, receive]` pair, and
+       the receiver is now given `(payload, { peerId })` rather than a
+       bare peer id. Both shapes are normalised here so the rest of the
+       file keeps talking in `send.hello(data, peerId)` and
+       `receive(channel, data, peerId)`. */
     send = {};
     for (const name of CHANNELS) {
-      const [tx, rx] = room.makeAction(name);
-      send[name] = tx;
-      rx((data, peerId) => receive(name, data, peerId));
+      const action = room.makeAction(name);
+      const hit = (data, from) => receive(name, data, peerIdOf(from));
+
+      if (action && typeof action.send === 'function') {
+        /* 0.25's send is async and rejects on a peer that went away
+           mid-flight. Nothing above here can do anything about that,
+           and an unhandled rejection in a game is a console full of
+           noise nobody reads, so it is swallowed at the seam. */
+        send[name] = (data, toPeer) => {
+          const p = action.send(data, toPeer ? { target: toPeer } : {});
+          if (p && p.catch) p.catch(e => console.warn(e));
+          return p;
+        };
+        action.onMessage = hit;
+      } else {
+        const [tx, rx] = action;                 // pre-0.25 pair
+        send[name] = tx;
+        rx(hit);
+      }
     }
 
     const selfId = T.selfId;
@@ -128,21 +181,76 @@ const Party = (() => {
       publishRoster();
     }
 
-    room.onPeerJoin((peerId) => {
+    /* `onPeerJoin` / `onPeerLeave` are assignable properties in 0.25 and
+       were methods before it; `hook` covers both. */
+    hook(room, 'onPeerJoin', (peerId) => {
       /* Everybody introduces themselves to everybody. The host is the
          only one that turns introductions into seats. */
       send.hello({ name: profile.name, look: profile.look }, peerId);
       if (host) admit(peerId);
     });
 
-    room.onPeerLeave((peerId) => {
+    hook(room, 'onPeerLeave', (peerId) => {
+      /* The seat goes with the person, and the seat is handed to the
+         listeners with them: a peer that was never seated — a fourth
+         who was turned away, a guest that gave up knocking — leaving
+         is not the same event as one of the three walking out, and
+         only the caller can tell those apart. */
+      const seat = seats.get(peerId) || null;
       seats.delete(peerId);
-      emit('left', peerId);
+      emit('left', peerId, seat);
       if (host) publishRoster();
       else if (peerId === hostPeer) emit('error', 'The host left the room.');
     });
 
+    /* A guest keeps knocking until somebody answers.
+
+       Waiting for `onPeerJoin` alone was the third player's bug. It is
+       one event, it is not replayed, and the peer it fires for is
+       whichever one connected — which on a relayed swarm is often the
+       other guest rather than the host. A guest that introduced itself
+       to player two and to nobody else sat in a room it was genuinely
+       in, holding no roster, because the only machine that hands out
+       rosters had never been told it was there.
+
+       So the hello repeats, broadcast rather than aimed, until a
+       roster comes back. It is a few hundred bytes a second for at
+       most nine seconds, and it turns a coin-flip into a certainty.
+
+       Nothing distinguishes a code nobody is using from a host that
+       has not answered yet — joining a room that does not exist
+       succeeds, because a swarm has no idea a room was supposed to
+       have anybody in it. So when the knocking runs out, say so and
+       let go, rather than leaving somebody watching three empty seats
+       all evening. */
+    if (!host) startKnocking(theRoomCode);
+
     return code;
+  }
+
+  /* The knock stops when we are in the list, not when somebody
+     answers. Being told who the host is only means we now know where
+     to knock. */
+  const isSeated = () => seats.has(selfId());
+
+  function startKnocking(theRoomCode) {
+    stopKnocking();
+    const knock = () => {
+      if (host || !joined || isSeated()) { stopKnocking(); return; }
+      post('hello', { name: profile.name, look: profile.look }, hostPeer || undefined);
+    };
+    knockTimer = setInterval(knock, KNOCK_EVERY);
+    joinTimer = setTimeout(() => {
+      if (host || isSeated()) { stopKnocking(); return; }
+      leave();
+      emit('error', 'Nobody answered in room ' + theRoomCode
+                  + '. Check the four letters.');
+    }, JOIN_WAIT);
+  }
+
+  function stopKnocking() {
+    clearInterval(knockTimer); knockTimer = null;
+    clearTimeout(joinTimer);   joinTimer = null;
   }
 
   const hostRoom = (p) => open(randomCode(), p, true);
@@ -187,16 +295,43 @@ const Party = (() => {
           q.look = (data && data.look) || null;
           publishRoster();
         }
+      } else if (hostPeer) {
+        /* A guest that already knows the roster and hears a stranger
+           introduce itself answers with what it has. It is not the
+           authority and the list may be a moment stale, but it carries
+           `hostId`, which is the one thing the newcomer cannot work out
+           on its own and the thing it needs to start talking to the
+           host directly. */
+        post('roster', { list: roster(), hostId: hostPeer }, peerId);
       }
       return;
     }
 
     if (channel === 'roster') {
       if (!data) return;
-      if (data.full) { emit('error', 'That room is already full.'); return; }
+      if (data.full) {
+        /* Turned away. Leave properly first: a guest still sitting in
+           the swarm would be painted into a lobby holding a roster of
+           three people it is not one of. */
+        leave();
+        emit('error', 'That room is already full.');
+        return;
+      }
       if (host) return;                       // a guest never rewrites the roster
+
+      /* Only the host's roster is the roster. A relay from the other
+         guest carries one thing worth having — who the authority is —
+         and the right response to it is to go and knock on that door,
+         not to believe the seating. */
+      const fromHost = !data.hostId || data.hostId === peerId;
       hostPeer = data.hostId || peerId;
+      if (!fromHost) {
+        post('hello', { name: profile.name, look: profile.look }, hostPeer);
+        return;
+      }
+
       seats = new Map((data.list || []).map(e => [e.id, e]));
+      if (isSeated()) stopKnocking();
       emit('roster', roster());
       return;
     }
@@ -205,6 +340,7 @@ const Party = (() => {
   }
 
   function leave() {
+    stopKnocking();
     if (room) { try { room.leave(); } catch (e) {} }
     room = null; joined = false; host = false; hostPeer = null;
     code = null; seats = new Map(); send = {};
@@ -238,7 +374,7 @@ const Party = (() => {
   }
 
   return {
-    ready, host: hostRoom, join: joinRoom, leave, on, post, setProfile,
+    ready, host: hostRoom, join: joinRoom, leave, on, post, setProfile, hook,
     roster, self, selfId, peerIds, randomCode, normaliseCode, validCode,
     publishRoster,
     MAX, CODE_LEN, ALPHABET,

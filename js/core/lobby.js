@@ -5,48 +5,36 @@
    a name, you get a code or you are given one, and when the third
    person arrives the host can start. That is the entire front door.
 
-   The code entry is four `<select>` elements rather than a text box,
-   and that is a deliberate reuse rather than a shortcut: `UINav`
-   already treats left and right on a `<select>` as "change this one"
-   (uinav.js `cycleSelect`), so a gamepad dials a room code with no new
-   input handling anywhere, a phone gets its native picker, and a
-   keyboard can still type A-Z to jump. One control, three input
-   methods, no code.
+   The code goes in a text field, because somebody reads four letters
+   down a phone at you and typing four letters is what a person does
+   next. It used to be four spinners — dialable on a gamepad, which was
+   the argument for them, and a small ordeal on every other input
+   method there is. The field forgives what people actually type:
+   lower case, spaces, and the I and O that are not in the alphabet but
+   are the first thing anyone hears when you say J and Q out loud.
 ------------------------------------------------------------------ */
 const Lobby = (() => {
 
   const el = (id) => document.getElementById(id);
-  let slots = [];
   let msgTimer = null;
   let started = false;
+  let seated = false;              // a guest has heard its first roster
 
-  /* ---------------- the code control ---------------- */
+  /* ---------------- the code control ----------------
+     `Party.normaliseCode` is the whole of it: it upper-cases, drops
+     anything that is not a letter, and forgives I and O by folding
+     them onto the J and Q they were excluded in favour of. Running it
+     on every keystroke means the field can only ever contain a code,
+     so there is nothing to validate later. */
 
-  function buildCodeEntry() {
-    const wrap = el('code-entry');
-    if (!wrap || slots.length) return;
-    wrap.innerHTML = '';
-    slots = [];
-    for (let i = 0; i < Party.CODE_LEN; i++) {
-      const sel = document.createElement('select');
-      sel.className = 'code-slot';
-      sel.setAttribute('data-nav', '');
-      sel.setAttribute('aria-label', 'Room code letter ' + (i + 1));
-      for (const ch of Party.ALPHABET) {
-        const o = document.createElement('option');
-        o.value = ch; o.textContent = ch;
-        sel.appendChild(o);
-      }
-      wrap.appendChild(sel);
-      slots.push(sel);
-    }
-  }
+  const readCode = () => Party.normaliseCode(el('code-input').value);
 
-  const readCode = () => slots.map(s => s.value).join('');
-
-  function writeCode(code) {
-    const c = Party.normaliseCode(code);
-    slots.forEach((s, i) => { if (c[i]) s.value = c[i]; });
+  function tidyCode() {
+    const f = el('code-input');
+    if (!f) return '';
+    const clean = Party.normaliseCode(f.value);
+    if (f.value !== clean) f.value = clean;
+    return clean;
   }
 
   /* ---------------- messages ---------------- */
@@ -84,9 +72,14 @@ const Lobby = (() => {
 
       const n = list.length;
       const full = n >= Party.MAX;
-      el('lobby-status').textContent = full
-        ? (Party.isHost ? 'Everybody is here.' : 'Everybody is here. Waiting for the host.')
-        : 'Waiting for players… ' + n + '/' + Party.MAX;
+      /* A guest with no roster yet has not been let in — it has only
+         opened a door. Saying "0/3" there reads as an empty room the
+         host is sitting in, which is the one thing it is not. */
+      el('lobby-status').textContent = (!Party.isHost && !n)
+        ? 'Looking for the room…'
+        : (full
+            ? (Party.isHost ? 'Everybody is here.' : 'Everybody is here. Waiting for the host.')
+            : 'Waiting for players… ' + n + '/' + Party.MAX);
 
       const start = el('lobby-start');
       start.hidden = !Party.isHost;
@@ -147,7 +140,12 @@ const Lobby = (() => {
       await Party.join(code, profile());
       VoiceChat.init();
       VoiceChat.listen();
-      say('In. Waiting for the others.', 'good');
+      /* Not "in" — knocking. Opening a room in the swarm always works,
+         including on four letters nobody is using, so the only honest
+         thing to say here is that the door has been knocked on. The
+         host's first roster is what turns this into "in", and the
+         watchdog in `party.js` is what turns it into an apology. */
+      say('Knocking on ' + code + '…');
       paint();
     } catch (e) {
       say(e.message || 'Could not reach that room.', 'bad');
@@ -158,6 +156,7 @@ const Lobby = (() => {
     Party.leave();
     VoiceChat.stop();
     started = false;
+    seated = false;
     say('');
     paint();
   }
@@ -205,7 +204,13 @@ const Lobby = (() => {
   /* ---------------- wiring ---------------- */
 
   function init() {
-    buildCodeEntry();
+    const code = el('code-input');
+    code.addEventListener('input', tidyCode);
+    /* Four letters in is the end of the input, so treat it as the
+       press. Enter does the same from a keyboard. */
+    code.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); join(); }
+    });
 
     el('lobby-name').value = Look.getName();
     el('lobby-name').addEventListener('change', () => profile());
@@ -219,22 +224,48 @@ const Lobby = (() => {
     el('lobby-dress').onclick = () => Screens.show('dressing', { from: 'lobby' });
     el('lobby-back').onclick = () => { leave(); Screens.show('play'); };
 
-    Party.on('roster', paint);
+    Party.on('roster', () => {
+      if (!Party.isHost && !seated && Party.roster().length) {
+        seated = true;
+        say('In. Waiting for the others.', 'good');
+      }
+      paint();
+    });
     Party.on('left', paint);
-    Party.on('error', (m) => { say(m, 'bad'); paint(); });
+    Party.on('error', (m) => {
+      /* Some errors drop the room from under us — a refusal, a code
+         nobody answered. If we are out, the flags that describe being
+         in go with it. */
+      if (!Party.connected) { seated = false; started = false; }
+      say(m, 'bad');
+      paint();
+    });
     Party.on('go', (data) => {
       if (Party.isHost || started || !data) return;
+      /* Two things start out of a room now. A `go` that names a
+         mission is a mission party — `mission-party.js` owns that one,
+         and a night must not be started on top of it. */
+      if (data.kind === 'mission') return;
       started = true;
       launch(data.seed, data.players || []);
     });
     VoiceChat.on('state', paint);
 
     Screens.register('lobby', {
-      enter(data) {
+      enter() {
+        /* `started` is a latch against double-starting one night, not a
+           record that a night ever happened. Coming back to the lobby
+           with the show over and the room still open has to be able to
+           start another one. */
+        if (typeof Show === 'undefined' || !Show.running) started = false;
         el('lobby-name').value = Look.getName();
-        if (data && data.mode === 'host' && !Party.connected) host();
+        /* Nothing here opens a room. Arriving used to be able to, if
+           you had come through a CREATE ROOM on the front door, and a
+           screen that quietly hands you a four-letter code you then
+           have to explain to two other people is a screen doing
+           something you did not ask for. `host()` runs when the button
+           marked CREATE ROOM is pressed, and at no other time. */
         paint();
-        if (data && data.mode === 'join' && slots[0]) setTimeout(() => slots[0].focus(), 40);
       },
     });
   }

@@ -16,7 +16,14 @@
   --shadow:   0 18px 50px rgba(3,10,20,.55);
   --display:  'Anton', 'Haettenschweiler', 'Arial Narrow', system-ui, sans-serif;
   --body:     'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* How much of the bottom-left corner the speedo already owns.
+     Everything else that wants that corner stacks off this one
+     number rather than guessing, which is what they used to do. */
+  --bl-foot:  clamp(96px, 13vh, 124px);
 }
+/* A thumbstick lives in that corner too, and it is 132px of it. */
+body.touch{ --bl-foot: calc(6vh + 146px); }
 
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -32,6 +39,143 @@ kbd{
   background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22);
   border-bottom-width:2px; border-radius:5px; padding:.12em .42em; margin:0 .12em;
   color:var(--paper);
+}
+
+/* ==================================================================
+   THE BACKDROP
+   A loch at dusk behind every menu: drawn sky, drawn shore, live
+   water. It sits between the canvas and the screens, so the attract
+   ocean is the loch in front of the hills rather than the whole
+   picture, and each screen's own scrim still lands on top of it.
+   ================================================================== */
+#menu-bg{
+  position:fixed; inset:0; z-index:10; pointer-events:none;
+  opacity:0; transition:opacity .7s ease;
+  /* Where the rendered ocean's horizon actually falls. The attract
+     camera sits 7.5m up looking at a point 2m below itself sixty
+     metres out — about two degrees down on a 58° vertical lens, which
+     puts the waterline just above the middle of the frame. The lens is
+     vertical, so this holds on any window shape. Everything drawn here
+     is hung off it. */
+  --horizon:47%;
+}
+/* Only the rooms you stand in before a night. Inside the show the
+   real sky is doing this job and a painted one would fight it. */
+body[data-screen="play"]   #menu-bg,
+body[data-screen="title"]  #menu-bg,
+body[data-screen="lobby"]  #menu-bg,
+body[data-screen="mparty"] #menu-bg{opacity:1}
+
+/* The sky, and it stops at the waterline: everything below the
+   horizon is the rendered ocean showing through. */
+.mb-sky{
+  position:absolute; left:0; right:0; top:0; height:var(--horizon);
+  background:linear-gradient(180deg,
+    #05080f 0%, #0a1322 26%, #12283f 54%, #1d4058 78%, #2d5a6e 100%);
+}
+.mb-stars{
+  position:absolute; left:0; right:0; top:0; height:var(--horizon);
+  background-image:
+    radial-gradient(1.4px 1.4px at 12% 18%, rgba(255,255,255,.85), transparent),
+    radial-gradient(1.2px 1.2px at 28% 9%,  rgba(255,255,255,.65), transparent),
+    radial-gradient(1.6px 1.6px at 41% 26%, rgba(255,255,255,.75), transparent),
+    radial-gradient(1.1px 1.1px at 55% 12%, rgba(255,255,255,.55), transparent),
+    radial-gradient(1.5px 1.5px at 68% 30%, rgba(255,255,255,.70), transparent),
+    radial-gradient(1.2px 1.2px at 79% 16%, rgba(255,255,255,.60), transparent),
+    radial-gradient(1.7px 1.7px at 88% 34%, rgba(255,255,255,.80), transparent),
+    radial-gradient(1.1px 1.1px at 6% 40%,  rgba(255,255,255,.45), transparent),
+    radial-gradient(1.3px 1.3px at 34% 44%, rgba(255,255,255,.40), transparent),
+    radial-gradient(1.2px 1.2px at 61% 48%, rgba(255,255,255,.35), transparent),
+    radial-gradient(1.4px 1.4px at 92% 6%,  rgba(255,255,255,.70), transparent);
+  /* they thin out towards the light on the horizon, the way they do */
+  -webkit-mask-image:linear-gradient(180deg, #000 0%, #000 45%, transparent 92%);
+          mask-image:linear-gradient(180deg, #000 0%, #000 45%, transparent 92%);
+  animation:mbTwinkle 7s ease-in-out infinite;
+}
+@keyframes mbTwinkle{0%,100%{opacity:.85}50%{opacity:.5}}
+
+/* Two slow ribbons of light. Not literally an aurora — it is the
+   colour the game is already made of, moving. */
+.mb-aurora{
+  position:absolute; left:-10%; right:-10%; top:0; height:var(--horizon);
+  mix-blend-mode:screen; opacity:.5;
+  background:
+    radial-gradient(ellipse 46% 40% at 22% 18%, rgba(125,252,208,.30) 0%, transparent 70%),
+    radial-gradient(ellipse 52% 34% at 74% 10%, rgba(63,224,255,.24) 0%, transparent 72%),
+    radial-gradient(ellipse 70% 26% at 50% 46%, rgba(242,193,78,.16) 0%, transparent 76%);
+  animation:mbDrift 34s ease-in-out infinite alternate;
+}
+@keyframes mbDrift{
+  0%{transform:translate3d(-2%,0,0) scale(1)}
+  100%{transform:translate3d(2%,-1.5%,0) scale(1.07)}
+}
+
+.mb-moon{
+  position:absolute; left:76%; top:calc(var(--horizon) * .30);
+  width:clamp(26px,3.4vw,44px); aspect-ratio:1; border-radius:50%;
+  background:radial-gradient(circle at 38% 34%, #fffaf0 0%, #f6e6c2 55%, #dcc79a 100%);
+  box-shadow:0 0 30px 10px rgba(255,240,205,.22), 0 0 100px 40px rgba(255,235,190,.12);
+}
+
+/* The band of light sitting on the water, which is what stops the
+   drawn sky and the rendered sea from looking like two pictures. */
+.mb-haze{
+  position:absolute; left:0; right:0;
+  top:calc(var(--horizon) - 13%); height:26%;
+  background:linear-gradient(180deg, rgba(120,170,205,0) 0%,
+    rgba(132,182,214,.20) 42%, rgba(158,200,224,.30) 52%,
+    rgba(120,166,200,.14) 68%, rgba(90,130,170,0) 100%);
+  filter:blur(1px);
+}
+
+/* Everything below the waterline is the rendered ocean, which is set
+   to the same hour as this drawing — so all this does is settle it a
+   shade further and lay the moon's path across it. */
+.mb-loch{
+  position:absolute; left:0; right:0; top:var(--horizon); bottom:0;
+  background:
+    radial-gradient(ellipse 13% 62% at 76% 0%, rgba(255,240,205,.15) 0%, transparent 72%),
+    linear-gradient(180deg, rgba(8,20,36,.52) 0%, rgba(6,16,30,.30) 36%,
+                            rgba(5,12,24,.16) 100%);
+}
+
+/* The shore. `preserveAspectRatio="none"` is deliberate — a silhouette
+   of hills has no correct proportion, and stretching one to the window
+   is invisible in a way stretching a tower would not be. */
+.mb-hills{
+  /* The waterline inside the drawing sits at 300 of 470, so the band is
+     hung off that fraction and the shore meets the ocean at `--horizon`
+     whatever the window is doing. */
+  --band:clamp(210px, 33vh, 430px);
+  position:absolute; left:0; right:0; width:100%;
+  top:calc(var(--horizon) - var(--band) * 0.638); height:var(--band);
+}
+.mb-castle{
+  position:absolute; left:63%; top:var(--horizon);
+  transform:translate(-50%,-100%);
+  height:clamp(58px,9.5vh,116px); width:auto;
+  filter:drop-shadow(0 0 22px rgba(4,10,20,.7));
+}
+/* The windows breathe, slightly out of step with each other, because a
+   castle with six identical lights in it is a diagram. */
+.mb-lit rect{animation:mbCandle 5.5s ease-in-out infinite}
+.mb-lit rect:nth-child(2){animation-duration:7.3s; animation-delay:-1.4s}
+.mb-lit rect:nth-child(3){animation-duration:6.1s; animation-delay:-3.1s}
+.mb-lit rect:nth-child(4){animation-duration:8.2s; animation-delay:-2.2s}
+.mb-lit rect:nth-child(5){animation-duration:5.9s; animation-delay:-4.6s}
+.mb-lit rect:nth-child(6){animation-duration:7.7s; animation-delay:-0.7s}
+.mb-lit rect:nth-child(7){animation-duration:6.6s; animation-delay:-5.3s}
+@keyframes mbCandle{0%,100%{opacity:.95}45%{opacity:.55}70%{opacity:.85}}
+
+.mb-vig{
+  position:absolute; inset:0;
+  background:
+    radial-gradient(ellipse 100% 74% at 50% 46%, rgba(0,0,0,0) 40%, rgba(3,8,16,.62) 100%),
+    linear-gradient(180deg, rgba(3,8,16,.45) 0%, rgba(0,0,0,0) 22%);
+}
+
+@media (prefers-reduced-motion:reduce){
+  .mb-stars, .mb-aurora, .mb-lit rect{animation:none}
 }
 
 /* ---------------- overlays ---------------- */
@@ -109,19 +253,35 @@ kbd{
   color:#1a1206; box-shadow:0 8px 22px rgba(242,193,78,.28);
 }
 .btn.primary:hover{box-shadow:0 10px 30px rgba(242,193,78,.45)}
-.btn.ghost{background:rgba(255,255,255,.05); border-color:rgba(255,255,255,.16); color:var(--paper)}
-.btn.ghost:hover{background:rgba(255,255,255,.11)}
+/* 5% white over a live scene is not a background, it is a tint — and
+   whatever was behind it decided whether the label could be read. A
+   ghost button now carries its own dark ground. */
+.btn.ghost{
+  background:rgba(10,20,33,.72); border-color:rgba(255,255,255,.26); color:var(--paper);
+  backdrop-filter:blur(6px);
+}
+.btn.ghost:hover{background:rgba(20,36,56,.86); border-color:rgba(242,193,78,.45)}
+/* The lobby's two doors are full-width columns. The front door used to
+   be the only other user of this and is now built out of `.pcard`. */
+.btn.wide{width:100%}
 /* testing doors, marked as such so one never ships looking like a feature */
 .btn.dev{background:rgba(63,224,255,.05); border-color:rgba(63,224,255,.28);
   color:#9fe8ff; border-style:dashed}
 .btn.dev:hover{background:rgba(63,224,255,.12)}
-.btn.dev .pg-sub{color:rgba(159,232,255,.65)}
 
 /* ---------------- title ---------------- */
+/* Same problem as the front door, and worse: this one thinned out to
+   18% right where the mission cards are. See `.screen.play`. */
 .screen.title{
   align-items:stretch; justify-content:center; overflow-y:auto;
+  /* A scrim, not a curtain. It only has to make text legible over the
+     backdrop, so it is pulled in tight around the middle where the
+     words are and let go at the edges where the loch is. */
   background:
-    linear-gradient(180deg, rgba(6,16,28,.86) 0%, rgba(6,16,28,.30) 34%, rgba(6,16,28,.18) 60%, rgba(6,16,28,.90) 100%);
+    radial-gradient(ellipse 74% 60% at 50% 52%, rgba(4,10,20,.74) 0%,
+                                                rgba(4,10,20,.30) 72%, rgba(0,0,0,0) 100%),
+    linear-gradient(180deg, rgba(5,13,24,.62) 0%, rgba(5,13,24,.20) 30%,
+                            rgba(5,13,24,.28) 62%, rgba(5,13,24,.76) 100%);
 }
 .title-inner{
   width:min(900px, 100%); margin:auto; display:flex; flex-direction:column; gap:clamp(14px,2vh,26px);
@@ -130,7 +290,8 @@ kbd{
 .brand{text-align:center}
 .brand-kicker{
   font-size:12px; letter-spacing:.52em; text-transform:uppercase; color:var(--gold);
-  opacity:.9; margin-bottom:6px; text-indent:.52em;
+  margin-bottom:6px; text-indent:.52em; font-weight:700;
+  text-shadow:0 2px 10px rgba(4,12,22,.9);
 }
 .brand-title{
   font-family:var(--display); margin:0; line-height:.86;
@@ -176,22 +337,59 @@ kbd{
   box-shadow:0 14px 36px rgba(0,0,0,.45), inset 0 0 0 1px rgba(242,193,78,.12);
 }
 .mission-card-row .mission-card{flex:1; min-width:0}
-.mission-quick{
-  width:112px; flex:none; border-radius:14px; cursor:pointer; color:#ffdbe2;
-  border:1px solid rgba(255,84,112,.42); font-family:var(--body); font-size:11px;
+
+/* The two doors that are not "brief me on it": the mission's own
+   shortcut, and a room for it. They stack beside the card rather than
+   inside it, because both of them skip the briefing entirely and a
+   button that lives inside a button is a button people press by
+   accident. */
+.mission-side{display:flex; flex-direction:column; gap:8px; width:118px; flex:none}
+.mission-side > button{width:100%; flex:1; min-height:52px}
+.mission-quick, .mission-invite{
+  border-radius:14px; cursor:pointer; font-family:var(--body); font-size:11px;
   font-weight:800; letter-spacing:.12em; text-transform:uppercase;
-  background:linear-gradient(160deg,rgba(100,18,42,.86),rgba(28,13,27,.92));
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px;
   transition:transform .14s ease,border-color .18s,box-shadow .2s,background .2s;
+}
+.mission-quick{
+  color:#ffdbe2; border:1px solid rgba(255,84,112,.42);
+  background:linear-gradient(160deg,rgba(100,18,42,.86),rgba(28,13,27,.92));
 }
 .mission-quick:hover{
   transform:translateY(-2px); border-color:#ff8fa3;
   background:linear-gradient(160deg,rgba(135,22,51,.94),rgba(40,13,31,.96));
   box-shadow:0 12px 30px rgba(80,4,28,.5),inset 0 0 22px rgba(255,84,112,.1);
 }
-.mission-quick:active{transform:translateY(1px) scale(.99)}
+.mission-quick:active, .mission-invite:active{transform:translateY(1px) scale(.99)}
 .mq-icon{font-family:var(--display); font-size:22px; line-height:1; color:#ff8fa3;
   text-shadow:0 0 18px rgba(255,84,112,.75)}
+
+.mission-invite{
+  color:#d9ecff; border:1px solid rgba(63,224,255,.34);
+  background:linear-gradient(160deg,rgba(11,52,72,.86),rgba(10,20,32,.92));
+}
+.mission-invite:hover{
+  transform:translateY(-2px); border-color:var(--cyan);
+  background:linear-gradient(160deg,rgba(14,72,99,.94),rgba(12,25,40,.96));
+  box-shadow:0 12px 30px rgba(3,40,60,.55),inset 0 0 22px rgba(63,224,255,.10);
+}
+.mi-icon{font-family:var(--display); font-size:21px; line-height:1; color:var(--cyan);
+  text-shadow:0 0 18px rgba(63,224,255,.7)}
+
+/* Arriving here from the front door's MISSION PARTY card: the list is
+   the same list, so the invitations say so for a moment rather than
+   the screen becoming a different screen. */
+.mission-list.inviting .mission-invite{
+  border-color:var(--cyan); animation:invitePulse 2.2s ease-in-out infinite;
+}
+@keyframes invitePulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(63,224,255,0)}
+  50%    {box-shadow:0 0 0 4px rgba(63,224,255,.16)}
+}
+#mission-note.inviting{color:var(--cyan)}
+@media (prefers-reduced-motion: reduce){
+  .mission-list.inviting .mission-invite{animation:none}
+}
 .mission-card.locked{opacity:.42; cursor:not-allowed; filter:grayscale(.7)}
 .mc-icon{
   font-family:var(--display); font-size:26px; letter-spacing:.02em; color:var(--gold);
@@ -274,7 +472,8 @@ kbd{
   background:linear-gradient(90deg, var(--cyan), var(--mint)); transition:width .2s linear;
   box-shadow:0 0 14px rgba(125,252,208,.7)}
 
-.hud-speedo{display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; max-width:46vw}
+.hud-speedo{display:flex; align-items:baseline; gap:9px; flex-wrap:wrap;
+  max-width:min(46vw, 300px)}
 .hud-speed{font-family:var(--display); font-size:clamp(44px,7vw,80px); line-height:.9;
   text-shadow:0 4px 0 rgba(4,12,22,.5), 0 0 34px rgba(63,224,255,.28)}
 .hud-speed-unit{font-size:11px; letter-spacing:.24em; text-transform:uppercase;
@@ -463,8 +662,15 @@ kbd{
 .hud-ghost.ahead{color:var(--mint); text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 18px rgba(125,252,208,.5)}
 .hud-ghost.behind{color:#ff8fa3; text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 18px rgba(255,84,112,.45)}
 
-.hud-setup{position:absolute; left:clamp(14px,2.4vw,30px); bottom:clamp(74px,11vh,104px);
-  display:flex; flex-wrap:wrap; gap:6px; align-items:center; max-width:44vw; pointer-events:none}
+/* The bottom-left corner of the race HUD has three tenants — the
+   speedo, the channel strip and (for a Traitor) the task chip — and
+   they used to be laid out as though each were the only one. They are
+   a stack now, measured from one place: `--bl-foot` is how tall the
+   speedo is, and everything else is stacked off it. */
+.hud-setup{position:absolute; left:clamp(14px,2.4vw,30px);
+  bottom:calc(var(--bl-foot) + 8px);
+  display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+  max-width:min(44vw, 300px); pointer-events:none}
 .hud-setup .hs-name{font-family:var(--display); font-size:14px; letter-spacing:.06em;
   text-transform:uppercase; color:rgba(240,249,255,.92);
   text-shadow:0 1px 2px rgba(4,16,28,.9)}
@@ -889,59 +1095,350 @@ kbd{
 
 /* ---------------- the front door ---------------- */
 
+/* ==================================================================
+   THE FRONT DOOR
+   It was a headline and three stacked buttons: it told you what the
+   game was called and nothing at all about what was behind any of
+   them, and the two most interesting things in it — a party of three,
+   and one mission with a link — looked exactly like the dressing room.
+
+   So it is a call sheet. Four numbered cards in the order you are most
+   likely to want them, each one saying what it is, who it needs and
+   roughly how long it takes, and the one that is the whole game is the
+   one that looks like it.
+
+   The ocean is running live behind all of this and it is bright — a
+   daylit sea is close to white where the sun is on it — so the scrim
+   is opaque enough to be a surface everywhere anything is written, and
+   let go at the edges where the loch is.
+   ================================================================== */
 .screen.play{
   align-items:center; justify-content:center; overflow-y:auto;
   background:
-    radial-gradient(ellipse 120% 80% at 50% 8%, rgba(242,193,78,.10) 0%, rgba(0,0,0,0) 55%),
-    linear-gradient(180deg, rgba(6,16,28,.88) 0%, rgba(6,16,28,.34) 38%,
-                            rgba(6,16,28,.42) 64%, rgba(6,16,28,.94) 100%);
+    /* the candle overhead */
+    radial-gradient(ellipse 130% 70% at 50% -6%, rgba(242,193,78,.16) 0%, rgba(0,0,0,0) 58%),
+    /* the fire, low and off to one side, which is where the night ends */
+    radial-gradient(ellipse 60% 45% at 82% 106%, rgba(216,30,64,.16) 0%, rgba(0,0,0,0) 60%),
+    radial-gradient(ellipse 78% 66% at 50% 48%, rgba(4,10,20,.84) 0%,
+                                                rgba(4,10,20,.40) 72%, rgba(0,0,0,0) 100%),
+    linear-gradient(180deg, rgba(4,11,21,.78) 0%, rgba(4,11,21,.26) 26%,
+                            rgba(4,11,21,.34) 58%, rgba(4,11,21,.88) 100%);
 }
+
+/* -------- embers --------
+   Ten of them, off the fire the night ends at. Pure decoration and
+   completely inert, so nothing here is ever in the way of a press. */
+.play-embers{position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0}
+.play-embers i{
+  position:absolute; bottom:-12px; width:3px; height:3px; border-radius:50%;
+  background:var(--gold); opacity:0;
+  box-shadow:0 0 8px 2px rgba(242,193,78,.55);
+  animation:ember 13s linear infinite;
+}
+.play-embers i:nth-child(1){left:8%;  animation-delay:0s;    animation-duration:14s}
+.play-embers i:nth-child(2){left:19%; animation-delay:-3.4s; animation-duration:17s}
+.play-embers i:nth-child(3){left:29%; animation-delay:-8.1s; animation-duration:12s}
+.play-embers i:nth-child(4){left:41%; animation-delay:-1.7s; animation-duration:16s}
+.play-embers i:nth-child(5){left:52%; animation-delay:-6.9s; animation-duration:13s}
+.play-embers i:nth-child(6){left:63%; animation-delay:-10.5s;animation-duration:15s}
+.play-embers i:nth-child(7){left:72%; animation-delay:-4.2s; animation-duration:18s}
+.play-embers i:nth-child(8){left:83%; animation-delay:-12.8s;animation-duration:12s}
+.play-embers i:nth-child(9){left:91%; animation-delay:-7.3s; animation-duration:16s}
+.play-embers i:nth-child(10){left:96%;animation-delay:-2.6s; animation-duration:14s}
+@keyframes ember{
+  0%  {transform:translate(0,0) scale(.6);   opacity:0}
+  12% {opacity:.85}
+  70% {opacity:.5}
+  100%{transform:translate(26px,-92vh) scale(1.15); opacity:0}
+}
+
 .play-inner{
-  width:min(560px, 100%); display:flex; flex-direction:column; align-items:center;
-  gap:clamp(16px,2.4vw,26px); text-align:center; margin:auto;
+  position:relative; z-index:1;
+  width:min(700px, 100%); display:flex; flex-direction:column; align-items:center;
+  gap:clamp(18px,3vh,32px); text-align:center; margin:auto;
+  padding:clamp(8px,2vh,24px) 0;
 }
+
+/* -------- the mark -------- */
+.play-mark{display:flex; flex-direction:column; align-items:center; width:100%}
+.pm-seal{width:clamp(48px,7vw,64px); height:clamp(48px,7vw,64px); margin-bottom:12px}
+.pm-seal svg{width:100%; height:100%; display:block; overflow:visible}
+.ps-ring{fill:none; stroke:var(--gold); stroke-width:1.4; opacity:.55}
+.ps-ring.thin{stroke-width:.7; opacity:.32; stroke-dasharray:2.5 3.5;
+  transform-origin:50% 50%; animation:sealTurn 68s linear infinite}
+.ps-keep{fill:var(--paper); opacity:.9}
+.ps-blade{fill:var(--crimson)}
+.ps-bar{fill:var(--gold); opacity:.85}
+@keyframes sealTurn{to{transform:rotate(360deg)}}
+
+/* The rule draws itself in, once, when the door opens. */
+.pm-rule{height:2px; width:min(440px,84%); margin:14px auto 0; position:relative;
+  background:linear-gradient(90deg, transparent, rgba(242,193,78,.28), transparent)}
+.pm-rule i{position:absolute; inset:0; display:block; transform-origin:50% 50%;
+  background:linear-gradient(90deg, transparent, var(--gold), transparent)}
+.screen.play.active .pm-rule i{animation:ruleIn .9s cubic-bezier(.2,.7,.2,1) both}
+@keyframes ruleIn{from{transform:scaleX(0); opacity:0} to{transform:scaleX(1); opacity:1}}
+
 .play-blurb{
-  margin:0; color:var(--muted); font-size:clamp(13px,1.5vw,15.5px); line-height:1.75;
-  max-width:44ch;
+  margin:16px 0 0; color:#c6d6e8; font-size:clamp(12.5px,1.45vw,15px); line-height:1.75;
+  max-width:52ch; text-shadow:0 2px 10px rgba(4,12,22,.9);
 }
-.play-actions{display:flex; flex-direction:column; gap:11px; width:100%}
+.play-blurb b{color:var(--paper); font-weight:800}
 
-.btn.huge, .btn.wide{
-  width:100%; display:flex; flex-direction:column; align-items:center; gap:3px;
-  padding:16px 22px; letter-spacing:.14em; text-align:center;
-}
-.btn.huge{
-  padding:22px 24px;
-  box-shadow:0 10px 34px rgba(242,193,78,.30), inset 0 1px 0 rgba(255,255,255,.35);
-}
-.btn.huge .pg-main{font-family:var(--display); font-size:clamp(30px,5.4vw,44px); letter-spacing:.10em; line-height:1}
-.btn.wide .pg-main{font-family:var(--display); font-size:clamp(17px,2.6vw,22px); letter-spacing:.12em; line-height:1}
-.pg-sub{
-  font-family:var(--body); font-weight:600; font-size:11.5px; letter-spacing:.05em;
-  text-transform:none; opacity:.68;
-}
-.btn.huge .pg-sub{opacity:.75; color:#3a2a08}
+/* -------- the deck --------
+   A card is a button. It is laid out as a grid rather than a flex row
+   so the numeral, the words and the two right-hand columns line up
+   down the whole stack — four cards whose titles start in four
+   different places is what a row of flex buttons gives you. */
+.play-deck{display:flex; flex-direction:column; gap:10px; width:100%}
 
+.pcard{
+  position:relative; overflow:hidden; width:100%; cursor:pointer; text-align:left;
+  display:grid; grid-template-columns:auto 1fr auto auto; align-items:center;
+  gap:clamp(12px,2vw,20px);
+  padding:clamp(14px,2vw,19px) clamp(16px,2.4vw,22px);
+  border-radius:14px; color:var(--paper); font-family:var(--body);
+  background:linear-gradient(115deg, rgba(23,38,58,.90), rgba(10,19,31,.92));
+  border:1px solid rgba(255,255,255,.11);
+  box-shadow:0 10px 30px rgba(2,8,16,.42);
+  transition:transform .16s cubic-bezier(.2,.7,.2,1), border-color .2s,
+             box-shadow .22s, background .2s;
+}
+/* `backwards`, not `both`: a filled-forwards animation keeps owning
+   `transform` after it ends, which would quietly kill the hover lift
+   on every card. This holds the from-frame through the stagger delay
+   and then hands the card back to the ordinary rules. */
+.screen.play.active .pcard{animation:cardIn .5s cubic-bezier(.2,.75,.25,1) backwards}
+.screen.play.active .pcard:nth-child(1){animation-delay:.04s}
+.screen.play.active .pcard:nth-child(2){animation-delay:.10s}
+.screen.play.active .pcard:nth-child(3){animation-delay:.16s}
+.screen.play.active .pcard:nth-child(4){animation-delay:.22s}
+@keyframes cardIn{from{opacity:0; transform:translateY(14px)} to{opacity:1; transform:none}}
+
+/* The sheen. One pseudo-element swept across on hover, which reads as
+   candlelight moving over card stock rather than as a web page. */
+.pcard:before{
+  content:''; position:absolute; top:0; bottom:0; left:-60%; width:45%;
+  background:linear-gradient(100deg, transparent, rgba(255,255,255,.11), transparent);
+  transform:skewX(-18deg); transition:left .55s cubic-bezier(.3,.7,.3,1); pointer-events:none;
+}
+.pcard:hover:before, .pcard.nav-on:before{left:130%}
+
+.pcard:hover, .pcard.nav-on{
+  transform:translateY(-2px);
+  border-color:rgba(242,193,78,.55);
+  box-shadow:0 16px 40px rgba(2,8,16,.55), inset 0 0 0 1px rgba(242,193,78,.14);
+}
+.pcard:active{transform:translateY(1px) scale(.995)}
+
+.pc-n{
+  font-family:var(--display); font-size:clamp(26px,4vw,36px); line-height:1;
+  letter-spacing:.02em; color:transparent;
+  -webkit-text-stroke:1.4px rgba(242,193,78,.5);
+  transition:color .2s, -webkit-text-stroke-color .2s;
+}
+.pcard:hover .pc-n, .pcard.nav-on .pc-n{color:rgba(242,193,78,.92)}
+
+.pc-text{min-width:0; display:flex; flex-direction:column; gap:3px}
+.pc-main{
+  font-family:var(--display); font-size:clamp(19px,3vw,27px); line-height:1;
+  letter-spacing:.06em; text-transform:uppercase; color:var(--paper);
+}
+.pc-sub{font-size:12.5px; font-weight:600; color:#9fb4cc; letter-spacing:.02em;
+  overflow-wrap:break-word}
+
+.pc-meta{
+  display:flex; flex-direction:column; align-items:flex-end; gap:2px; text-align:right;
+  font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:#6f88a3;
+  padding-right:clamp(2px,1vw,10px); border-right:1px solid rgba(255,255,255,.08);
+}
+.pc-meta b{font-family:var(--display); font-size:15px; letter-spacing:.06em; color:#b9cde2}
+.pc-meta i{font-style:normal; font-size:9.5px; letter-spacing:.14em}
+
+.pc-go{
+  font-size:19px; line-height:1; color:rgba(242,193,78,.55);
+  transform:translateX(-3px); transition:transform .2s, color .2s;
+}
+.pcard:hover .pc-go, .pcard.nav-on .pc-go{transform:translateX(2px); color:var(--gold)}
+
+/* -------- the one that is the whole game --------
+   A hero card is not a bigger card. It is the same card with the
+   crimson down its edge and a slow pulse behind it, so it wins the
+   glance without breaking the grid the other three line up on. */
+.pcard.hero{
+  padding-top:clamp(18px,2.6vw,25px); padding-bottom:clamp(18px,2.6vw,25px);
+  background:
+    radial-gradient(ellipse 70% 200% at 0% 50%, rgba(216,30,64,.22), rgba(0,0,0,0) 70%),
+    linear-gradient(115deg, rgba(34,26,34,.94), rgba(12,17,28,.94));
+  border-color:rgba(242,193,78,.42);
+  box-shadow:0 14px 40px rgba(2,8,16,.55), inset 0 1px 0 rgba(255,255,255,.07);
+}
+.pcard.hero:after{
+  content:''; position:absolute; left:0; top:0; bottom:0; width:3px;
+  background:linear-gradient(180deg, var(--gold), var(--crimson));
+  animation:heroPulse 3.6s ease-in-out infinite;
+}
+@keyframes heroPulse{0%,100%{opacity:.55} 50%{opacity:1}}
+.pcard.hero .pc-n{-webkit-text-stroke-color:rgba(255,140,164,.6)}
+.pcard.hero:hover .pc-n, .pcard.hero.nav-on .pc-n{color:#ff9db0}
+.pcard.hero .pc-main{font-size:clamp(22px,3.6vw,33px)}
+.pcard.hero .pc-sub{color:#cbd9e9}
+.pcard.hero:hover, .pcard.hero.nav-on{
+  border-color:rgba(255,140,164,.7);
+  box-shadow:0 18px 48px rgba(70,4,24,.5), inset 0 0 0 1px rgba(255,140,164,.16);
+}
+.pcard.hero .pc-go{color:rgba(255,140,164,.7)}
+.pcard.hero:hover .pc-go, .pcard.hero.nav-on .pc-go{color:#ff9db0}
+
+/* -------- the foot -------- */
 .play-foot{
-  display:flex; align-items:center; justify-content:center; gap:clamp(10px,2vw,20px);
-  flex-wrap:wrap; margin-top:6px; width:100%;
+  display:flex; align-items:center; justify-content:center; gap:clamp(10px,2vw,18px);
+  flex-wrap:wrap; width:100%; padding-top:4px;
 }
+.play-ver{font-size:10px; letter-spacing:.24em; text-transform:uppercase; color:#5f778f}
 .pot.mini{display:flex; align-items:baseline; gap:7px}
-.pot.mini .pot-label{font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted)}
+.pot.mini .pot-label{font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:#a8bfd6}
 .pot.mini .pot-value{font-family:var(--display); font-size:19px; color:var(--gold)}
 
-.voice-pick{display:flex; align-items:center; gap:8px}
-.voice-pick > span{
-  font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted);
+/* Motion here is atmosphere, never information: every one of these is
+   safe to simply not happen. */
+@media (prefers-reduced-motion: reduce){
+  .play-embers{display:none}
+  .ps-ring.thin, .pcard.hero:after{animation:none}
+  .screen.play.active .pcard, .screen.play.active .pm-rule i{animation:none}
+  .pcard:before{display:none}
 }
-.voice-pick select{
-  font-family:var(--body); font-size:12px; font-weight:600; color:var(--paper);
-  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.18);
-  border-radius:8px; padding:7px 9px; max-width:190px; cursor:pointer;
-}
-.voice-pick select:disabled{opacity:.45; cursor:default}
-.voice-pick option{background:#101b28; color:var(--paper)}
 
+/* ==================================================================
+   MISSION PARTY
+   The room for one mission. Two columns: the room on the left, which
+   is a code, a link and up to three seats, and the run on the right,
+   which is the host's to set and everybody else's to watch.
+   ================================================================== */
+.screen.mparty{
+  align-items:stretch; justify-content:center; overflow-y:auto;
+  background:
+    radial-gradient(ellipse 120% 76% at 50% 4%, rgba(242,193,78,.10) 0%, rgba(0,0,0,0) 56%),
+    radial-gradient(ellipse 82% 62% at 50% 52%, rgba(4,10,20,.80) 0%,
+                                                rgba(4,10,20,.34) 74%, rgba(0,0,0,0) 100%),
+    linear-gradient(180deg, rgba(5,13,24,.70) 0%, rgba(5,13,24,.24) 30%,
+                            rgba(5,13,24,.32) 64%, rgba(5,13,24,.84) 100%);
+}
+.mp-inner{width:min(980px,100%); margin:auto; display:flex; flex-direction:column;
+  gap:clamp(12px,2vh,20px); padding:clamp(8px,2vh,20px) 0}
+
+.mp-head{display:flex; align-items:center; gap:16px; text-align:left}
+.mp-icon{
+  font-family:var(--display); font-size:26px; color:var(--gold);
+  width:60px; height:60px; flex:none; display:grid; place-items:center; border-radius:14px;
+  background:rgba(242,193,78,.10); border:1px solid rgba(242,193,78,.30);
+  box-shadow:inset 0 0 22px rgba(242,193,78,.10);
+}
+.mp-head-text{min-width:0}
+.mp-head .brand-kicker{margin-bottom:2px; text-indent:0}
+.mp-title{font-family:var(--display); font-size:clamp(28px,5vw,44px); line-height:1;
+  letter-spacing:.04em; text-transform:uppercase; margin:0; color:var(--paper)}
+.mp-tagline{margin:5px 0 0; font-size:13px; color:var(--muted); line-height:1.5}
+
+.mp-cols{display:grid; grid-template-columns:.92fr 1.08fr; gap:14px; align-items:start}
+.mp-room, .mp-setup{padding:clamp(16px,2.2vw,22px)}
+
+/* -------- the room -------- */
+.mp-room{display:flex; flex-direction:column; gap:12px}
+.mp-code-label{font-size:10px; letter-spacing:.26em; text-transform:uppercase;
+  color:var(--gold); font-weight:800}
+.mp-code{
+  font-family:var(--display); font-size:clamp(40px,7vw,62px); line-height:1;
+  letter-spacing:.26em; text-indent:.26em; color:var(--paper); text-align:center;
+  text-shadow:0 0 40px rgba(242,193,78,.28);
+}
+.mp-link{display:flex; gap:8px}
+.mp-link-field{
+  flex:1; min-width:0; font-family:var(--body); font-size:11.5px; font-weight:600;
+  letter-spacing:.01em; color:#b9cde2; padding:10px 12px; border-radius:9px;
+  background:rgba(4,12,22,.72); border:1px solid rgba(255,255,255,.13);
+  text-overflow:ellipsis;
+}
+.mp-link-field:focus{outline:none; border-color:rgba(242,193,78,.6); color:var(--paper)}
+.btn.mp-copy{flex:none; padding:10px 18px; font-size:12px; letter-spacing:.12em}
+.mp-link-note{margin:0; font-size:11.5px; line-height:1.55; color:var(--muted)}
+
+.mp-roster{display:flex; flex-direction:column; gap:6px; margin-top:2px}
+.mp-seat{
+  display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:10px;
+  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.09);
+}
+.mp-seat.you{border-color:rgba(242,193,78,.55); background:rgba(242,193,78,.09)}
+.mp-seat.empty{opacity:.4; border-style:dashed}
+.mp-seat-n{font-family:var(--display); font-size:15px; color:var(--gold); width:16px; flex:none}
+.mp-seat-name{flex:1; min-width:0; font-size:13.5px; font-weight:600; color:var(--paper);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.mp-seat.empty .mp-seat-name{color:var(--muted); font-weight:400}
+.mp-seat-tag{font-size:9px; letter-spacing:.2em; text-transform:uppercase; color:var(--muted);
+  font-weight:800}
+
+.mp-status{font-size:12px; color:#a8bfd6; letter-spacing:.03em; text-align:center;
+  min-height:16px}
+.mp-room-actions{display:flex; gap:8px; justify-content:center; flex-wrap:wrap}
+
+/* -------- the run -------- */
+.mp-setup{display:flex; flex-direction:column; gap:16px}
+.mp-setup-head{font-family:var(--display); font-size:19px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--paper); display:flex; align-items:baseline; gap:10px}
+.mp-setup-head span{font-family:var(--body); font-size:10px; font-weight:800;
+  letter-spacing:.2em; color:var(--gold); text-transform:uppercase}
+/* A guest is reading, not choosing. Saying so once at the top and
+   dimming the controls is kinder than a screen full of dead buttons
+   that look exactly like live ones. */
+.mp-setup.watching .seg, .mp-setup.watching .mod-hand,
+.mp-setup.watching .channel-seed{opacity:.72}
+.mp-setup.watching .mp-setup-head span{color:var(--muted)}
+.mp-setup.watching .mod-card{cursor:default}
+.mp-setup .setup-block{gap:8px}
+
+.mp-skip{
+  display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer;
+  padding:11px 14px; border-radius:12px; font-family:var(--body); color:var(--paper);
+  background:linear-gradient(150deg,rgba(70,14,32,.55),rgba(16,12,24,.72));
+  border:1px solid rgba(255,84,112,.32);
+  transition:border-color .18s, background .2s, transform .12s;
+}
+.mp-skip:hover:not(:disabled){transform:translateY(-1px); border-color:rgba(255,143,163,.7)}
+.mp-skip:disabled{cursor:default}
+.mp-skip.on{border-color:#ff8fa3;
+  background:linear-gradient(150deg,rgba(122,20,50,.85),rgba(36,12,28,.9));
+  box-shadow:inset 0 0 26px rgba(255,84,112,.14)}
+.ms-icon{font-family:var(--display); font-size:21px; line-height:1; flex:none;
+  color:#ff8fa3; text-shadow:0 0 16px rgba(255,84,112,.6)}
+.ms-body{flex:1; min-width:0; display:flex; flex-direction:column; gap:2px}
+.ms-body b{font-size:13.5px; font-weight:800; letter-spacing:.03em}
+.ms-body i{font-style:normal; font-size:11.5px; color:#c6a8b4; line-height:1.4}
+.ms-state{flex:none; font-size:9.5px; font-weight:800; letter-spacing:.2em; color:var(--muted);
+  border:1px solid rgba(255,255,255,.18); border-radius:20px; padding:3px 9px}
+.mp-skip.on .ms-state{color:#1a0d13; background:#ff8fa3; border-color:transparent}
+
+.mp-payout{display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+  padding-top:12px; border-top:1px solid rgba(255,255,255,.1)}
+.mp-pay-lbl{font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--muted);
+  font-weight:800}
+.mp-payout b{font-family:var(--display); font-size:24px; color:var(--gold)}
+
+.mp-msg{min-height:18px; text-align:center; font-size:12.5px; letter-spacing:.03em;
+  color:var(--muted); opacity:0; transition:opacity .2s}
+.mp-msg.on{opacity:1}
+.mp-msg.good{color:var(--mint)}
+.mp-msg.bad{color:#ff8fa3}
+
+.mp-foot{display:flex; gap:12px; align-items:center; justify-content:space-between}
+.mp-foot .btn.primary{min-width:230px}
+
+@media (max-width: 860px){
+  .mp-cols{grid-template-columns:1fr}
+  .mp-head{flex-direction:column; text-align:center; gap:10px}
+  .mp-head-text{text-align:center}
+  .mp-foot{flex-direction:column-reverse}
+  .mp-foot .btn{width:100%}
+}
 .title-foot .btn.ghost{padding:8px 18px; font-size:12px; margin-right:auto}
 
 /* ---------------- the cinematic overlay ----------------
@@ -1159,10 +1656,14 @@ body.nav-mode .btn:focus{outline:none}
 /* ---------------- small screens ---------------- */
 
 @media (max-width: 720px){
-  .play-inner{gap:15px}
-  .btn.huge{padding:19px 18px}
-  .play-foot{gap:12px; flex-direction:column}
-  .voice-pick select{max-width:56vw}
+  .play-inner{gap:16px}
+  .play-foot{gap:12px}
+  /* Three columns of card is two too many on a phone: the meta rail
+     goes, and the numeral shrinks to a marker rather than a feature. */
+  .pcard{grid-template-columns:auto 1fr auto; gap:12px; padding:14px 15px}
+  .pc-meta{display:none}
+  .pc-n{font-size:22px}
+  .mp-cols{gap:10px}
   .cap-text{font-size:15.5px}
   .cine-caption{bottom:calc(13vh + env(safe-area-inset-bottom)); width:92vw}
   .vote-options{flex-direction:column}
@@ -1176,6 +1677,10 @@ body.nav-mode .btn:focus{outline:none}
   /* thumbs need a target, not a link */
   .btn{min-height:46px}
   .chip{min-height:38px}
+  .btn.wide{padding-left:14px; padding-right:14px; letter-spacing:.08em}
+  .pc-sub{font-size:11.5px}
+  .mission-side{width:96px}
+  .mission-side > button{min-height:46px; font-size:10px}
 }
 
 @media (max-height: 560px) and (orientation: landscape){
@@ -1185,15 +1690,14 @@ body.nav-mode .btn:focus{outline:none}
   .cc-title{font-size:clamp(24px,5vw,36px)}
   .screen.say, .screen.vote{padding-bottom:calc(8vh + env(safe-area-inset-bottom))}
   .play-inner{gap:10px}
-  .btn.huge{padding:13px 18px}
-  .btn.huge .pg-main{font-size:28px}
-  .play-blurb{display:none}
+  .pcard{padding-top:11px; padding-bottom:11px}
+  .pcard.hero{padding-top:13px; padding-bottom:13px}
+  .play-blurb, .pm-seal{display:none}
 }
 
 /* a pad plugged in gets bigger hit areas even on a desktop, because it
    is being driven from a sofa */
 @media (pointer: coarse){
-  .voice-pick select{padding:10px 11px}
 }
 
 /* the pot reads as a chip on the front door, not the banner it is on
@@ -1213,13 +1717,28 @@ select.nav-on{outline-offset:2px}
 
 /* ---------------- the front door ---------------- */
 
-.play-pair{display:flex; gap:10px; width:100%}
-.play-pair .btn{flex:1 1 0; min-width:0}
-.play-pair .pg-main{font-size:15px}
+
+/* Two buttons side by side is half a phone each, and `CREATE ROOM` in
+   a display face that has not finished loading is wider than that. Below
+   this they stack and get the whole width, which is also simply the
+   better shape for a thumb. */
+@media (max-width: 520px){
+}
 
 /* ---------------- lobby ---------------- */
 
-.screen.lobby{align-items:center; justify-content:center; overflow-y:auto}
+/* The lobby's panels carry their own ground, but the brand, the
+   status line and the hint under it were sitting directly on the sea. */
+.screen.lobby{
+  align-items:center; justify-content:center; overflow-y:auto;
+  /* Heavier than the front door's: there are panels and a code to read
+     here, and the backdrop is only company. */
+  background:
+    radial-gradient(ellipse 84% 66% at 50% 50%, rgba(4,10,20,.84) 0%,
+                                                rgba(4,10,20,.36) 80%, rgba(0,0,0,0) 100%),
+    linear-gradient(180deg, rgba(5,13,24,.74) 0%, rgba(5,13,24,.40) 40%,
+                            rgba(5,13,24,.82) 100%);
+}
 .lobby-inner{
   width:min(760px, 100%); display:flex; flex-direction:column; gap:16px;
   align-items:center; text-align:center; margin:auto;
@@ -1254,22 +1773,24 @@ select.nav-on{outline-offset:2px}
 .lp-note{margin:0; font-size:13px; line-height:1.5; color:var(--muted); flex:1}
 .lobby-panel .btn{width:100%}
 
-/* Four selects, because `UINav` already cycles a select with left and
-   right — so a gamepad dials a room code with no new input code, a
-   phone gets its native picker, and a keyboard can type a letter. */
-.code-entry{display:flex; gap:8px; justify-content:center}
-.code-slot{
-  font-family:var(--display); font-size:34px; line-height:1; text-align:center;
-  color:var(--gold); background:rgba(242,193,78,.06);
-  border:1px solid rgba(242,193,78,.3); border-radius:10px;
-  padding:8px 2px; width:100%; max-width:70px; cursor:pointer;
-  appearance:none; -webkit-appearance:none; text-align-last:center; outline:none;
+/* One field, typed. Four spinners were dialable on a gamepad and
+   miserable everywhere else — somebody reads you four letters and you
+   want to type four letters. The letter-spacing gives it the look of
+   four boxes without being four controls. */
+.code-entry{display:flex; justify-content:center}
+.code-field{
+  font-family:var(--display); font-size:clamp(34px,9vw,46px); line-height:1.1;
+  text-align:center; letter-spacing:.34em; text-indent:.34em;
+  color:var(--gold); background:rgba(242,193,78,.07);
+  border:1px solid rgba(242,193,78,.3); border-radius:12px;
+  padding:10px 6px; width:100%; max-width:290px; outline:none;
+  text-transform:uppercase; caret-color:var(--gold);
 }
-.code-slot:focus, .code-slot.nav-on{
+.code-field::placeholder{color:rgba(242,193,78,.30); letter-spacing:.34em}
+.code-field:focus, .code-field.nav-on{
   border-color:var(--gold); background:rgba(242,193,78,.16);
   box-shadow:0 0 0 3px rgba(242,193,78,.25);
 }
-.code-slot option{background:var(--ink-2); color:var(--paper); font-size:16px}
 
 .lobby-room{width:100%; display:flex; flex-direction:column; gap:14px; padding:22px}
 .lr-code-label{
@@ -1302,7 +1823,7 @@ select.nav-on{outline-offset:2px}
 .lr-actions{display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
 
 .lobby-msg{
-  min-height:20px; font-size:13px; color:var(--muted); opacity:0;
+  min-height:20px; font-size:13.5px; font-weight:600; color:#bed0e4; opacity:0;
   transition:opacity .2s;
 }
 .lobby-msg.on{opacity:1}
@@ -1313,14 +1834,20 @@ select.nav-on{outline-offset:2px}
   display:flex; gap:14px; align-items:center; justify-content:center;
   flex-wrap:wrap; margin-top:4px;
 }
-.lobby-hint{font-size:11px; color:rgba(139,163,189,.75)}
+.lobby-hint{font-size:11.5px; color:#a2b8ce}
 .chip.on{border-color:rgba(125,252,208,.5); color:var(--mint)}
 
 /* ---------------- dressing room ----------------
    The figure is on the canvas behind this, left of centre, so the
    panel lives on the right and the page never covers them up. */
 
-.screen.dressing{align-items:center; justify-content:flex-end; overflow-y:auto}
+/* Weighted to the right, because the figure is on the left: the
+   controls get a surface and the turntable stays in clear water. */
+.screen.dressing{
+  align-items:center; justify-content:flex-end; overflow-y:auto;
+  background:linear-gradient(90deg, rgba(6,16,28,0) 0%, rgba(6,16,28,.10) 42%,
+                                    rgba(6,16,28,.78) 74%, rgba(6,16,28,.92) 100%);
+}
 .dress-inner{
   width:min(420px,100%); display:flex; flex-direction:column; gap:14px; margin:auto 0;
 }
@@ -1328,7 +1855,7 @@ select.nav-on{outline-offset:2px}
   font-family:var(--display); font-size:30px; margin:4px 0 4px;
   letter-spacing:.02em; text-transform:uppercase;
 }
-.dress-head p{margin:0; font-size:12px; color:var(--muted); line-height:1.5}
+.dress-head p{margin:0; font-size:12.5px; color:#b6cade; line-height:1.5}
 .dress-panel{display:flex; flex-direction:column; gap:14px; padding:20px}
 .dress-rows{display:flex; flex-direction:column; gap:9px}
 .dress-row{display:grid; grid-template-columns:66px 1fr auto; gap:10px; align-items:center}
@@ -1500,6 +2027,9 @@ select.nav-on{outline-offset:2px}
   transition:opacity .35s ease, transform .35s ease;
 }
 #agenda-chip.on{opacity:1; transform:translateY(0)}
+/* Over the race HUD the corner is already two deep, so the chip
+   stands on top of both rather than in the middle of them. */
+body[data-screen="hud"] #agenda-chip{bottom:calc(var(--bl-foot) + 62px)}
 .ac-kicker{
   font-size:8px; letter-spacing:.18em; text-transform:uppercase; font-weight:800;
   color:#ff8095; margin-bottom:5px;
@@ -1509,21 +2039,17 @@ select.nav-on{outline-offset:2px}
   margin-top:6px; font-size:10px; letter-spacing:.10em; text-transform:uppercase;
   font-weight:800; color:var(--gold);
 }
-/* The way out. Dim while it is only a possibility, lit the moment the
-   run actually supports it — which is the only warning a Traitor gets
-   that the story they are about to tell is currently true. */
-.ac-alibi{
-  margin-top:7px; padding-top:7px; border-top:1px solid rgba(255,255,255,.10);
-  font-size:10px; line-height:1.45; font-weight:600; color:rgba(255,255,255,.52);
-}
-.ac-alibi.held{color:#7ee0a8}
+/* The cover, said in a colour rather than a sentence: the border warms
+   the moment the run itself supports the story, which is the only
+   warning a Traitor gets that what they are about to say is true. */
+#agenda-chip.covered{border-color:rgba(242,193,78,.55);
+  box-shadow:0 12px 34px rgba(120,10,30,.3), 0 0 0 1px rgba(242,193,78,.18)}
 #agenda-chip.done{border-color:rgba(126,224,168,.5)}
 
 /* ---------------- narrow and short ---------------- */
 
 @media (max-width:720px){
   .lobby-cols{grid-template-columns:1fr}
-  .play-pair{flex-direction:column}
   .screen.dressing{justify-content:center; align-items:flex-end}
   .dress-inner{width:100%; margin:0}
   .dress-panel{padding:16px}
@@ -1550,7 +2076,7 @@ select.nav-on{outline-offset:2px}
 /* Coarse pointers need a bigger target than a mouse does, and a select
    is the one control a thumb genuinely gets right. */
 @media (pointer:coarse){
-  .code-slot{padding:12px 2px; font-size:30px}
+  .code-field{padding:12px 6px; font-size:32px}
   .dr-select{padding:12px}
   .fb-done{padding:9px 15px}
 }

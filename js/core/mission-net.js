@@ -48,8 +48,13 @@ const MissionNet = (() => {
     try { fn(a, b); } catch (e) { console.warn(e); }
   });
 
+  /* Two things can put three people inside one mission: a whole night,
+     which `Session` owns, and a mission party, which is one mission and
+     nothing else. This file does not care which — it only needs to know
+     that there is a room and that the run inside it is a shared one. */
   const partyRun = () => (typeof Party !== 'undefined' && Party.connected
-                          && typeof Session !== 'undefined' && Session.running);
+    && ((typeof Session !== 'undefined' && Session.running)
+     || (typeof MissionParty !== 'undefined' && MissionParty.running)));
 
   /* ---------------- lifecycle ---------------- */
 
@@ -166,8 +171,13 @@ const MissionNet = (() => {
   function takeReport(playerId, data) {
     if (!Party.isHost || !data) return;
     reports.set(playerId, Object.assign({}, data, { playerId }));
+    /* Who the host is still waiting on. In a night that is everybody
+       still alive; in a mission party it is whoever is in the room,
+       which may well be two. Falling back to `Party.MAX` made a pair
+       sit through the straggler timeout every single time. */
     const expected = Session.state
-      ? Session.state.players.filter(p => p.alive).length : Party.MAX;
+      ? Session.state.players.filter(p => p.alive).length
+      : Math.max(1, Party.roster().length);
     if (reports.size >= expected) { publish(); return; }
     if (!reportTimer) reportTimer = setTimeout(publish, REPORT_TIMEOUT);
   }

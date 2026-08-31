@@ -26,6 +26,10 @@ const Screens = (() => {
     });
     current = id;
     currentData = data === undefined ? null : data;
+    /* The overlays that are not screens — the task chip, the field —
+       are siblings of all of them, so the only way they can know which
+       HUD they are laid over is for the body to say. */
+    document.body.dataset.screen = id || '';
     if (hooks[id] && hooks[id].enter) hooks[id].enter(data);
     shown.forEach(fn => { try { fn(id, currentData); } catch (e) { console.warn(e); } });
   }
@@ -35,6 +39,7 @@ const Screens = (() => {
     document.querySelectorAll('[data-screen]').forEach(n => n.classList.remove('active'));
     current = null;
     currentData = null;
+    document.body.dataset.screen = '';
     shown.forEach(fn => { try { fn(null, null); } catch (e) { console.warn(e); } });
   }
 
