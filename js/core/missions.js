@@ -8,6 +8,10 @@
        maxPrize: 12000, create: () => new MyMission(),
      });
 
+   Set `enabled: false` on a definition to keep its implementation in
+   place while removing it from every playable route. Switching it back
+   to `true` makes it available again.
+
    A mission instance implements:
      build()             -> { scene, camera }   (called once, before start)
      start()                                     (countdown / go)
@@ -36,6 +40,7 @@ const Missions = (() => {
   function register(def) {
     registry.set(def.id, Object.assign({
       order: registry.size,
+      enabled: true,
       locked: false,
       tagline: '',
       description: '',
@@ -46,17 +51,24 @@ const Missions = (() => {
     }, def));
   }
 
+  function enabled(def) { return !!def && def.enabled !== false; }
+
   function all() {
-    return [...registry.values()].sort((a, b) => a.order - b.order);
+    return [...registry.values()]
+      .filter(enabled)
+      .sort((a, b) => a.order - b.order);
   }
 
-  function get(id) { return registry.get(id); }
+  function get(id) {
+    const def = registry.get(id);
+    return enabled(def) ? def : undefined;
+  }
 
   // `opts` is whatever the mission's setup screen produced — seed, mode,
   // modifier. It is kept so "race again" can repeat the exact same run.
   function launch(id, opts) {
     if (active) end();
-    const def = registry.get(id);
+    const def = get(id);
     if (!def || def.locked) return null;
     activeDef = def;
     activeOpts = opts || {};

@@ -29,6 +29,48 @@ const makeClient = (swarm, selfId, modern) =>
 
 async function run() {
 
+  section('party — TURN is an ICE fallback');
+
+  await atest('temporary TURN credentials are added without replacing STUN', async () => {
+    const swarm = makeSwarm();
+    const fetch = async (url, options) => {
+      eq(url, '/api/turn', 'credentials came from the same-origin function');
+      eq(options.cache, 'no-store', 'temporary credentials are not browser-cached');
+      return {
+        ok: true,
+        json: async () => ({ iceServers: [
+          { urls: ['stun:stun.cloudflare.com:3478'] },
+          { urls: ['turn:turn.cloudflare.com:3478?transport=udp',
+                    'turns:turn.cloudflare.com:443?transport=tcp'],
+            username: 'short-user', credential: 'short-password' },
+        ] }),
+      };
+    };
+    const A = Swarm.makeClient(swarm, 'relayA', true, ['js/core/party.js'], { fetch });
+    await A.Party.host({ name: 'Ana', look: null });
+
+    const config = A.Trystero.configs[0];
+    ok(!config.rtcConfig, 'the default ICE policy and STUN list were not replaced');
+    eq(config.turnConfig, [{
+      urls: ['turn:turn.cloudflare.com:3478?transport=udp',
+             'turns:turn.cloudflare.com:443?transport=tcp'],
+      username: 'short-user', credential: 'short-password',
+    }], 'only authenticated TURN entries were added');
+    A.Party.leave();
+  });
+
+  await atest('a missing credential endpoint leaves direct rooms working', async () => {
+    const swarm = makeSwarm();
+    const quietConsole = { warn() {}, log() {}, error() {} };
+    const fetch = async () => ({ ok: false, status: 404 });
+    const A = Swarm.makeClient(swarm, 'directA', true, ['js/core/party.js'],
+                               { fetch, console: quietConsole });
+    const code = await A.Party.host({ name: 'Ana', look: null });
+    ok(A.Party.validCode(code), 'the STUN-only room still opened');
+    eq(A.Trystero.configs[0].turnConfig, [], 'no invalid relay config was installed');
+    A.Party.leave();
+  });
+
   for (const modern of [true, false]) {
     const shape = modern ? '0.25 (objects and properties)' : 'legacy (pairs and methods)';
 

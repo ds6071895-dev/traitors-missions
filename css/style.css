@@ -1079,6 +1079,16 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
    Three bands down the left edge, and a mark that slides through them.
    It is the only place in the mission that says how far the surface is,
    which is the question you are asking every two seconds. */
+/* how far the gold in your hands is from being money. Cyan while it is
+   still a swim, gold the moment it would bank — the rule needs no more
+   teaching than that. */
+.dv-shore{margin-top:5px; font-family:var(--display); font-size:clamp(12px,1.5vw,16px);
+  letter-spacing:.08em; color:var(--mint); text-align:right; white-space:nowrap;
+  opacity:0; transform:translateY(-4px); transition:opacity .16s, transform .16s, color .16s;
+  text-shadow:0 0 14px rgba(125,252,208,.55)}
+.dv-shore.show{opacity:1; transform:none}
+.dv-shore.home{color:var(--gold); text-shadow:0 0 20px rgba(255,209,102,.85)}
+
 .dv-tape{position:absolute; left:clamp(14px,3vw,34px); top:50%; transform:translateY(-50%);
   width:9px; height:min(46vh,340px); border-radius:5px; overflow:visible;
   background:rgba(6,18,30,.4); border:1px solid rgba(255,255,255,.14)}

@@ -83,8 +83,10 @@ function makeSwarm() {
    be indifferent. */
 
 function makeTrystero(swarm, selfId, modern) {
+  const configs = [];
   return {
     selfId,
+    configs,
     joinRoom(config, roomId, callbacks) {
       /* Trystero 0.23+ rejects callable objects here: its optional
          third argument must be a plain callbacks object. Keep the fake
@@ -92,6 +94,7 @@ function makeTrystero(swarm, selfId, modern) {
       if (!callbacks || typeof callbacks !== 'object') {
         throw new TypeError('Trystero: third argument must be a callbacks object');
       }
+      configs.push(config);
       const handlers = {};                  // channel -> fn
       const peers = { join: null, leave: null, stream: null };
 

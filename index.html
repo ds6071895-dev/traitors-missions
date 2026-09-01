@@ -668,6 +668,9 @@
       <div class="hud-label">In hand</div>
       <div class="dv-carry-val" id="dv-carry-val">—</div>
       <div class="dv-carry" id="dv-carry"></div>
+      <!-- what is in your hands is not money until it is on the pile,
+           so the panel that counts it also says how far that is -->
+      <div class="dv-shore" id="dv-shore"></div>
     </div>
   </div>
 
@@ -697,7 +700,7 @@
     </div>
   </div>
 
-  <div class="dv-hint" id="dv-hint">Click to swim · <kbd>Space</kbd> kicks</div>
+  <div class="dv-hint" id="dv-hint">Click to swim · <kbd>Space</kbd> kicks · bring it back to the shore</div>
   <!-- pressure, as a cyan-white closing-in rather than a darkness -->
   <div class="dv-pressure" id="dv-pressure"></div>
   <!-- the dive gets its own, because #center-msg lives inside the boat

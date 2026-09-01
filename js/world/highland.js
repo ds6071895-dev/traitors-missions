@@ -161,7 +161,13 @@ const HighlandKit = (() => {
         const k2 = (k + 1) % SECTORS;
         const a = index.get(i + ':' + k), b = index.get(i + ':' + k2);
         const cc = index.get((i + 1) + ':' + k), d = index.get((i + 1) + ':' + k2);
-        idx.push(a, cc, b, b, cc, d);
+        /* Wound so the right-hand normal points *up*. `(a, c, b)` reads
+           like the natural order for a ring/sector grid and is exactly
+           backwards: it hands computeVertexNormals a downward normal,
+           and a front-side hillside with downward normals is culled from
+           anywhere you could stand on it. (The reef's seabed had the
+           same inversion and it made the whole loch floor invisible.) */
+        idx.push(a, b, cc, b, d, cc);
       }
     }
 

@@ -48,6 +48,22 @@ const ReefKit = (() => {
     hullRust:  new THREE.Color('#8a5a3c'),
     hullWeed:  new THREE.Color('#3f7f5f'),
     timber:    new THREE.Color('#4a3b2c'),
+
+    /* ---- and the half of the loch that is not underwater ----
+       The shore is lit by the same noon rig as the water, so it is
+       painted in the same register: bright, saturated, nothing muddy.
+       Shingle at the tideline, machair above it, then heather and bare
+       rock as the hill gets its head above the weather. */
+    shingle:   new THREE.Color('#cfc4a6'),
+    shingleWet:new THREE.Color('#9a9078'),
+    grass:     new THREE.Color('#6fd06a'),
+    grassLit:  new THREE.Color('#a8e878'),
+    grassDeep: new THREE.Color('#3f9a56'),
+    heather:   new THREE.Color('#9a6fc4'),
+    bracken:   new THREE.Color('#c39a4e'),
+    land:      new THREE.Color('#79808e'),
+    landDark:  new THREE.Color('#5b6270'),
+    snow:      new THREE.Color('#f3fbff'),
   };
 
   /* The three bands, and everything that changes between them. This
@@ -55,20 +71,32 @@ const ReefKit = (() => {
      frame against the camera's own depth and hands the result to the
      fog, the water and the vignette. */
   const BANDS = [
+    /* `at` is a height, not a depth, so the first entry can legitimately
+       be *above* the water: the ramp has to keep going once your head is
+       out or breaking the surface changes nothing on screen, which is
+       precisely the bug that made a gasp look like drowning. */
+    { id: 'air',    at: 3,
+      fog: '#c8ebff', near: 240, far: 2600, caustic: 0.00, vignette: 0.00, air: 1 },
     { id: 'shelf',  at: 0,
-      fog: '#5fe6e0', near: 22, far: 260, caustic: 1.00, vignette: 0.00 },
+      fog: '#5fe6e0', near: 22, far: 260, caustic: 1.00, vignette: 0.00, air: 0 },
     { id: 'wreck',  at: -22,
-      fog: '#2ec6dd', near: 18, far: 200, caustic: 0.55, vignette: 0.35 },
+      fog: '#2ec6dd', near: 18, far: 200, caustic: 0.55, vignette: 0.35, air: 0 },
     { id: 'trench', at: -46,
-      fog: '#1f7ee0', near: 14, far: 150, caustic: 0.22, vignette: 0.80 },
+      fog: '#1f7ee0', near: 14, far: 150, caustic: 0.22, vignette: 0.80, air: 0 },
   ];
+  // the three that are actually underwater, for anything reading tiers
+  const WET = BANDS.slice(1);
 
   /* Where the depth ramp has got to at a given depth, as one object.
-     Reused every frame, so it writes into `out` rather than allocating. */
+     Reused every frame, so it writes into `out` rather than allocating.
+     A *negative* depth is a camera with its lens out of the water, and
+     the ramp carries on through the surface into the air band rather
+     than clamping at it — that continuity is the whole surface break. */
   const _fogA = new THREE.Color(), _fogB = new THREE.Color();
   function bandAt(depth, out) {
-    const o = out || { colour: new THREE.Color(), near: 0, far: 0, caustic: 0, vignette: 0 };
-    const y = -Math.max(0, depth);
+    const o = out || { colour: new THREE.Color(), near: 0, far: 0,
+                       caustic: 0, vignette: 0, air: 0 };
+    const y = U.clamp(-depth, BANDS[BANDS.length - 1].at, BANDS[0].at);
     let i = 0;
     while (i < BANDS.length - 2 && y < BANDS[i + 1].at) i++;
     const a = BANDS[i], b = BANDS[i + 1];
@@ -79,6 +107,7 @@ const ReefKit = (() => {
     o.far = U.lerp(a.far, b.far, t);
     o.caustic = U.lerp(a.caustic, b.caustic, t);
     o.vignette = U.lerp(a.vignette, b.vignette, t);
+    o.air = U.lerp(a.air, b.air, t);
     return o;
   }
 
@@ -93,8 +122,18 @@ const ReefKit = (() => {
      and a guaranteed flat pad at the origin so the boat has somewhere
      to sit. Everything downstream (chest placing, kelp, the swimmer's
      collision) asks this and never the mesh. */
+  /* The shore, as the four numbers everything downstream needs: which
+     way inland is, and how far up the beach the landing sits. Exported
+     because `makeFloor` cannot be called without one, and a test that
+     had to write out `Math.sin(ang)` itself would be asserting against
+     its own copy of the convention rather than against this one. */
+  function shoreFor(ang, landAt = 7) {
+    return { ang, nx: Math.sin(ang), nz: Math.cos(ang), landAt };
+  }
+
   function makeFloor(rng, o) {
     const s1 = rng() * 900, s2 = rng() * 900, s3 = rng() * 900;
+    const s4 = rng() * 900, s5 = rng() * 900, s6 = rng() * 900;
     const R = o.radius;
     // where the canyon runs: a chord across the reef, so the trench is
     // reachable from more than one bearing
@@ -103,7 +142,69 @@ const ReefKit = (() => {
     const cutW = U.lerp(26, 40, rng());
     const cutDeep = U.lerp(6, 11, rng());
 
+    /* ---------------- the shore ----------------
+
+       The loch has a side you can stand on. `shore.n` points inland, so
+       `e` — how far inland a point is, in metres — is one dot product,
+       and every part of the coast is a function of that single number:
+       shelving sand below zero, a shingle bank you jump off just above
+       it, machair, hillside, and the highland shoulder behind.
+
+       The coastline wanders, because a ruler-straight beach reads as a
+       wall. It stops wandering within fifty metres of the landing, so
+       the one part of it the player actually stands on is a clean flat
+       platform in every seed rather than whatever the noise felt like. */
+    const sh = o.shore || shoreFor(0);
+    const nx = sh.nx, nz = sh.nz;
+    const LAND_AT = sh.landAt;        // metres inland of the tideline you stand at
+
+    /* Two dot products and, only if they land anywhere near the beach,
+       one octave stack. Everything in this file calls `heightAt` in
+       five-figure quantities — the seabed mesh, every chest that has to
+       find a depth band, every tree that has to find a hillside — so
+       the cheap test comes first and the noise is never evaluated for a
+       point out in the middle of the loch. */
+    const _pt = { e: 0, along: 0 };
+    function coastE(x, z) {
+      const s = x * nx + z * nz;                 // inland, in metres
+      _pt.along = -x * nz + z * nx;              // along the beach, in metres
+      if (s < -140) { _pt.e = s; return _pt; }
+      const wob = fbm2(_pt.along * 0.0062, 11, 3, s6) * 30
+                * U.smoothstep(34, 150, Math.abs(_pt.along));
+      _pt.e = s + wob;
+      return _pt;
+    }
+
+    function coastH(e) {
+      if (e <= 0) return -0.75 + e * 0.19;       // shelving sand, waded not swum
+      return -0.75
+        + U.smoothstep(0, 8, e) * 3.4            // the shingle bank you jump off
+        + U.smoothstep(12, 130, e) * 38          // machair, rising
+        + U.smoothstep(90, 430, e) * 165         // the hillside
+        + U.smoothstep(330, 900, e) * 430;       // and the highland behind it
+    }
+
     return function heightAt(x, z) {
+      /* Which half of the loch is this? The shore blend decides, and it
+         decides first, because the two halves are expensive in
+         completely different ways and almost no point needs both. */
+      const shorePt = coastE(x, z);
+      const e = shorePt.e, coastAlong = shorePt.along;
+      const w = U.smoothstep(-78, -10, e);
+
+      if (w >= 1) {
+        let land = coastH(e);
+        if (e > 0) {
+          // the hill is not a ramp: two octaves of relief, gated so the
+          // beach itself stays walkable and only the ground behind rolls
+          land += fbm2(x * 0.0135, z * 0.0135, 4, s4) * U.smoothstep(6, 70, e) * 15
+                + fbm2(x * 0.052, z * 0.052, 3, s5) * U.smoothstep(2, 34, e) * 2.6;
+        }
+        const padK = (1 - U.smoothstep(9, 26, Math.abs(coastAlong)))
+                   * (1 - U.smoothstep(2.5, 9.5, Math.abs(e - LAND_AT)));
+        return U.lerp(land, coastH(LAND_AT), padK * 0.85);
+      }
+
       const r = Math.hypot(x, z);
       const t = U.clamp(r / R, 0, 1.25);
       /* Three terraces rather than a cone. The band widths are chosen
@@ -132,11 +233,30 @@ const ReefKit = (() => {
                 * U.smoothstep(0.18, 0.5, Math.abs(along) / R + 0.2)
                 * (1 - U.smoothstep(0.72, 1.0, t));
 
-      // and a flat pad under the mooring, or the boat sits in a dune
-      const pad = 1 - U.smoothstep(6, 20, r);
       // nothing on this reef is deeper than a diver can come back from
-      const h = Math.max(ramp + dune + heads + cut, -52);
-      return U.lerp(h, -11.5, pad);
+      const sea = Math.max(ramp + dune + heads + cut, -52);
+      if (w <= 0) return sea;
+
+      /* ---- and then the shore takes over.
+         The blend is wide (seventy metres) so the loch shelves into the
+         beach instead of ending at a step, and it is driven by distance
+         from the tideline rather than by radius, which is what lets the
+         reef stay a disc around the origin while the land is a coast. */
+      let land = coastH(e);
+      if (e > 0) {
+        land += fbm2(x * 0.0135, z * 0.0135, 4, s4) * U.smoothstep(6, 70, e) * 15
+              + fbm2(x * 0.052, z * 0.052, 3, s5) * U.smoothstep(2, 34, e) * 2.6;
+      }
+      /* The landing itself: a flat shingle platform, in every seed. It
+         is deliberately asymmetric — it flattens the ground you stand
+         on and stops before the water, because a pad that reached into
+         the loch would push the tideline out and there would be nowhere
+         to come ashore. */
+      const padK = (1 - U.smoothstep(9, 26, Math.abs(coastAlong)))
+                 * (1 - U.smoothstep(2.5, 9.5, Math.abs(e - LAND_AT)));
+      land = U.lerp(land, coastH(LAND_AT), padK * 0.85);
+
+      return U.lerp(sea, land, w);
     };
   }
 
@@ -151,7 +271,8 @@ const ReefKit = (() => {
   function causticMaterial(uniforms, opts = {}) {
     const mat = new THREE.MeshLambertMaterial(Object.assign(
       { vertexColors: true, flatShading: opts.flat !== false }, opts.mat || {}));
-    const key = 'caus' + (opts.gain || 1).toFixed(2) + (opts.sway ? 's' + opts.sway : '');
+    const key = 'caus' + (opts.gain || 1).toFixed(2) + (opts.sway ? 's' + opts.sway : '')
+              + (opts.swash ? 'w' + opts.swash : '');
     mat.onBeforeCompile = (sh) => {
       sh.uniforms.uCausT = uniforms.time;
       sh.uniforms.uCausGain = uniforms.caustic;
@@ -194,11 +315,29 @@ const ReefKit = (() => {
           }`)
         .replace('#include <dithering_fragment>', `#include <dithering_fragment>
           {
+            /* Two crossed fields at different speeds. One is a texture;
+               two moving against each other is a lens. It stops dead at
+               the tideline, because a hillside lit by ripples is the
+               fastest way to tell somebody this is not a real place. */
+            float wet = 1.0 - smoothstep(-1.6, 0.35, vReefPos.y);
             float c1 = rnoise(vReefPos.xz * 0.22 + vec2(uCausT * 0.10,  uCausT * 0.07));
             float c2 = rnoise(vReefPos.xz * 0.35 - vec2(uCausT * 0.13, -uCausT * 0.09));
-            float caus = pow(max(c1 * c2, 0.0), 2.2) * uCausGain * vUpFacing * GAIN;
+            float caus = pow(max(c1 * c2, 0.0), 2.2) * uCausGain * vUpFacing * GAIN * wet;
             gl_FragColor.rgb += vec3(0.55, 0.95, 0.90) * caus * 1.6;
+
+            /* The swash: a bright wet band that breathes up and down the
+               shingle on the swell, so the beach meets the water instead
+               of simply ending at it. Cheap, and it is the single line
+               that sells the tideline. */
+            float tide = sin(uCausT * 0.55) * 0.22 + cos(uCausT * 0.31) * 0.10;
+            // written ascending on purpose: GLSL leaves smoothstep undefined
+            // when edge0 >= edge1, however reliably drivers happen to do it
+            float band = 1.0 - smoothstep(0.05, 0.9, abs(vReefPos.y - tide - 0.05));
+            float lace = rnoise(vReefPos.xz * 0.5 + vec2(uCausT * 0.25, 0.0));
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.93, 0.99, 1.0),
+                                   band * vUpFacing * (0.20 + 0.34 * lace) * SWASH);
           }`)
+        .replace(/SWASH/g, (opts.swash === undefined ? 0 : opts.swash).toFixed(2))
         .replace(/GAIN/g, (opts.gain === undefined ? 1 : opts.gain).toFixed(2));
     };
     // two materials that compile different code must not share a cache key
@@ -209,17 +348,29 @@ const ReefKit = (() => {
   /* =============== the seabed mesh =============== */
 
   function buildFloor(heightAt, rng, o) {
-    const RINGS = 46, SECTORS = 84;
+    const RINGS = 62, SECTORS = 104;
     const pos = [], col = [];
     const c = new THREE.Color();
-    const radiusAt = (t) => o.radius * (t * t * 0.72 + t * 0.28) * 1.12;
+    const fog = new THREE.Color(Sky.look ? Sky.look.fog : '#c8ebff');
+    const sh = o.shore || shoreFor(0);
 
-    const paint = (x, y, z, slope) => {
+    /* How far the disc reaches on a given bearing. Seaward it only has
+       to out-run the fog; inland it has to carry an entire hillside, so
+       it reaches five times as far that way. One mesh covers both,
+       which is what keeps the tideline a single continuous surface
+       rather than two sheets fighting over the same metre of sand. */
+    const reachAt = (a) => {
+      const inland = Math.max(0, Math.sin(a) * sh.nx + Math.cos(a) * sh.nz);
+      return o.radius * U.lerp(1.55, 5.4, Math.pow(inland, 1.15));
+    };
+    const radiusAt = (t, a) => reachAt(a) * (t * t * 0.78 + t * 0.22);
+
+    /* ---- underwater paint: pale sand on the shelf, going green-grey as
+       it falls away, with coral picked out on the shallow humps ---- */
+    const paintSea = (x, y, z, slope) => {
       const r = Math.hypot(x, z);
       const t = U.clamp(r / o.radius, 0, 1);
       const n = fbm2(x * 0.03, z * 0.03, 3, 5);
-      // pale sand on the shelf, going green-grey as it falls away, with
-      // coral patches picked out on the shallow humps
       c.copy(COL.sand)
         .lerp(COL.sandWet, U.clamp(n * 0.5 + 0.4, 0, 1) * 0.7)
         .lerp(COL.sandDeep, U.smoothstep(0.28, 0.70, t))
@@ -233,17 +384,60 @@ const ReefKit = (() => {
       }
       const patch = fbm2(x * 0.16, z * 0.16, 2, 77);
       c.offsetHSL(patch * 0.014, patch * 0.06, patch * 0.05);
-      /* The floor faces straight up into the brightest light rig in the
-         game, under a renderer with no tone mapping. Left at face value
-         every one of these clips to white — the same trick, and the
-         same number, the forest floor already uses. */
-      return c.multiplyScalar(0.42);
+    };
+
+    /* ---- and above the tideline. Wet shingle, dry shingle, machair,
+       bracken, heather, bare rock, and snow on the tops. It is a long
+       ramp on purpose: the whole point of a highland is that it keeps
+       changing colour all the way up. ---- */
+    const paintLand = (x, y, z, slope) => {
+      const n = fbm2(x * 0.019, z * 0.019, 3, 11);
+      const patch = fbm2(x * 0.105, z * 0.105, 2, 71);
+      c.copy(COL.shingleWet)
+        .lerp(COL.shingle, U.smoothstep(-0.2, 1.4, y))
+        .lerp(COL.grass, U.smoothstep(1.8, 7.5, y))
+        // the light catches the tops of the rolls and misses the hollows
+        .lerp(COL.grassLit, U.clamp(n * 0.55 + 0.42, 0, 1)
+                            * U.smoothstep(3, 14, y) * 0.66)
+        .lerp(COL.grassDeep, U.smoothstep(0.30, 0.95, slope) * 0.6)
+        .lerp(COL.bracken, U.clamp(fbm2(x * 0.031, z * 0.031, 2, 57) * 0.62, 0, 0.30)
+                           * U.smoothstep(6, 34, y))
+        .lerp(COL.heather, U.clamp(fbm2(x * 0.024, z * 0.024, 2, 41) * 0.85, 0, 0.46)
+                           * U.smoothstep(22, 95, y))
+        .lerp(COL.land, U.smoothstep(0.95, 1.9, slope))
+        .lerp(COL.landDark, U.smoothstep(170, 330, y) * 0.7)
+        .lerp(COL.snow, U.smoothstep(320, 445, y) * 0.9);
+      c.offsetHSL(patch * 0.016, patch * 0.05, patch * 0.05);
+      // the far hillside sits back into the weather of the day
+      c.lerp(fog, U.smoothstep(o.radius * 1.4, o.radius * 4.4, Math.hypot(x, z)) * 0.62);
+    };
+
+    const paint = (x, y, z, slope) => {
+      /* One surface, two palettes, and a wet strip where they meet: the
+         sand does not stop at the tideline, it darkens through it. */
+      const land = U.smoothstep(-2.4, 0.5, y);
+      if (land <= 0) { paintSea(x, y, z, slope); }
+      else if (land >= 1) { paintLand(x, y, z, slope); }
+      else {
+        paintSea(x, y, z, slope);
+        const wet = c.clone();
+        paintLand(x, y, z, slope);
+        c.lerp(wet, 1 - land);
+      }
+      /* Both palettes face straight up into the brightest light rig in
+         the game, under a renderer with no tone mapping. Left at face
+         value every one of these clips to white — the same trick the
+         forest floor already uses, and the same two numbers: the wood's
+         for the hillside, the reef's for the sand, because one of them
+         is being read through forty metres of blue and the other is
+         not. */
+      return c.multiplyScalar(U.lerp(0.42, 0.46, land));
     };
 
     const P = (t, k) => {
       const a = (k / SECTORS) * Math.PI * 2;
       const jr = 1 + (noise2(t * 977, k, 3) * 0.5) * 0.18;
-      const r = radiusAt(t) * jr;
+      const r = radiusAt(t, a) * jr;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       return { x, z, y: heightAt(x, z) };
     };
@@ -257,26 +451,56 @@ const ReefKit = (() => {
     const centre = { x: 0, z: 0, y: heightAt(0, 0) };
     grid[0] = grid[0].map(() => centre);
 
-    const tri = (a, b, cc) => {
-      const run = Math.max(1e-3, Math.hypot(b.x - a.x, b.z - a.z));
-      const slope = Math.abs(b.y - a.y) / run + Math.abs(cc.y - a.y) / run * 0.5;
-      const mx = (a.x + b.x + cc.x) / 3, mz = (a.z + b.z + cc.z) / 3;
-      const my = (a.y + b.y + cc.y) / 3;
-      paint(mx, my, mz, slope);
-      for (const p of [a, b, cc]) { pos.push(p.x, p.y, p.z); col.push(c.r, c.g, c.b); }
+    /* Indexed and painted per vertex, not per triangle.
+       The header says this surface is smooth-shaded because "a surface
+       this big rendered as flat facets reads as broken geometry" — and
+       a *non-indexed* grid cannot be, whatever the material says, since
+       computeVertexNormals has nothing to average across. Sharing the
+       vertices buys the smooth shading the comment was asking for, four
+       times fewer paint calls, and six times fewer vertices, all from
+       the same edit.
+
+       The slope each vertex is painted against comes off its own
+       neighbours in the grid rather than from four more calls into the
+       height function, which is what keeps a hillside this large inside
+       a mission load rather than a loading screen. */
+    const slopeAt = (i, k) => {
+      const up = grid[Math.max(0, i - 1)][k], dn = grid[Math.min(RINGS, i + 1)][k];
+      const lf = grid[i][(k + SECTORS - 1) % SECTORS], rt = grid[i][(k + 1) % SECTORS];
+      const dr = Math.max(0.4, Math.hypot(dn.x - up.x, dn.z - up.z));
+      const dk = Math.max(0.4, Math.hypot(rt.x - lf.x, rt.z - lf.z));
+      return Math.abs(dn.y - up.y) / dr + Math.abs(rt.y - lf.y) / dk;
     };
 
+    for (let i = 0; i <= RINGS; i++) {
+      for (let k = 0; k < SECTORS; k++) {
+        const p = grid[i][k];
+        pos.push(p.x, p.y, p.z);
+        paint(p.x, p.y, p.z, slopeAt(i, k));
+        col.push(c.r, c.g, c.b);
+      }
+    }
+
+    /* Wound so that the right-hand normal points *up*.
+       This is not a detail. `(a, c, d)` — which is what a ring/sector
+       grid reads like when you write it out in order — produces a
+       downward normal, so the entire seabed was back-facing and the
+       renderer culled the single largest object in the mission. The
+       loch looked empty because its floor was inside out. */
+    const idx = [];
+    const at = (i, k) => i * SECTORS + k;
     for (let i = 0; i < RINGS; i++) {
       for (let k = 0; k < SECTORS; k++) {
         const k2 = (k + 1) % SECTORS;
-        const A = grid[i][k], B = grid[i][k2], C = grid[i + 1][k], D = grid[i + 1][k2];
-        tri(A, C, D); tri(A, D, B);
+        const A = at(i, k), B = at(i, k2), C = at(i + 1, k), D = at(i + 1, k2);
+        idx.push(A, D, C, A, B, D);
       }
     }
 
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
     g.computeVertexNormals();
     return g;
   }
@@ -499,12 +723,163 @@ const ReefKit = (() => {
       const a = rng() * Math.PI * 2;
       const r = U.lerp(o.r0, o.r1, Math.sqrt(rng()));
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      // kelp wants light: it thins out as the floor falls away
+      // kelp wants light: it thins out as the floor falls away, and it
+      // does not grow above the tideline
       const y = heightAt(x, z);
+      if (y > -2.4) continue;
       if (rng() > U.clamp(1 - U.smoothstep(-16, -40, y), 0.06, 1)) continue;
       spots.push({ x, z, y, s: rng.range(0.8, 2.0), rot: rng() * 6.28, kind: i % geos.length });
     }
     return { geos, spots };
+  }
+
+  /* =============== the shore, dressed =============== */
+
+  /* Everything above the tideline that is not the ground itself: the
+     wood on the hillside, the machair grass on the flat behind the
+     beach, and the boulders on the shingle.
+
+     None of it is new code. `ForestKit` already knows how to build a
+     pine and instance ten thousand of them against a wind uniform, and
+     `HighlandKit` already knows what a blade of grass looks like — the
+     dive supplies a height function and a treeline and gets a Scottish
+     hillside back. That reuse is the reason this is fifty lines rather
+     than a second forest.js. */
+  function buildLand(heightAt, rng, o) {
+    const group = new THREE.Group();
+    group.name = 'shore';
+    const geos = [], mats = [];
+    const uniforms = {
+      time: { value: 0 },
+      wind: { value: new THREE.Vector3(0.62, 0.34, 1.0) },
+    };
+
+    const R = o.reach;
+    const TAU = Math.PI * 2;
+    const c = new THREE.Color();
+
+    /* ---- the wood. Thick along the shore where you see it, thinning
+       out to a proper treeline as the hill gets its head above the
+       weather, and never on the shingle itself. ---- */
+    const treeMat = ForestKit.windMaterial(uniforms, 0.5, 13.0, 0.85);
+    mats.push(treeMat);
+    const trees = [];
+    for (let i = 0; i < o.trees * 9 && trees.length < o.trees; i++) {
+      const a = rng() * TAU;
+      const r = U.lerp(14, R, Math.sqrt(rng()));
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      const y = heightAt(x, z);
+      if (y < 4.2) continue;                       // not on the beach
+      // the treeline: dense low down, gone by three hundred metres up
+      if (rng() > U.clamp(1 - U.smoothstep(140, 320, y), 0.02, 1)) continue;
+      // and never standing in the landing itself
+      if (Math.hypot(x - o.landing.x, z - o.landing.z) < 16) continue;
+      trees.push({ x, z, y, s: rng.range(0.75, 1.85), rot: rng() * TAU,
+                   kind: rng() < 0.66 ? 'pine' : (rng() < 0.86 ? 'broadleaf' : 'dead') });
+    }
+    for (const kind of ['pine', 'broadleaf', 'dead']) {
+      const list = trees.filter(t => t.kind === kind);
+      if (!list.length) continue;
+      const geo = ForestKit.speciesGeometry(kind, rng);
+      geos.push(geo);
+      const m = ForestKit.instance(geo, treeMat, list, rng, (col, sp, r) => {
+        // a wood is not one green: hue, saturation and lightness all move,
+        // and the far side of the hill sits back towards the haze
+        const d = U.clamp(Math.hypot(sp.x, sp.z) / R, 0, 1);
+        const alt = U.smoothstep(20, 260, sp.y);
+        col.setHSL(0.29 + r.range(-0.035, 0.055) + alt * 0.02,
+                   0.52 + r.range(-0.12, 0.10) - alt * 0.14,
+                   0.50 + r.range(-0.10, 0.12) - alt * 0.06);
+        col.multiplyScalar(U.lerp(0.92, 0.48, d));
+      });
+      if (m) { m.name = 'shore-' + kind; group.add(m); }
+    }
+
+    /* ---- machair: the grass on the flat behind the beach. Only where
+       you can actually see it, which is the first hundred metres. ---- */
+    const grassMat = ForestKit.windMaterial(uniforms, 0.05, 1.1, 1.5);
+    mats.push(grassMat);
+    const tufts = [];
+    for (let i = 0; i < o.grass * 5 && tufts.length < o.grass; i++) {
+      const a = rng() * TAU;
+      const r = U.lerp(8, 190, Math.sqrt(rng()));
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      const y = heightAt(x, z);
+      if (y < 1.9 || y > 90) continue;
+      tufts.push({ x, z, y, s: rng.range(0.7, 1.5), rot: rng() * TAU });
+    }
+    if (tufts.length) {
+      const geo = HighlandKit.tuftGeometry(rng, 4);
+      geos.push(geo);
+      const m = ForestKit.instance(geo, grassMat, tufts, rng, (col, sp, r) => {
+        col.copy(sp.y < 3.4 ? COL.bracken : COL.grass)
+           .offsetHSL(r.range(-0.03, 0.05), r.range(-0.12, 0.10), r.range(-0.08, 0.14))
+           .multiplyScalar(0.72);
+      });
+      if (m) { m.name = 'shore-grass'; group.add(m); }
+    }
+
+    /* ---- and the boulders the beach is made of. Flat-shaded, sunk into
+       the shingle, and the only thing on the shore with a collider. ---- */
+    const rockMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    mats.push(rockMat);
+    const rockGeos = [];
+    const colliders = [];
+    for (let i = 0; i < o.boulders * 8 && rockGeos.length < o.boulders; i++) {
+      const a = rng() * TAU;
+      const r = U.lerp(9, 150, Math.sqrt(rng()));
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      const y = heightAt(x, z);
+      if (y < -1.6 || y > 46) continue;
+      if (Math.hypot(x - o.landing.x, z - o.landing.z) < 9) continue;
+      const rad = rng.range(0.7, 3.4);
+      const g = new THREE.IcosahedronGeometry(rad, 1);
+      const p = g.attributes.position;
+      const ls = lumps(rng);
+      const sy = rng.range(0.5, 1.0);
+      for (let v = 0; v < p.count; v++) {
+        const vx = p.getX(v), vy = p.getY(v), vz = p.getZ(v);
+        const inv = 1 / (Math.hypot(vx, vy, vz) || 1);
+        const dx = vx * inv, dy = vy * inv, dz = vz * inv;
+        const rr = rad * (1 + lumpAt(ls, dx * 2.4, dy * 2.4, dz * 2.4));
+        p.setXYZ(v, dx * rr, dy * rr * sy, dz * rr);
+      }
+      g.computeVertexNormals();
+      const cc = [];
+      const lichen = rng() < 0.4;
+      for (let v = 0; v < p.count; v++) {
+        const tt = U.clamp((p.getY(v) + rad * sy) / (2 * rad * sy), 0, 1);
+        c.copy(COL.landDark).lerp(COL.land, Math.pow(tt, 0.75));
+        if (lichen && tt > 0.5) c.lerp(COL.grassLit, (tt - 0.5) * 0.5);
+        c.lerp(COL.shingleWet, U.smoothstep(0.4, -1.2, y) * 0.5);
+        c.multiplyScalar(0.5);
+        cc.push(c.r, c.g, c.b);
+      }
+      g.setAttribute('color', new THREE.Float32BufferAttribute(cc, 3));
+      g.rotateY(rng() * TAU);
+      g.translate(x, y - rad * sy * 0.35, z);
+      rockGeos.push(g);
+      if (rad > 1.5) colliders.push({ x, z, r: rad * 0.8, y0: y - rad, y1: y + rad * sy * 1.6 });
+    }
+    if (rockGeos.length) {
+      const merged = Sky.mergeGeometries(rockGeos);
+      geos.push(merged);
+      const mesh = new THREE.Mesh(merged, rockMat);
+      mesh.name = 'shore-rocks';
+      group.add(mesh);
+      for (const g of rockGeos) g.dispose();
+    }
+
+    return {
+      group, colliders, uniforms,
+      setWind(x, z, strength) { uniforms.wind.value.set(x, z, strength); },
+      update(dt) { uniforms.time.value += dt; },
+      dispose() {
+        Engine.disposeObject(group);
+        for (const g of geos) g.dispose();
+        for (const m of mats) m.dispose();
+      },
+    };
   }
 
   /* =============== shafts of light =============== */
@@ -596,10 +971,13 @@ const ReefKit = (() => {
     const SCHOOLS = Math.max(2, Math.round(count / 34));
     const schools = [];
     for (let i = 0; i < SCHOOLS; i++) {
-      const a = rng() * Math.PI * 2, r = U.lerp(20, R, Math.sqrt(rng()));
-      schools.push({ x: Math.cos(a) * r, z: Math.sin(a) * r,
-                     y: heightAt(Math.cos(a) * r, Math.sin(a) * r) + rng.range(3, 12),
-                     t: rng() * 10 });
+      let x = 0, z = 0;
+      for (let tries = 0; tries < 24; tries++) {
+        const a = rng() * Math.PI * 2, r = U.lerp(20, R, Math.sqrt(rng()));
+        x = Math.cos(a) * r; z = Math.sin(a) * r;
+        if (heightAt(x, z) <= -7) break;
+      }
+      schools.push({ x, z, y: heightAt(x, z) + rng.range(3, 12), t: rng() * 10 });
     }
     // a couple of schools always live on the wreck, because that is
     // where the middle tier's money is and it should look inhabited
@@ -636,11 +1014,18 @@ const ReefKit = (() => {
           const sc = schools[s];
           sc.t -= step;
           if (sc.t <= 0) {
-            // a new place to be, always over the seabed and never above it
+            // a new place to be, always over the seabed, never above it,
+            // and never up the beach
             sc.t = 5 + Math.random() * 9;
-            const a = Math.random() * Math.PI * 2, r = U.lerp(15, R, Math.sqrt(Math.random()));
-            sc.x = Math.cos(a) * r; sc.z = Math.sin(a) * r;
-            sc.y = heightAt(sc.x, sc.z) + 3 + Math.random() * 12;
+            for (let tries = 0; tries < 12; tries++) {
+              const a = Math.random() * Math.PI * 2;
+              const r = U.lerp(15, R, Math.sqrt(Math.random()));
+              const x = Math.cos(a) * r, z = Math.sin(a) * r;
+              if (heightAt(x, z) > -7 && tries < 11) continue;
+              sc.x = x; sc.z = z;
+              sc.y = heightAt(x, z) + 3 + Math.random() * 12;
+              break;
+            }
           }
         }
         for (let i = 0; i < count; i++) {
@@ -703,6 +1088,9 @@ const ReefKit = (() => {
       kelp: 620,
       shafts: 9,
       motes: 340,
+      trees: 900,
+      grass: 1500,
+      boulders: 70,
     }, opts);
 
     const uniforms = {
@@ -711,7 +1099,34 @@ const ReefKit = (() => {
       current: { value: new THREE.Vector3(0.7, 0.7, 1) },
     };
 
+    /* ---- which way the land is ----
+       One bearing decides the whole above-water half of the mission:
+       where the beach is, which way home is, and which way you are
+       facing when the countdown ends. Everything downstream reads it
+       off `reef.shore` rather than knowing the number. */
+    const shoreAng = opts.shoreAngle === undefined ? rng() * Math.PI * 2 : opts.shoreAngle;
+    const shore = shoreFor(shoreAng);
+    o.shore = shore;
+
     const heightAt = makeFloor(rng, o);
+
+    /* The landing: the flat shingle platform you jump from and bring
+       everything back to, and the tideline point in front of it that
+       counts as "ashore". Both are on the shore bearing through the
+       origin, so the reef's own geometry is untouched by any of this. */
+    shore.landing = { x: shore.nx * shore.landAt, z: shore.nz * shore.landAt };
+    shore.landing.y = heightAt(shore.landing.x, shore.landing.z);
+    /* Where the water actually starts, found rather than assumed: walk
+       seaward from the landing until the ground is a metre and a half
+       under. Assuming it made the tideline a number in two places, and
+       the two disagreed the moment the beach profile was touched. */
+    shore.tide = { x: 0, z: 0, y: 0 };
+    for (let e = shore.landAt; e > -60; e -= 0.5) {
+      const x = shore.nx * e, z = shore.nz * e;
+      const y = heightAt(x, z);
+      shore.tide = { x, z, y };
+      if (y < -1.5) break;
+    }
     const group = new THREE.Group();
     const geos = [];
     const mats = [];
@@ -719,7 +1134,7 @@ const ReefKit = (() => {
     // ---- the floor. Smooth-shaded: a surface this big rendered as
     // flat facets reads as broken geometry rather than as style.
     const floorGeo = buildFloor(heightAt, rng, o);
-    const floorMat = causticMaterial(uniforms, { gain: 1.0, flat: false });
+    const floorMat = causticMaterial(uniforms, { gain: 1.0, flat: false, swash: 1.0 });
     geos.push(floorGeo); mats.push(floorMat);
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.name = 'seabed';
@@ -727,8 +1142,12 @@ const ReefKit = (() => {
     group.add(floor);
 
     // ---- the wreck, out on the slope where the middle tier lives
-    const wa = rng() * Math.PI * 2, wr = U.lerp(o.radius * 0.42, o.radius * 0.56, rng());
-    const wAt = { x: Math.cos(wa) * wr, z: Math.sin(wa) * wr };
+    /* She is out in the loch, never up the beach: the bearing is drawn
+       in the seaward half-turn measured off the shore normal, so no seed
+       can ever ground her on the shingle. */
+    const wa = shoreAng + Math.PI + U.lerp(-1.15, 1.15, rng());
+    const wr = U.lerp(o.radius * 0.42, o.radius * 0.56, rng());
+    const wAt = { x: Math.sin(wa) * wr, z: Math.cos(wa) * wr };
     wAt.y = heightAt(wAt.x, wAt.z);
     const wreck = buildWreck(heightAt, rng, { at: wAt });
     const wreckMat = causticMaterial(uniforms, { gain: 0.7 });
@@ -783,34 +1202,56 @@ const ReefKit = (() => {
     });
     group.add(motes.points);
 
+    // ---- and the half of it you can stand on
+    const land = buildLand(heightAt, rng, {
+      reach: o.radius * 3.4, trees: o.trees, grass: o.grass,
+      boulders: o.boulders, landing: shore.landing,
+    });
+    group.add(land.group);
+
     scene.add(group);
 
-    const colliders = rocks.colliders.concat(wreck.colliders);
+    const colliders = rocks.colliders.concat(wreck.colliders, land.colliders);
+    const moteOpacity = motes.points.material.opacity;
 
     return {
-      group, heightAt, colliders, uniforms, radius: o.radius,
+      group, heightAt, colliders, uniforms, radius: o.radius, shore,
       wreck: { at: wAt, heading: wreck.heading, length: wreck.length },
       bandAt,
 
-      setCurrent(x, z, strength) { uniforms.current.value.set(x, z, strength); },
+      setCurrent(x, z, strength) {
+        uniforms.current.value.set(x, z, strength);
+        // the same weather moves the kelp and the trees on the hill
+        land.setWind(x, z, 0.55 + strength * 0.35);
+      },
       setCaustic(v) { uniforms.caustic.value = v; },
 
       update(dt, camPos) {
         uniforms.time.value += dt;
+        land.update(dt);
         const t = uniforms.time.value;
+        /* Everything in this block is *underwater* dressing, so all of
+           it fades out as the lens leaves the water. Sunbeams hanging in
+           the air over the beach is the kind of detail that reads as a
+           bug rather than as atmosphere. */
+        const wet = U.clamp(-camPos.y / 2.2, 0, 1);
         // the shafts hang off the sun's bearing and are parked near the
         // camera, so there is always light coming down wherever you are
         for (const it of shafts.items) {
           it.m.position.set(camPos.x + it.ox, 6, camPos.z + it.oz);
           it.m.rotation.set(0.12, t * it.spin + it.ph, -0.16);
-          it.m.material.opacity = 0.10 + 0.07 * (0.5 + 0.5 * Math.sin(t * 0.4 + it.ph));
+          it.m.material.opacity = (0.10 + 0.07 * (0.5 + 0.5 * Math.sin(t * 0.4 + it.ph))) * wet;
         }
+        shafts.group.visible = wet > 0.01;
+        motes.points.material.opacity = moteOpacity * wet;
+        motes.points.visible = wet > 0.01;
         const cur = uniforms.current.value;
         // snow drifts up, so the "fall" is negative
         motes.update(dt, { x: cur.x * 0.3, y: cur.y * 0.3 }, camPos, -0.6);
       },
 
       dispose() {
+        land.dispose();
         Engine.disposeObject(group);
         for (const g of geos) g.dispose();
         for (const m of mats) m.dispose();
@@ -820,8 +1261,8 @@ const ReefKit = (() => {
     };
   }
 
-  return { build, COL, BANDS, bandAt, makeFloor, buildFloor, causticMaterial,
-           buildRocks, buildWreck, buildKelp, buildShafts, buildShoal };
+  return { build, COL, BANDS, WET, bandAt, shoreFor, makeFloor, buildFloor, causticMaterial,
+           buildRocks, buildWreck, buildKelp, buildLand, buildShafts, buildShoal };
 })();
 
 
@@ -885,13 +1326,39 @@ const DiveConditions = (() => {
     };
   }
 
-  /* The dive's own water palette. `sky` is a saturated aqua rather than
-     a sky colour, because from underneath the surface's Fresnel is
-     total internal reflection — it mirrors the water, not the air. */
+  /* The dive's own water palette — twice, because there are now two
+     completely different things to paint.
+
+     From *underneath*, `sky` is a saturated aqua rather than a sky
+     colour, because the surface's Fresnel down there is total internal
+     reflection: it mirrors the water, not the air.
+
+     From *above* it is a highland sea loch on a clear day, which is a
+     dark green-blue with a hard white glitter on it — and if you leave
+     the underwater palette on when the camera comes out, what you get
+     is a swimming pool with mountains behind it. The mission lerps
+     between them across the waterline, on the same ramp that drives the
+     fog, so the surface break changes the sea as well as the air. */
   const PALETTE = {
     deep: '#1f7ee0', shallow: '#46dcf0', crest: '#b6fff2',
     sky: '#2fd8dd', sunCol: '#fff6de',
   };
+  const PALETTE_AIR = {
+    deep: '#0a3a55', shallow: '#1c8aa8', crest: '#cdf4ea',
+    sky: '#a6e0ff', sunCol: '#fff6de',
+  };
+  const _pa = new THREE.Color(), _pb = new THREE.Color(), _pm = new THREE.Color();
+  const _mixed = {};
+  /* `t` is zero underwater and one in the air. Reuses one set of Colors
+     rather than allocating five a frame for something that runs sixty
+     times a second for three minutes. */
+  function paletteFor(t) {
+    for (const k of ['deep', 'shallow', 'crest', 'sky', 'sunCol']) {
+      _pa.set(PALETTE[k]); _pb.set(PALETTE_AIR[k]);
+      _mixed[k] = _pm.copy(_pa).lerp(_pb, t).getHex();
+    }
+    return _mixed;
+  }
 
   /* Must run before Sky.build() by the same rule as its cousins — and
      after Water.build(), which resets the palette to the ocean's. */
@@ -918,6 +1385,6 @@ const DiveConditions = (() => {
     return { x: Math.cos(r.current), z: Math.sin(r.current), strength: s };
   };
 
-  return { WATERS, PALETTE, forSeed, resolve, apply, lights, describe, payout,
-           visibility, currentVector };
+  return { WATERS, PALETTE, PALETTE_AIR, paletteFor, forSeed, resolve, apply,
+           lights, describe, payout, visibility, currentVector };
 })();

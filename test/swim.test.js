@@ -401,6 +401,108 @@ test('swimming head-on into rock stops you, and says so', () => {
   ok(sw.pos.z <= 26 - 6 - T.bodyRadius + 0.01, 'the diver ended up inside the rock');
 });
 
+/* ------------------------------------------------------------------
+   The loch got a shore, and a shore is a set of cases the water alone
+   never produced: ground above the waterline, a body out of the water
+   entirely, and a diver at rest who has to still be there a minute
+   later. Each of these is a bug that shipped.
+   ------------------------------------------------------------------ */
+section('the shore, and the surface as a place rather than a ceiling');
+
+// a beach: ground that rises through the waterline going +z, and
+// shelves away into the loch going -z
+const beach = (slope = 0.25) => ({
+  heightAt: (x, z) => (z > 0 ? -1 + z * slope : -1 + z * 0.5),
+  surfaceAt: () => 0,
+});
+
+test('a diver at rest floats instead of quietly sinking away', () => {
+  const sw = diver(noAir);
+  sw.place(0, T.surfaceY, 0, 0);
+  // no strokes at all, on a sea that is moving under them
+  let t = 0;
+  const ctl = { move: null, yaw: 0, pitch: 0, stroke: false, beat: null };
+  const world = { heightAt: () => -40, surfaceAt: () => Math.sin(t * 1.7) * 0.5 };
+  while (t < 45) { sw.update(1 / 60, ctl, world); t += 1 / 60; }
+  ok(sw.up, 'a diver doing nothing sank: y = ' + sw.pos.y.toFixed(2));
+  ok(sw.depth < 1.0, 'drifted under: depth = ' + sw.depth.toFixed(2));
+});
+
+test('the lift is gone by two metres, so no part of the dive moves', () => {
+  const sw = diver(noAir);
+  sw.place(0, -9, 0, 0);
+  let t = 0;
+  const ctl = { move: null, yaw: 0, pitch: 0, stroke: false, beat: null };
+  while (t < 8) { sw.update(1 / 60, ctl, sea(-90)); t += 1 / 60; }
+  ok(sw.pos.y < -8.9, 'the surface lift reached nine metres down: y = ' + sw.pos.y.toFixed(2));
+});
+
+test('ground above the waterline is standable, not a lid at -0.55', () => {
+  const sw = diver(noAir);
+  const world = beach();
+  sw.place(0, world.heightAt(0, 20) + T.bodyRadius, 20, 0);
+  let t = 0;
+  const ctl = { move: null, yaw: 0, pitch: 0, stroke: false, beat: null };
+  while (t < 3) { sw.update(1 / 60, ctl, world); t += 1 / 60; }
+  ok(sw.pos.y > 3, 'the diver was pulled under a beach: y = ' + sw.pos.y.toFixed(2));
+  ok(sw.pos.y > 0, 'a lid at -0.55 would have clamped them below the sea');
+  ok(sw.onLand, 'stood on shingle and did not know it');
+  ok(sw.up, 'stood in the air with their head under the water');
+  ok(Math.abs(sw.pos.y - (world.heightAt(0, 20) + T.bodyRadius)) < 0.05,
+     'the diver did not settle on the ground: y = ' + sw.pos.y.toFixed(2));
+});
+
+test('thrown off the bank you arc into the water rather than hovering', () => {
+  const sw = diver(noAir);
+  const world = beach();
+  sw.place(0, world.heightAt(0, 14) + T.bodyRadius, 14, Math.PI);
+  sw.vel.set(0, 3.6, -8.4);           // the leap: seaward and up
+  let t = 0, peak = -99;
+  const ctl = { move: null, yaw: 0, pitch: 0, stroke: false, beat: null };
+  while (t < 3) {
+    sw.update(1 / 60, ctl, world);
+    peak = Math.max(peak, sw.pos.y);
+    t += 1 / 60;
+  }
+  ok(peak > world.heightAt(0, 14) + T.bodyRadius + 0.4, 'the jump had no arc in it');
+  ok(sw.pos.z < 6, 'the diver never made it off the beach: z = ' + sw.pos.z.toFixed(2));
+  ok(!sw.aloft && sw.pos.y <= T.surfaceY + 1e-6, 'the diver never landed in the loch');
+});
+
+test('spending the last of the bar on a stroke still blacks you out', () => {
+  /* The bug: air is spent in two places — by time, and by the stroke
+     itself — and only one of them raised the flag. At thirty metres a
+     stroke costs more than a frame of drain, so the commonest way to
+     empty a bar was the way that silently did nothing. */
+  const sw = diver();
+  sw.place(0, -30, 0, 0);
+  sw.air = T.airStroke * (1 + 30 / T.pressureRef) * 0.6;   // one stroke's worth, minus a bit
+  let blackouts = 0;
+  const r = swim(sw, { secs: 3, world: sea(-60), strokes: every(SPB),
+                       onFrame: (t, s) => { if (s.blackout) blackouts++; } });
+  eq(blackouts, 1, 'the blackout must fire exactly once');
+  ok(r.strokes >= 1, 'the diver never stroked, so this proved nothing');
+});
+
+test('a blackout is re-armed by a breath, not by a frame', () => {
+  const sw = diver();
+  sw.place(0, -20, 0, 0);
+  sw.air = 0.02;
+  let blackouts = 0;
+  // drown, then be carried to the surface the way the mission does it
+  swim(sw, { secs: 2, world: sea(-40), strokes: () => null,
+             onFrame: (t, s) => { if (s.blackout) blackouts++; } });
+  eq(blackouts, 1, 'one blackout on the way down');
+  sw.pos.y = T.surfaceY;
+  swim(sw, { secs: 3, world: sea(-40), strokes: () => null });
+  ok(sw.air > 0.5, 'the bar has to come back at the surface');
+  sw.pos.y = -20;
+  sw.air = 0.02;
+  swim(sw, { secs: 2, world: sea(-40), strokes: () => null,
+             onFrame: (t, s) => { if (s.blackout) blackouts++; } });
+  eq(blackouts, 2, 'a second breath has to be able to be lost too');
+});
+
 /* Signs. Every one of these was wrong at some point in this file's
    life and none of them would have shown up in a speed or an air
    number — they are the difference between a diver who goes where you
@@ -433,6 +535,29 @@ test('sculling right goes right, and sculling forward goes forward', () => {
   swim(fwd, { secs: 3, strokes: () => null,
               aim: (s, t, c) => { c.move = { x: 0, y: 1 }; } });
   ok(fwd.pos.z > 0.5, 'sculling forward went to z = ' + fwd.pos.z.toFixed(2));
+});
+
+test('the body points the way it is travelling, not the opposite way', () => {
+  /* Three's YXZ euler reads a positive X as nose-*down*, and the physics
+     reads a positive pitch as swimming *up*. Handing one straight to
+     the other put the diver a hundred and fifty degrees out at full
+     pitch: swimming for the surface lying on their back. Nothing in a
+     speed or an air number would ever have caught it. */
+  const sw = diver(noAir);
+  sw.place(0, -30, 0, 0);
+  swim(sw, { secs: 2.5, world: sea(-60), strokes: every(SPB),
+             aim: (s) => { s.pitchAim = 1.0; } });
+  ok(sw.pos.y > -28, 'the diver did not actually climb');
+  /* Where the *mesh* is pointing. Three's YXZ euler sends local +Z to
+     (.., -sin x, ..), so the body's forward-Y is -sin(euler.x); the
+     physics forward-Y is sin(pitch). They have to agree in sign. */
+  const e = sw._e;
+  const meshUp = -Math.sin(e.x);
+  const swimUp = Math.sin(sw.pitch);
+  ok(swimUp > 0.3, 'the diver was not actually pitched up: ' + swimUp.toFixed(2));
+  ok(Math.sign(meshUp) === Math.sign(swimUp),
+     'the body is pitched the opposite way to the swim: euler.x = '
+     + e.x.toFixed(2) + ', pitch = ' + sw.pitch.toFixed(2));
 });
 
 test('turning keeps most of your speed — the carve is the whole reward', () => {

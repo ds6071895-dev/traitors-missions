@@ -25,29 +25,19 @@ const Party = (() => {
 
   /* ---------------- reaching each other ----------------
 
-     Trystero's defaults are four STUN servers and no TURN at all. STUN
-     only tells a browser what its own public address looks like, and
-     for two machines on one home network that is the whole job. It is
-     not the whole job for everybody. A tablet on cellular, a laptop on
-     a guest network, a household behind carrier-grade NAT, a phone
-     with iCloud Private Relay or a VPN switched on — each of those
-     sits behind something that will not hold a port open for a
-     stranger, and two such peers can exchange offers all night and
-     never find a path between them. TURN is the relay that fixes it.
+     Trystero already supplies STUN servers. `turnConfig` is added to
+     those rather than replacing them, so ICE still chooses a direct
+     path whenever one works and sends traffic through TURN only when
+     NAT or a firewall makes that impossible.
 
-     There is no free TURN server worth depending on, so the list is
-     empty and this is the line to fill in. Anything with the shape
-     `{ urls, username, credential }` will do — Cloudflare Calls,
-     Twilio, Metered, or coturn on a five pound VPS.
-
-     Leaving it empty is a legitimate choice for a game played in one
-     living room. It is worth knowing what it costs, because the
-     failure is the least readable one this game has: both people are
-     in the right room, the signalling worked perfectly, and the
-     screen says nobody answered. */
-  const TURN = [
-    // { urls: 'turn:turn.example.com:3478', username: '…', credential: '…' },
-  ];
+     Cloudflare TURN credentials are short lived. The permanent key
+     must never be shipped in this file, so `/api/turn` is a Pages
+     Function that exchanges it server-side and returns only temporary
+     browser credentials. On localhost, file://, or a deployment where
+     that function has not been configured, the request quietly falls
+     back to Trystero's ordinary STUN-only behaviour. */
+  const TURN_ENDPOINT = '/api/turn';
+  const TURN_TIMEOUT  = 5000;
   const CODE_LEN = 4;
   const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';   // no I, no O
 
@@ -66,6 +56,7 @@ const Party = (() => {
   let joinTimer = null;             // the guest's "did anyone answer?" watchdog
   let knockTimer = null;            // and the hello it repeats until one does
   let unreachable = null;           // a peer we found and could not connect to
+  let turnCache = null;              // temporary credentials, for this page load
 
   /* Long, on purpose. Relay discovery on a cold room genuinely takes
      five to ten seconds — a watchdog tight enough to feel responsive
@@ -123,6 +114,51 @@ const Party = (() => {
     });
   }
 
+  async function loadTurnConfig() {
+    if (turnCache) return turnCache;
+    if (typeof window.fetch !== 'function') return [];
+
+    let timer = null;
+    let controller = null;
+    try {
+      if (typeof window.AbortController === 'function') {
+        controller = new window.AbortController();
+        timer = setTimeout(() => controller.abort(), TURN_TIMEOUT);
+      }
+      const response = await window.fetch(TURN_ENDPOINT, {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal: controller ? controller.signal : undefined,
+      });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const data = await response.json();
+
+      /* `turnConfig` must contain TURN entries only. Keeping STUN out
+         is what preserves Trystero's own defaults, and validating the
+         shape here prevents a broken endpoint from breaking rooms that
+         could have connected directly. */
+      const servers = (data && Array.isArray(data.iceServers) ? data.iceServers : [])
+        .map(server => {
+          const urls = (Array.isArray(server && server.urls)
+            ? server.urls : [server && server.urls])
+            .filter(url => typeof url === 'string' && /^turns?:/i.test(url));
+          if (!urls.length || !server || typeof server.username !== 'string'
+              || typeof server.credential !== 'string') return null;
+          return { urls, username: server.username, credential: server.credential };
+        })
+        .filter(Boolean);
+      if (!servers.length) throw new Error('no TURN servers in response');
+      turnCache = servers;
+      return servers;
+    } catch (e) {
+      console.warn('[party] TURN unavailable; trying direct connections only:',
+                   e && e.message ? e.message : e);
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /* ---------------- codes ---------------- */
 
   function randomCode() {
@@ -160,7 +196,7 @@ const Party = (() => {
 
   async function open(theCode, theProfile, asHost) {
     if (joined) leave();
-    const T = await ready();
+    const [T, turnConfig] = await Promise.all([ready(), loadTurnConfig()]);
     code = normaliseCode(theCode);
     const theRoomCode = code;
     host = !!asHost;
@@ -187,7 +223,7 @@ const Party = (() => {
     const callbacks = { onJoinError };
 
     unreachable = null;
-    room = T.joinRoom({ appId: APP_ID, turnConfig: TURN },
+    room = T.joinRoom({ appId: APP_ID, turnConfig },
                       'traitors-' + code, callbacks);
     joined = true;
 

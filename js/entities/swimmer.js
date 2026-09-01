@@ -45,6 +45,18 @@ class Swimmer {
     vertBias:     0.86,   // vertical thrust is slightly weaker than horizontal
     buoyancy:     0.0,    // m/s^2 of drift; a diver is trimmed neutral
     carryBuoy:   -0.34,   // and gold is not. Each chest pulls you down.
+    /* ...except in the top two metres, where a wetsuit has not yet
+       compressed and genuinely holds you up. Without this a diver at
+       rest is pushed under by every passing crest and has no way back:
+       `up` goes false, the gasp never lands, and floating on the
+       surface — the thing the whole mission is a round trip to — is
+       something the physics cannot actually do. It is gone by the time
+       you are two metres down, so no part of the dive profile moves. */
+    surfaceLift:  2.6,    // m/s^2 up, at the surface
+    surfaceLiftTo: 1.8,   // ...and the depth it has faded out by
+    gravity:      9.81,   // m/s^2, once you are properly out of the water
+    airDrag:      0.10,   // and how little the air holds you back
+    jumpDrag:     0.25,   // fraction of the water's quadratic drag, in air
     /* And past a certain depth neither are you. A suit compresses, the
        air in it stops holding you up, and below about twenty metres a
        freediver falls. It is the real thing and it is also the whole
@@ -151,6 +163,8 @@ class Swimmer {
     this.wasStroke = false;
     this.depth = 0;
     this.up = true;              // is the head out of the water right now
+    this.aloft = false;          // ...and is the whole body out of it
+    this.onLand = false;         // stood on ground above the tideline
     this.underT = 0;             // seconds since it last was
     this.chainIdle = 0;          // seconds since the last stroke that landed
     this.chainGrace = 0.85;      // ...and how long the chain survives without one
@@ -161,6 +175,11 @@ class Swimmer {
     this.stroked = false; this.onBeat = false; this.surfaced = false;
     this.blackout = false; this.bumped = false; this.grabbed = false;
     this.beatOff = 0;            // how far off the beat the last stroke was
+    /* Blacking out is a one-frame event, so something has to remember
+       that it has already happened on this breath. Without it the flag
+       has to be raised on the *crossing* to zero — and there is more
+       than one way to spend the last of a bar. See `_step`. */
+    this.drowned = false;
 
     // cosmetics, all damped and never set directly
     this.effort = 0; this.lean = 0; this.curl = 0; this.trail = 0;
@@ -351,18 +370,30 @@ class Swimmer {
       v.z += (this._right.z * mv.x + this._fwd.z * mv.y) * s;
     }
 
-    // ---- buoyancy. Neutral at the top, gone at the bottom, and gold
-    // is dead weight wherever you are holding it.
-    const sink = T.sinkAccel * U.smoothstep(T.sinkFrom, T.sinkTo, this.depth);
-    v.y += (T.buoyancy + T.carryBuoy * this.carried + sink) * h;
+    /* ---- buoyancy, or the lack of it.
+       Out of the water entirely — off the shingle bank at the start of
+       a run, or thrown clear by a swell — you are a body with a mass
+       and the water is not holding any of it. In it, the lift at the
+       top and the squeeze at the bottom are the two ends of the same
+       ramp, and gold is dead weight wherever you are holding it. */
+    if (this.aloft) {
+      v.y -= T.gravity * h;
+    } else {
+      const lift = T.surfaceLift * (1 - U.smoothstep(0, T.surfaceLiftTo, this.depth));
+      const sink = T.sinkAccel * U.smoothstep(T.sinkFrom, T.sinkTo, this.depth);
+      v.y += (T.buoyancy + lift + T.carryBuoy * this.carried + sink) * h;
+    }
 
     // ---- drag, with the boat's soft ceiling on top of it
     let spd = v.length();
     if (spd > 1e-4) {
-      const lam = (this.kickT > 0 ? T.kickDrag : T.glideDrag) + T.carryDrag * this.carried;
+      const lam = this.aloft
+        ? T.airDrag
+        : (this.kickT > 0 ? T.kickDrag : T.glideDrag) + T.carryDrag * this.carried;
+      const quad = T.quadDrag * (this.aloft ? T.jumpDrag : 1);
       const top = U.lerp(T.topSpeed, T.flowTop, this.flow);
-      const over = Math.max(0, spd - top);
-      const next = Math.max(0, spd - (lam + T.quadDrag * spd * spd + over * 8) * h);
+      const over = this.aloft ? 0 : Math.max(0, spd - top);
+      const next = Math.max(0, spd - (lam + quad * spd * spd + over * 8) * h);
       v.multiplyScalar(next / spd);
       spd = next;
     }
@@ -388,13 +419,21 @@ class Swimmer {
     // ---- the world pushes back
     this._collide(h, world);
 
-    // ---- breath
+    /* ---- breath.
+       The blackout is raised on *being* empty rather than on the step
+       that emptied you, and latched so it happens once. It used to be
+       raised on the crossing, which quietly missed the commonest way a
+       deep diver actually runs out: a stroke costs air too, and at
+       thirty metres it costs more than a whole frame of drain. Spend
+       the last of the bar on a kick rather than on time and the flag
+       never fired — no drop, no float, no drowning. The diver simply
+       lay on the sand with an empty bar and no way to kick off it for
+       the rest of the run. */
     const pressure = 1 + Math.max(0, this.depth) / T.pressureRef;
     const carry = 1 + T.carryDrain * this.carried;
     if (!this.up) {
-      const was = this.air;
       this.air = Math.max(0, this.air - T.airDrain * pressure * carry * h);
-      if (was > 0 && this.air <= 0) this.blackout = true;
+      if (this.air <= 0 && !this.drowned) { this.drowned = true; this.blackout = true; }
       this.holdDeep = Math.max(this.holdDeep, this.depth);
     } else {
       // a gasp is fast, but it is not instant — and the deeper the dive
@@ -402,6 +441,8 @@ class Swimmer {
       const lam = T.gaspRefill
         * U.lerp(1, T.intervalKeep, U.smoothstep(8, T.intervalDeep, this.holdDeep));
       this.air = U.damp(this.air, this.airMax, lam, h);
+      // one lungful re-arms it; you do not get two blackouts off one breath
+      if (this.air > 0.06) this.drowned = false;
       if (this.air > this.airMax * 0.985) this.holdDeep = 0;
     }
 
@@ -422,15 +463,26 @@ class Swimmer {
     const w = world || {};
     const r = T.bodyRadius;
 
-    // the surface, which is a lid rather than a boundary: you may break
-    // it, you may not leave through it
+    /* The surface. It used to be a lid you could never leave through,
+       which was right when the loch had no edges — and wrong the moment
+       it got a beach, because a diver stood on the shingle was being
+       clamped to fifty-five centimetres under a sea that was not there.
+
+       So the lid only exists where there is water beneath it. Over the
+       shore the ground is above the tideline, the lid is lifted, and a
+       body out of the water is simply a body: it falls, it lands, and
+       it can be thrown off a bank into the loch. */
     const sy = w.surfaceAt ? w.surfaceAt(this.pos.x, this.pos.z) : 0;
     const cap = sy + T.surfaceY;
-    if (this.pos.y >= cap) {
+    const gy = w.heightAt ? w.heightAt(this.pos.x, this.pos.z) + r : -1e9;
+    const dryLand = gy > cap;
+
+    if (!dryLand && this.pos.y >= cap) {
       this.pos.y = cap;
       if (this.vel.y > 0) this.vel.y *= -0.12;
     }
-    this.up = this.pos.y >= cap - T.surfaceBand;
+    this.aloft = this.pos.y > cap + 0.05;
+    this.up = this.aloft || this.pos.y >= cap - T.surfaceBand;
     if (this.up) {
       if (this.underT > 0.05) this.surfaced = true;
       this.underT = 0;
@@ -439,16 +491,19 @@ class Swimmer {
     }
     this.depth = Math.max(0, sy - this.pos.y);
 
-    // the seabed
+    // the seabed — and, past the tideline, the beach
     if (w.heightAt) {
-      const gy = w.heightAt(this.pos.x, this.pos.z) + r;
       if (this.pos.y < gy) {
         if (this.vel.y < -T.bumpSpeed) this.bumped = true;
         this.pos.y = gy;
-        if (this.vel.y < 0) this.vel.y *= -0.15;
+        if (this.vel.y < 0) this.vel.y *= (this.aloft ? -0.02 : -0.15);
         // sand is not a wall: it scrubs you off rather than stopping you
-        this.vel.x *= Math.exp(-2.2 * h);
-        this.vel.z *= Math.exp(-2.2 * h);
+        const scrub = this.aloft ? 6.5 : 2.2;
+        this.vel.x *= Math.exp(-scrub * h);
+        this.vel.z *= Math.exp(-scrub * h);
+        this.onLand = dryLand;
+      } else if (this.pos.y > gy + 0.15) {
+        this.onLand = false;
       }
     }
 
@@ -501,7 +556,14 @@ class Swimmer {
     this.trail = U.damp(this.trail, this.kickT > 0 ? 1 : sp01 * 0.35, 6, dt);
 
     this.group.position.copy(this.pos);
-    this._e.set(this.pitch, this.yaw, this.lean, 'YXZ');
+    /* The sign on the pitch is not a taste call.
+       Three's YXZ euler turns a *positive* X rotation into a nose-down
+       body, while the physics above reads a positive pitch as swimming
+       *up* (`_fwd.y = sin(pitch)`). Left matched, the diver's body
+       pointed the opposite way to their travel — at full pitch that is
+       a hundred and fifty degrees out, which is a diver swimming to the
+       surface while lying on their back looking at the sand. */
+    this._e.set(-this.pitch, this.yaw, this.lean, 'YXZ');
     this.group.quaternion.setFromEuler(this._e);
 
     if (this.fig) {
@@ -530,6 +592,7 @@ class Swimmer {
     this.yawVel = this.pitchVel = 0;
     this.kickT = 0; this.strokeT = 0; this.flow = 0;
     this.underT = 0; this.up = true; this.speed = 0; this.holdDeep = 0;
+    this.aloft = false; this.onLand = false; this.drowned = false;
     this.air = Math.min(this.air, this.airMax);
     this.group.position.copy(this.pos);
   }

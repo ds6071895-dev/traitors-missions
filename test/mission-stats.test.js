@@ -28,7 +28,6 @@ const stubs = {
   THREE: new Proxy({ Vector3: V3 }, {
     get: (t, k) => (k in t ? t[k] : function () { return {}; }),
   }),
-  Missions: { register: noop, get: () => null, all: () => [] },
   AudioBus: { play: noop, define: noop, stop: noop },
   Music: { boss: () => null },
   Input: { held: () => false, pressed: () => false, rumble: noop, haptic: noop },
@@ -50,7 +49,8 @@ const stubs = {
   Party: { hostId: 'h', selfId: () => 'me', isHost: true },
 };
 
-const ctx = H.load(['js/core/util.js', 'js/missions/agendas.js', 'js/missions/shootout-rounds.js',
+const ctx = H.load(['js/core/util.js', 'js/core/missions.js',
+                    'js/missions/agendas.js', 'js/missions/shootout-rounds.js',
                     'js/world/forest.js', 'js/world/reef.js', 'js/entities/swimmer.js',
                     'js/missions/boat-race.js', 'js/missions/shootout.js',
                     'js/missions/dive-twists.js', 'js/missions/dive.js'], stubs);
@@ -58,6 +58,29 @@ const BR = ctx.BoatRaceMission;
 const SH = ctx.ShootoutMission;
 const DV = ctx.DiveMission;
 const U = ctx.U;
+
+/* The switch itself is still worth a test even with nothing currently
+   off: it is the mechanism every future "ship it next week" mission
+   will hang on, and the failure it prevents — a half-finished mission
+   reachable from a stale invitation link — is silent. */
+section('mission registry — the feature switch, and the dive back through it');
+
+test('the dive is available through every route again', () => {
+  ok(DV, 'the dive implementation is loaded');
+  ok(ctx.Missions.get('dive'), 'a direct lookup finds it');
+  ok(ctx.Missions.all().some(m => m.id === 'dive'),
+     'the menu and full-game planner offer it');
+});
+
+test('a mission switched off is unavailable through every route', () => {
+  ctx.Missions.register({ id: 'off-test', name: 'Off', enabled: false, create: () => ({}) });
+  eq(ctx.Missions.get('off-test'), undefined,
+     'direct lookups cannot expose a disabled mission');
+  ok(!ctx.Missions.all().some(m => m.id === 'off-test'),
+     'the menu and full-game planner cannot see it');
+  eq(ctx.Missions.launch('off-test'), null,
+     'a stale button or invitation cannot launch it');
+});
 
 section('boat race — the counters the deck reads');
 
@@ -649,18 +672,34 @@ section('the dive — the reef the seed draws');
    it has to keep the deepest sand inside what a diver can come back
    from. Both are properties of the floor function alone, so two
    thousand of them cost nothing. */
+/* Half of this reef is a hillside now, so every one of these samples
+   the *seaward* half-turn measured off the shore bearing — which is
+   exactly the arc `_spawnChest` draws its own bearings from. Sampling
+   the whole disc would be asserting that the mountain has chests in it. */
+function seaward(h, shore, R, n) {
+  const pts = [];
+  /* Two *independent* low-discrepancy sequences. The obvious pair —
+     0.618034 for the bearing and 0.381966 for the radius — are the same
+     sequence reversed, so every sample at maximum radius landed at the
+     extreme bearing, which on this reef is straight along the beach.
+     The trench was never sampled once. */
+  for (let i = 0; i < n; i++) {
+    const a = shore.ang + Math.PI + (((i * 0.618034) % 1) - 0.5) * 3.24;
+    const r = R * Math.sqrt((i * 0.7548776662 + 0.137) % 1);
+    pts.push(h(Math.sin(a) * r, Math.cos(a) * r));
+  }
+  return pts;
+}
+
 test('every seed lays down all three tiers, and none of them out of reach', () => {
   const R = DV.CONFIG.reefRadius;
   const T = DV.CONFIG.tiers;
   for (let seed = 1; seed <= 2000; seed++) {
-    const h = ctx.ReefKit.makeFloor(U.makeRng(seed), { radius: R });
+    const shore = ctx.ReefKit.shoreFor((seed * 0.7913) % (Math.PI * 2));
+    const h = ctx.ReefKit.makeFloor(U.makeRng(seed), { radius: R, shore });
     const share = [0, 0, 0];
     let deepest = 0;
-    // a deterministic lattice, so a failure is reproducible
-    for (let i = 0; i < 420; i++) {
-      const a = (i * 2.399963) % (Math.PI * 2);
-      const r = R * Math.sqrt(((i * 0.618034) % 1));
-      const y = h(Math.cos(a) * r, Math.sin(a) * r);
+    for (const y of seaward(h, shore, R * 0.96, 420)) {
       deepest = Math.min(deepest, y);
       for (let t = 0; t < T.length; t++) {
         if (y <= T[t].top && y > T[t].bottom) { share[t]++; break; }
@@ -677,17 +716,41 @@ test('the shelf is the tier you are most often floating over', () => {
   const R = DV.CONFIG.reefRadius;
   let shelf = 0, n = 0;
   for (let seed = 1; seed <= 40; seed++) {
-    const h = ctx.ReefKit.makeFloor(U.makeRng(seed), { radius: R });
-    for (let i = 0; i < 600; i++) {
-      const a = (i * 2.399963) % (Math.PI * 2);
-      const r = R * Math.sqrt(((i * 0.618034) % 1));
-      if (h(Math.cos(a) * r, Math.sin(a) * r) > -16) shelf++;
+    const shore = ctx.ReefKit.shoreFor((seed * 1.213) % (Math.PI * 2));
+    const h = ctx.ReefKit.makeFloor(U.makeRng(seed), { radius: R, shore });
+    for (const y of seaward(h, shore, R * 0.96, 600)) {
+      if (y > -16 && y < 0) shelf++;
       n++;
     }
   }
   const pct2 = shelf / n;
-  ok(pct2 > 0.15 && pct2 < 0.55,
+  ok(pct2 > 0.15 && pct2 < 0.60,
      'the shelf covers ' + Math.round(pct2 * 100) + '% of the reef, which is the wrong shape');
+});
+
+/* The shore is a *contract* with the mission, not just scenery: there
+   has to be dry ground to stand on, a tideline to come back to, and no
+   seed where either is somewhere you cannot swim. */
+test('every seed puts a beach at the origin with the loch in front of it', () => {
+  const R = DV.CONFIG.reefRadius;
+  for (let seed = 1; seed <= 600; seed++) {
+    const shore = ctx.ReefKit.shoreFor((seed * 0.3971) % (Math.PI * 2));
+    const h = ctx.ReefKit.makeFloor(U.makeRng(seed), { radius: R, shore });
+    const at = (e) => h(shore.nx * e, shore.nz * e);
+
+    const landing = at(shore.landAt);
+    ok(landing > 1.2 && landing < 5,
+       'seed ' + seed + ' has a landing at ' + landing.toFixed(2) + 'm, which is not a beach');
+    // and it is flat enough to stand on rather than a slope you slide off
+    ok(Math.abs(at(shore.landAt + 3) - landing) < 1.2,
+       'seed ' + seed + ' has a landing on a slope');
+    // walking seaward has to reach water, and keep going down
+    ok(at(-6) < -0.5, 'seed ' + seed + ' has no water in front of the beach');
+    ok(at(-70) < at(-30) && at(-30) < at(-8),
+       'seed ' + seed + ' does not shelve away from the shore');
+    // and the hill behind it has to actually be a hill
+    ok(at(400) > 120, 'seed ' + seed + ' has no highland behind the beach');
+  }
 });
 
 section('the dive — the briefing, before anything is built');

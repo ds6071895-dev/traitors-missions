@@ -1,0 +1,4 @@
+# Cloudflare local-development secrets. Production values belong in the
+# Pages dashboard under Settings > Variables and Secrets.
+.dev.vars*
+.env*

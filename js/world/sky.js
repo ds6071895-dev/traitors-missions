@@ -370,6 +370,20 @@ const Sky = (() => {
     return group;
   }
 
+  /* Turn the whole sky off in one call.
+     A scene that goes underwater needs this: the dome sets `fog:false`
+     (it is the horizon, so it must never fade into one) and it draws
+     with `depthTest:false` at renderOrder -1000, so from forty metres
+     down it paints a bright band along the top of the reef rim where
+     the fogged seabed ends. Hidden, whatever the renderer or the scene
+     has behind it shows through instead — which is the water colour,
+     which is correct. */
+  function setVisible(v) {
+    if (dome) dome.visible = v;
+    if (sunSprite) sunSprite.visible = v;
+    if (group) group.visible = v;
+  }
+
   const _v = new THREE.Vector3();
   function update(dt, camPos, t) {
     // parallax: the far ring barely moves, so it reads as genuinely distant
@@ -406,7 +420,7 @@ const Sky = (() => {
     }
   }
 
-  return { build, update, setPreset, resetPreset, DEFAULT_LOOK,
+  return { build, update, setVisible, setPreset, resetPreset, DEFAULT_LOOK,
            SUN_DIR, PALETTE, glowTexture, mergeGeometries,
            get look() { return look; } };
 })();

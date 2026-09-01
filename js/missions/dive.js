@@ -52,7 +52,14 @@ class DiveMission {
     carryMax:    4,        // chests in hand before you must surface
     grabRange:   3.0,      // metres; grabbing is automatic inside this
     flowMoney:   0.55,     // extra fraction of value at full chain
-    bankTime:    0.55,     // seconds at the surface before it counts
+    /* Surfacing is not banking. Everything you come up with has to be
+       carried back to the shingle and put on the pile, and until it is
+       on the pile it is not money — it is four chests in the hands of
+       somebody the other two can watch swimming home. That is the
+       whole reason the shore exists: it puts a *journey* between
+       having it and keeping it, in front of an audience. */
+    bankTime:    0.35,     // seconds ashore before it counts
+    landRange:   11,       // metres from the tideline that count as ashore
     respawn:     11,       // fallback, if a tier does not name its own
     blackoutHold: 3.0,     // the forced float after you black out
     moneyScale:  1,
@@ -61,8 +68,13 @@ class DiveMission {
     /* What a good three minutes looks like, measured against a scripted
        diver rather than guessed: working the shelf all run is about a
        third of this, the wreck is a comfortable gold, and only somebody
-       living in the trench on the beat gets past 1.6x it. */
-    par:         30000,
+       living in the trench on the beat gets past 1.6x it.
+
+       It came down from thirty thousand when the shore went in. A trip
+       is no longer over the moment your head is out of the water — it
+       is over when you are stood on the shingle — and that is fifteen
+       to forty seconds of swimming a run that used to be free. */
+    par:         21000,
   };
 
   static MODES = {
@@ -248,6 +260,9 @@ class DiveMission {
     this._bubbleAcc = 0;
     this._gear = -1;
     this._muffle = 0;
+    this._toldShore = false;
+    this._paletteAt = undefined;
+    this._skyOn = undefined;
     this._camRoll = 0;
     this.stats = DiveMission.freshStats();
     if (this.music) { this.music.stop(0.4); this.music = null; }
@@ -275,10 +290,17 @@ class DiveMission {
     this.applied = DiveConditions.apply(this.cond);
     scene.add(DiveConditions.lights(this.cond));
 
-    /* No sky at all. Every Sky object sets `fog:false` and so would
-       never fade out; from down here the ceiling *is* the horizon, and
-       the water shader draws it now that it is double-sided. That also
-       buys the sky's draw calls back for kelp and fish. */
+    /* There is a sky now, and there has to be. The mission used to be
+       built on the assumption that the camera never left the water, so
+       the ceiling *was* the horizon and a sky would only ever have been
+       a bright hole above a blue rectangle. The moment your head can
+       come out — and it must, because that is where the shore is —
+       the absence of one is the single most obvious thing on screen.
+
+       `Sky.build` also brings the far ridge and two rings of peaks with
+       it, which is most of the highland backdrop for four draw calls,
+       and it has to run after `DiveConditions.apply` has set the hour. */
+    Sky.build(scene, U.makeRng(this.seed + 11), { birds: true });
 
     this.vis = DiveConditions.visibility(this.cond);
     Water.setFog(ReefKit.BANDS[0].near, ReefKit.BANDS[0].far * this.vis,
@@ -290,6 +312,10 @@ class DiveMission {
       kelp: this.flags.shoal ? 520 : 620,
       shafts: 9,
     });
+    /* Where the land is, and the two points on it the whole mission
+       hangs off: the shingle you jump from, and the tideline in front
+       of it that counts as ashore. */
+    this.shore = this.reef.shore;
     const cur = DiveConditions.currentVector(this.cond);
     this.reef.setCurrent(cur.x, cur.z, cur.strength);
 
@@ -308,7 +334,7 @@ class DiveMission {
       paint: { suit: '#123044', fin: '#f2c14e' },
     });
     scene.add(this.swimmer.group);
-    this.swimmer.place(0, Swimmer.TUNE.surfaceY, 0, this.rng() * U.TAU);
+    this._placeAshore();
 
     this.world = {
       heightAt: this.reef.heightAt,
@@ -341,10 +367,21 @@ class DiveMission {
       },
     };
 
-    // the mooring buoy: the one thing on the surface, and the thing
-    // that tells you which way is home when you are forty metres down
+    /* The mooring buoy: the one thing on the open surface, and the
+       thing that tells you which way home is when you are forty metres
+       down. It used to sit on the origin because the origin was home;
+       home is the beach now, so it is moored on the way in — line up
+       the buoy and the pile and you are swimming the right way. */
     this.buoy = DiveMission._buildBuoy();
+    this.buoyAt = {
+      x: this.shore.tide.x - this.shore.nx * 34,
+      z: this.shore.tide.z - this.shore.nz * 34,
+    };
+    this.buoy.position.set(this.buoyAt.x, 0, this.buoyAt.z);
     scene.add(this.buoy);
+
+    // and the pile, which is what all of this is for
+    this._buildPile();
 
     if (this.opts.ghost) {
       const g = GameState.getGhost('dive', this.key);
@@ -353,8 +390,17 @@ class DiveMission {
 
     this._cacheHud();
 
-    this._camPos.set(0, 4, -8);
-    this._camLook.copy(this.swimmer.pos);
+    /* Framed on the diver rather than on the origin, which used to be
+       the same thing and no longer is: the diver is stood on the
+       shingle now, and a camera that begins eight metres off the middle
+       of the loch spends the whole countdown flying to catch up. */
+    const sw0 = this.swimmer;
+    this._camPos.set(sw0.pos.x + this.shore.nx * 7.5,
+                     sw0.pos.y + 2.6,
+                     sw0.pos.z + this.shore.nz * 7.5);
+    this._camLook.copy(sw0.pos).addScaledVector(
+      new THREE.Vector3(-this.shore.nx, 0, -this.shore.nz), 12);
+    this.surfaceMix = 1;
     camera.position.copy(this._camPos);
 
     Input.setMouseAim(true);
@@ -407,10 +453,15 @@ class DiveMission {
     else {
       // rejection-sample the tier's depth band off the floor function,
       // then sit the chest on the sand clear of any collider
+      /* The bearing is drawn from the seaward half-turn measured off the
+         shore normal. Half of this reef is a hillside now, and sampling
+         the whole disc would spend most of its two hundred and forty
+         tries proposing chests on a mountain. */
+      const sea = this.shore.ang + Math.PI;
       for (let tries = 0; tries < 240; tries++) {
-        const a = this.rng() * U.TAU;
+        const a = sea + U.lerp(-1.62, 1.62, this.rng());
         const r = U.lerp(6, C.reefRadius * 0.96, Math.sqrt(this.rng()));
-        const px = Math.cos(a) * r, pz = Math.sin(a) * r;
+        const px = Math.sin(a) * r, pz = Math.cos(a) * r;
         const h = this.reef.heightAt(px, pz);
         if (h > tier.top || h <= tier.bottom) continue;
         let clear = true;
@@ -447,6 +498,151 @@ class DiveMission {
     };
     this.chests.push(chest);
     return chest;
+  }
+
+  /* =================== the pile ===================
+
+     The scoreboard, as an object in the world. Every chest that counts
+     is standing on the shingle where the other two can see it, and a
+     run's whole story — four cheap ones and a nervous hour, or one
+     trench trip that paid for the night — is legible from the water at
+     forty metres. A number on a HUD cannot do that.
+
+     It is pooled: one geometry, three materials, and a cap on how many
+     boxes are ever drawn. Past the cap the mound keeps its shape and
+     stops adding meshes, because nobody counts a hundred and forty
+     chests and everybody notices a frame rate. */
+  static PILE_CAP = 84;
+
+  _buildPile() {
+    const sh = this.shore;
+    this.pile = { group: new THREE.Group(), items: [], n: 0 };
+    this.pile.group.position.set(sh.landing.x, sh.landing.y, sh.landing.z);
+    this.scene.add(this.pile.group);
+
+    /* A lantern on a pole over it. It is the only warm light in a
+       mission made entirely of cyan, it is visible from the trench, and
+       it is the answer to "which way is the beach" at every depth. */
+    const post = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.09, 0.12, 3.4, 6),
+      new THREE.MeshLambertMaterial({ color: '#4a3b2c', flatShading: true }));
+    post.position.set(-2.4, 1.7, 0);
+    const lamp = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.34, 0),
+      new THREE.MeshLambertMaterial({ color: '#ffe9a8', flatShading: true,
+                                      emissive: '#ffb347', emissiveIntensity: 1.0 }));
+    lamp.position.set(-2.4, 3.4, 0);
+    this._lampGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: this._glowTex, color: '#ffd166', transparent: true,
+      opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
+    this._lampGlow.scale.setScalar(9);
+    this._lampGlow.position.copy(lamp.position);
+    this._lampGlow.renderOrder = 5;
+    /* And it actually lights the shingle. One point light is the whole
+       cost, and it buys the shot the mission is a round trip to: coming
+       up out of cold blue water into a warm pool of light with your own
+       gold stacked in it. Everything else in this loch is cyan. */
+    this._lampLight = new THREE.PointLight('#ffc46a', 2.6, 26, 1.6);
+    this._lampLight.position.copy(lamp.position);
+    this.pile.group.add(post, lamp, this._lampGlow, this._lampLight);
+    this._lamp = lamp;
+  }
+
+  /* Where the nth chest on the pile sits: courses of seven, each one
+     ringed a little tighter than the course below it, so what grows out
+     of the shingle is a tapering stack of salvage crates rather than a
+     heap of boxes at one height. Twelve courses is four metres — tall
+     enough to see from the water, which is the entire job. */
+  static _pileSpot(n) {
+    const PER = 7;
+    const course = Math.floor(n / PER), k = n % PER;
+    const a = (k / PER) * U.TAU + course * 0.62;
+    const rad = Math.max(0.18, 1.35 - course * 0.085);
+    return { x: Math.cos(a) * rad, y: 0.1 + course * 0.33, z: Math.sin(a) * rad,
+             rot: a + Math.PI / 2 };
+  }
+
+  _addToPile(chests) {
+    if (!this.pile) return;
+    for (const c of chests) {
+      const n = this.pile.n++;
+      if (n >= DiveMission.PILE_CAP) continue;
+      const spot = DiveMission._pileSpot(n);
+      const mesh = new THREE.Mesh(this._chestGeo, this._chestMats[c.tier]);
+      mesh.position.set(spot.x, spot.y, spot.z);
+      mesh.rotation.set(U.lerp(-0.14, 0.14, Math.random()), spot.rot,
+                        U.lerp(-0.14, 0.14, Math.random()));
+      // it lands rather than appearing: a quarter second of drop
+      mesh.userData.drop = 1;
+      mesh.userData.restY = spot.y;
+      this.pile.group.add(mesh);
+      this.pile.items.push(mesh);
+    }
+  }
+
+  _clearPile() {
+    if (!this.pile) return;
+    for (const m of this.pile.items) this.pile.group.remove(m);
+    this.pile.items.length = 0;
+    this.pile.n = 0;
+  }
+
+  _tickPile(dt, t) {
+    if (!this.pile) return;
+    for (const m of this.pile.items) {
+      const d = m.userData.drop;
+      if (!d) continue;
+      m.userData.drop = Math.max(0, d - dt * 4);
+      m.position.y = m.userData.restY + m.userData.drop * m.userData.drop * 2.4;
+    }
+    if (this._lamp) {
+      // a lamp that breathes, so the beach is never a still photograph
+      const f = 0.85 + 0.15 * Math.sin(t * 2.3) + 0.06 * Math.sin(t * 7.1);
+      this._lamp.material.emissiveIntensity = f;
+      this._lampGlow.material.opacity = 0.55 + 0.3 * f;
+      this._lampGlow.scale.setScalar(8.4 + f * 1.4);
+      this._lampLight.intensity = 2.2 + f * 0.7;
+    }
+  }
+
+  /* Standing on the beach, facing the loch, with the pile at your back.
+     Used at the top of a run and by `restart`. */
+  _placeAshore() {
+    const sh = this.shore;
+    const x = sh.landing.x - sh.nx * 3.2, z = sh.landing.z - sh.nz * 3.2;
+    const y = this.reef.heightAt(x, z) + this.swimmer.tune.bodyRadius;
+    // yaw is measured so that (sin yaw, cos yaw) is forward; seaward is -n
+    this.swimmer.place(x, y, z, Math.atan2(-sh.nx, -sh.nz));
+    this.swimmer.pitchAim = this.swimmer.pitch = -0.22;
+  }
+
+  /* The jump. Three seconds of standing on the shingle looking at the
+     water, and then you are in it — a real launch off the bank rather
+     than a fade, because the first thing a mission does is tell you
+     what kind of mission it is. */
+  _leapIn() {
+    const sh = this.shore;
+    const sw = this.swimmer;
+    if (!sw.onLand && !sw.aloft) return;
+    sw.vel.set(-sh.nx * 8.4, 3.6, -sh.nz * 8.4);
+    sw.pitchAim = -0.55;
+    this.camKick = 0.8;
+    this.fovKick = 5;
+    AudioBus.play('dv-stroke', { power: 1 });
+  }
+
+  /* How far you are from being ashore, in metres, measured flat. The
+     tideline point rather than the pile: you have to get out of the
+     water, not climb the beach. */
+  _shoreDist() {
+    const t = this.shore.tide;
+    return Math.hypot(this.swimmer.pos.x - t.x, this.swimmer.pos.z - t.z);
+  }
+
+  _ashore() {
+    const sw = this.swimmer;
+    return (sw.up || sw.onLand) && this._shoreDist() <= this.C.landRange;
   }
 
   _removeChest(chest) {
@@ -508,7 +704,7 @@ class DiveMission {
       tape: q('dv-tape'), tapeMark: q('dv-tape-mark'),
       breath: q('dv-breath'), breathFill: q('dv-breath-fill'), breathLbl: q('dv-breath-lbl'),
       ring: q('dv-ring'), ringPulse: q('dv-ring-pulse'),
-      carry: q('dv-carry'), carryVal: q('dv-carry-val'),
+      carry: q('dv-carry'), carryVal: q('dv-carry-val'), shore: q('dv-shore'),
       pressure: q('dv-pressure'), banner: q('dv-banner'), hint: q('dv-hint'),
       setup: q('dv-setup'),
       center: q('dv-center'), flash: q('screen-flash'),
@@ -588,7 +784,8 @@ class DiveMission {
     for (let t = 0; t < this.C.tiers.length; t++) {
       for (let i = 0; i < this.C.tiers[t].chests; i++) this._spawnChest(t);
     }
-    this.swimmer.place(0, Swimmer.TUNE.surfaceY, 0, this.rng() * U.TAU);
+    this._clearPile();
+    this._placeAshore();
     this.swimmer.airMax = 1;
     this.swimmer.air = 1;
     this.swimmer.carried = 0;
@@ -651,6 +848,7 @@ class DiveMission {
       if (this.hud.gain) this.hud.gain.classList.remove('show');
       if (this.hud.chainWrap) this.hud.chainWrap.classList.remove('on');
       if (this.hud.carry) this.hud.carry.innerHTML = '';
+      if (this.hud.shore) this.hud.shore.classList.remove('show', 'home');
       this._setCenter('', '');
     }
   }
@@ -699,6 +897,8 @@ class DiveMission {
     this._updateDepth(dt);
     this._updateMusic(dt);
     this.reef.update(dt, this.camera.position);
+    Sky.update(dt, this.camera.position, t);
+    this._tickPile(dt, t);
     if (this.shoal) this.shoal.update(dt, this.swimmer.pos, this.camera.position);
     this.fx.update(dt);
     this.buoy.position.y = Water.sampleHeight(0, 0);
@@ -721,6 +921,7 @@ class DiveMission {
       this.elapsed = 0;
       AudioBus.play('go');
       this._setCenter('DIVE', '', 'go');
+      this._leapIn();
       setTimeout(() => { if (this.state === 'live') this._setCenter('', ''); }, 700);
     }
   }
@@ -839,14 +1040,24 @@ class DiveMission {
       }
     }
 
+    /* Surfacing ends the trip. *Coming ashore* is what pays.
+       They used to be the same event, and separating them is the whole
+       of the shore: your head coming out means you lived, and it means
+       the reef knows how deep you went — but the gold in your hands is
+       still gold in your hands, in open water, in front of two people,
+       for as long as it takes you to swim it home. */
     if (sw.up) {
-      this.bankT += dt;
-      if (this.bankT >= this.C.bankTime && this.carry.length && live) this._bank();
       // a trip ends when you get your head out, whether or not you got anything
       if (this.inTrip && this.tripDeepest > 3) this._endTrip();
+    } else if (!this.inTrip && depth > 3) {
+      this.inTrip = true; this.tripDeepest = depth; this.tripTook = 0;
+    }
+
+    if (this._ashore()) {
+      this.bankT += dt;
+      if (this.bankT >= this.C.bankTime && this.carry.length && live) this._bank();
     } else {
       this.bankT = 0;
-      if (!this.inTrip && depth > 3) { this.inTrip = true; this.tripDeepest = depth; this.tripTook = 0; }
     }
 
     // ---- blacking out
@@ -963,6 +1174,12 @@ class DiveMission {
     const st = this.stats;
     st.peakCarry = Math.max(st.peakCarry, this.carry.length);
     st.peakCarryValue = Math.max(st.peakCarryValue, this._carryValue());
+    /* Told once, at the only moment it is the question in front of you:
+       the first time your hands are full and none of it is money yet. */
+    if (this.carry.length >= this.C.carryMax && !this._toldShore) {
+      this._toldShore = true;
+      this._banner('HANDS FULL', 'None of it counts until it is on the pile', 'good');
+    }
     if (c.dropped) st.recovered += Math.round(c.value * this.payout);
 
     this._tmpV.set(c.x, c.y + 0.6, c.z);
@@ -1046,7 +1263,23 @@ class DiveMission {
        one mode and a real task in the other. */
     this.bankLog.push({ t: this.elapsed, v: total });
 
-    this._tmpV.copy(this.swimmer.pos).setY(this.swimmer.pos.y + 1.2);
+    /* Everything that paid goes on the pile, so a run's story is
+       standing on the beach rather than living in a number.
+
+       There is one pile, not three. Every diver's landings go on the
+       same heap because they all go in the same pot — a pile that only
+       counted your own would be a picture of a number nobody is playing
+       for, and the whole point of putting the score in the world is
+       that the other two can read it from the water. */
+    this._addToPile(paying);
+    if (this.party) {
+      MissionNet.event({ kind: 'landed', tiers: paying.map(c => c.tier) });
+    }
+
+    const pileTop = this.pile
+      ? this.shore.landing.y + 0.4 + Math.min(this.pile.n, DiveMission.PILE_CAP) * 0.047
+      : this.swimmer.pos.y + 1.2;
+    this._tmpV.set(this.shore.landing.x, pileTop + 1.0, this.shore.landing.z);
     this.fx.rings.fire(this._tmpV, this.camera.quaternion, 1.0, 10, 0.7, '#ffd166');
     for (let i = 0; i < 40; i++) {
       const a = Math.random() * U.TAU;
@@ -1110,8 +1343,13 @@ class DiveMission {
     let lost = 0;
     for (const c of dropped) {
       lost += Math.round(c.value * this.payout);
-      const a = Math.random() * U.TAU, r = 1.4 + Math.random() * 2.2;
-      const x = sw.pos.x + Math.cos(a) * r, z = sw.pos.z + Math.sin(a) * r;
+      let x = sw.pos.x, z = sw.pos.z;
+      for (let tries = 0; tries < 8; tries++) {
+        const a = Math.random() * U.TAU, r = 1.4 + Math.random() * 2.2;
+        x = sw.pos.x + Math.cos(a) * r; z = sw.pos.z + Math.sin(a) * r;
+        // it falls where you fell, but never up onto the shingle
+        if (this.reef.heightAt(x, z) < -1.2) break;
+      }
       const y = Math.max(this.reef.heightAt(x, z) + 0.35, sw.pos.y - 4);
       const nc = this._spawnChest(c.tier, { x, y, z });
       if (nc) nc.value = c.value;
@@ -1171,10 +1409,23 @@ class DiveMission {
       sw.pos.y - fy * dist * 0.7 + height,
       sw.pos.z - fz * dist);
 
-    // never let the camera out of the water: from above, the whole
-    // mission is a blue rectangle
+    /* The camera used to be nailed under the surface — "from above, the
+       whole mission is a blue rectangle" — and that was true right up
+       until the loch got a shore worth looking at. It is also what made
+       every gasp a lie: the diver breathed in and the screen stayed
+       drowned.
+
+       So the lid lifts with the diver's own head. It is damped rather
+       than switched, because a camera that teleports through the
+       surface is worse than one that never crosses it, and it only
+       lifts as far as the shot already wants to go — the chase camera's
+       natural height at the surface is about a metre and a half up, so
+       nothing has to be re-framed for the air. */
+    this.surfaceMix = U.damp(this.surfaceMix || 0,
+                             (sw.up || sw.onLand) ? 1 : 0, 5.5, dt);
     const wy = Water.sampleHeight(want.x, want.z) - 0.35;
-    if (want.y > wy) want.y = wy;
+    const lid = wy + this.surfaceMix * 4.2;
+    if (want.y > lid) want.y = lid;
     const floor = this.reef.heightAt(want.x, want.z) + 1.1;
     if (want.y < floor) want.y = floor;
 
@@ -1217,14 +1468,47 @@ class DiveMission {
      fog, the water's own fog, the caustic strength and the pressure
      vignette together. Both ends of it are bright. */
   _updateDepth(dt) {
-    const camDepth = Math.max(0, -this.camera.position.y);
+    const cam = this.camera.position;
+    /* Signed, and measured against the moving sea rather than against
+       zero: negative is a lens in the air. The ramp carries straight on
+       through the surface into the air band, which is what turns
+       breaking the surface into an *event* — the fog opens from twenty
+       metres to two and a half thousand, the turquoise goes to sky, the
+       caustics go out, and all of it happens in the third of a second
+       it takes to cross the waterline. */
+    const surf = Water.sampleHeight(cam.x, cam.z);
+    const camDepth = surf - cam.y;
     const b = ReefKit.bandAt(camDepth, this._band);
     const fog = this.scene.fog;
-    fog.color.lerp(b.colour, 1 - Math.exp(-4 * dt));
-    fog.near = U.damp(fog.near, b.near, 4, dt);
-    fog.far = U.damp(fog.far, b.far * this.vis, 4, dt);
+    // visibility is a property of the water; it does not dim the air
+    const far = b.far * U.lerp(this.vis, 1, b.air);
+    fog.color.lerp(b.colour, 1 - Math.exp(-5 * dt));
+    fog.near = U.damp(fog.near, b.near, 5, dt);
+    fog.far = U.damp(fog.far, far, 5, dt);
     Water.setFog(fog.near, fog.far * 2.4, fog.color);
     this.reef.setCaustic(U.damp(this.reef.uniforms.caustic.value, b.caustic, 4, dt));
+    /* The sea is a different colour depending on which side of it you
+       are, and only one shader draws it. Repainting it is two uniform
+       writes, and skipping the ones that would not move keeps it off
+       the frame budget entirely while you are down. */
+    if (Math.abs(b.air - (this._paletteAt === undefined ? -1 : this._paletteAt)) > 0.01) {
+      this._paletteAt = b.air;
+      Water.setPalette(DiveConditions.paletteFor(b.air));
+    }
+    /* Above the waterline the sky is the horizon. Below it the *water*
+       is, and the sky has to go — see `Sky.setVisible`. The scene's
+       background takes over at exactly the fog colour the reef is
+       fading into, so where the seabed runs out there is more water
+       rather than a bright line. The switch happens within a metre of
+       the surface, where the near water plane already fills the upper
+       half of the shot, so there is nothing to see it in. */
+    const inAir = b.air > 0.35;
+    if (inAir !== this._skyOn) {
+      this._skyOn = inAir;
+      Sky.setVisible(inAir);
+    }
+    this.scene.background = inAir ? null : fog.color;
+    this.air01 = b.air;
 
     // the vignette is cyan-white, not black: pressure, not darkness
     const el = this.hud.pressure;
@@ -1246,7 +1530,8 @@ class DiveMission {
        surface break a bright release — sixty times a run, on a loop
        that is thirty seconds long. It is the single best moment in the
        mission and it costs one filter node. */
-    const camY = this.camera.position.y;
+    const cam = this.camera.position;
+    const camY = cam.y - Water.sampleHeight(cam.x, cam.z);
     const want = U.smoothstep(-0.2, -2.5, camY);
     if (Math.abs(want - (this._muffle || 0)) > 0.02) {
       this._muffle = want;
@@ -1315,6 +1600,21 @@ class DiveMission {
         : Math.ceil(this.timeLeft);
       h.time.classList.toggle('low', this.mode === 'salvage' && this.timeLeft <= 20);
     }
+    /* Holding gold is now a *place* problem, so the panel that shows
+       what is in your hands has to show how far it is from counting.
+       It turns gold when you are close enough for it to bank, which is
+       the only feedback the rule needs. */
+    if (h.shore) {
+      const carrying = this.carry.length > 0;
+      h.shore.classList.toggle('show', carrying);
+      if (carrying) {
+        const d = this._shoreDist();
+        const home = this._ashore();
+        h.shore.classList.toggle('home', home);
+        h.shore.textContent = home ? 'ASHORE' : '\u2191 shore ' + Math.round(d) + 'm';
+      }
+    }
+
     if (h.carryVal) {
       const v = this._carryValue();
       h.carryVal.textContent = v ? U.money(v) : '—';
@@ -1528,6 +1828,18 @@ class DiveMission {
 
     if (d.kind === 'reef') { this._applyReef(d); return; }
 
+    /* Somebody else got theirs ashore. Nothing about the *money* comes
+       off this — each client owns its own purse and the field strip
+       already carries the numbers — it is purely the heap growing on
+       the beach where everyone can see whose run is going well. */
+    if (d.kind === 'landed') {
+      const tiers = Array.isArray(d.tiers) ? d.tiers : [];
+      this._addToPile(tiers
+        .filter(t => t >= 0 && t < this.C.tiers.length)
+        .map(t => ({ tier: t })));
+      return;
+    }
+
     if (d.kind === 'drop' && !this.isHost) {
       // a pile somebody else lost. The host will confirm it on the next
       // snapshot; showing it now is what makes a blackout legible.
@@ -1678,6 +1990,7 @@ class DiveMission {
       beatPct: st.strokes ? st.onBeat / st.strokes : 0,
       bestFlowRun: st.bestFlowRun,
       tierBanked: st.tierBanked,
+      landed: this.pile ? this.pile.n : 0,
       stats: Object.assign({}, st),
     }, part);
   }
@@ -1813,15 +2126,16 @@ AudioBus.define('dv-bump', (c, dest) => {
 Missions.register({
   id: 'dive',
   name: 'The Dive',
-  tagline: 'Surface with it and it is yours. Black out and it is anybody’s.',
+  tagline: 'Get it to the shore and it is yours. Black out and it is anybody’s.',
   description:
-    'A sunlit sea loch with a broken trawler on the slope and a trench past it. Three '
-    + 'minutes, one breath at a time. Everything you surface holding is money; black out '
-    + 'and every chest in your hands drops where you are and lies there, lit, for anybody '
-    + 'to take — including the other two. There is no button but the stroke, and the '
-    + 'stroke has a beat: land it in the window and you swim faster, breathe cheaper and '
-    + 'get paid more. The shelf is easy money. The trench is one round trip if you are on '
-    + 'the beat, and a long walk home if you are not.',
+    'A sunlit highland sea loch with a broken trawler on the slope and a trench past it. '
+    + 'You jump off the shingle, and nothing counts until you carry it back there and put '
+    + 'it on the pile — so every chest you take is a decision about the swim home. Three '
+    + 'minutes, one breath at a time. Black out and every chest in your hands drops where '
+    + 'you are and lies there, lit, for anybody to take, including the other two. There '
+    + 'is no button but the stroke, and the stroke has a beat: land it in the window and '
+    + 'you swim faster, breathe cheaper and get paid more. The shelf is easy money. The '
+    + 'trench is one round trip if you are on the beat, and a long walk home if you are not.',
   icon: '03',
   maxPrize: 85000,
   players: '1-3',
@@ -1848,8 +2162,11 @@ Missions.register({
       + 'expensive half of every dive.',
     '<b>Four is a decision.</b> Every chest in your hands costs drag, air and a longer '
       + 'kick, and pulls you down. The fourth one is the one that drowns people.',
-    '<b>Surfacing banks it.</b> Get your head out for half a second and everything you are '
-      + 'carrying turns into money. Nothing is safe until you do.',
+    '<b>The shore is the bank.</b> Surfacing keeps you alive; it does not keep the gold. '
+      + 'Nothing counts until you carry it back to the shingle and it goes on the pile, '
+      + 'and the swim home is the part everybody watches.',
+    '<b>Swim home on the surface.</b> Your bar refills up there and the water is thinner, '
+      + 'so the fast way back from the trench is straight up first and along after.',
     '<b>Blacking out does not end the run.</b> It drops everything you were holding on the '
       + 'floor, lit, where anybody can take it — and floats you helplessly for three '
       + 'seconds while they do.',
@@ -1857,6 +2174,8 @@ Missions.register({
       + 'reach and return from unless you are swimming well.',
     '<b>Somebody else’s pile is worth full price.</b> If you see a glow on the sand '
       + 'that you did not put there, that is a diver who got greedy.',
+    '<b>The lamp on the beach is north.</b> It is the only warm light in the loch and it '
+      + 'is visible from the bottom of the trench. If you can see it, you know the way home.',
   ],
   keys: ['<kbd>Space</kbd> kick', '<kbd>Mouse</kbd> steer',
          '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> scull'],
@@ -1901,6 +2220,8 @@ Missions.register({
       ['Shelf', U.money(tb.shelf || 0)],
       ['Wreck', U.money(tb.wreck || 0)],
       ['Trench', U.money(tb.trench || 0)]);
+    if (r.landed) rows.push(['Landed on the pile', String(r.landed) + ' chest'
+                             + (r.landed === 1 ? '' : 's')]);
     if (r.blackouts) rows.push(['Blacked out', String(r.blackouts) + '×']);
     if (r.lost) rows.push(['Left on the floor', U.money(r.lost)]);
     if (r.recovered) rows.push(['Taken off the floor', U.money(r.recovered)]);

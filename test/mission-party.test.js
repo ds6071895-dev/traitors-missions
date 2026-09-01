@@ -158,6 +158,13 @@ const DEFS = {
   },
   'boat-race': { id: 'boat-race', name: 'Boat Race', tagline: 'Go.', icon: '01',
                  maxPrize: 40000, locked: false },
+  dive: {
+    id: 'dive', name: 'The Dive', tagline: 'Surface with it and it is yours.',
+    icon: '03', maxPrize: 85000, locked: false, setup: true,
+    modes: { prize: { id: 'prize', name: 'Prize Dive' } },
+    preview: (o) => ({ opts: o, name: 'Loch', conditionText: 'slight sea',
+                       hand: [], payout: 1 }),
+  },
 };
 
 /* Nothing here paints. `Screens.current` is deliberately never
@@ -212,6 +219,30 @@ function machine(swarm, id, seedOf) {
 }
 
 async function party() {
+  section('mission party — the dive');
+
+  await atest('a dive invitation seats two players and launches the dive', async () => {
+    const diveSwarm = makeSwarm();
+    const host = machine(diveSwarm, 'diveHost', 8080);
+    const guest = machine(diveSwarm, 'diveGuest', 9090);
+
+    await host.MP.openFor('dive');
+    await settle();
+    await guest.MP.joinCode(host.Party.code, 'dive');
+    await settle();
+
+    eq(host.MP.mission.id, 'dive', 'the host opened the dive');
+    eq(guest.MP.mission.id, 'dive', 'the invitation opened the dive for the guest');
+    host.MP.start();
+    await settle();
+    eq(host.launched.map(x => x.id), ['dive'], 'the host launched the dive');
+    eq(guest.launched.map(x => x.id), ['dive'], 'the guest launched the same dive');
+
+    guest.MP.leave();
+    host.MP.leave();
+    await settle();
+  });
+
   section('mission party — three machines, one mission');
 
   const swarm = makeSwarm();

@@ -15,8 +15,8 @@ const FILES = ['js/core/util.js', 'js/core/state.js', 'js/core/missions.js',
 function fresh() {
   const ctx = H.load(FILES);
   ctx.GameState.load();
-  // two missions the planner can draw, so a run has a shape
-  for (const id of ['boat-race', 'shootout']) {
+  // the real three-mission pool, including the dive
+  for (const id of ['boat-race', 'shootout', 'dive']) {
     ctx.Missions.register({ id, name: id, create: () => ({}) });
   }
   return ctx;
@@ -41,6 +41,19 @@ function seedWhere(ctx, want) {
 }
 
 section('session — setup');
+
+test('the dive can be drawn into a full night', () => {
+  const ctx = fresh();
+  let found = null;
+  for (let seed = 1; seed <= 100; seed++) {
+    ctx.Session.startParty({ seed, players: PLAYERS, mode: 'host' });
+    const ids = ctx.Session.state.missions.map(m => m.id);
+    if (ids.includes('dive')) { found = { seed, ids }; break; }
+  }
+  ok(found, 'the dive appeared in the two-mission plan');
+  eq(new Set(found.ids).size, 2,
+     'the full game draws two different missions while three are available');
+});
 
 test('a party of three is seated in order, with looks and no bots', () => {
   const ctx = fresh();

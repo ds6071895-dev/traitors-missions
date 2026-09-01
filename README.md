@@ -17,11 +17,80 @@ straight off disk (`file://`) for solo practice and the dressing room.
 
 **Multiplayer needs a real origin.** Microphones and WebRTC want a secure context, so
 for a night with other people the folder has to be served over http on localhost
-(`./serve.sh`) or over https for people on other machines. It is still a static folder
-— GitHub Pages or Netlify will do, and there is no build step and no server to run.
+(`./serve.sh`) or over https for people on other machines. Direct WebRTC works from any
+static host; reliable play across different networks uses the small Cloudflare Pages
+Function in `functions/api/turn.js` to issue temporary TURN relay credentials.
 
 Dependencies are three.js and Trystero from a CDN, plus two Google fonts. Claudia is
 spoken by the browser's own speech synthesiser; there are no audio files anywhere.
+
+---
+
+## Hosting on Cloudflare Pages with TURN
+
+The permanent Cloudflare TURN key stays in the Pages Function. Browsers receive a
+temporary four-hour credential when they open a room. Trystero keeps its own STUN
+servers and normal ICE policy: browsers connect directly when they can, and TURN carries
+traffic only for a peer whose NAT or firewall prevents a direct path.
+
+### 1. Create the TURN key
+
+1. Open the Cloudflare dashboard and go to **Realtime > TURN**.
+2. Create a TURN key.
+3. Copy the **TURN key ID** and its **API token** when Cloudflare shows them. Do not put
+   either value in this repository or in browser JavaScript.
+
+Cloudflare's credential API calls these values the TURN Token ID and TURN Key API Token.
+
+### 2. Add the Pages secrets
+
+Open **Workers & Pages**, select this Pages project, then open
+**Settings > Variables and Secrets > Add**. Add these production bindings:
+
+| Name | Value | Type |
+| --- | --- | --- |
+| `TURN_KEY_ID` | the TURN key/Token ID | Secret (or encrypted variable) |
+| `TURN_KEY_API_TOKEN` | the TURN key API token | Secret |
+
+Add the same bindings to the Preview environment as well if preview deployment URLs
+need multiplayer. Save them before the deployment that introduces the Function.
+
+### 3. Deploy the Function and site
+
+For a Git-connected Pages project, push the repository normally. Use framework preset
+**None**, build command `exit 0`, and build output directory `.` (or keep the existing
+output directory if it already serves the root `index.html`). Cloudflare finds the root
+`functions/` directory and deploys `/functions/api/turn.js` as `/api/turn`.
+
+If the existing project was created with dashboard drag-and-drop, do not drag the folder
+in again: dashboard drag-and-drop does not compile Pages Functions. From this repository
+use Wrangler instead:
+
+```sh
+npx wrangler login
+npx wrangler pages deploy . --project-name=YOUR_PAGES_PROJECT_NAME
+```
+
+Run that command from the repository root so Wrangler sees both `index.html` and the
+root `functions/` directory. It can deploy to an existing Direct Upload project.
+
+### 4. Check it before inviting people
+
+1. Visit `https://YOUR-SITE.pages.dev/api/turn`. It should return JSON containing a
+   non-empty `iceServers` list, not a 404 or `TURN is not configured`.
+2. Open the game on two devices using different networks—for example home Wi-Fi and
+   mobile data—and join a fresh room code.
+3. Keep the host tab open. A full night still needs three players before its Start
+   button is enabled.
+
+The credentials shown by `/api/turn` are deliberately short lived. The permanent API
+token remains inside Cloudflare. If the Function is unavailable, room creation still
+continues with direct/STUN connections and the browser console records the missing TURN
+fallback.
+
+For local testing of the Function, create an uncommitted `.dev.vars` file containing
+the two bindings, then run `npx wrangler pages dev .`. `.dev.vars*` and `.env*` are
+ignored by git.
 
 ---
 
@@ -344,12 +413,18 @@ looking at.
 
 ## Playing the Dive
 
-You are in a sunlit sea loch with a broken trawler on the slope below you and a trench
-past that. Three minutes, one breath at a time. There is one button.
+You are stood on the shingle of a highland sea loch with a broken trawler on the slope
+below you and a trench past that. Behind you the ground goes up through machair and
+pine into six hundred metres of hill. Three minutes, one breath at a time. There is one
+button.
 
-Everything you surface holding turns into money. Black out and every chest in your hands
-falls where you are and lies there, **lit, on the floor, for anybody to take** — the
-other two included — and you float helplessly for three seconds while they decide.
+**Nothing counts until it is on the pile.** You jump off the bank, you fill your hands,
+and then you have to carry it back to the beach and put it down — and the pile grows
+where the other two can see it. Surfacing keeps you alive; it does not keep the gold.
+
+Black out and every chest in your hands falls where you are and lies there, **lit, on
+the floor, for anybody to take** — the other two included — and you float helplessly
+for three seconds while they decide.
 
 | Action | Keys |
 | --- | --- |
@@ -372,6 +447,11 @@ and they are the reason this mission exists:
   evidence of anything.
 - **A run is thirty seconds long and restarts instantly**, so the loop repeats sixty
   times a night rather than twice.
+
+And the shore is what makes all three of those *watchable*. A diver who surfaces with
+four trench chests has not banked anything — they have a hundred and eighty metres of
+open water to cross while holding it, on the surface, in front of everybody. The whole
+mission is a journey between having it and keeping it.
 
 ### You swim on the beat
 
@@ -413,9 +493,34 @@ The trench is only a round trip **if you are on the beat**. Off it, a scripted d
 that reaches the bottom does not come back — which is not a difficulty setting, it is
 what the air arithmetic in `test/swim.test.js` asserts.
 
+The round-trip figures are the dive itself. The *swim home* is on top of them, and it
+is what the shore added: the trench rim sits about a hundred and eighty metres out, so
+a trench trip is another fifteen to forty seconds of surface swimming before any of it
+is money. Your bar refills up there, so the fast way back is straight up and then
+along.
+
 And the surface interval is real: a shelf trip is back in the water in a second and a
 half, a trench trip has to float for five, in front of everybody. It is the only thing
 that stops the deep being the answer to every question.
+
+### The shore
+
+One bearing, drawn off the seed, decides the whole above-water half of the mission.
+`ReefKit.shoreFor` turns it into an inland normal, and every point on the map is then
+one dot product away from knowing how far inland it is — which is the only input the
+coast profile takes. Below zero it shelves; just above it there is a shingle bank you
+jump from; behind that machair, hillside and highland, out to six hundred metres.
+
+It is **one mesh**, not two. The seabed disc reaches half again its radius seaward and
+five times it inland, so the tideline is a continuous surface rather than two sheets
+arguing over the same metre of sand, and one `heightAt` is the seabed, the beach and the
+mountain. The diver's own collision, every chest's depth band and every tree's treeline
+all ask that same function, so nothing can be placed anywhere the geometry is not.
+
+The reef's radial tiers are untouched by any of it: shelf in the middle, wreck on the
+slope, trench at the rim, exactly as before — the land simply takes the half-turn behind
+you, and `_spawnChest` draws its bearings from the seaward half so it never proposes a
+chest on a mountain.
 
 ### The reef conserves what is in it
 
@@ -439,7 +544,9 @@ Three minutes, and a scripted diver playing perfectly on the beat:
 | the trench with no bail-out at all | nothing |
 
 Every one of those numbers came out of `test/swim.test.js` and a scripted run in node,
-not out of a guess. Par is £30,000.
+not out of a guess — and they are what the diver *earns off the reef*, before the swim
+home. Par is £21,000, down from £30,000 when the shore went in: a trip is no longer over
+the moment your head is out of the water, it is over when you are stood on the shingle.
 
 ---
 
@@ -454,6 +561,8 @@ changes at all to exist.
 ```
 index.html            script order + all screen markup
 css/style.css
+functions/
+  api/turn.js          temporary Cloudflare TURN credentials (Pages Function)
 js/
   core/
     util.js           seeded RNG, damping, easing, money formatting
@@ -529,9 +638,11 @@ is inert and `state` is a mirror installed by `adopt()` from whatever the host l
 sent. Scenes cannot tell the difference, which is the point — they read `state`, they
 call `Net.send`, and that is exactly what they did when this was single-player.
 
-Transport is WebRTC over Trystero, which finds the other two through public relays. So
-the whole thing stays a static folder: no server to run, no server to deploy, and a
-four-letter room code is the entire matchmaking system.
+Transport is WebRTC over Trystero, which finds the other two through public signalling
+relays. Game authority still lives in the host browser; the only server-side endpoint is
+the optional Pages Function that keeps the permanent TURN key private and issues
+short-lived relay credentials. A four-letter room code remains the entire matchmaking
+system.
 
 Three rules make it work, and all three are load-bearing:
 
@@ -770,7 +881,28 @@ under water.
 
 The kelp is `HighlandKit.bladeGeometry` instanced by `ForestKit.instance`; the marine
 snow is `ForestKit.buildMotes` with the fall reversed so it drifts up; the shafts are
-ten sprites on the sun's bearing. None of that is a second copy of anything.
+ten sprites on the sun's bearing. The wood on the hillside is `ForestKit.speciesGeometry`
+against `ForestKit.windMaterial`, and the machair behind the beach is
+`HighlandKit.tuftGeometry`. None of that is a second copy of anything — the dive supplies
+a height function and a treeline and gets a Scottish hillside back, which is the whole
+reason those kits export their parts.
+
+**Every grid needs winding, and both of them were wrong.** A ring/sector floor written
+out in the order it reads — `(a, c, d)` — produces a triangle whose right-hand normal
+points *down*. `computeVertexNormals` then hands the material downward normals, and a
+front-side surface with downward normals is culled from every position you could
+possibly view it from. The reef's seabed had it, which is why the loch looked empty: the
+single largest object in the mission was inside out and the renderer was skipping it.
+`HighlandKit.buildGround` had the identical inversion. Both are now `(a, d, c)`, and
+`test/mission-stats.test.js` asserts the tiers off the floor *function*, which is why the
+bug lived in the mesh where nothing was looking.
+
+The seabed is also **indexed** now. The header always claimed it was smooth-shaded —
+"a surface this big rendered as flat facets reads as broken geometry" — but a
+non-indexed grid cannot be, whatever the material says, because there is nothing for
+`computeVertexNormals` to average across. Sharing the vertices bought the smooth shading
+the comment was asking for, four times fewer paint calls and six times fewer vertices
+from one edit.
 
 **Depth is colour, never darkness.** The hour is always noon — the brightest light rig
 in the game — and one ramp through `ReefKit.BANDS` drives the scene fog, the water's own
@@ -779,6 +911,25 @@ fog, the caustic strength and the pressure vignette together. The trench end of 
 you it is dangerous is the colour going cold, the FOV narrowing, the surface receding
 overhead, and a cyan-white vignette closing in. A player who cannot see is not being
 threatened, they are being inconvenienced.
+
+**And the ramp does not stop at the surface.** `ReefKit.BANDS` begins with an *air*
+band three metres up, so the ramp carries straight on through the waterline: break the
+surface and the fog opens from twenty metres to two thousand six hundred, the turquoise
+goes to sky, the caustics go out and the sea repaints itself from the aqua you see
+looking *up* at a ceiling to the dark green-blue of a loch seen from above. All of it
+happens in the third of a second it takes to cross the waterline, and it is the reason
+a gasp now looks like one.
+
+Three things had to move to let the camera up there at all. The chase camera used to be
+nailed under the swell — "from above, the whole mission is a blue rectangle" — which
+was true right up until the loch had a shore worth looking at, and which is what made
+every breath a lie. The surface used to be a lid you could never leave through, so a
+diver stood on the shingle was being clamped to fifty-five centimetres under a sea that
+was not there; it is now lifted wherever the ground is above the tideline, and a body
+out of the water is simply a body that falls. And there is a sky, which there could not
+be before: `Sky.setVisible(false)` turns it off underwater, because the dome sets
+`fog:false` on purpose and would otherwise paint a bright band along the top of the
+fogged reef rim.
 
 ### The Dive is where the music became a mechanic
 
@@ -1007,7 +1158,7 @@ useful message if anything reaches for it.
 | `agendas.test.js` | Every card and every alibi either side of its own threshold, plus the rules of the deck: a public tell, a way out, no free passes and no free alibis |
 | `mission-stats.test.js` | The other half of the deck: the missions' own trackers, driven frame by frame, producing the numbers the cards judge |
 | `transport.test.js` | A host and a guest in one process on a fake wire, including a guest that connects late and a guest that tries to vote as somebody else |
-| `swim.test.js` | The Dive's feel as arithmetic: the shaped impulse, the chain against `topSpeed`/`flowTop`, frame-rate independence at 20 fps and 120, and the dive profile that tuned every air constant |
+| `swim.test.js` | The Dive's feel as arithmetic: the shaped impulse, the chain against `topSpeed`/`flowTop`, frame-rate independence at 20 fps and 120, the dive profile that tuned every air constant, and the shore — a diver at rest floating, ground above the tideline being standable, the leap off the bank, and the body being pitched the way it is travelling |
 | `look.test.js` | That nothing you can put in localStorage produces a figure with no coat on |
 
 The whole thing takes about four seconds. Five of these have already earned their keep:
