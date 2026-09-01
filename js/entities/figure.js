@@ -714,6 +714,12 @@ const Figure = (() => {
     root.userData.running = 0;    root.userData.runWant = 0;
     root.userData.lean = 0;       root.userData.leanWant = 0;
     root.userData.aiming = 0;     root.userData.aimWant = 0;
+    /* How steeply they are aiming, which is a separate number from
+       whether they are aiming at all. A figure shooting at a bird
+       forty degrees up and standing bolt upright is the pose that
+       makes a third-person archer look like a mannequin holding a
+       stick, so the whole chest goes with the shot. */
+    root.userData.aimPitch = 0;   root.userData.aimPitchWant = 0;
     root.userData.cheering = 0;   root.userData.cheerWant = 0;
     root.userData.holding = 0;    root.userData.holdWant = 0;
     root.userData.flinch = 0;
@@ -755,7 +761,22 @@ const Figure = (() => {
     d.leanWant = U.clamp(turn || 0, -1, 1);
   }
 
-  const setAiming = (fig, on) => { if (fig) fig.userData.aimWant = on ? 1 : 0; };
+  /* `pitch` is optional and is the shooter's own aim pitch in radians,
+     positive for up — the same number their camera is using. Passing it
+     tilts the torso and the head into the shot; leaving it out is the
+     old behaviour and stays upright. */
+  const setAiming = (fig, on, pitch) => {
+    if (!fig) return;
+    fig.userData.aimWant = on ? 1 : 0;
+    if (pitch === undefined) return;
+    const p = U.clamp(pitch, -0.6, 1.15);
+    fig.userData.aimPitchWant = p;
+    /* The chest is already carrying most of the angle, so the neck
+       only makes up the difference. Giving the head the whole of it as
+       well is how you get an archer looking over the top of their own
+       bow. */
+    fig.userData.pitchWant = U.clamp(p * 0.45, -0.45, 0.45);
+  };
   const setCheering = (fig, on) => { if (fig) fig.userData.cheerWant = on ? 1 : 0; };
   const flinch = (fig, amount = 1) => {
     if (fig) fig.userData.flinch = Math.max(fig.userData.flinch || 0, amount);
@@ -831,6 +852,7 @@ const Figure = (() => {
     d.running  = U.damp(d.running,  d.runWant    || 0, 7, dt);
     d.lean     = U.damp(d.lean,     d.leanWant   || 0, 5, dt);
     d.aiming   = U.damp(d.aiming,   d.aimWant    || 0, 8, dt);
+    d.aimPitch = U.damp(d.aimPitch, d.aimPitchWant || 0, 8, dt);
     d.cheering = U.damp(d.cheering, d.cheerWant  || 0, 6, dt);
     d.holding  = U.damp(d.holding,  d.holdWant   || 0, 7, dt);
     d.flinch   = Math.max(0, (d.flinch || 0) - dt * 3.2);
@@ -972,8 +994,11 @@ const Figure = (() => {
       A.fore.rotation.x = fx;
     }
 
-    // the whole body leans into the throw, or it is a hand on a stick
-    r.chest.rotation.x = -hold * 0.06 + back * 0.16 - thru * 0.26 - aim * 0.06;
+    /* The whole body leans into the throw, or it is a hand on a stick —
+       and an archer leans back into a steep shot rather than craning a
+       neck at it. */
+    r.chest.rotation.x = -hold * 0.06 + back * 0.16 - thru * 0.26 - aim * 0.06
+                         - aim * (d.aimPitch || 0) * 0.55;
     r.chest.rotation.y = aim * 0.30;
     r.chest.rotation.z = sway * 0.018;
   }

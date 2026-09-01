@@ -189,6 +189,11 @@ function shooter(o = {}) {
     // the other two are reading off the strip
     _net: SH.prototype._net,
     _finishRoundAgenda: SH.prototype._finishRoundAgenda,
+    /* The real one, because what a finished round pays is now a shared
+       sum rather than something only the host can reach — and "the
+       guest was paid the same" is exactly the kind of claim that has
+       to be checked rather than assumed. */
+    _awardRound: SH.prototype._awardRound,
   }, o);
 }
 
@@ -302,7 +307,12 @@ test('sitting one out and coming back clean is the whole card', () => {
 
 test('a guest finalizes their own walk telemetry from host round results', () => {
   const s = shooter({ isHost: false, roundIndex: 0, _agendaRoundSeen: -1,
-                      round: { index: 0 }, state: 'live' });
+                      round: { index: 0 }, state: 'live',
+                      C: SH.CONFIG, payout: 1, timeScaleTarget: 1,
+                      roundsCleared: 0, perfectRounds: 0, bossesDown: 0,
+                      bossMoney: 0, bonusMoney: 0, money: 0,
+                      _boonPay: () => 1, _banner: noop, _fail: noop, _finish: noop,
+                      boss: null, flock: { list: [] } });
   s.stats.roundT = 30; s.stats.offLineT = 28;
   SH.prototype._applyWorldState.call(s, {
     lastRound: { index: 0, cleared: true }, roundIndex: 0,
@@ -318,6 +328,52 @@ test('a guest finalizes their own walk telemetry from host round results', () =>
     round: null, state: 'between', betweenT: 2,
   });
   ok(s.stats.cleanRoundAfterWalk, 'the guest can earn the clean return alibi');
+});
+
+/* The money half of the same message. A round's clear bonus, its
+   perfect bonus and the bounty on the owl used to be paid inside
+   `_endRound`, which only the host ever runs — so two people who
+   played a round identically walked out of it thousands apart, on the
+   strip both of them were staring at. */
+test('a guest is paid for a cleared round exactly as the host is', () => {
+  const host = shooter();
+  endRound(host, { cleared: true, killed: 5, escaped: 0 });
+
+  const guest = shooter({ isHost: false, roundIndex: 0, _agendaRoundSeen: -1,
+                          round: { index: 0 }, state: 'live',
+                          C: SH.CONFIG, payout: 1, timeScaleTarget: 1,
+                          roundsCleared: 0, perfectRounds: 0, bossesDown: 0,
+                          bossMoney: 0, bonusMoney: 0, money: 0,
+                          _boonPay: () => 1, _banner: noop, _fail: noop, _finish: noop,
+                          boss: null, flock: { list: [] } });
+  SH.prototype._applyWorldState.call(guest, {
+    lastRound: { index: 0, cleared: true, perfect: true, boss: false,
+                 timeLeft: 5, killed: 5, total: 5 },
+    roundIndex: 0, round: null, state: 'between', betweenT: 2,
+  });
+
+  eq(Math.round(guest.money), Math.round(host.money), 'the same money');
+  eq(guest.roundsCleared, host.roundsCleared, 'the same rounds cleared');
+  eq(guest.perfectRounds, host.perfectRounds, 'the same perfect rounds');
+  ok(host.money > 0, 'and it is not zero on either of them');
+});
+
+test('the owl bounty reaches a guest that helped bring it down', () => {
+  const guest = shooter({ isHost: false, roundIndex: 0, _agendaRoundSeen: -1,
+                          round: { index: 0 }, state: 'live',
+                          C: SH.CONFIG, payout: 1, timeScaleTarget: 1,
+                          roundsCleared: 0, perfectRounds: 0, bossesDown: 0,
+                          bossMoney: 0, bonusMoney: 0, money: 0,
+                          _boonPay: () => 1, _banner: noop, _fail: noop, _finish: noop,
+                          boss: null, flock: { list: [] } });
+  SH.prototype._applyWorldState.call(guest, {
+    lastRound: { index: 0, cleared: true, perfect: false, boss: true,
+                 timeLeft: 0, killed: 1, total: 1 },
+    roundIndex: 0, round: null, state: 'between', betweenT: 2,
+  });
+  eq(guest.bossesDown, 1, 'the owl is on their card');
+  ok(guest.bossMoney >= SH.CONFIG.bossBounty, 'and the bounty is in their money',
+     guest.bossMoney);
 });
 
 test('every guard round produces a dove even at hostile RNG edges', () => {

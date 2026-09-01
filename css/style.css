@@ -983,8 +983,20 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .sh-hint.show{opacity:1}
 
 /* -------- touch: drag anywhere to look, two pads to act -------- */
-#touch-shoot{display:none; position:fixed; inset:0; z-index:45; pointer-events:all; touch-action:none}
+/* Below `.screen`, which is 40, and that is the whole point of the
+   number. This sheet is `inset:0` and swallows every pointer event on
+   it, so at 45 it sat on top of the results panel, the pause panel and
+   the fire's ballot — every button a touch player has to press after a
+   mission ends was under a transparent sheet that ate the tap. It
+   still has to be above the world and above the HUD screen (20), so it
+   goes between them. */
+#touch-shoot{display:none; position:fixed; inset:0; z-index:35; pointer-events:all; touch-action:none}
 #touch-shoot.visible{display:block}
+/* A panel somebody has to read and press is not a thing to hold a
+   thumbstick over. The ballot is the exception: its own container
+   passes taps through on purpose, so looking round the fire while the
+   pouches are out keeps working. */
+#touch-shoot.visible.blocked{display:none}
 #touch-shoot .draw-pad,#touch-shoot .focus-pad{position:absolute; bottom:9vh; border-radius:50%;
   display:grid; place-items:center; font-weight:800; letter-spacing:.1em; font-size:12px;
   pointer-events:all; touch-action:none}

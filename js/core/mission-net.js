@@ -25,7 +25,32 @@
 const MissionNet = (() => {
 
   const RATE = 1 / 15;              // pose broadcasts per second
-  const REPORT_TIMEOUT = 14000;     // how long the host waits for a straggler
+
+  /* How long the host waits for a report that has not come.
+
+     It used to be a single fourteen-second fuse lit by the first
+     report to arrive, which is correct for a mission all three people
+     finish at the same moment and wrong for every other kind. A boat
+     race ends when each boat crosses the line, and a driver forty
+     seconds behind the winner was not slow — they were racing. The
+     fuse burned while they did, and they arrived to find the board
+     published, their name missing from it and their money not in the
+     pot.
+
+     So the wait is now for somebody who has gone *quiet*. A player who
+     is still broadcasting poses is still playing and is not a
+     straggler; the fuse only burns for peers that have stopped saying
+     anything at all, which is what a closed tab looks like. The hard
+     cap is there because "still posing" is a heuristic and a
+     scoreboard that never arrives is worse than an incomplete one. */
+  const REPORT_TIMEOUT = 14000;     // silence from a missing player
+  const REPORT_ALIVE_GRACE = 4000;  // a pose this recent means still playing
+  /* Longer than any single mission can run, because "still posing" is
+     the *correct* answer for somebody still out on the water or still
+     fighting the owl, and the cap must never be the thing that ends a
+     wait somebody is legitimately in the middle of. It is a backstop
+     against a wedged client, not a schedule. */
+  const REPORT_MAX_WAIT = 360000;   // and the end of the host's patience
 
   let live = false;
   let offs = [];
@@ -37,6 +62,7 @@ const MissionNet = (() => {
   let boardWaiters = [];
   let board = null;
   let reportTimer = null;
+  let reportsOpenedAt = 0;
   let started = false;
   let startWaiters = [];
   let readyTimer = null;
@@ -73,6 +99,7 @@ const MissionNet = (() => {
     reports.clear();
     started = false;
     startWaiters = [];
+    reportsOpenedAt = 0;
     readyPeers.clear();
 
     offs.push(Party.on('sync', (msg, peerId) => {
@@ -97,7 +124,16 @@ const MissionNet = (() => {
 
     offs.push(Party.on('left', (peerId) => {
       remotes.delete(peerId);
-      if (!Party.isHost) return;
+      if (!Party.isHost) {
+        /* The host is the only client that builds a board. If it has
+           walked out there is not one coming, and a guest waiting on
+           the promise would wait until its own backstop fired —
+           several minutes of "waiting for the others" in a room that
+           has nobody left to wait for. Settle with nothing and let the
+           scoreboard draw the one row it does have. */
+        if (peerId === Party.hostId && !board && boardWaiters.length) settle(null);
+        return;
+      }
       /* Mission parties may continue after a guest leaves. Re-evaluate
          both gates immediately: if the departing guest was the only
          device still loading or the only report still outstanding,
@@ -130,6 +166,7 @@ const MissionNet = (() => {
     board = null;
     clearTimeout(reportTimer);
     reportTimer = null;
+    reportsOpenedAt = 0;
     clearInterval(readyTimer);
     readyTimer = null;
     started = false;
@@ -161,6 +198,7 @@ const MissionNet = (() => {
     r.next = msg.p;
     r.span = Math.max(0.03, Math.min(0.5, r.t || RATE));
     r.t = 0;
+    r.at = Date.now();          // the only evidence that they are still there
     emit('pose', playerId, msg.p);
   }
 
@@ -216,15 +254,38 @@ const MissionNet = (() => {
        still alive; in a mission party it is whoever is in the room,
        which may well be two. Falling back to `Party.MAX` made a pair
        sit through the straggler timeout every single time. */
-    const expected = expectedReportCount();
-    if (reports.size >= expected) { publish(); return; }
-    if (!reportTimer) reportTimer = setTimeout(publish, REPORT_TIMEOUT);
+    if (reports.size >= expectedReportCount()) { publish(); return; }
+    if (!reportsOpenedAt) reportsOpenedAt = Date.now();
+    armReportTimer();
   }
 
   function expectedReportCount() {
     return Session.state
       ? Session.state.players.filter(p => p.alive).length
       : Math.max(1, Party.roster().length);
+  }
+
+  /* Anybody expected who has neither reported nor gone quiet. While
+     there is one of these the board is not late, it is early. */
+  function stillPlaying() {
+    const now = Date.now();
+    return expectedPlayers().some(id => !reports.has(id)
+      && id !== Party.selfId()
+      && remotes.has(id)
+      && now - (remotes.get(id).at || 0) < REPORT_ALIVE_GRACE);
+  }
+
+  function armReportTimer() {
+    clearTimeout(reportTimer);
+    reportTimer = setTimeout(() => {
+      reportTimer = null;
+      if (!live || !Party.isHost) return;
+      if (Date.now() - reportsOpenedAt < REPORT_MAX_WAIT && stillPlaying()) {
+        armReportTimer();
+        return;
+      }
+      publish();
+    }, REPORT_TIMEOUT);
   }
 
   function publish() {
@@ -296,6 +357,11 @@ const MissionNet = (() => {
 
   return { attach, detach, pose, update, at, seen, others, event, toHost,
            report, waitForStart, on,
+           /* How long a client should be prepared to wait for a board
+              before giving up and drawing its own row alone. It has to
+              outlast the host's own patience, or the two of them race
+              and the loser is the player who gets no scoreboard. */
+           BOARD_WAIT: REPORT_MAX_WAIT + REPORT_TIMEOUT + 5000,
            get live() { return live; },
            get board() { return board; } };
 })();

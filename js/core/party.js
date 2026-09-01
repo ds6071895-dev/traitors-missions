@@ -22,6 +22,32 @@ const Party = (() => {
 
   const APP_ID   = 'the-traitors-loch';
   const MAX      = 3;
+
+  /* ---------------- reaching each other ----------------
+
+     Trystero's defaults are four STUN servers and no TURN at all. STUN
+     only tells a browser what its own public address looks like, and
+     for two machines on one home network that is the whole job. It is
+     not the whole job for everybody. A tablet on cellular, a laptop on
+     a guest network, a household behind carrier-grade NAT, a phone
+     with iCloud Private Relay or a VPN switched on — each of those
+     sits behind something that will not hold a port open for a
+     stranger, and two such peers can exchange offers all night and
+     never find a path between them. TURN is the relay that fixes it.
+
+     There is no free TURN server worth depending on, so the list is
+     empty and this is the line to fill in. Anything with the shape
+     `{ urls, username, credential }` will do — Cloudflare Calls,
+     Twilio, Metered, or coturn on a five pound VPS.
+
+     Leaving it empty is a legitimate choice for a game played in one
+     living room. It is worth knowing what it costs, because the
+     failure is the least readable one this game has: both people are
+     in the right room, the signalling worked perfectly, and the
+     screen says nobody answered. */
+  const TURN = [
+    // { urls: 'turn:turn.example.com:3478', username: '…', credential: '…' },
+  ];
   const CODE_LEN = 4;
   const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';   // no I, no O
 
@@ -39,6 +65,7 @@ const Party = (() => {
   let joined = false;
   let joinTimer = null;             // the guest's "did anyone answer?" watchdog
   let knockTimer = null;            // and the hello it repeats until one does
+  let unreachable = null;           // a peer we found and could not connect to
 
   /* Long, on purpose. Relay discovery on a cold room genuinely takes
      five to ten seconds — a watchdog tight enough to feel responsive
@@ -140,7 +167,28 @@ const Party = (() => {
     profile = { name: (theProfile && theProfile.name) || 'Player',
                 look: (theProfile && theProfile.look) || null };
 
-    room = T.joinRoom({ appId: APP_ID }, 'traitors-' + code);
+    /* Trystero knows the difference between "no such room" and "found
+       them, could not build a pipe", and until this handler existed it
+       had no way to say so: the failure arrived as silence, and the
+       only thing watching silence was the watchdog below, which blamed
+       the four letters for it. `joinRoom` takes the handler in a
+       callbacks object in the pinned 0.25 API. */
+    const onJoinError = (d) => {
+      unreachable = (d && d.error) || 'could not connect';
+      console.warn('[party] ' + unreachable);
+      /* A guest has a watchdog and will phrase this itself in a
+         moment. A host has nothing — it is sitting in front of a lobby
+         that is simply not filling up — so it gets told now. */
+      if (host) {
+        emit('error', 'Somebody found the room but could not connect. '
+                    + 'You are probably on different networks.');
+      }
+    };
+    const callbacks = { onJoinError };
+
+    unreachable = null;
+    room = T.joinRoom({ appId: APP_ID, turnConfig: TURN },
+                      'traitors-' + code, callbacks);
     joined = true;
 
     /* Trystero 0.25 hands back an action *object* — `{ send, onMessage }`
@@ -217,12 +265,18 @@ const Party = (() => {
        roster comes back. It is a few hundred bytes a second for at
        most nine seconds, and it turns a coin-flip into a certainty.
 
-       Nothing distinguishes a code nobody is using from a host that
-       has not answered yet — joining a room that does not exist
-       succeeds, because a swarm has no idea a room was supposed to
-       have anybody in it. So when the knocking runs out, say so and
+       Nothing in the *swarm* distinguishes a code nobody is using from
+       a host that has not answered yet — joining a room that does not
+       exist succeeds, because a swarm has no idea a room was supposed
+       to have anybody in it. So when the knocking runs out, say so and
        let go, rather than leaving somebody watching three empty seats
-       all evening. */
+       all evening.
+
+       The ICE layer does know the difference, though, and it says so
+       through `onJoinError`. If it has spoken, the four letters were
+       right and the network is what is wrong, and telling somebody to
+       check the code they typed correctly is worse than saying
+       nothing. */
     if (!host) startKnocking(theRoomCode);
 
     return code;
@@ -242,9 +296,16 @@ const Party = (() => {
     knockTimer = setInterval(knock, KNOCK_EVERY);
     joinTimer = setTimeout(() => {
       if (host || isSeated()) { stopKnocking(); return; }
+      /* `leave()` clears this, so read it while it is still there. */
+      const found = unreachable;
       leave();
-      emit('error', 'Nobody answered in room ' + theRoomCode
-                  + '. Check the four letters.');
+      emit('error', found
+        ? 'Found room ' + theRoomCode + ', but could not open a '
+          + 'connection to the host. You are probably on different '
+          + 'networks — try the same wifi, and turn off any VPN or '
+          + 'iCloud Private Relay.'
+        : 'Nobody answered in room ' + theRoomCode
+          + '. Check the four letters.');
     }, JOIN_WAIT);
   }
 
@@ -343,7 +404,7 @@ const Party = (() => {
     stopKnocking();
     if (room) { try { room.leave(); } catch (e) {} }
     room = null; joined = false; host = false; hostPeer = null;
-    code = null; seats = new Map(); send = {};
+    code = null; seats = new Map(); send = {}; unreachable = null;
   }
 
   /* ---------------- reading the room ---------------- */

@@ -307,6 +307,24 @@ test('a failed task is owed, but the traitor is told nothing', () => {
   ok(ctx.Session.playerById(traitor.id).alive, 'they are still standing');
 });
 
+/* A dropped packet is not a confession. Every card in the deck reads
+   an empty stat sheet as a task nobody attempted, so a board published
+   without the Traitor's row on it used to convict them of a network
+   fault — at the round table, in front of everyone, ending the night. */
+test('a report that never arrived is not a failed task', () => {
+  const ctx = fresh();
+  const { seed } = seedWhere(ctx, (p) => p.has);
+  ctx.Session.startParty({ seed, players: PLAYERS, mode: 'host' });
+  const traitor = ctx.Session.state.players[ctx.Session._peek().seat];
+  ctx.Session.dispatch({ type: 'advance' });
+  const reports = ctx.Session.state.players
+    .filter(p => p.id !== traitor.id)
+    .map(p => ({ playerId: p.id, name: p.name, earned: 1000, stats: {} }));
+  ctx.Session.dispatch({ type: 'result', earned: 2000, completed: true, players: reports });
+  eq(ctx.Session.state.phase, 'table', 'the night carries on');
+  eq(ctx.Session.hasExposure(), false, 'and nobody is owed a ceremony');
+});
+
 test('the exposure ends the night with the faithfuls holding the pot', () => {
   const ctx = fresh();
   const { traitor } = runWithTraitor(ctx, false);

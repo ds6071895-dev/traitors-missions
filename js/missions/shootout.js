@@ -99,6 +99,11 @@ class ShootoutMission {
     speedScale: 1,
     rangeScale: 1,
     forestRadius: 440,
+    /* How close a bird has to have come before letting it go is
+       something you did rather than something that happened at the far
+       end of the wood. Roughly the range at which a shot is a real
+       decision. */
+    escapeRange: 110,
     lives: 3,                 // gauntlet only
     ghostRate: 0.2,
   };
@@ -211,6 +216,7 @@ class ShootoutMission {
     this.peers = new Map();
     this.scores = new Map();
     this._claims = new Map();
+    this._nearest = new Map();    // netId -> the closest anybody got to it
     this._netAcc = 0;
     this._fieldT = 0;
 
@@ -235,6 +241,7 @@ class ShootoutMission {
     this.stepPhase = 0;
     this._respawn = [];
     if (this._claims) this._claims.clear();
+    if (this._nearest) this._nearest.clear();
     this.boss = null;
     if (this.music) { this.music.stop(0.4); this.music = null; }
     this.lockT = 0; this.lockName = ''; this.lockGuard = false;
@@ -522,7 +529,10 @@ class ShootoutMission {
     clearTimeout(this._bannerT);
     clearTimeout(this._boonT2);
     if (this._offEvents) { this._offEvents(); this._offEvents = null; }
-    for (const peer of this.peers.values()) Figure.dispose(peer.fig);
+    for (const peer of this.peers.values()) {
+      Figure.dispose(peer.fig);
+      if (peer.bow) Engine.disposeObject(peer.bow);
+    }
     this.peers.clear();
     if (this.party) { RoomUI.hideField(); RoomUI.hideAgenda(); }
     if (this.music) { this.music.stop(0.4); this.music = null; }
@@ -617,7 +627,12 @@ class ShootoutMission {
     this._updatePeers(rawDt, t);
     this._updateField(rawDt);
     this._trackLine(dt);
-    if (this.party && this.state === 'live') {
+    /* Poses go out for the whole time there is anybody to see. Sending
+       them only while a round was live left two archers frozen through
+       every countdown, every gap between rounds and the whole of the
+       scoreboard — which is most of the minute either side of the
+       thing they were sent for. */
+    if (this.party && this.state !== 'idle' && this.state !== 'waiting') {
       MissionNet.pose(rawDt, () => this._sendPose());
     }
 
@@ -819,6 +834,22 @@ class ShootoutMission {
       const s = Object.assign({}, shot);
       if (this.flags.alwaysPierce || this.buffs.ember > 0) s.pierce = Math.max(s.pierce, 1);
       this.arrows.fire(origin, dir, s);
+      /* An arrow that only exists on the machine that loosed it is a
+         bow that, to everybody else, does nothing at all. This is the
+         one piece of the shootout that was never on the wire, and its
+         absence is why two other archers read as scenery. It is a
+         handful of bytes per shot and it is not arbitrated by anyone:
+         what the arrow *hit* is decided where it was fired. */
+      if (this.party) {
+        MissionNet.event({
+          kind: 'shot',
+          o: [U.r3(origin.x), U.r3(origin.y), U.r3(origin.z)],
+          v: [U.r3(dir.x), U.r3(dir.y), U.r3(dir.z)],
+          s: Math.round(shot.speed),
+          w: U.r3(shot.power),
+          c: shot.perfect ? 1 : 0,
+        });
+      }
     }
     // a shot that finds nothing still has to be answered for
     this._pendingShot = { perfect: shot.perfect, hit: false };
@@ -1165,6 +1196,14 @@ class ShootoutMission {
       flyer: f, phase: -1, hits: 0, t: 0, addT: 6, gustT: 0, boonT: 10,
       callT: 0, calls: 0, open: false, staggerT: 0, cycleT: 0,
       diving: false, down: false,
+      /* The screech, and the beat before the fight starts. On the
+         mission's own clock rather than a `setTimeout`, because the
+         mission's clock is the one that stops when the game is paused
+         and slows when somebody holds their breath — and because the
+         browser throttles timers in a background tab, which is a state
+         a shared run reaches whenever somebody alt-tabs to answer a
+         message. A fight that will not begin is not a recoverable one. */
+      introT: 2.6,
     };
     this._banner('THE GREAT OWL', 'It has been watching you all evening', 'boss');
     AudioBus.play('owl-screech', {});
@@ -1178,7 +1217,6 @@ class ShootoutMission {
     this.music = Music.boss();
     this.music.setGear(0, 0.1);
     this.music.setIntensity(0.75);
-    setTimeout(() => { if (this.boss && this.boss.phase === -1) this._bossPhase(0); }, 2600);
   }
 
   _bossPhase(i) {
@@ -1252,7 +1290,12 @@ class ShootoutMission {
       }
       return;
     }
-    if (B.phase < 0 || !P) return;
+    if (B.phase < 0) {
+      B.introT -= dt;
+      if (B.introT <= 0) this._bossPhase(0);
+      return;
+    }
+    if (!P) return;
 
     B.cycleT += dt;
 
@@ -1651,6 +1694,11 @@ class ShootoutMission {
        seeing how far short or wide the last one went. */
     this._burst(arrow.pos, what === 'tree' ? 7 : 9,
                 what === 'tree' ? '#6b543a' : '#8a7a5c', 4.5);
+    /* Somebody else's arrow burying itself in a trunk is their miss,
+       and it is counted on their machine. Counting it here as well
+       would put another archer's bad afternoon on your board — and,
+       on a Traitor's card, would hand them ten misses they never made. */
+    if (arrow.remote) return;
     if (arrow.hits === 0) { this.stats.missed++; this._roundMisses++; this._miss(); }
   }
 
@@ -1692,7 +1740,18 @@ class ShootoutMission {
                                           long: false });
       fig.visible = false;
       scene.add(fig);
-      this.peers.set(p.id, { fig, name: p.name, seen: false,
+      /* The bow lives in the scene rather than in the figure's hand,
+         and is put back into the hand every frame. The arm chain is a
+         walk cycle with an aim pose lerped over it — a bow parented
+         into it would point wherever the elbow happened to be, and
+         where somebody is pointing is the one thing you actually have
+         to be able to read off another archer. So the grip is placed
+         at the hand, which keeps it held, and the bow is turned to
+         face the aim that came off the wire, which keeps it honest. */
+      const bow = Bow.buildWorld();
+      bow.visible = false;
+      scene.add(bow);
+      this.peers.set(p.id, { fig, bow, name: p.name, seen: false,
                              pos: new THREE.Vector3(), yaw: 0, draw: 0, speed: 0 });
       this.scores.set(p.id, 0);
     }
@@ -1705,11 +1764,16 @@ class ShootoutMission {
      of a chore. */
   _net() { return Math.max(0, this.money - this.penalty); }
 
+  /* `d` is how far the string is back, 0 to 1, and it is the whole
+     reason anybody can tell an archer lining one up from an archer
+     standing there. It used to read `this.bow.draw`, which is not a
+     property a `Bow` has ever had: it was `undefined` on every packet,
+     which is `0`, which is "nobody is ever drawing". */
   _sendPose() {
     return {
       x: this.pos.x, y: this.pos.y, z: this.pos.z,
       h: this.aimYaw, p: this.aimPitch,
-      d: this.bow && this.bow.draw ? 1 : 0,
+      d: this.bow ? U.clamp(this.bow.charge || 0, 0, 1) : 0,
       v: this.speed01 * (this.sprinting ? 5.4 : 2.6),
       m: Math.round(this._net()),
     };
@@ -1720,10 +1784,11 @@ class ShootoutMission {
     MissionNet.update(dt);
     for (const [id, peer] of this.peers) {
       const iv = MissionNet.at(id);
-      if (!iv) { peer.fig.visible = false; continue; }
+      if (!iv) { peer.fig.visible = false; peer.bow.visible = false; continue; }
       const a = iv.a, b = iv.b, k = iv.k;
       peer.seen = true;
       peer.fig.visible = true;
+      peer.bow.visible = true;
       const x = U.lerp(a.x, b.x, k), z = U.lerp(a.z, b.z, k);
       /* The sender's Y is its actual foot height. In particular it uses
          ForestKit.walkAt(), which includes the starting platform and
@@ -1737,13 +1802,54 @@ class ShootoutMission {
       /* A figure faces where it is aiming, which is what makes a person
          thirty metres away readable as "about to shoot that bird" — and
          readable as not bothering, which matters more. */
-      peer.fig.rotation.y = U.angLerp(a.h, b.h, k) + Math.PI;
-      Figure.setAiming(peer.fig, !!b.d);
+      const yaw = U.angLerp(a.h, b.h, k);
+      const pitch = U.lerp(a.p || 0, b.p || 0, k);
+      const draw = U.clamp(U.lerp(a.d || 0, b.d || 0, k), 0, 1);
+      peer.fig.rotation.y = yaw + Math.PI;
+      peer.yaw = yaw;
+      peer.draw = draw;
+      /* Aiming is not "the button is down". It is how far the string
+         has come back, and it is the difference between an archer you
+         can read and two people standing in a wood. */
+      Figure.setAiming(peer.fig, draw > 0.02, pitch);
       Figure.setLocomotion(peer.fig, b.v || 0, 0);
       Figure.update(peer.fig, dt, t);
+      /* After `update`, so the hand being asked for is this frame's. */
+      Figure.handAt(peer.fig, this._tmpV, 'l');
+      Bow.poseWorld(peer.bow, this._tmpV.x, this._tmpV.y, this._tmpV.z,
+                    yaw, pitch, draw);
       peer.pos.set(x, peer.fig.position.y, z);
       this.scores.set(id, b.m || 0);
     }
+  }
+
+  /* Somebody else's arrow, put in the air here. It flies under the
+     same physics — the wind and the gravity are the same numbers on
+     all three machines — so it lands where they saw it land without a
+     single further packet. It is deliberately inert: it does not test
+     the flock, it does not count as a miss, and it cannot take a bird
+     off anybody. It is a shot you can watch. */
+  _remoteShot(d) {
+    if (!this.arrows || !d || !Array.isArray(d.o) || !Array.isArray(d.v)) return;
+    const dir = this._tmpV2.set(d.v[0] || 0, d.v[1] || 0, d.v[2] || 0);
+    if (dir.lengthSq() < 1e-6) return;
+    dir.normalize();
+    const origin = new THREE.Vector3(d.o[0] || 0, d.o[1] || 0, d.o[2] || 0);
+    this.arrows.fire(origin, dir, {
+      speed: U.clamp(d.s || 90, 20, 260),
+      perfect: !!d.c,
+      power: U.clamp(d.w || 0.5, 0, 1),
+      pierce: 0,
+      remote: true,
+    });
+    /* Heard from where it was fired. A loose forty metres away that is
+       as loud as your own is worse than silence — it puts an archer in
+       your ear who is not standing next to you. */
+    const far = origin.distanceTo(this.camera.position);
+    AudioBus.play('bow-loose', {
+      power: U.clamp(0.85 * (1 - far / 95), 0.2, 0.85),
+      perfect: false,
+    });
   }
 
   /* -------- the flock, over the wire --------
@@ -1820,6 +1926,11 @@ class ShootoutMission {
       if (this.round && this.round.index === last.index) {
         this._finishRoundAgenda(!!last.cleared);
       }
+      /* The host has announced the round's result. Everything the
+         bonus is worked out from came with it, so this client can pay
+         itself — with its own charms applied, because the charms are
+         the half of the sum that is not shared. */
+      this._awardRound(last);
       this._agendaRoundSeen = last.index;
     }
     if (world.roundIndex >= 0 && world.roundIndex !== this.roundIndex
@@ -1899,14 +2010,17 @@ class ShootoutMission {
     if (authoritative && !this.isHost && Party.hostId && from !== Party.hostId) return;
     if (d.kind === 'flock') { this._applyFlock(d.a || [], d.world); return; }
 
-    /* A bird got away. Everybody is told where, and each client decides
-       for itself whether it got away *from them* — which is the only
-       version of that question anybody can answer honestly. */
+    /* A bird got away, and the host has already worked out whose it
+       was. It used to be broadcast as a position for each client to
+       judge for itself, which sounds fairer and is not: three people
+       standing in one clearing all answer that question the same way,
+       so every escape belonged to all three of them at once. */
     if (d.kind === 'escaped') {
-      const dx = d.x - this.pos.x, dz = d.z - this.pos.z;
-      if (Math.hypot(dx, dz) < 70) this.stats.escapedNearMe++;
+      if (d.who === this.meId) this.stats.escapedNearMe++;
       return;
     }
+
+    if (d.kind === 'shot') { this._remoteShot(d); return; }
 
     if (d.kind === 'kill') return; // the sender's net score arrives in its 20 Hz pose
 
@@ -2062,7 +2176,52 @@ class ShootoutMission {
     this.stats.bestChain = this.bestChain;
   }
 
+  /* -------- whose bird was that --------
+
+     "Let five birds leave the clearing past you" was, before this,
+     impossible. A bird only ever counts as escaped when it crosses the
+     world bounds, four hundred metres out, and the escape was credited
+     to anyone standing within seventy metres of *that* — which is
+     nobody, ever. The card was undoable, and a Traitor dealt it was
+     exposed at the round table for a task the wood would not let them
+     perform.
+
+     What "past you" has to mean is how close it came while it was
+     worth shooting at, and it has to belong to one person: three
+     archers in one clearing are all within seventy metres of every
+     bird in the round, so a shared count would have made the card free
+     for everybody instead of impossible for everybody. So the host —
+     which is the only client that knows where all three people are —
+     tracks each bird's closest approach and to whom, and the bird that
+     gets away is charged to the archer who had the best look at it. */
+  _trackNearest() {
+    if (!this.party || !this.isHost) return;
+    for (const f of this.flock.list) {
+      if (!f.alive || f.dying || f.resident || f.guard || f.isAdd || f.type.boss) continue;
+      let bestD = Infinity, bestId = null;
+      const consider = (x, z, id) => {
+        const d = Math.hypot(f.pos.x - x, f.pos.z - z);
+        if (d < bestD) { bestD = d; bestId = id; }
+      };
+      consider(this.pos.x, this.pos.z, this.meId);
+      for (const [id, peer] of this.peers) {
+        if (peer.seen) consider(peer.pos.x, peer.pos.z, id);
+      }
+      const was = this._nearest.get(f.netId);
+      if (!was || bestD < was.d) this._nearest.set(f.netId, { d: bestD, id: bestId });
+    }
+  }
+
+  /* How near it came, and to whom — or nothing, if the host never had
+     a frame with everybody's position in it. */
+  _escapedFrom(netId) {
+    const n = this._nearest.get(netId);
+    this._nearest.delete(netId);
+    return n && n.d <= this.C.escapeRange ? n.id : null;
+  }
+
   _updateFlock(dt) {
+    this._trackNearest();
     this.flock.update(dt, {
       heightAt: (x, z) => this.forest.heightAt(x, z),
       player: this.camera.position,
@@ -2083,14 +2242,17 @@ class ShootoutMission {
         if (f.escaped && !f.guard && !f.isAdd && this.round) {
           this.round.escaped++;
           this.escapes++;
-          /* Told to everybody, with a position on it. Three people
-             watched that bird leave and each of them can work out
-             whether it left over their own head. */
+          /* Told to everybody, with a name on it. Only the host can put
+             the name there, because only the host knows where all three
+             of them were standing while that bird was in the air. */
           if (this.party) {
-            MissionNet.event({ kind: 'escaped', i: f.netId, x: f.pos.x, z: f.pos.z });
-            const dx = f.pos.x - this.pos.x, dz = f.pos.z - this.pos.z;
-            if (Math.hypot(dx, dz) < 70) this.stats.escapedNearMe++;
+            const who = this._escapedFrom(f.netId);
+            MissionNet.event({ kind: 'escaped', i: f.netId, who,
+                               x: f.pos.x, z: f.pos.z });
+            if (who === this.meId) this.stats.escapedNearMe++;
           }
+        } else if (this.party) {
+          this._nearest.delete(f.netId);
         }
       },
     });
@@ -2256,35 +2418,31 @@ class ShootoutMission {
   _endRound(cleared) {
     const R = this.round;
     if (!R) return;
-    const C = this.C;
 
     this._finishRoundAgenda(cleared);
-    this._lastRound = { index: R.index, cleared: !!cleared };
 
-    if (cleared) {
-      this.roundsCleared++;
-      const timeBonus = Math.round(Math.max(0, R.time) * C.roundTimeBonus);
-      const boonPay = this._boonPay();
-      let bonus = (C.roundClearBonus + timeBonus) * C.moneyScale * boonPay;
-      const perfect = R.escaped === 0 && R.killed >= R.total;
-      if (perfect) {
-        bonus += C.perfectRoundBonus * C.moneyScale * boonPay;
-        this.perfectRounds++;
-      }
-      if (R.def.kind === 'boss') {
-        const bounty = C.bossBounty * C.moneyScale * boonPay;
-        bonus += bounty; this.bossesDown++; this.bossMoney += bounty;
-      }
-      this.bonusMoney += bonus;
-      this.money += bonus;
-      AudioBus.play(perfect ? 'round-perfect' : 'round-clear', {});
-      this._banner(perfect ? 'PERFECT ROUND' : 'ROUND CLEAR',
-                   U.money(Math.round(bonus * this.payout)), perfect ? 'perfect' : 'clear');
-      this.timeScaleTarget = 0.55;
-      setTimeout(() => { this.timeScaleTarget = 1; }, 700);
-    } else {
-      AudioBus.play('miss');
-      this._banner('ROUND OVER', `${R.killed} of ${R.total}`, 'fail');
+    /* What the round was worth, as a set of numbers rather than as a
+       block of code only the host can reach. Everything in it is
+       already the same on all three machines — the clock, the kill
+       count and the escapes are synchronised — so the same sum can be
+       done on each of them, and the one part that is personal (your own
+       charms) stays personal. */
+    const done = {
+      cleared: !!cleared,
+      perfect: !!cleared && R.escaped === 0 && R.killed >= R.total,
+      boss: R.def.kind === 'boss',
+      timeLeft: Math.max(0, R.time),
+      killed: R.killed,
+      total: R.total,
+    };
+    this._lastRound = Object.assign({ index: R.index }, done);
+    this._awardRound(done);
+
+    if (!cleared) {
+      /* The two ways a lost round can end a run. They stay here rather
+         than in the shared award because they are decisions about the
+         run, and only the authority makes those — a guest's own ending
+         arrives as `world.state`. */
       if (this.flags.suddenDeath) { this._fail('A ROUND GOT AWAY'); return; }
       if (this.mode === 'gauntlet' && R.killed < R.total * 0.5) {
         this._loseLife('TOO MANY GOT AWAY');
@@ -2304,6 +2462,42 @@ class ShootoutMission {
     }
     this.state = 'between';
     this.betweenT = 2.0;
+  }
+
+  /* Paying for a finished round, on every machine that played it.
+
+     This used to live inside `_endRound`, and `_endRound` is reached
+     only by the host: a guest got no clear bonus, no perfect bonus and
+     no bounty on the owl, and no banner to say a round had even ended.
+     Over ten rounds that is several thousand pounds between two people
+     who played identically — on the strip both of them are staring at,
+     which is the one number three agenda cards are judged against. */
+  _awardRound(done) {
+    const C = this.C;
+    if (!done.cleared) {
+      AudioBus.play('miss');
+      this._banner('ROUND OVER', `${done.killed} of ${done.total}`, 'fail');
+      return;
+    }
+    this.roundsCleared++;
+    const boonPay = this._boonPay();
+    const timeBonus = Math.round(done.timeLeft * C.roundTimeBonus);
+    let bonus = (C.roundClearBonus + timeBonus) * C.moneyScale * boonPay;
+    if (done.perfect) {
+      bonus += C.perfectRoundBonus * C.moneyScale * boonPay;
+      this.perfectRounds++;
+    }
+    if (done.boss) {
+      const bounty = C.bossBounty * C.moneyScale * boonPay;
+      bonus += bounty; this.bossesDown++; this.bossMoney += bounty;
+    }
+    this.bonusMoney += bonus;
+    this.money += bonus;
+    AudioBus.play(done.perfect ? 'round-perfect' : 'round-clear', {});
+    this._banner(done.perfect ? 'PERFECT ROUND' : 'ROUND CLEAR',
+                 U.money(Math.round(bonus * this.payout)), done.perfect ? 'perfect' : 'clear');
+    this.timeScaleTarget = 0.55;
+    setTimeout(() => { if (this.state === 'live' || this.state === 'between') this.timeScaleTarget = 1; }, 700);
   }
 
   _finishRoundAgenda(cleared) {

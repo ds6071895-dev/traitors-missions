@@ -181,6 +181,29 @@ const Input = (() => {
     bBtn.addEventListener('pointercancel', () => { touch.boost = false; });
 
     initTouchAim();
+    watchScreens();
+  }
+
+  /* Which screens the thumb overlay may sit under.
+
+     `hud` and `hud-shoot` are the two missions; `null` is a scene, and
+     a scene is played over the world with no screen up at all. `vote`
+     is the fire's ballot, whose own container deliberately passes taps
+     through so you can still look around while the pouches burn.
+
+     Everything else is a panel with buttons on it, and a transparent
+     full-screen sheet over one of those is the reason a tablet could
+     watch a scoreboard it was unable to dismiss. */
+  const THUMBS_OK = ['hud', 'hud-shoot', 'vote'];
+
+  function watchScreens() {
+    if (typeof Screens === 'undefined') return;
+    const paint = (id) => {
+      const shoot = document.getElementById('touch-shoot');
+      if (shoot) shoot.classList.toggle('blocked', !!id && THUMBS_OK.indexOf(id) < 0);
+    };
+    Screens.onShow(paint);
+    paint(Screens.current);
   }
 
   /* Aiming by thumb: drag anywhere on the sheet to look, hold DRAW to pull

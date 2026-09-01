@@ -111,7 +111,12 @@ const U = (() => {
     return a + ' ' + b;
   }
 
+  /* Millimetres, for things going on the wire. A float64 position sent
+     to seventeen significant figures is sixteen of them nobody can
+     see, several times a second, per axis. */
+  const r3 = (v) => Math.round((Number(v) || 0) * 1000) / 1000;
+
   return { makeRng, clamp, lerp, smoothstep, damp, angLerp, noise1, fbm1,
            money, clockTime, wrapAngle, TAU, dailySeed, randomSeed,
-           courseName, forestName };
+           courseName, forestName, r3 };
 })();

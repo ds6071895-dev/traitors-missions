@@ -57,9 +57,18 @@ class Bow {
     this.drawSnd = null;
   }
 
-  /* -------- the thing you actually see -------- */
+  /* -------- the thing you actually see --------
 
-  build(camera) {
+     One bow, two places it can be. The first-person one is parented to
+     the camera and scaled down to a model, because a real bow held at
+     arm's length blacks out half the screen. The other two archers get
+     the *same* mesh at world scale, standing in the wood beside you —
+     which is the whole reason this is a static that hands back its
+     moving parts rather than a method that quietly writes them onto
+     `this`. A wood with two people in it and no bows between them
+     reads as two people watching you shoot. */
+
+  static parts() {
     const g = new THREE.Group();
     const mat = (c, opts) => new THREE.MeshLambertMaterial(
       Object.assign({ color: c, flatShading: true }, opts || {}));
@@ -78,9 +87,9 @@ class Bow {
     const limbs = new THREE.Mesh(
       new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 20, 0.045, 5, false), wood);
     g.add(limbs);
-    this.limbTips = [pts[0].clone(), pts[pts.length - 1].clone()];
+    const limbTips = [pts[0].clone(), pts[pts.length - 1].clone()];
     // horn nocks at the ends, where the string sits
-    for (const tip of this.limbTips) {
+    for (const tip of limbTips) {
       const n = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.03, 0.1, 5), horn);
       n.position.copy(tip);
       g.add(n);
@@ -96,9 +105,9 @@ class Bow {
     // pulls back with the draw instead of pretending to
     const sg = new THREE.BufferGeometry();
     sg.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(9), 3));
-    this.string = new THREE.Line(sg, new THREE.LineBasicMaterial({ color: '#efe6d0' }));
-    this.string.frustumCulled = false;
-    g.add(this.string);
+    const string = new THREE.Line(sg, new THREE.LineBasicMaterial({ color: '#efe6d0' }));
+    string.frustumCulled = false;
+    g.add(string);
 
     // the nocked arrow, which slides back as you pull
     const arrow = new THREE.Group();
@@ -112,9 +121,81 @@ class Bow {
     const fletch2 = fletch.clone(); fletch2.rotation.z = Math.PI / 2;
     arrow.add(shaft, head, fletch, fletch2);
     g.add(arrow);
-    this.nocked = arrow;
 
     g.rotation.set(0, 0, 0);
+    return { group: g, string, nocked: arrow, limbTips };
+  }
+
+  /* Where the string and the nocked arrow sit at a given draw. Shared
+     by both bows for the same reason the mesh is: an archer thirty
+     metres away whose string does not move is an archer who never
+     appears to shoot, and "how far back is it" is the single thing
+     this mission asks you to read off somebody else. */
+  static poseParts(parts, draw) {
+    if (!parts) return;
+    const pull = U.clamp(draw || 0, 0, 1) * 0.5;
+    const p = parts.string.geometry.attributes.position.array;
+    const a = parts.limbTips[0], b = parts.limbTips[1];
+    p[0] = a.x; p[1] = a.y; p[2] = a.z;
+    p[3] = 0;   p[4] = 0;   p[5] = pull;
+    p[6] = b.x; p[7] = b.y; p[8] = b.z;
+    parts.string.geometry.attributes.position.needsUpdate = true;
+    parts.nocked.position.set(0.05, 0.02, pull + 0.30);
+  }
+
+  /* The bow the *other two* are holding. Same mesh, no camera, and
+     life size rather than a model — it is being looked at from across
+     a clearing rather than from behind the grip.
+
+     It is deliberately not parented into the figure's arm chain. That
+     chain is a walk cycle with an aim pose lerped over it, and a bow
+     riding it would point wherever the elbow happened to be; the
+     shooter's own aim is on the wire already, so the bow is placed at
+     the hand and turned to face where the arrow is actually going. */
+  static buildWorld(scale = 0.78) {
+    const parts = Bow.parts();
+    parts.group.scale.setScalar(scale);
+    // the cant a hand puts on it, driven by the draw in `poseWorld`
+    const hand = new THREE.Group();
+    hand.add(parts.group);
+    const aim = new THREE.Group();
+    aim.rotation.order = 'YXZ';
+    aim.add(hand);
+    aim.userData.bowParts = parts;
+    aim.userData.bowHand = hand;
+    Bow.poseWorld(aim, 0, 0, 0, 0, 0, 0);
+    return aim;
+  }
+
+  /* Point a world bow down an aim and pull its string. `draw` is the
+     0..1 that came off the wire. */
+  static poseWorld(aim, x, y, z, yaw, pitch, draw) {
+    if (!aim) return;
+    const c = U.clamp(draw || 0, 0, 1);
+    aim.position.set(x, y, z);
+    aim.rotation.set(pitch, yaw, 0);
+    const hand = aim.userData.bowHand;
+    /* The cant, and it is not decoration: a bow held dead square to
+       the world reads as scenery, and the same bow rolled over at rest
+       and squaring up as it comes to full draw reads as somebody about
+       to shoot. The two ends are the ones the first-person bow settles
+       between. The yaw term stays much smaller than its first-person
+       twin, though — on your own bow that angle only sets the model
+       across the screen, but out here the nocked arrow has to look
+       like it is pointing at what they are pointing at. */
+    hand.rotation.set(0, U.lerp(0.15, 0.03, c), U.lerp(-0.34, -0.07, c));
+    const parts = aim.userData.bowParts;
+    Bow.poseParts(parts, c);
+    parts.nocked.visible = c > 0.02;
+  }
+
+  build(camera) {
+    const parts = Bow.parts();
+    const g = parts.group;
+    this.parts = parts;
+    this.limbTips = parts.limbTips;
+    this.string = parts.string;
+    this.nocked = parts.nocked;
     this.group = g;
     // A bow really is about as tall as you are, and held at arm's length
     // it would black out half the screen. Every first-person bow ever made
@@ -221,14 +302,7 @@ class Bow {
     this.group.scale.setScalar(this.baseScale * (this.state === 'nocking' ? 0.96 : 1));
 
     // string and nock follow the draw exactly
-    const pull = c * 0.5;
-    const p = this.string.geometry.attributes.position.array;
-    const a = this.limbTips[0], b = this.limbTips[1];
-    p[0] = a.x; p[1] = a.y; p[2] = a.z;
-    p[3] = 0;   p[4] = 0;   p[5] = pull;
-    p[6] = b.x; p[7] = b.y; p[8] = b.z;
-    this.string.geometry.attributes.position.needsUpdate = true;
-    this.nocked.position.set(0.05, 0.02, pull + 0.30);
+    Bow.poseParts(this.parts, c);
     this.nocked.visible = this.state !== 'nocking';
   }
 
@@ -350,6 +424,7 @@ class ArrowSystem {
       pierce: shot.pierce,
       perfect: shot.perfect,
       power: shot.power,
+      remote: !!shot.remote,
       hits: 0,
       history: [origin.clone()],
     };
@@ -412,13 +487,20 @@ class ArrowSystem {
     const len = seg.length();
     if (len < 1e-5) return null;
 
+    /* Somebody else's arrow. It is drawn because a bow that produces
+       nothing visible is not a bow anybody can watch being fired, but
+       it is *only* drawn: what it hit was decided on the machine that
+       loosed it, and testing it against this client's flock as well
+       would be a second opinion nobody asked for. */
     let earliest = null;
-    for (const t of ctx.targets) {
-      if (!t.alive || t.dying) continue;
-      if (a.hitSet && a.hitSet.has(t)) continue;
-      const r = t.hitRadius(a.prev);
-      const h = ArrowSystem.segmentSphere(a.prev, seg, len, t.pos, r);
-      if (h !== null && (!earliest || h < earliest.t)) earliest = { t: h, target: t };
+    if (!a.remote) {
+      for (const t of ctx.targets) {
+        if (!t.alive || t.dying) continue;
+        if (a.hitSet && a.hitSet.has(t)) continue;
+        const r = t.hitRadius(a.prev);
+        const h = ArrowSystem.segmentSphere(a.prev, seg, len, t.pos, r);
+        if (h !== null && (!earliest || h < earliest.t)) earliest = { t: h, target: t };
+      }
     }
 
     if (earliest) {
@@ -426,7 +508,19 @@ class ArrowSystem {
       if (!a.hitSet) a.hitSet = new Set();
       a.hitSet.add(earliest.target);
       a.hits++;
-      ctx.onHit(earliest.target, a, { point, dist: point.distanceTo(ctx.eye || point) });
+      /* `onHit` gets a veto. A round that only counts a clean loose
+         says a soft arrow "goes straight through", and it could not:
+         the hit was already banked and the arrow was already retired
+         by the time the mission got a say, so a soft arrow stopped
+         dead in mid-air on the one bird it was not allowed to touch.
+         Refusing it puts the arrow back in the air with nothing on its
+         conscience — it is still in `hitSet`, so it will not ask about
+         the same bird twice. */
+      if (ctx.onHit(earliest.target, a,
+                    { point, dist: point.distanceTo(ctx.eye || point) }) === false) {
+        a.hits--;
+        return null;
+      }
       if (a.hits > a.pierce) return 'gone';
       // a pierce keeps going, slower and lower
       a.vel.multiplyScalar(0.86);

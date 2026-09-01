@@ -419,24 +419,6 @@ const Game = (() => {
     // comparison that means anything now that channels differ
     document.getElementById('result-best').classList.toggle('show', !!r.courseBest);
 
-    // count the money up into the pot
-    const earnedEl = document.getElementById('result-earned');
-    const potEl = document.getElementById('result-pot');
-    const target = r.earned;
-    const potBefore = GameState.prizePot - r.earned;
-    let shown = 0, i = 0;
-    clearInterval(showResults._t);
-    earnedEl.textContent = U.money(0);
-    potEl.textContent = U.money(potBefore);
-    showResults._t = setInterval(() => {
-      i++;
-      shown = Math.min(target, shown + Math.max(1, Math.ceil(target / 34)));
-      earnedEl.textContent = U.money(shown);
-      potEl.textContent = U.money(potBefore + shown);
-      AudioBus.play('money', { index: i });
-      if (shown >= target) clearInterval(showResults._t);
-    }, 45);
-
     /* In a run there is nowhere to go but onward, so the three practice
        buttons collapse to one. The mission engine does not know the
        difference and should not have to. */
@@ -447,6 +429,49 @@ const Game = (() => {
        the run's single button pointed back at the room they are all
        still sitting in. */
     const inParty = !inRun && typeof MissionParty !== 'undefined' && MissionParty.running;
+
+    /* -------- the money, counted into the right pot --------
+
+       There are two pots and this screen used to know about one of
+       them. Practice and a mission party bank straight into the
+       permanent pot, and `Missions.complete` has already done it by
+       the time this runs — so "before" is what is there now, less what
+       you just won.
+
+       A night does not touch that pot at all. `Show` swaps the sink
+       for a hole and the night's takings go into `Session.state.pot`,
+       which is only banked if the night is survived. Reading
+       `GameState.prizePot` in a run therefore counted from your
+       lifetime total minus tonight's mission up to your lifetime total
+       — which on a first night is a negative number counting up to
+       zero, and reads, correctly, as nothing having been added.
+
+       The other half is *whose* money. A night's pot is what the three
+       of you managed between you, so the number that goes in is the
+       board's total and not your own row. The board arrives a moment
+       later than this screen does, so the count starts on your own
+       figure and is re-run when the real one lands. */
+    const earnedEl = document.getElementById('result-earned');
+    const potEl = document.getElementById('result-pot');
+    const sessionPot = inRun && Session.state ? Session.state.pot : 0;
+    const potBefore = inRun ? sessionPot : GameState.prizePot - r.earned;
+    const countMoney = (target) => {
+      let shown = 0, i = 0;
+      clearInterval(showResults._t);
+      earnedEl.textContent = U.money(0);
+      potEl.textContent = U.money(potBefore);
+      if (target <= 0) { earnedEl.textContent = U.money(0); return; }
+      showResults._t = setInterval(() => {
+        i++;
+        shown = Math.min(target, shown + Math.max(1, Math.ceil(target / 34)));
+        earnedEl.textContent = U.money(shown);
+        potEl.textContent = U.money(potBefore + shown);
+        AudioBus.play('money', { index: i });
+        if (shown >= target) clearInterval(showResults._t);
+      }, 45);
+    };
+    countMoney(Math.max(0, Math.round(r.earned || 0)));
+
     for (const id of ['result-retry', 'result-new', 'result-menu']) {
       document.getElementById(id).hidden = inRun || inParty;
     }
@@ -484,7 +509,7 @@ const Game = (() => {
         let done = false;
         const once = (board) => { if (done) return; done = true; arm(board); };
         MissionNet.report(reportFor(def, r)).then(once);
-        setTimeout(() => once(null), 18000);
+        setTimeout(() => once(null), MissionNet.BOARD_WAIT);
       } else {
         arm(null);
       }
@@ -495,6 +520,13 @@ const Game = (() => {
         const run = Show.resultsAction(r, board);
         if (!run) return;
         if (board) {
+          /* The pot is the three of you, so it is the board's total
+             that goes in — and now that it is here, it is what the
+             counter should have been showing. Only re-run it if it
+             actually disagrees: restarting an identical count is a
+             flicker with nothing behind it. */
+          const total = Math.max(0, Math.round(board.earned || 0));
+          if (total !== Math.max(0, Math.round(r.earned || 0))) countMoney(total);
           boardEl.style.setProperty('--bd-cols', String(RoomUI.boardCols(board)));
           boardEl.innerHTML = '<div class="rb-head">Everybody\'s night</div>'
                             + '<div class="board-grid">' + RoomUI.boardHTML(board) + '</div>';
@@ -519,7 +551,15 @@ const Game = (() => {
         cont.textContent = 'Waiting for the others…';
         cont.disabled = true;
         cont.onclick = null;
-        MissionNet.report(reportFor(def, r)).then(arm);
+        /* Same guard as the mission party above, and for the same
+           reason: nothing collects a board if the host walked out
+           mid-mission, and a night that can never be continued is a
+           night that ends here. The solo fallback in
+           `Show.resultsAction` banks your own run instead. */
+        let done = false;
+        const once = (board) => { if (done) return; done = true; arm(board); };
+        MissionNet.report(reportFor(def, r)).then(once);
+        setTimeout(() => once(null), MissionNet.BOARD_WAIT);
       } else {
         arm(null);
       }

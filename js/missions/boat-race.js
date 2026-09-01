@@ -379,6 +379,14 @@ class BoatRaceMission {
 
     this.targets = this._computeTargets();
     this._cacheHud();
+    /* Which touch overlay belongs to this mission. The shootout says so
+       in its own `build`; this one used to rely on being handed the
+       default, which is true from the front door and not true after a
+       scene — the hill, the table and the fire all switch the pad to
+       walking, and only their own dispose puts it back. Saying it here
+       makes the boat's controls a fact about the boat rather than a
+       fact about what happened to run before it. */
+    Input.setTouchMode('drive');
     this._camPos = new THREE.Vector3().copy(this.boat.pos).add(new THREE.Vector3(0, 10, -24));
     this._camLook = new THREE.Vector3().copy(this.boat.pos);
     this._camRoll = 0;
@@ -1160,7 +1168,14 @@ class BoatRaceMission {
     this._updateGhost(dt);
     this._updatePeers(dt);
     this._updateField(rawDt);
-    if (this.party && racing) MissionNet.pose(rawDt, () => this._sendPose());
+    /* The whole time there is anybody to see, not only while the clock
+       is running. Sending only during the race meant two boats that
+       did not exist until GO and froze on the water the moment their
+       driver crossed the line — and the line is exactly where three
+       people are looking at each other. */
+    if (this.party && this.state !== 'idle' && this.state !== 'waiting') {
+      MissionNet.pose(rawDt, () => this._sendPose());
+    }
 
     this.buoys.update();
     if (this.rockFoam) this.rockFoam(dt);

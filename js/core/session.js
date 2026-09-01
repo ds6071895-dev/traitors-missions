@@ -607,8 +607,20 @@ const Session = (() => {
     const traitor = state.players.find(p => p.seat === secret.seat);
     if (!traitor || !traitor.alive) return;
     const report = reports.find(r => r.playerId === traitor.id);
+    /* No row on the board is not the same as an unfinished task. It is
+       a report that never arrived — a peer that dropped on the last
+       lap, a board the host had to publish without them — and every
+       card in the deck reads an absent report as a task nobody
+       attempted. Burning somebody at the round table for a packet that
+       went missing is the worst possible way to end a night, so an
+       unjudgeable card is not judged. The check itself already fails
+       open when it throws, for exactly the same reason. */
+    if (!report || !report.stats) {
+      console.warn('agenda unjudged: no report from the traitor');
+      return;
+    }
     let done = false;
-    try { done = !!card.check((report && report.stats) || {}); }
+    try { done = !!card.check(report.stats); }
     catch (e) { console.warn('agenda check failed open:', e); done = true; }
     if (!done) secret.exposed = { playerId: traitor.id, card };
   }

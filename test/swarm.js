@@ -85,7 +85,13 @@ function makeSwarm() {
 function makeTrystero(swarm, selfId, modern) {
   return {
     selfId,
-    joinRoom(config, roomId) {
+    joinRoom(config, roomId, callbacks) {
+      /* Trystero 0.23+ rejects callable objects here: its optional
+         third argument must be a plain callbacks object. Keep the fake
+         strict enough to catch the same integration error. */
+      if (!callbacks || typeof callbacks !== 'object') {
+        throw new TypeError('Trystero: third argument must be a callbacks object');
+      }
       const handlers = {};                  // channel -> fn
       const peers = { join: null, leave: null, stream: null };
 

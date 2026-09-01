@@ -72,9 +72,6 @@ const VoiceChat = (() => {
     denied = null;
     selfId = Party.selfId();
     applyGate();
-    if (Party.connected && Party.room) {
-      try { Party.room.addStream(stream); } catch (e) { console.warn(e); }
-    }
     watchPeers();
     emit('state');
     return true;
@@ -92,10 +89,32 @@ const VoiceChat = (() => {
 
   /* `watched` is the room object we last hooked, not a flag: leaving and
      joining again hands back a *different* room, and a boolean would
-     have left the second one silent. */
+     have left the second one silent. `published` is the same idea for
+     the other direction. */
   let watched = null;
+  let published = null;
+
+  /* Our own microphone, into whatever room we are in.
+
+     This used to happen in `start()` and only there, under an
+     `if (Party.connected)` — which is the wrong way round, because the
+     mic button on the lobby screen is reachable before there is a room
+     to put a stream into. Turning your microphone on and *then*
+     opening a room left you audible to nobody for the whole night, and
+     the game had no way to tell you: your own meter worked, the button
+     said "mic live", and the other two simply never heard a word.
+
+     So it is a fact that gets reconciled instead of an event that has
+     to happen in the right order. Either half can arrive first. */
+  function publish() {
+    const room = Party.room;
+    if (!room || !stream || published === room) return;
+    published = room;
+    try { room.addStream(stream); } catch (e) { console.warn(e); }
+  }
 
   function watchPeers() {
+    publish();
     const room = Party.room;
     if (!room || watched === room) return;
     watched = room;
@@ -220,8 +239,10 @@ const VoiceChat = (() => {
     for (const id of [...peers.keys()]) detach(id);
     /* Forget which room we were listening to as well. The next one is a
        different object and has to be hooked again, and leaving this set
-       would make a rejoined room silent. */
+       would make a rejoined room silent. Same for the room we were
+       speaking into. */
     watched = null;
+    published = null;
     emit('state');
   }
 
