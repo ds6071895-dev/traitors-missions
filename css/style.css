@@ -1017,6 +1017,184 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 #touch-shoot.walk-only .focus-pad,
 #touch-shoot.walk-only .sprint-pad{display:none}
 
+
+/* ==================================================================
+   HUD: The Dive
+
+   Two numbers matter and everything else gets out of their way: how
+   much air is left, and where the beat is. So the breath bar is the
+   widest thing on the screen and the beat ring sits dead centre, and
+   the money — which is normally the loudest thing in this game — is
+   pushed into a corner, because down here money you have not surfaced
+   with is not money yet.
+
+   Nothing in this block is black. The pressure vignette is cyan-white,
+   the low-air state goes *warm* rather than dark, and the deepest
+   colour on the screen is a saturated blue. Depth is dangerous here in
+   colour, never in darkness.
+   ================================================================== */
+.dv-hud{flex-direction:column; justify-content:space-between}
+.dv-top{display:flex; justify-content:space-between; align-items:flex-start; gap:20px}
+.dv-bottom{display:flex; justify-content:center; align-items:flex-end; gap:20px}
+
+.dv-money{font-family:var(--display); font-size:clamp(24px,3.4vw,40px); line-height:1;
+  color:var(--gold); text-shadow:0 3px 0 rgba(4,12,22,.5), 0 0 34px rgba(242,193,78,.42)}
+.dv-gain{font-family:var(--display); font-size:clamp(15px,2vw,23px); line-height:1;
+  color:var(--mint); text-shadow:0 0 18px rgba(125,252,208,.7); margin-top:2px;
+  opacity:0; transform:translateY(-6px); transition:opacity .12s, transform .18s;
+  white-space:nowrap}
+.dv-gain.show{opacity:1; transform:none; animation:dvGain .5s cubic-bezier(.2,1.4,.4,1)}
+@keyframes dvGain{0%{transform:translateY(-14px) scale(1.4)}100%{transform:none}}
+
+.dv-chain-wrap{display:flex; align-items:baseline; flex-wrap:wrap; gap:7px; margin-top:5px;
+  opacity:0; max-width:190px; transform:translateY(-4px); transition:opacity .2s, transform .2s}
+.dv-chain-wrap.on{opacity:1; transform:none}
+.dv-chain{font-family:var(--display); font-size:21px; color:var(--cyan);
+  text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 20px rgba(57,230,255,.55)}
+.dv-chain-lbl{font-size:9.5px; letter-spacing:.2em; text-transform:uppercase;
+  color:rgba(240,249,255,.75); font-weight:700}
+.dv-chain-track{flex-basis:100%; height:3px; border-radius:2px; overflow:hidden;
+  background:rgba(6,18,30,.55); border:1px solid rgba(255,255,255,.12)}
+.dv-chain-bar{height:100%; width:0%; background:linear-gradient(90deg,var(--cyan),var(--mint));
+  transition:width .09s linear}
+.dv-chain-bar.full{background:linear-gradient(90deg,var(--mint),#fff); box-shadow:0 0 14px rgba(125,252,208,.9)}
+
+.dv-clock{text-align:center; min-width:120px}
+.dv-time{font-family:var(--display); font-size:clamp(26px,3.6vw,44px); line-height:1;
+  color:var(--paper); text-shadow:0 2px 0 rgba(4,12,22,.5)}
+.dv-time.low{color:#ff8fa3; text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 26px rgba(255,84,112,.6);
+  animation:dvTick 1s steps(2) infinite}
+@keyframes dvTick{50%{opacity:.55}}
+
+.dv-hold{text-align:right; min-width:130px}
+.dv-carry-val{font-family:var(--display); font-size:clamp(18px,2.4vw,28px); line-height:1.1;
+  color:rgba(240,249,255,.45); text-shadow:0 2px 0 rgba(4,12,22,.5); transition:color .2s}
+.dv-carry-val.held{color:var(--gold); text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 22px rgba(242,193,78,.6)}
+.dv-carry{display:flex; gap:6px; justify-content:flex-end; margin-top:8px}
+.dv-carry i{width:14px; height:18px; border-radius:3px; display:block;
+  border:1.5px solid rgba(255,255,255,.3); background:transparent; transition:background .15s, box-shadow .2s}
+.dv-carry i.on{border-color:rgba(255,255,255,.7); box-shadow:0 0 12px currentColor}
+
+/* -------- the depth tape --------
+   Three bands down the left edge, and a mark that slides through them.
+   It is the only place in the mission that says how far the surface is,
+   which is the question you are asking every two seconds. */
+.dv-tape{position:absolute; left:clamp(14px,3vw,34px); top:50%; transform:translateY(-50%);
+  width:9px; height:min(46vh,340px); border-radius:5px; overflow:visible;
+  background:rgba(6,18,30,.4); border:1px solid rgba(255,255,255,.14)}
+.dv-tape i{position:absolute; left:0; right:0; display:block}
+/* The band positions and colours are written from CONFIG.tiers at
+   build time, so a twist that moves the trench moves the picture of it
+   too. These are only the fallback, for a HUD nobody has painted yet. */
+.dv-tape i.b0{top:0; height:28.6%; background:linear-gradient(180deg,rgba(255,209,102,.65),rgba(255,209,102,.3))}
+.dv-tape i.b1{top:28.6%; height:32.1%; background:linear-gradient(180deg,rgba(255,159,74,.6),rgba(255,159,74,.28))}
+.dv-tape i.b2{top:60.7%; height:39.3%; background:linear-gradient(180deg,rgba(57,230,255,.6),rgba(57,230,255,.25))}
+.dv-tape-mark{position:absolute; left:-7px; width:23px; height:3px; border-radius:2px;
+  background:var(--paper); box-shadow:0 0 12px rgba(255,255,255,.85); transition:top .08s linear}
+.dv-depth{position:absolute; left:20px; top:50%; transform:translateY(-50%);
+  font-family:var(--display); font-size:clamp(20px,2.6vw,30px); color:var(--paper);
+  text-shadow:0 2px 0 rgba(4,12,22,.6); white-space:nowrap}
+.dv-tier{position:absolute; left:20px; top:calc(50% + 22px);
+  font-size:10px; letter-spacing:.22em; text-transform:uppercase; font-weight:800;
+  text-shadow:0 1px 3px rgba(4,16,28,.9); white-space:nowrap}
+
+/* -------- the beat ring --------
+   A fixed circle, a ring that contracts into it, and a dot. When the
+   contracting ring meets the fixed one you are on the beat, and the
+   whole thing goes gold for the width of the window. Nobody has to be
+   told what that means, which is the entire point of it. */
+.dv-ring{position:absolute; left:50%; top:50%; width:0; height:0; z-index:24;
+  pointer-events:none; --dv-ring:rgba(240,249,255,.55)}
+.dv-ring.off{display:none}
+.dv-ring i{position:absolute; left:50%; top:50%; border-radius:50%; display:block;
+  transform:translate(-50%,-50%)}
+.dv-ring-fixed{width:74px; height:74px; border:2px solid var(--dv-ring);
+  box-shadow:0 0 0 1px rgba(4,16,28,.5) inset, 0 0 0 1px rgba(4,16,28,.5)}
+.dv-ring-pulse{width:74px; height:74px; border:2px solid var(--cyan);
+  box-shadow:0 0 16px rgba(57,230,255,.5)}
+.dv-ring-dot{width:5px; height:5px; background:var(--dv-ring)}
+.dv-ring.hot{--dv-ring:var(--gold)}
+.dv-ring.hot .dv-ring-fixed{border-color:var(--gold); box-shadow:0 0 22px rgba(242,193,78,.75)}
+.dv-ring.hot .dv-ring-pulse{border-color:var(--gold)}
+.dv-ring.lit .dv-ring-pulse{border-color:var(--mint); box-shadow:0 0 22px rgba(125,252,208,.75)}
+
+/* -------- the breath bar --------
+   The mission, drawn once. It is the widest element on the screen
+   because it is the only clock that matters, and when it runs low it
+   goes *warm* — a bar that dims as it empties would be telling you
+   less exactly when you need to be told more. */
+.dv-breath{width:min(560px,72vw); margin-bottom:6px; --cap:1}
+.dv-breath-track{position:relative; height:13px; border-radius:8px; overflow:hidden;
+  background:rgba(6,18,30,.55);
+  border:1px solid rgba(255,255,255,.18); box-shadow:0 0 24px rgba(57,230,255,.12) inset}
+/* The Deep takes the top of the bar away a little at a time. The part
+   you can no longer reach is hatched out rather than simply left dark,
+   because a bar that stops filling with no explanation reads as a bug. */
+.dv-breath.capped .dv-breath-track::after{
+  content:''; position:absolute; top:0; bottom:0; right:0;
+  width:calc((1 - var(--cap)) * 100%);
+  background:repeating-linear-gradient(135deg, rgba(229,19,63,.30) 0 4px,
+    rgba(6,18,30,.55) 4px 8px);
+  border-left:1px solid rgba(255,143,163,.7);
+}
+.dv-breath-fill{height:100%; width:100%; transform-origin:left center;
+  background:linear-gradient(90deg,#2f8fb4,#7ee8ff,#d6fbff);
+  transition:background .3s}
+.dv-breath.low .dv-breath-fill{background:linear-gradient(90deg,#e8a53c,#ffd166,#fff0c4)}
+.dv-breath.critical .dv-breath-fill{background:linear-gradient(90deg,#e5133f,#ff8fa3,#fff);
+  animation:dvGasp .55s ease-in-out infinite}
+@keyframes dvGasp{50%{filter:brightness(1.55)}}
+.dv-breath-lbl{margin-top:6px; text-align:center; font-size:9.5px; letter-spacing:.24em;
+  text-transform:uppercase; font-weight:700; color:rgba(240,249,255,.75);
+  text-shadow:0 1px 3px rgba(4,16,28,.9)}
+.dv-breath.critical .dv-breath-lbl{color:#ffd6de}
+
+/* -------- pressure --------
+   Not a darkness. A cyan-white closing-in, the same trick .sh-focus
+   uses, so the deep reads as squeezing rather than as a dimmer switch. */
+.dv-pressure{position:fixed; inset:-4%; pointer-events:none; z-index:21; opacity:0;
+  transition:opacity .3s ease;
+  background:
+    radial-gradient(ellipse 40% 36% at 50% 50%, rgba(0,0,0,0) 52%, rgba(120,215,240,.34) 100%),
+    radial-gradient(ellipse 62% 54% at 50% 50%, rgba(0,0,0,0) 58%, rgba(24,90,160,.42) 100%);
+}
+
+.dv-banner{position:absolute; left:50%; top:16%; transform:translate(-50%,-14px);
+  text-align:center; opacity:0; transition:opacity .25s, transform .25s; pointer-events:none}
+.dv-banner.show{opacity:1; transform:translate(-50%,0)}
+.dv-banner b{display:block; font-family:var(--display); font-size:clamp(20px,3vw,34px);
+  letter-spacing:.05em; color:var(--paper); text-shadow:0 3px 0 rgba(4,12,22,.5)}
+.dv-banner span{display:block; margin-top:4px; font-size:11px; letter-spacing:.2em;
+  text-transform:uppercase; font-weight:700; color:rgba(240,249,255,.8);
+  text-shadow:0 1px 3px rgba(4,16,28,.9)}
+.dv-banner.perfect b{color:var(--mint); text-shadow:0 3px 0 rgba(4,12,22,.5), 0 0 40px rgba(125,252,208,.7)}
+.dv-banner.bad b{color:#ff8fa3}
+
+.dv-hint{position:absolute; left:50%; top:62%; transform:translateX(-50%); opacity:0;
+  font-size:11px; letter-spacing:.2em; text-transform:uppercase; font-weight:700;
+  color:rgba(240,249,255,.9); background:rgba(6,18,30,.7); padding:8px 16px; border-radius:20px;
+  border:1px solid rgba(255,255,255,.18); transition:opacity .25s}
+.dv-hint.show{opacity:1}
+
+/* -------- touch: drag anywhere to steer, one pad to kick --------
+   Below .screen (40) for the same reason #touch-shoot is: this sheet is
+   inset:0 and eats every pointer event on it, so above the HUD and
+   below anything anybody has to press. */
+#touch-dive{display:none; position:fixed; inset:0; z-index:35; pointer-events:all; touch-action:none}
+#touch-dive.visible{display:block}
+#touch-dive.visible.blocked{display:none}
+#touch-dive .kick-pad{position:absolute; right:6vw; bottom:9vh; width:124px; height:124px;
+  border-radius:50%; display:grid; place-items:center; font-weight:800; letter-spacing:.1em;
+  font-size:13px; color:#eaffff; background:rgba(63,224,255,.26);
+  border:2px solid rgba(63,224,255,.7); pointer-events:all; touch-action:none}
+#touch-dive .scull-zone{position:absolute; left:6vw; bottom:9vh; width:118px; height:118px;
+  pointer-events:all; touch-action:none}
+#touch-dive .scull-ring{position:absolute; inset:0; border-radius:50%;
+  border:2px solid rgba(255,255,255,.22); background:rgba(8,18,30,.24)}
+#touch-dive .scull-knob{position:absolute; left:50%; top:50%; width:52px; height:52px;
+  margin:-26px 0 0 -26px; border-radius:50%; background:rgba(240,249,255,.4);
+  border:2px solid rgba(255,255,255,.5)}
+
 /* ---------------- results: which channel, and what it was worth --------- */
 .result-course{display:flex; flex-direction:column; gap:3px; align-items:center; margin:2px 0 10px}
 .result-course b{font-family:var(--display); font-size:22px; letter-spacing:.05em;
@@ -1099,6 +1277,12 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
   .sh-round-block{min-width:0}
   .sh-round-name{display:none}
   .sh-breath{display:none}
+  /* the dive keeps its breath bar at every size — it is the mission —
+     but the tape's numbers and the purse's chain can go */
+  .dv-hold{min-width:0}
+  .dv-clock{min-width:0}
+  .dv-tier{display:none}
+  .dv-breath{width:min(560px,86vw)}
 }
 
 /* ==================================================================

@@ -643,6 +643,75 @@
   <div class="draw-pad">DRAW</div>
 </div>
 
+
+<!-- ============ HUD — THE DIVE ============ -->
+<section class="screen hud dv-hud" data-screen="hud-dive">
+
+  <div class="dv-top">
+    <div class="dv-purse">
+      <div class="hud-label">Banked</div>
+      <div class="dv-money" id="dv-money">£0</div>
+      <div class="dv-gain" id="dv-gain"></div>
+      <div class="dv-chain-wrap" id="dv-chain-wrap">
+        <span class="dv-chain" id="dv-chain">×1.00</span>
+        <span class="dv-chain-lbl">flow</span>
+        <div class="dv-chain-track"><div class="dv-chain-bar" id="dv-chain-bar"></div></div>
+      </div>
+    </div>
+
+    <div class="dv-clock">
+      <div class="hud-label" id="dv-time-label">Time</div>
+      <div class="dv-time" id="dv-time">180</div>
+    </div>
+
+    <div class="dv-hold">
+      <div class="hud-label">In hand</div>
+      <div class="dv-carry-val" id="dv-carry-val">—</div>
+      <div class="dv-carry" id="dv-carry"></div>
+    </div>
+  </div>
+
+  <!-- the depth tape: the three bands, and where in them you are -->
+  <div class="dv-tape" id="dv-tape">
+    <i class="b0"></i><i class="b1"></i><i class="b2"></i>
+    <span class="dv-tape-mark" id="dv-tape-mark"></span>
+    <b class="dv-depth" id="dv-depth">0m</b>
+    <b class="dv-tier" id="dv-tier">Shelf</b>
+  </div>
+
+  <!-- the beat ring. This is the entire teaching mechanism for the
+       chain: it contracts towards the beat and goes gold in the window,
+       so nobody ever has to be told what "on the beat" means. -->
+  <div class="dv-ring" id="dv-ring">
+    <i class="dv-ring-fixed"></i>
+    <i class="dv-ring-pulse" id="dv-ring-pulse"></i>
+    <i class="dv-ring-dot"></i>
+  </div>
+
+  <div class="dv-banner" id="dv-banner"></div>
+
+  <div class="dv-bottom">
+    <div class="dv-breath" id="dv-breath">
+      <div class="dv-breath-track"><div class="dv-breath-fill" id="dv-breath-fill"></div></div>
+      <div class="dv-breath-lbl" id="dv-breath-lbl">Breath</div>
+    </div>
+  </div>
+
+  <div class="dv-hint" id="dv-hint">Click to swim · <kbd>Space</kbd> kicks</div>
+  <!-- pressure, as a cyan-white closing-in rather than a darkness -->
+  <div class="dv-pressure" id="dv-pressure"></div>
+  <!-- the dive gets its own, because #center-msg lives inside the boat
+       race's HUD section and that section is display:none while another
+       screen is up -->
+  <div class="center-msg" id="dv-center"></div>
+  <div class="hud-setup" id="dv-setup"></div>
+</section>
+
+<div id="touch-dive">
+  <div class="scull-zone"><div class="scull-ring"></div><div class="scull-knob"></div></div>
+  <div class="kick-pad">KICK</div>
+</div>
+
 <!-- ============ PAUSE ============ -->
 <section class="screen pause" data-screen="pause">
   <div class="panel pause-panel">
@@ -811,8 +880,10 @@
 <script src="js/world/course.js"></script>
 <script src="js/world/forest.js"></script>
 <script src="js/world/highland.js"></script>
+<script src="js/world/reef.js"></script>
 <script src="js/entities/boat.js"></script>
 <script src="js/entities/figure.js"></script>
+<script src="js/entities/swimmer.js"></script>
 <script src="js/fx/fx.js"></script>
 <script src="js/entities/bow.js"></script>
 <script src="js/entities/flyers.js"></script>
@@ -822,6 +893,8 @@
 <script src="js/missions/shootout-rounds.js"></script>
 <script src="js/missions/shootout-twists.js"></script>
 <script src="js/missions/shootout.js"></script>
+<script src="js/missions/dive-twists.js"></script>
+<script src="js/missions/dive.js"></script>
 <script src="js/scenes/claudia-lines.js"></script>
 <script src="js/scenes/stage.js"></script>
 <script src="js/scenes/dressing.js"></script>

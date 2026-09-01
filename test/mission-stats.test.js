@@ -36,14 +36,27 @@ const stubs = {
   MissionNet: { event: noop, pose: noop, on: () => noop, at: () => null,
                 attach: noop, update: noop },
   GameState: { recordRun: () => ({ isBest: false }), getGhost: () => null,
-               saveGhost: noop, runKey: () => 'k', logEvent: noop },
+               saveGhost: noop, runKey: () => 'k', logEvent: noop,
+               runRecord: () => ({ best: null, runs: 0 }), data: {} },
   ForestConditions: { describe: () => '' },
+  Water: { setPalette: noop, setFog: noop, setSeaState: noop, DEFAULTS: {},
+           sampleHeight: () => 0, build: noop, update: noop, follow: noop },
+  Sky: { setPreset: noop, resetPreset: noop, PALETTE: { fog: '#fff' },
+         mergeGeometries: () => ({}), glowTexture: () => ({}) },
+  Conditions: { TIMES: [{ id: 'noon', name: 'Midday', sky: {}, payout: 1 }],
+                lights: () => ({}) },
+  Engine: { disposeObject: noop, isPaused: () => false, setPaused: noop },
+  Screens: { show: noop },
+  Party: { hostId: 'h', selfId: () => 'me', isHost: true },
 };
 
 const ctx = H.load(['js/core/util.js', 'js/missions/agendas.js', 'js/missions/shootout-rounds.js',
-                    'js/missions/boat-race.js', 'js/missions/shootout.js'], stubs);
+                    'js/world/forest.js', 'js/world/reef.js', 'js/entities/swimmer.js',
+                    'js/missions/boat-race.js', 'js/missions/shootout.js',
+                    'js/missions/dive-twists.js', 'js/missions/dive.js'], stubs);
 const BR = ctx.BoatRaceMission;
 const SH = ctx.ShootoutMission;
+const DV = ctx.DiveMission;
 const U = ctx.U;
 
 section('boat race — the counters the deck reads');
@@ -417,6 +430,313 @@ test('the final report preserves actual missed arrows', () => {
   s.stats.missed = 10; // piercing/twin arrows make shots - hits an invalid substitute
   const result = SH.prototype._buildResult.call(s, {});
   eq(result.stats.missed, 10, 'reporting does not replace the event counter');
+});
+
+
+
+section('the dive — the counters the deck reads');
+
+/* A diver, with nothing in it that the trackers do not actually touch.
+   Everything below runs the mission's own methods against this, which
+   is only possible because they are honest functions over the state
+   they are given. */
+function diver(o = {}) {
+  return Object.assign({
+    C: DV.CONFIG,
+    stats: DV.freshStats(),
+    carry: [],
+    money: 0,
+    payout: 1,
+    mode: 'salvage',
+    timeLeft: 180,
+    state: 'live',
+    peers: new Map(),
+    inTrip: false, tripDeepest: 0, tripTook: 0, deepest: 0,
+    swimmer: { flow: 0, carried: 0, pos: { x: 0, y: -10, z: 0 }, grabbed: false,
+               tune: Object.assign({}, ctx.Swimmer.TUNE) },
+    elapsed: 0,
+    bankLog: [],
+    _carryValue: DV.prototype._carryValue,
+    _respawnFor: DV.prototype._respawnFor,
+    _bankedSince: DV.prototype._bankedSince,
+    _tierAt: DV.prototype._tierAt,
+  }, o);
+}
+
+// one chest, as the mission models it
+const chest = (tier, mult = 1, dropped = false) => ({
+  id: 1, tier, value: DV.CONFIG.tiers[tier].value, mult, dropped,
+  depth: -DV.CONFIG.tiers[tier].top, mesh: null, glow: null,
+});
+
+// a whole trip: down to `deep`, take `took` chests, come back up
+function trip(d, deep, took) {
+  d.inTrip = true;
+  d.tripDeepest = deep;
+  d.tripTook = took;
+  d.deepest = Math.max(d.deepest, deep);
+  d.stats.deepest = Math.round(d.deepest * 10) / 10;
+  DV.prototype._endTrip.call(d);
+  return d.stats;
+}
+
+test('a trip is counted where it went and whether it came back with anything', () => {
+  const d = diver();
+  trip(d, 12, 2);
+  trip(d, 40, 0);
+  trip(d, 41, 1);
+  eq(d.stats.trips, 3, 'three trips');
+  eq(d.stats.emptyTrips, 1, 'one of them empty');
+  eq(d.stats.trenchTrips, 2, 'two of them to the trench');
+  eq(d.stats.trenchEmpty, 1, 'and the empty one was a trench trip');
+  eq(d.stats.deepest, 41, 'deepest is the deepest');
+});
+
+test('a shallow empty trip is not a trench confession', () => {
+  const d = diver();
+  trip(d, 9, 0);
+  eq(d.stats.trenchTrips, 0, 'the shelf is not the trench');
+  eq(d.stats.trenchEmpty, 0, 'and neither is coming back off it empty');
+  eq(d.stats.emptyTrips, 1, 'but it is still an empty trip');
+});
+
+test('what you are holding is worth the chain you took it on', () => {
+  const d = diver();
+  d.carry = [chest(2, 1.55), chest(0, 1)];
+  const v = d._carryValue();
+  eq(v, Math.round(DV.CONFIG.tiers[2].value * 1.55 + DV.CONFIG.tiers[0].value),
+     'the flow multiplier is banked with the chest, not with the run');
+});
+
+test('"the last minute" is a rolling window, so The Deep has one too', () => {
+  const d = diver({ elapsed: 100 });
+  d.bankLog = [{ t: 10, v: 5000 }, { t: 35, v: 900 }, { t: 92, v: 1200 }];
+  DV.prototype._trackAgenda.call(d, 0.1);
+  eq(d.stats.lastMinuteBanked, 1200, 'only the money banked inside the window counts');
+  d.elapsed = 200;
+  DV.prototype._trackAgenda.call(d, 0.1);
+  eq(d.stats.lastMinuteBanked, 0, 'and it falls out of the window as the run goes on');
+});
+
+test('the biggest carry of the night is remembered even after it is banked', () => {
+  const d = diver();
+  d.carry = [chest(2, 1.5), chest(2, 1.5), chest(1, 1)];
+  d.stats.peakCarry = Math.max(d.stats.peakCarry, d.carry.length);
+  d.stats.peakCarryValue = Math.max(d.stats.peakCarryValue, d._carryValue());
+  const held = d.stats.peakCarryValue;
+  d.carry = [];
+  ok(held > 0 && d.stats.peakCarryValue === held, 'the peak survives the bank');
+  eq(d.stats.peakCarry, 3, 'and so does the count');
+});
+
+test('which tier a depth is in comes from CONFIG, not from a hard-coded 34', () => {
+  const d = diver();
+  eq(d._tierAt(0), 0, 'the surface is the shelf');
+  eq(d._tierAt(15.9), 0, 'and so is anything above the shelf floor');
+  eq(d._tierAt(16.1), 1, 'past it is the wreck');
+  eq(d._tierAt(34.1), 2, 'and past that is the trench');
+  eq(d._tierAt(999), 2, 'nothing is deeper than the deepest tier');
+});
+
+test('each tier comes back on its own clock', () => {
+  const d = diver();
+  ok(d._respawnFor(0) < d._respawnFor(1), 'the shelf refills faster than the wreck');
+  ok(d._respawnFor(1) < d._respawnFor(2), 'and the wreck faster than the trench');
+});
+
+test('what the other two are doing is read off their poses, not guessed', () => {
+  const d = diver();
+  d.peers.set('a', { deepest: 44, money: 9000, value: 6200, trips: 7 });
+  d.peers.set('b', { deepest: 12, money: 14000, value: 900, trips: 11 });
+  DV.prototype._trackAgenda.call(d, 0.1);
+  eq(d.stats.maxOtherDeepest, 44, 'the deepest of them');
+  eq(d.stats.maxOtherBanked, 14000, 'the richest of them');
+  eq(d.stats.maxOtherPeakCarry, 6200, 'and the biggest carry out there');
+  eq(d.stats.otherTrips, 18, 'their trips are pooled, because the card compares to the field');
+});
+
+section('the dive — the deck, driven end to end');
+
+/* Each card, performed and then covered, against the real check and
+   the real cover. This is the pattern that catches a card whose alibi
+   nothing in the mission can actually produce. */
+function card(id) { return ctx.Agendas.byId(id); }
+
+test('the empty trench trip, with and without its alibi', () => {
+  const c = card('dv-empty-trench');
+  const d = diver();
+  trip(d, 44, 0);
+  d.peers.set('a', { deepest: 30, money: 8000, value: 100, trips: 4 });
+  d.money = 12000;
+  DV.prototype._trackAgenda.call(d, 0.1);
+  ok(c.check(d.stats), 'an empty trench trip is the task');
+  ok(c.cover(d.stats), 'deepest and top of the strip is the alibi');
+
+  const shallowRich = diver();
+  trip(shallowRich, 44, 0);
+  shallowRich.peers.set('a', { deepest: 52, money: 3000, value: 0, trips: 2 });
+  shallowRich.money = 9000;
+  DV.prototype._trackAgenda.call(shallowRich, 0.1);
+  ok(c.check(shallowRich.stats), 'still the task');
+  ok(!c.cover(shallowRich.stats), 'but somebody went deeper — no alibi');
+});
+
+test('two blackouts, covered only by having been the richest hands in the water', () => {
+  const c = card('dv-two-blackouts');
+  const d = diver();
+  d.stats.blackouts = 2;
+  d.stats.peakCarryValue = 15000;
+  d.peers.set('a', { deepest: 0, money: 0, value: 9000, trips: 0 });
+  DV.prototype._trackAgenda.call(d, 0.1);
+  ok(c.check(d.stats), 'two is the task');
+  ok(c.cover(d.stats), 'and the biggest carry of the three is the alibi');
+  d.stats.peakCarryValue = 800;
+  ok(!c.cover(d.stats), 'drowning cheap has no alibi');
+  d.stats.blackouts = 1;
+  ok(!c.check(d.stats), 'one is not two');
+});
+
+test('the quiet bell, covered by coming up on it holding the night', () => {
+  const c = card('dv-quiet-bell');
+  const d = diver({ elapsed: 180 });
+  d.stats.finished = true;
+  d.stats.lastMinuteBanked = 0;
+  d.stats.finalCarryValue = 9000;
+  d.stats.maxOtherPeakCarry = 5000;
+  ok(c.check(d.stats), 'nothing banked late is the task');
+  ok(c.cover(d.stats), 'and a huge final carry is the alibi');
+  d.stats.lastMinuteBanked = 400;
+  ok(!c.check(d.stats), 'banking anything at all fails it');
+});
+
+test('never going deep, covered by out-working the field', () => {
+  const c = card('dv-never-deep');
+  const d = diver();
+  d.stats.finished = true;
+  d.stats.deepest = 21;
+  d.stats.trips = 14;
+  d.stats.otherTrips = 18;
+  d.stats.banked = 12000;
+  d.stats.maxOtherBanked = 14000;
+  ok(c.check(d.stats), 'staying above the trench is the task');
+  ok(c.cover(d.stats), 'more trips and close on money is the alibi');
+  d.stats.deepest = 40;
+  ok(!c.check(d.stats), 'going down there fails it');
+});
+
+test('the pile you swam past, covered by having your hands full', () => {
+  const c = card('dv-passed-drop');
+  const d = diver();
+  d.stats.passedDrops = 1;
+  d.stats.peakCarry = 4;
+  ok(c.check(d.stats), 'leaving a pile is the task');
+  ok(c.cover(d.stats), 'being full when you did is the alibi');
+  d.stats.peakCarry = 2;
+  ok(!c.cover(d.stats), 'half-empty hands have no excuse');
+});
+
+test('a twist that rules a card out takes it out of the deck', () => {
+  const pool = ctx.Agendas.DECKS.dive.filter(
+    c => typeof c.needs !== 'function' || c.needs({ deepestOnly: true }));
+  ok(pool.length > 0, 'Salvage Rights must not empty the deck');
+  ok(!pool.some(c => c.id === 'dv-never-deep'),
+     'staying shallow under Salvage Rights is a forfeit, not a task');
+});
+
+section('the dive — the reef the seed draws');
+
+/* Every seed has to give all three tiers somewhere to put a chest, and
+   it has to keep the deepest sand inside what a diver can come back
+   from. Both are properties of the floor function alone, so two
+   thousand of them cost nothing. */
+test('every seed lays down all three tiers, and none of them out of reach', () => {
+  const R = DV.CONFIG.reefRadius;
+  const T = DV.CONFIG.tiers;
+  for (let seed = 1; seed <= 2000; seed++) {
+    const h = ctx.ReefKit.makeFloor(U.makeRng(seed), { radius: R });
+    const share = [0, 0, 0];
+    let deepest = 0;
+    // a deterministic lattice, so a failure is reproducible
+    for (let i = 0; i < 420; i++) {
+      const a = (i * 2.399963) % (Math.PI * 2);
+      const r = R * Math.sqrt(((i * 0.618034) % 1));
+      const y = h(Math.cos(a) * r, Math.sin(a) * r);
+      deepest = Math.min(deepest, y);
+      for (let t = 0; t < T.length; t++) {
+        if (y <= T[t].top && y > T[t].bottom) { share[t]++; break; }
+      }
+    }
+    ok(share[0] > 8 && share[1] > 8 && share[2] > 8,
+       'seed ' + seed + ' has a tier with nowhere to put a chest: ' + share.join('/'));
+    ok(deepest > -56,
+       'seed ' + seed + ' has sand at ' + deepest.toFixed(1) + 'm, past what a diver survives');
+  }
+});
+
+test('the shelf is the tier you are most often floating over', () => {
+  const R = DV.CONFIG.reefRadius;
+  let shelf = 0, n = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const h = ctx.ReefKit.makeFloor(U.makeRng(seed), { radius: R });
+    for (let i = 0; i < 600; i++) {
+      const a = (i * 2.399963) % (Math.PI * 2);
+      const r = R * Math.sqrt(((i * 0.618034) % 1));
+      if (h(Math.cos(a) * r, Math.sin(a) * r) > -16) shelf++;
+      n++;
+    }
+  }
+  const pct2 = shelf / n;
+  ok(pct2 > 0.15 && pct2 < 0.55,
+     'the shelf covers ' + Math.round(pct2 * 100) + '% of the reef, which is the wrong shape');
+});
+
+section('the dive — the briefing, before anything is built');
+
+/* `preview` runs on every keystroke in the seed box, with no GPU and
+   whatever the user has typed. It has to answer with the full key set
+   or the briefing renders holes. */
+test('the briefing survives junk and answers with everything', () => {
+  const KEYS = ['opts', 'mod', 'cond', 'name', 'conditionText', 'hand', 'mode',
+                'payout', 'key', 'record', 'bestText', 'hasGhost', 'tiers'];
+  for (const opts of [{}, { seed: 'nonsense' }, { seed: -4 }, { seed: 1e18 },
+                      { mode: 'nope' }, { modId: 'nothing' },
+                      { seed: 7, mode: 'deep', modId: 'cold' }]) {
+    const p = DV.preview(opts);
+    for (const k of KEYS) ok(k in p, 'preview(' + JSON.stringify(opts) + ') has no ' + k);
+    ok(p.hand.length === 3, 'a hand is three cards');
+    ok(p.payout > 0, 'a payout is a number');
+    ok(p.mode && p.mode.id, 'a mode is always resolved');
+  }
+});
+
+test('a run repeats exactly, and a different seed does not', () => {
+  const a = DV.preview({ seed: 4242, mode: 'salvage' });
+  const b = DV.preview({ seed: 4242, mode: 'salvage' });
+  eq(a.hand.map(c => c.id), b.hand.map(c => c.id), 'the same seed deals the same hand');
+  eq(a.name, b.name, 'and the same loch');
+  const c = DV.preview({ seed: 4243, mode: 'salvage' });
+  ok(c.name !== a.name || c.hand[0].id !== a.hand[0].id, 'a different seed is a different run');
+});
+
+test('every twist is a bag of overrides and nothing else', () => {
+  const ALLOWED = new Set(['id', 'name', 'icon', 'payout', 'blurb',
+                           'config', 'tune', 'cond', 'flags']);
+  const seen = new Set();
+  for (const t of ctx.DiveTwists.DECK) {
+    ok(!seen.has(t.id), 'duplicate twist id ' + t.id);
+    seen.add(t.id);
+    for (const k in t) ok(ALLOWED.has(k), t.id + ' carries code, not overrides: ' + k);
+    ok(typeof t.payout === 'number' && t.payout > 0, t.id + ' has no payout');
+    ok(t.blurb && t.blurb.length > 20, t.id + ' does not say what it does');
+    // a tune override has to name a dial the swimmer actually has, or
+    // it is a card that silently does nothing
+    for (const k in (t.tune || {})) {
+      ok(k in ctx.Swimmer.TUNE, t.id + ' tunes something the diver has not got: ' + k);
+    }
+    for (const k in (t.config || {})) {
+      ok(k in DV.CONFIG, t.id + ' overrides a config key that does not exist: ' + k);
+    }
+  }
 });
 
 if (require.main === module) H.report();

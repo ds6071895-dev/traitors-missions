@@ -56,6 +56,22 @@ const Music = (() => {
       [5, 8, 12],       // iv    Gm
     ],
 
+    /* The dive. Open fifths with the third left out, so it floats
+       instead of resolving — the water is not deciding anything, it is
+       just very deep and very bright. Same key as everything else, and
+       every bar is an add9 or a sus, which is the whole trick: nothing
+       in here ever tells you whether it is happy about the depth. */
+    tide: [
+      [0,  7, 14],           // D5 add9   — no third at all
+      [0,  7, 14],
+      [8, 12, 19],           // Bb add9
+      [3,  7, 10],           // F
+      [5, 12, 17],           // Gm11
+      [10, 14, 21],          // C add9
+      [8, 12, 15],           // Bb
+      [3, 10, 14],           // Fsus2
+    ],
+
     /* The fire. Two chords, held, a semitone apart at the top — the
        oldest trick there is for "something is about to be decided". */
     verdict: [
@@ -109,6 +125,18 @@ const Music = (() => {
     { bpm: 132, kick: 1,   tom: .85, hat: .6,  bass: 1,   pad: .7,  theme: 1,   choir: .8, double: true },
   ];
 
+  /* The dive's four gears, and the one thing that makes them different
+     from every other set in this file: **the tempo does not move.**
+     The player's stroke window is a beat, so an accelerando between
+     phases would silently change the game's timing under their hands.
+     Depth adds and removes layers instead, at ninety-six all night. */
+  const DIVE_GEARS = [
+    { bpm: 96, kick: 0,   tom: 0,   hat: 0,   bass: .55, pad: .9, theme: 0,   choir: .35, double: false },
+    { bpm: 96, kick: .5,  tom: .25, hat: .2,  bass: .85, pad: .8, theme: .5,  choir: .45, double: false },
+    { bpm: 96, kick: .75, tom: .5,  hat: .4,  bass: 1,   pad: .7, theme: .8,  choir: .6,  double: false },
+    { bpm: 96, kick: .9,  tom: .7,  hat: .55, bass: 1,   pad: .6, theme: 1,   choir: .9,  double: true  },
+  ];
+
   class Score {
     constructor(opts = {}) {
       this.ctx = AudioBus.ctx;
@@ -124,10 +152,24 @@ const Music = (() => {
         progression: 'dread',
       }, opts);
       this.chords = PROGRESSIONS[this.profile.progression] || CHORDS;
+      /* A score brings its own gearbox if it has one. Without this the
+         four gears at the top of the file are the only tempi in the
+         game, and a score that has to hold one BPM across a phase
+         change — which is what a beat-locked mechanic needs — cannot
+         be written at all. */
+      this.gears = this.profile.gears || GEARS;
 
       this.out = this.ctx.createGain();
       this.out.gain.value = 0.0001;
-      this.out.connect(this.dest);
+
+      /* One lowpass between the mix and the bus, sitting wide open
+         until somebody asks for it. It is what the surface of the
+         water sounds like from underneath, and it costs one node. */
+      this.muffle = this.ctx.createBiquadFilter();
+      this.muffle.type = 'lowpass';
+      this.muffle.frequency.value = 20000;
+      this.out.connect(this.muffle);
+      this.muffle.connect(this.dest);
 
       // one shared plate of reverb-ish delay, because a horn in a wood
       // that stops dead the moment it stops sounding is a horn in a box
@@ -155,6 +197,7 @@ const Music = (() => {
     start() {
       if (!this.ok || this.timer) return this;
       this.next = this.ctx.currentTime + 0.08;
+      this.t0 = this.next;              // where beat one actually landed
       this.out.gain.cancelScheduledValues(this.ctx.currentTime);
       this.out.gain.setValueAtTime(0.0001, this.ctx.currentTime);
       this.out.gain.exponentialRampToValueAtTime(this.profile.level, this.ctx.currentTime + 1.6);
@@ -166,7 +209,7 @@ const Music = (() => {
        crossfades over a couple of beats; the enrage snaps. */
     setGear(i, glide = 2) {
       if (!this.ok) return;
-      i = U.clamp(i | 0, 0, GEARS.length - 1);
+      i = U.clamp(i | 0, 0, this.gears.length - 1);
       if (i === this.gear) return;
       this.gearFrom = this.gear;
       this.gear = i;
@@ -176,6 +219,33 @@ const Music = (() => {
 
     // an extra shove on top of the gear: how hard the fight is going
     setIntensity(v) { this.intensity = U.clamp(v, 0, 1.5); }
+
+    /* Where the bar is *right now*, as opposed to where the sequencer
+       has got to booking it. `this.next` is up to a third of a second
+       into the future by design, so it cannot be read as a clock; at a
+       constant tempo the phase is exact arithmetic off the moment the
+       score started instead. Only meaningful for a score with its own
+       gears, which is exactly what promises the tempo will not move. */
+    beat() {
+      if (!this.ok || !this.t0) return null;
+      const spb = 60 / this.gears[this.gear].bpm;
+      const since = ((this.ctx.currentTime - this.t0) % spb + spb) % spb;
+      return { spb, sinceBeat: since, toBeat: spb - since };
+    }
+
+    /* How much water is between the listener and the band. Exponential,
+       because hearing is: a linear sweep through a lowpass sounds like
+       a knob being turned rather than like going under. */
+    setMuffle(v, time = 0.25) {
+      if (!this.ok || !this.muffle) return;
+      const k = U.clamp(v, 0, 1);
+      const hz2 = 20000 * Math.pow(420 / 20000, k);
+      const t = this.ctx.currentTime;
+      this.muffle.frequency.cancelScheduledValues(t);
+      this.muffle.frequency.setValueAtTime(
+        Math.max(20, this.muffle.frequency.value), t);
+      this.muffle.frequency.exponentialRampToValueAtTime(Math.max(20, hz2), t + time);
+    }
 
     setPaused(v) {
       if (!this.ok || this.paused === v) return;
@@ -214,13 +284,16 @@ const Music = (() => {
       this.out.gain.cancelScheduledValues(t);
       this.out.gain.setValueAtTime(Math.max(0.0001, this.out.gain.value), t);
       this.out.gain.exponentialRampToValueAtTime(0.0001, t + fade);
-      setTimeout(() => { try { this.out.disconnect(); } catch (e) {} }, (fade + 0.4) * 1000);
+      setTimeout(() => {
+        try { this.out.disconnect(); } catch (e) {}
+        try { if (this.muffle) this.muffle.disconnect(); } catch (e) {}
+      }, (fade + 0.4) * 1000);
     }
 
     /* -------- the clock -------- */
 
     _gearNow(key) {
-      const a = GEARS[this.gearFrom][key], b = GEARS[this.gear][key];
+      const a = this.gears[this.gearFrom][key], b = this.gears[this.gear][key];
       return typeof a === 'number' ? U.lerp(a, b, this.gearMix) : (this.gearMix > 0.5 ? b : a);
     }
 
@@ -233,7 +306,7 @@ const Music = (() => {
       if (this.next < now - 0.5) this.next = now + 0.05;
       let guard = 0;
       while (this.next < now + LOOKAHEAD && guard++ < 64) {
-        const bpm = U.lerp(GEARS[this.gearFrom].bpm, GEARS[this.gear].bpm, this.gearMix);
+        const bpm = U.lerp(this.gears[this.gearFrom].bpm, this.gears[this.gear].bpm, this.gearMix);
         const spb = 60 / bpm / 4;              // seconds per sixteenth
         this._play(this.step, this.next);
         this.next += spb;
@@ -265,7 +338,7 @@ const Music = (() => {
       // the pad lands on the bar, and holds it
       if (s === 0) {
         const pad = this._gearNow('pad') * this.profile.pad;
-        if (pad > 0.02) this._pad(t, chord.map(c => hz(c + 36)), (60 / GEARS[this.gear].bpm) * 4.2, pad);
+        if (pad > 0.02) this._pad(t, chord.map(c => hz(c + 36)), (60 / this.gears[this.gear].bpm) * 4.2, pad);
       }
 
       // the theme, stated low and answered a fourth up two bars later
@@ -273,14 +346,14 @@ const Music = (() => {
       const note = THEME_AT[s];
       if (theme > 0.02 && note) {
         const lift = (bar % 4) >= 2 ? 5 : 0;
-        const spb = 60 / U.lerp(GEARS[this.gearFrom].bpm, GEARS[this.gear].bpm, this.gearMix) / 4;
+        const spb = 60 / U.lerp(this.gears[this.gearFrom].bpm, this.gears[this.gear].bpm, this.gearMix) / 4;
         this._horn(t, hz(note.s + 36 + lift), note.d * spb * 0.95, theme);
       }
 
       // and voices, two octaves up, on the half bar
       const choir = this._gearNow('choir') * this.profile.choir;
       if (choir > 0.02 && (s === 0 || s === 8)) {
-        const spb = 60 / GEARS[this.gear].bpm / 4;
+        const spb = 60 / this.gears[this.gear].bpm / 4;
         this._choir(t, hz(chord[(s ? 2 : 1)] + 48), spb * 7.5, choir);
       }
     }
@@ -465,6 +538,15 @@ const Music = (() => {
         // to arrive rather than just stopping
         this._tom(t, 0.9, 64);
         this._crash(t, 0.5);
+      } else if (kind === 'chain') {
+        /* The dive, at full flow. A short rising figure in fifths on
+           the choir with a hat under it — deliberately not a fanfare:
+           it has to land inside a bar the player is still swimming to,
+           four or five times a run, without ever becoming the thing
+           they are listening for instead of the beat. */
+        [0, 7, 12, 19].forEach((sm, i) => this._choir(t + i * 0.055, hz(sm + 48), 0.85, 0.55));
+        this._hat(t, 0.6);
+        this._hat(t + 0.11, 0.45);
       } else if (kind === 'bonus-round') {
         [24, 28, 31, 36].forEach((s, i) =>
           this._horn(t + i * 0.065, hz(s), 0.62, 0.38 * this.profile.theme));
@@ -487,7 +569,8 @@ const Music = (() => {
   // a score that does nothing, for when there is no audio context at all
   const SILENT = {
     start() { return this; }, setGear() {}, setIntensity() {}, setPaused() {},
-    duck() {}, stinger() {}, stop() {}, setProgression() {},
+    duck() {}, stinger() {}, stop() {}, setProgression() {}, setMuffle() {},
+    beat() { return null; },
   };
 
   /* Every score that is currently playing. Claudia has to be able to
@@ -538,6 +621,31 @@ const Music = (() => {
     }));
   }
 
+  /* The dive. The only score in the game the player is *inside*: the
+     stroke window is a beat, so the tempo cannot move and the gears
+     only add and remove layers. The plate is enormous — 0.52 against
+     the shootout's 0.18 — because underwater *is* reverb, and the
+     percussion is held back because the kick is a metronome the player
+     is swimming to rather than a drummer showing off.
+
+     It has to be a factory rather than `new Music.Score(...)` from the
+     mission: a Score built outside this module is not in `LIVE`, and
+     `duckAll` — which voice.js calls every time Claudia speaks — would
+     sail straight past it. */
+  function dive() {
+    if (!AudioBus.ready) return SILENT;
+    return begin(new Score({
+      level: 0.62,
+      theme: 0.50,
+      choir: 0.80,
+      pad: 1.0,
+      percussion: 0.60,
+      reverb: 0.52,
+      progression: 'tide',
+      gears: DIVE_GEARS,
+    }));
+  }
+
   /* The fire. Everything, and it climbs. */
   function verdict() {
     if (!AudioBus.ready) return SILENT;
@@ -552,6 +660,6 @@ const Music = (() => {
     }));
   }
 
-  return { boss, stage, ceremony, verdict, duckAll, stopAll, pauseAll,
-           Score, GEARS, PROGRESSIONS };
+  return { boss, stage, ceremony, verdict, dive, duckAll, stopAll, pauseAll,
+           Score, GEARS, DIVE_GEARS, PROGRESSIONS };
 })();

@@ -25,7 +25,7 @@ const UINav = (() => {
             + 'select:not([disabled]), [data-nav]:not([disabled])';
 
   // screens that are the game rather than a menu
-  const PLAYING = new Set(['hud', 'hud-shoot', 'cine']);
+  const PLAYING = new Set(['hud', 'hud-shoot', 'hud-dive', 'cine']);
 
   let items = [];
   let cur = -1;

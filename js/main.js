@@ -788,6 +788,7 @@ const Game = (() => {
     Screens.register('results', {});
     Screens.register('hud', {});
     Screens.register('hud-shoot', {});
+    Screens.register('hud-dive', {});
     Screens.register('pause', {});
     Screens.register('vote', {});
     Screens.register('verdict', {});

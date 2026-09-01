@@ -274,6 +274,7 @@ section('agendas — the deck and the missions actually meet');
 const SOURCE = {
   'boat-race': fs.readFileSync(path.join(H.ROOT, 'js/missions/boat-race.js'), 'utf8'),
   shootout: fs.readFileSync(path.join(H.ROOT, 'js/missions/shootout.js'), 'utf8'),
+  dive: fs.readFileSync(path.join(H.ROOT, 'js/missions/dive.js'), 'utf8'),
 };
 
 // every `s.something` a card's own source reads

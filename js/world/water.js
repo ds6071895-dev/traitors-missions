@@ -138,6 +138,17 @@ const Water = (() => {
       float near = 1.0 - smoothstep(90.0, 1100.0, vDist);
       vec3 n = normalize(mix(smoothN, facet, near * 0.62));
 
+      /* From below this is a ceiling, not a sea. Both normals above were
+         forced upward, which would light the underside as if it were the
+         top; flipping the blended one turns the light *through* the water
+         instead of off it, and lets the Fresnel mirror the water rather
+         than the sky. (Scaling the blend is the same as scaling both
+         inputs — mix is linear and normalize does not care about sign.)
+         gl_FrontFacing is the only thing in here that knows which side
+         of the surface the eye is on. */
+      float faceSign = gl_FrontFacing ? 1.0 : -1.0;
+      n *= faceSign;
+
       vec3 V = normalize(cameraPosition - vWorld);
       vec3 L = normalize(uSunDir);
       vec3 H = normalize(L + V);
@@ -145,7 +156,9 @@ const Water = (() => {
       float diff = max(dot(n, L), 0.0);
       float spec = pow(max(dot(n, H), 0.0), 140.0);
       float fres = pow(1.0 - max(dot(n, V), 0.0), 4.0);
-      float slope = 1.0 - n.y;                 // how tilted this facet is
+      // measured off whichever face we are looking at, so a wave is just
+      // as steep seen from underneath it
+      float slope = 1.0 - abs(n.y);            // how tilted this facet is
 
       float depth = smoothstep(-0.85, 1.0, vCrest);
       vec3 col = mix(uDeep, uShallow, depth);
@@ -177,6 +190,16 @@ const Water = (() => {
     }
   `;
 
+  /* The palette every scene starts from. It is global state on a
+     singleton: `build()` resets it, but a mission that changes it
+     mid-run owns putting it back, or its water follows the player into
+     attract mode and every mission after it. The dive's dispose() is
+     the worked example —
+
+       Water.setPalette(Water.DEFAULTS);
+       Water.setFog(340, 3600, Sky.PALETTE.fog);
+       Water.setSeaState({ swell: 1, chop: 1, wind: 0 });
+  */
   const DEFAULTS = {
     deep: '#04304d', shallow: '#12a6c6', crest: '#8df3e2', sky: '#95dfff',
     sunCol: '#fff0c4', sunDir: new THREE.Vector3(0.42, 0.36, -0.83).normalize(),
@@ -189,8 +212,17 @@ const Water = (() => {
     // a fresh scene starts from calm defaults; the mission dials it up after
     setSeaState(DEFAULT_SEA);
     setPalette(DEFAULTS);
+    /* DoubleSide, permanently. All three shells are built in XY and
+       rotated flat, so their normals point +Y and a front-face-only
+       ocean is culled entirely from underneath — an underwater camera
+       would see straight through to the sky dome. It costs no fill for
+       geometry nothing ever gets behind (the boat race clamps its
+       camera above the swell), and a `side` toggled per mission on a
+       shared singleton is exactly the class of bug Sky.resetPreset()
+       already exists to paper over. */
     mat = new THREE.ShaderMaterial({
       uniforms, vertexShader: VERT, fragmentShader: FRAG,
+      side: THREE.DoubleSide,
     });
 
     group = new THREE.Group();

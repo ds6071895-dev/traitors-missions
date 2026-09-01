@@ -181,6 +181,127 @@ const Agendas = (() => {
                                               : 'now clear one without a miss')),
       },
     ],
+
+    /* ---------------- The Dive ----------------
+       The best deck in the game to write, because the mission was
+       built backwards from the thing that makes it possible: **every
+       way of losing money down there is also what the best diver at
+       the table does.** Coming up empty is what greed looks like.
+       Blacking out is what a fourth chest looks like. And the money
+       does not vanish when you drop it — it moves — so "the pot is
+       short" is not evidence of anything.
+
+       So the tells here are all *numbers on the board that also
+       describe an ambitious run*, and every alibi is the harder version
+       of the same act. The only card that breaks the pattern is the
+       last one, and it breaks it on purpose: it is the first agenda in
+       the game about something the other two physically watched you
+       not do. */
+
+    dive: [
+      {
+        id: 'dv-empty-trench',
+        text: 'Go to the trench and come back with nothing.',
+        tell: 'An empty trip is the loudest thing on that board, and it is sitting '
+            + 'next to the deepest number anybody posted. Forty metres down and back '
+            + 'with your hands open is a decision, not an accident.',
+        alibi: 'Be the deepest diver of the three *and* out-bank both of them. Nobody '
+             + 'audits the empty trip of the person who took the most money and went '
+             + 'the furthest down to do it.',
+        hud: 'One empty trench trip',
+        check: (s) => n(s.trenchTrips) >= 1 && n(s.trenchEmpty) >= 1,
+        cover: (s) => n(s.deepest) >= n(s.maxOtherDeepest)
+                      && n(s.banked) >= n(s.maxOtherBanked)
+                      && n(s.maxOtherBanked) > 0,
+        progress: (s) => {
+          if (n(s.trenchTrips) < 1) return 'No trench trip yet · deepest ' + Math.round(n(s.deepest)) + 'm';
+          if (n(s.trenchEmpty) < 1) return 'Trench trips ' + n(s.trenchTrips) + ' · none empty yet';
+          const deep = n(s.deepest) >= n(s.maxOtherDeepest);
+          const rich = n(s.banked) >= n(s.maxOtherBanked);
+          return 'Empty trench trip logged · '
+               + (deep && rich ? 'deepest and top of the strip — alibi holding'
+                  : (deep ? 'deepest, but ' + U.money(n(s.maxOtherBanked) - n(s.banked))
+                            + ' short on money'
+                          : 'not the deepest (' + Math.round(n(s.maxOtherDeepest)) + 'm out there)'));
+        },
+      },
+      {
+        id: 'dv-two-blackouts',
+        text: 'Black out twice.',
+        tell: 'Both of them are on the board, and both times everything in your hands '
+            + 'went onto the sand where anybody could take it. Two is not bad luck, '
+            + 'two is a habit.',
+        alibi: 'Be holding more than either of them ever held when you do it. You did '
+             + 'not drown lazy — you drowned rich, and the biggest carry of the night '
+             + 'is in the last column.',
+        hud: 'Black out twice',
+        check: (s) => n(s.blackouts) >= 2,
+        cover: (s) => n(s.peakCarryValue) > n(s.maxOtherPeakCarry)
+                      && n(s.maxOtherPeakCarry) > 0,
+        progress: (s) => n(s.blackouts) + ' / 2 blackouts · biggest carry '
+                       + U.money(n(s.peakCarryValue))
+                       + (n(s.peakCarryValue) > n(s.maxOtherPeakCarry)
+                          ? ' — biggest of the three, alibi holding'
+                          : ' vs ' + U.money(n(s.maxOtherPeakCarry)) + ' out there'),
+      },
+      {
+        id: 'dv-quiet-bell',
+        text: 'Bank nothing in the last minute.',
+        tell: 'Your row stops climbing with sixty seconds left while two other rows '
+            + 'keep going. Everyone can see the end of a run coming, and everyone '
+            + 'can see who stopped earning before it.',
+        alibi: 'Surface on the bell holding the single biggest thing anybody carried '
+             + 'all night. A minute underwater with a trench chest in your hands is '
+             + 'not idling, it is the boldest thing at the table.',
+        hud: 'Nothing banked in the last minute',
+        check: (s) => s.finished === true && n(s.lastMinuteBanked) === 0,
+        cover: (s) => n(s.finalCarryValue) >= 4000
+                      && n(s.finalCarryValue) > n(s.maxOtherPeakCarry),
+        progress: (s) => (n(s.lastMinuteBanked) > 0
+          ? U.money(n(s.lastMinuteBanked)) + ' banked in the last minute — task failed'
+          : 'Nothing banked late · holding ' + U.money(n(s.finalCarryValue))
+            + (n(s.finalCarryValue) >= 4000 ? ' — come up on the bell with it' : ' (need a big one)')),
+      },
+      {
+        id: 'dv-never-deep',
+        text: 'Never go below the wreck.',
+        tell: 'Deepest is a column, and yours is the shallow one. Two people went to '
+            + 'the trench and you did not, and the pot is short by exactly the '
+            + 'difference.',
+        alibi: 'Make more trips than either of them and still out-earn one. A diver '
+             + 'who never stopped moving and came home ahead of somebody was working '
+             + 'the shelf, not avoiding the deep.',
+        hud: 'Stay above 34m',
+        needs: (f) => !f.deepestOnly,
+        check: (s) => s.finished === true && n(s.deepest) < 34,
+        cover: (s) => n(s.trips) > n(s.otherTrips) / 2 && n(s.trips) >= 8
+                      && n(s.banked) > 0 && n(s.banked) >= n(s.maxOtherBanked) * 0.75,
+        progress: (s) => (n(s.deepest) >= 34
+          ? 'You went to ' + Math.round(n(s.deepest)) + 'm — task failed'
+          : 'Deepest ' + Math.round(n(s.deepest)) + 'm / 34m · ' + n(s.trips)
+            + ' trips, ' + U.money(n(s.banked))
+            + (n(s.trips) >= 8 && n(s.banked) >= n(s.maxOtherBanked) * 0.75
+               ? ' — alibi holding' : ' (work harder)')),
+      },
+      {
+        id: 'dv-passed-drop',
+        text: 'Swim past a dropped chest and leave it there.',
+        tell: 'This is the one they *watch*. A pile on the sand is lit from across the '
+            + 'loch, and you went by it close enough to touch. Everything else in this '
+            + 'game is a number read afterwards; this is a thing two people saw you '
+            + 'not do.',
+        alibi: 'Have your hands full when you do it. Nobody argues with a diver '
+             + 'carrying everything they can already carry.',
+        hud: 'Leave a dropped pile',
+        check: (s) => n(s.passedDrops) >= 1,
+        cover: (s) => n(s.passedDrops) >= 1 && n(s.peakCarry) >= 4,
+        progress: (s) => (n(s.passedDrops) < 1
+          ? 'No pile passed yet · wait for somebody to drown'
+          : n(s.passedDrops) + ' pile(s) left on the sand · '
+            + (n(s.peakCarry) >= 4 ? 'you were full, alibi holding'
+                                   : 'your hands were not full — no alibi')),
+      },
+    ],
   };
 
   /* Any mission without a deck deals nothing, which is the correct

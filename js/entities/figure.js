@@ -94,6 +94,10 @@ const Figure = (() => {
                boot: '#241a26', glove: '#5d3a5f', accent: '#d6a8da' },
     ochre:   { coat: '#7d6524', trim: '#dcc06a', skin: '#d9a67e', hair: '#4a3418',
                boot: '#2a2416', glove: '#5c4a1c', accent: '#efd694' },
+    // a wetsuit, for the water: dark neoprene with a high-vis trim,
+    // because a diver nobody can pick out of blue water is not a diver
+    diver:   { coat: '#123044', trim: '#39e6ff', skin: '#e2b894', hair: '#221a15',
+               boot: '#0b1a26', glove: '#1c4358', accent: '#f2c14e' },
   };
 
   const CAST_PALETTES = ['green', 'rust', 'slate', 'plum', 'ochre'];
@@ -714,6 +718,14 @@ const Figure = (() => {
     root.userData.running = 0;    root.userData.runWant = 0;
     root.userData.lean = 0;       root.userData.leanWant = 0;
     root.userData.aiming = 0;     root.userData.aimWant = 0;
+    /* Swimming. `swim` is how much of the body the water has, `swimPhase`
+       is the stroke clock — owned by the swimmer, because the kick and
+       the body wave are the same event — and `tuck` folds the arms in
+       around whatever is being carried. */
+    root.userData.swim = 0;       root.userData.swimWant = 0;
+    root.userData.swimPhase = 0;
+    root.userData.swimEffort = 0; root.userData.swimEffortWant = 0;
+    root.userData.tuck = 0;       root.userData.tuckWant = 0;
     /* How steeply they are aiming, which is a separate number from
        whether they are aiming at all. A figure shooting at a bird
        forty degrees up and standing bolt upright is the pose that
@@ -760,6 +772,24 @@ const Figure = (() => {
     d.runWant = U.clamp((v - 2.0) / (top - 2.0), 0, 1);
     d.leanWant = U.clamp(turn || 0, -1, 1);
   }
+
+  /* The same idea for water. One phase and one effort in, a dolphin
+     kick out — and, exactly like `setLocomotion`, this only ever writes
+     the *wants*. `update` does the damping, so a caller cannot fight
+     the rig's own smoothing by posing joints from outside it.
+
+     `phase` is the stroke clock rather than a free-running timer: the
+     swimmer advances it through a full turn per kick and idles it in
+     the glide, so the body wave and the thrust are the same event. */
+  function setSwim(fig, phase, effort, tuck) {
+    if (!fig || !fig.userData.rig) return;
+    const d = fig.userData;
+    d.swimWant = 1;
+    d.swimPhase = phase || 0;
+    d.swimEffortWant = U.clamp(effort || 0, 0, 1);
+    d.tuckWant = U.clamp(tuck || 0, 0, 1);
+  }
+  const setSwimming = (fig, on) => { if (fig) fig.userData.swimWant = on ? 1 : 0; };
 
   /* `pitch` is optional and is the shooter's own aim pitch in radians,
      positive for up — the same number their camera is using. Passing it
@@ -855,10 +885,15 @@ const Figure = (() => {
     d.aimPitch = U.damp(d.aimPitch, d.aimPitchWant || 0, 8, dt);
     d.cheering = U.damp(d.cheering, d.cheerWant  || 0, 6, dt);
     d.holding  = U.damp(d.holding,  d.holdWant   || 0, 7, dt);
+    d.swim       = U.damp(d.swim,       d.swimWant       || 0, 6, dt);
+    d.swimEffort = U.damp(d.swimEffort, d.swimEffortWant || 0, 10, dt);
+    d.tuck       = U.damp(d.tuck,       d.tuckWant       || 0, 8, dt);
     d.flinch   = Math.max(0, (d.flinch || 0) - dt * 3.2);
 
-    const sp = d.speaking, seat = d.seated, mv = d.moving * (1 - seat);
-    const rn = d.running, aim = d.aiming * (1 - seat), joy = d.cheering;
+    const sw = d.swim;
+    const sp = d.speaking, seat = d.seated, mv = d.moving * (1 - seat) * (1 - sw);
+    const rn = d.running, aim = d.aiming * (1 - seat) * (1 - sw), joy = d.cheering;
+    const swPh = d.swimPhase || 0, swEff = d.swimEffort || 0, tuck = d.tuck || 0;
 
     /* -------- the walk --------
        Stride frequency rises with speed, which is most of why a cheap
@@ -879,17 +914,42 @@ const Figure = (() => {
          thigh's, negated — that is what "the shin is vertical" means
          in a chain, and it is why it is written as `-SEAT_TILT`
          rather than as a second number that has to be kept in step. */
-      L.pivot.rotation.x = U.lerp(thigh, SEAT_TILT, seat);
-      L.knee.rotation.x = U.lerp(-bend - gait * 0.10, -SEAT_TILT, seat);
-      L.ankle.rotation.x = U.lerp(bend * 0.45 - thigh * 0.20, 0.02, seat);
+      let px = U.lerp(thigh, SEAT_TILT, seat);
+      let kx = U.lerp(-bend - gait * 0.10, -SEAT_TILT, seat);
+      let ax = U.lerp(bend * 0.45 - thigh * 0.20, 0.02, seat);
+
+      /* The dolphin kick. Both legs together with a hair of lag between
+         them — dead symmetry reads as a machine — and the knee only
+         folds on the recovery half, which is the half that does no
+         work. The ankle stays pointed the whole way through, because a
+         flexed foot in a fin is a brake. */
+      if (sw > 0.001) {
+        const k = Math.sin(swPh - (key === 'l' ? 0 : 0.14));
+        const amp = 0.26 + 0.66 * swEff;
+        px = U.lerp(px, k * amp, sw);
+        kx = U.lerp(kx, -Math.max(0, -k) * (0.45 + 0.95 * swEff) - 0.06, sw);
+        ax = U.lerp(ax, 0.42 + k * 0.22, sw);
+      }
+      L.pivot.rotation.x = px;
+      L.knee.rotation.x = kx;
+      L.ankle.rotation.x = ax;
     }
 
     // hips bob twice per stride and roll once, which is the difference
     // between walking and being carried
     const bob = Math.abs(Math.cos(st)) * 0.052 * gait;
-    r.hips.position.y = d.stand - U.lerp(bob, d.seatDrop || 0.42, seat);
+    r.hips.position.y = d.stand - U.lerp(bob, d.seatDrop || 0.42, seat) * (1 - sw);
     r.hips.rotation.z = swing * 0.052 * gait + Math.sin(t * 0.42 + ph) * 0.012 * (1 - mv);
     r.hips.rotation.y = -swing * 0.075 * gait;
+    /* The wave runs hips -> spine -> chest with a lag at each joint,
+       which is the whole of why an undulation reads as a body rather
+       than as three hinges moving at once. */
+    if (sw > 0.001) {
+      r.hips.rotation.x = U.lerp(r.hips.rotation.x || 0,
+                                 Math.sin(swPh) * (0.08 + 0.16 * swEff), sw);
+      r.hips.rotation.z = U.lerp(r.hips.rotation.z, 0, sw);
+      r.hips.rotation.y = U.lerp(r.hips.rotation.y, 0, sw);
+    } else if (r.hips.rotation.x) r.hips.rotation.x = 0;
 
     // weight shifting from one foot to the other while standing still
     const sway = (Math.sin(t * 0.42 + ph) * 0.5 + Math.sin(t * 0.71 + ph * 1.7) * 0.5)
@@ -897,6 +957,12 @@ const Figure = (() => {
     r.spine.rotation.z = -sway * 0.026 - d.lean * 0.16 * mv;
     r.spine.rotation.y = swing * 0.085 * gait + Math.sin(t * 0.31 + ph * 2.1) * 0.05 * (1 - mv);
     r.spine.rotation.x = mv * (0.10 + rn * 0.16) - joy * 0.10 + d.flinch * 0.22;
+    if (sw > 0.001) {
+      r.spine.rotation.x = U.lerp(r.spine.rotation.x,
+        Math.sin(swPh - 0.55) * (0.07 + 0.15 * swEff) + tuck * 0.30, sw);
+      r.spine.rotation.z = U.lerp(r.spine.rotation.z, 0, sw);
+      r.spine.rotation.y = U.lerp(r.spine.rotation.y, 0, sw);
+    }
 
     // breathing, in the chest and nowhere else
     const breath = Math.sin(t * (1.15 + rn * 1.6) + ph) * 0.5 + 0.5;
@@ -989,6 +1055,20 @@ const Figure = (() => {
         fx += -gest * 0.22 - hold * 0.30;
       }
 
+      /* Swimming: the arms lock out overhead — which, once the whole
+         figure is prone, is straight down the line of travel — and are
+         pulled through on the working half of the stroke. Carrying
+         folds them back in around whatever is in them. */
+      if (sw > 0.001) {
+        const pull = Math.max(0, Math.sin(swPh)) * swEff;
+        const sx = -2.70 + pull * 2.05 + tuck * 1.55;
+        const sz = A.side * (0.07 + pull * 0.28) + tuck * A.side * 0.22;
+        const sfx = -0.06 - pull * 0.52 - tuck * 1.05;
+        x = U.lerp(x, sx, sw);
+        z = U.lerp(z, sz, sw);
+        fx = U.lerp(fx, sfx, sw);
+      }
+
       A.pivot.rotation.x = x;
       A.pivot.rotation.z = z;
       A.fore.rotation.x = fx;
@@ -1001,6 +1081,16 @@ const Figure = (() => {
                          - aim * (d.aimPitch || 0) * 0.55;
     r.chest.rotation.y = aim * 0.30;
     r.chest.rotation.z = sway * 0.018;
+    if (sw > 0.001) {
+      r.chest.rotation.x = U.lerp(r.chest.rotation.x,
+        Math.sin(swPh - 1.05) * (0.06 + 0.12 * swEff) + tuck * 0.22, sw);
+      r.chest.rotation.y = U.lerp(r.chest.rotation.y, 0, sw);
+      /* Head up out of the streamline: a diver looks where they are
+         going, and a figure staring at the sand for three minutes is
+         the single fastest way to make this read as a corpse. */
+      r.head.rotation.x = U.lerp(r.head.rotation.x, -0.62 - d.pitchNow * 0.4, sw);
+      r.head.rotation.z = U.lerp(r.head.rotation.z, 0, sw);
+    }
   }
 
   function dispose(fig) {
@@ -1014,6 +1104,7 @@ const Figure = (() => {
   function paletteFor(index) { return CAST_PALETTES[index % CAST_PALETTES.length]; }
 
   return { build, update, setSeated, setSpeaking, setLocomotion, setAiming,
+           setSwim, setSwimming,
            setCheering, flinch, lookAt, dispose, paletteFor,
            setHolding, throwNow, throwProgress, handAt, headAt, THROW_AT,
            PALETTES, CAST_PALETTES };

@@ -180,13 +180,21 @@ const Input = (() => {
     bBtn.addEventListener('pointerup', () => { touch.boost = false; });
     bBtn.addEventListener('pointercancel', () => { touch.boost = false; });
 
-    initTouchAim();
+    initTouchAim('touch-shoot', {
+      pads: [['.draw-pad', 'Touch0'], ['.focus-pad', 'Touch2'], ['.sprint-pad', 'Touch3']],
+      stick: '.move-zone', knob: '.move-knob',
+    });
+    initTouchAim('touch-dive', {
+      pads: [['.kick-pad', 'Touch0']],
+      stick: '.scull-zone', knob: '.scull-knob',
+    });
     watchScreens();
   }
 
   /* Which screens the thumb overlay may sit under.
 
-     `hud` and `hud-shoot` are the two missions; `null` is a scene, and
+     `hud`, `hud-shoot` and `hud-dive` are the missions; `null` is a
+     scene, and
      a scene is played over the world with no screen up at all. `vote`
      is the fire's ballot, whose own container deliberately passes taps
      through so you can still look around while the pouches burn.
@@ -194,22 +202,28 @@ const Input = (() => {
      Everything else is a panel with buttons on it, and a transparent
      full-screen sheet over one of those is the reason a tablet could
      watch a scoreboard it was unable to dismiss. */
-  const THUMBS_OK = ['hud', 'hud-shoot', 'vote'];
+  const THUMBS_OK = ['hud', 'hud-shoot', 'hud-dive', 'vote'];
 
   function watchScreens() {
     if (typeof Screens === 'undefined') return;
     const paint = (id) => {
-      const shoot = document.getElementById('touch-shoot');
-      if (shoot) shoot.classList.toggle('blocked', !!id && THUMBS_OK.indexOf(id) < 0);
+      const blocked = !!id && THUMBS_OK.indexOf(id) < 0;
+      for (const n of ['touch-shoot', 'touch-dive']) {
+        const el = document.getElementById(n);
+        if (el) el.classList.toggle('blocked', blocked);
+      }
     };
     Screens.onShow(paint);
     paint(Screens.current);
   }
 
-  /* Aiming by thumb: drag anywhere on the sheet to look, hold DRAW to pull
-     the string, hold FOCUS to steady it. Two pads and the whole screen. */
-  function initTouchAim() {
-    const pad = document.getElementById('touch-shoot');
+  /* Aiming by thumb: drag anywhere on the sheet to look, hold a pad to
+     act. The shooter has three pads and a walking stick; the dive has
+     one pad and a sculling stick. Everything about the *drag* is
+     identical, so it is one function with a table of buttons rather
+     than two sheets that will quietly drift apart. */
+  function initTouchAim(sheetId, buttons) {
+    const pad = document.getElementById(sheetId);
     if (!pad) return;
 
     let id = null, lx = 0, ly = 0;
@@ -235,14 +249,13 @@ const Input = (() => {
       b.addEventListener('pointerup', () => pressCode(code, false));
       b.addEventListener('pointercancel', () => pressCode(code, false));
     };
-    bind('.draw-pad', 'Touch0');
-    bind('.focus-pad', 'Touch2');
-    bind('.sprint-pad', 'Touch3');
+    for (const b of buttons.pads) bind(b[0], b[1]);
 
-    // a walking stick in the bottom-left corner
-    const stick = pad.querySelector('.move-zone');
+    // a stick in the bottom-left corner: walking in the wood, sculling
+    // in the water
+    const stick = pad.querySelector(buttons.stick);
     if (stick) {
-      const knob = stick.querySelector('.move-knob');
+      const knob = stick.querySelector(buttons.knob);
       let mid = null, mx = 0, my = 0;
       stick.addEventListener('pointerdown', e => {
         mid = e.pointerId; mx = e.clientX; my = e.clientY;
@@ -266,14 +279,22 @@ const Input = (() => {
 
   // which touch overlay is live — a mission picks one in build()
   function setTouchMode(mode) {
-    touchMode = mode === 'aim' || mode === 'walk' || mode === 'off' ? mode : 'drive';
+    touchMode = mode === 'aim' || mode === 'walk' || mode === 'swim' || mode === 'off'
+      ? mode : 'drive';
     const drive = document.getElementById('touch-controls');
     const shoot = document.getElementById('touch-shoot');
+    /* The dive gets its own sheet rather than borrowing the shooter's:
+       it has one pad instead of three and the labels on them are what
+       a touch player is reading, so relabelling somebody else's is not
+       an option. Everything else — drag anywhere to steer, a stick in
+       the corner — is the same machinery underneath. */
+    const swim = document.getElementById('touch-dive');
     if (drive) drive.classList.toggle('visible', isTouch && touchMode === 'drive');
     if (shoot) {
       shoot.classList.toggle('visible', isTouch && (touchMode === 'aim' || touchMode === 'walk'));
       shoot.classList.toggle('walk-only', touchMode === 'walk');
     }
+    if (swim) swim.classList.toggle('visible', isTouch && touchMode === 'swim');
   }
 
   function gamepad() {

@@ -7,8 +7,8 @@ a browser with no account and no install. Three ways in:
   Highland hill, a mission, a round table, a second mission, and a finale at the fire
   where the pot is won or lost on one throw. You type a name, somebody reads out four
   letters, and that is the entire sign-up.
-- **MISSIONS** is solo practice on the missions themselves. Two are built: **Boat Race**
-  and **Shootout**.
+- **MISSIONS** is solo practice on the missions themselves. Three are built: **Boat
+  Race**, **Shootout** and **The Dive**.
 - **DRESSING ROOM** is where you decide who you are. Saved on your own machine; the
   other two see exactly what you built.
 
@@ -158,6 +158,7 @@ losing loses it. Nothing is banked until the fire goes out.
 | Pouch reveal | The camera unlocks only for the short cinematic as the pouch is thrown into the fire |
 | The fire | the vote is a panel of buttons; the same four inputs drive it |
 | Missions | as documented below, and gamepad and touch both work |
+| The Dive | one button: `Space` (or `LMB`) kicks, the mouse steers, `WASD` sculls |
 | Your microphone | `V`, the pad's **Y/triangle**, or the button in the corner. It is separate from game sound, and it is on every screen |
 | A room code | four `<select>`s, so left/right on a pad dials a letter, a phone gets its native picker, and a keyboard can type A–Z |
 
@@ -338,6 +339,107 @@ difficulty tier from the seed, so "Rowan Deep, 8812" is one specific run and not
 `shootout-twists.js` is a sixteen-card deck in exactly the same declarative shape as
 `modifiers.js`, so the briefing screen renders either without knowing which game it is
 looking at.
+
+---
+
+## Playing the Dive
+
+You are in a sunlit sea loch with a broken trawler on the slope below you and a trench
+past that. Three minutes, one breath at a time. There is one button.
+
+Everything you surface holding turns into money. Black out and every chest in your hands
+falls where you are and lies there, **lit, on the floor, for anybody to take** — the
+other two included — and you float helplessly for three seconds while they decide.
+
+| Action | Keys |
+| --- | --- |
+| Steer | mouse (click once to lock the pointer) |
+| Kick | `Space` (or `LMB`) |
+| Scull | `W` `A` `S` `D` — a nudge, for lining a chest up |
+| Pause | `Esc` / `P` |
+
+Gamepad and touch both work; touch gets a sculling stick and one big KICK pad.
+
+### The whole mission is one rule
+
+The money does not vanish when you drown. It *moves*. Three things fall out of that,
+and they are the reason this mission exists:
+
+- **Drowning looks exactly like ambition.** Every way a Traitor can lose money down
+  there is also what the best diver at the table does. Coming up empty is what greed
+  looks like from the outside.
+- **A Traitor's loss is somebody else's gain**, so "the pot is short" stops being
+  evidence of anything.
+- **A run is thirty seconds long and restarts instantly**, so the loop repeats sixty
+  times a night rather than twice.
+
+### You swim on the beat
+
+A stroke is a *shaped burst* — thrust that ramps in and out over a quarter of a second —
+followed by a long, low-drag glide that you steer through. The glide is where the game
+is; the good players stroke less often than you would expect.
+
+The ring in the middle of the screen tightens to the music. Land a kick inside ±120 ms
+of the beat and it **chains**:
+
+| | off the beat | on the beat |
+| --- | --- | --- |
+| sustained speed | 11 m/s | 16.5 m/s |
+| air per stroke | full | 70% |
+| money per chest | ×1.00 | up to ×1.55 |
+
+Three chained strokes light it; missing a beat costs 65% of it and two seconds of not
+swimming costs the rest. Off-beat strokes work perfectly well and only forfeit the
+bonus, so the beat is a **ceiling, not a gate** — and the `Freediver` card removes it
+entirely for anybody who bounces off rhythm.
+
+The window is ±120 ms because that is the width `Bow.TUNE.perfectWindow` already taught
+your hands in the Shootout.
+
+### Down is free, up is what costs you
+
+Past about sixteen metres the water stops holding you up and you fall. Stop kicking and
+save the air for the climb — and every chest in your hands costs drag, air, a longer
+kick and a little more weight on the way back. The fourth one is the one that drowns
+people.
+
+| tier | depth | worth | round trip | comes back |
+| --- | --- | --- | --- | --- |
+| Shelf | 0 → 16 m | £380 | ~6 s | every 8 s |
+| Wreck | 16 → 34 m | £1,450 | ~9 s | every 13 s |
+| Trench | 34 m + | £3,800 | ~14 s | every 26 s |
+
+The trench is only a round trip **if you are on the beat**. Off it, a scripted diver
+that reaches the bottom does not come back — which is not a difficulty setting, it is
+what the air arithmetic in `test/swim.test.js` asserts.
+
+And the surface interval is real: a shelf trip is back in the water in a second and a
+half, a trench trip has to float for five, in front of everybody. It is the only thing
+that stops the deep being the answer to every question.
+
+### The reef conserves what is in it
+
+Each tier keeps a population. A chest taken off the reef comes back on that tier's own
+clock; a chest **dropped** was never taken off it, so it does not. A diver who drowns in
+the trench has parked the trench's money on the floor where everyone can see it, and no
+new trench chest arrives until somebody picks it up. Blacking out cannot mint gold, and
+"the pot is short" keeps meaning what it means.
+
+### Where a run is won
+
+Three minutes, and a scripted diver playing perfectly on the beat:
+
+| what it does all run | what it comes home with |
+| --- | --- |
+| the shelf only | ~£15,000 |
+| whatever is nearest | ~£29,000 |
+| the wreck only | ~£32,000 |
+| the trench only | ~£44,000 |
+| the trench only, off the beat | a fraction of that, and blackouts |
+| the trench with no bail-out at all | nothing |
+
+Every one of those numbers came out of `test/swim.test.js` and a scripted run in node,
+not out of a guess. Par is £30,000.
 
 ---
 
@@ -630,6 +732,19 @@ lattice under the boat, then two polar annuli that butt up against it and carry 
 sea out to the horizon. They meet edge to edge rather than stacking, so there is no
 overlapping-sheet seam across the middle distance.
 
+**It is also a ceiling.** All three shells are built in XY and rotated flat, so their
+normals point up and a front-face-only ocean is culled entirely from underneath — an
+underwater camera used to see straight through to the sky dome. The material is
+`DoubleSide` permanently and the fragment shader flips its blended normal on
+`gl_FrontFacing`, which turns the light *through* the water instead of off it and lets
+the Fresnel mirror the water rather than the sky. That one change is the whole of what
+the Dive needed from the engine, and it costs no fill for geometry nothing gets behind.
+
+`Water` is a **global singleton** and `build()` resets its palette. Nothing else in the
+repo restored it, so a mission that changes the water owns putting it back —
+`DiveMission.dispose()` is the worked example and there is a note beside
+`Water.DEFAULTS` so the next one inherits the rule.
+
 ### The boat is lofted, not assembled
 
 `Boat.HULL` is a handful of numbers — length, beam, deck crown, where the cockpit
@@ -638,6 +753,46 @@ bottom, hard chine, flared topside) and `buildMesh` sweeps that along the centre
 Every fitting on top asks `Boat.deckAt(z, x)` where the deck actually is before it
 places itself, so changing the hull moves the seats, the windscreen and the flag with
 it and nothing is left hovering.
+
+### The reef is lit by one patched program
+
+`reef.js` builds the Dive's loch: a floor function with three terraces (shelf in the
+middle, the wreck on the slope, the trench at the rim) plus dunes, coral heads and a
+canyon cut across it from the seed, so no two runs are the same hunt.
+
+Everything in it is lit by **one** `onBeforeCompile` patch. `ReefKit.causticMaterial`
+adds two crossed noise fields at different speeds, multiplied — one field is a texture,
+two moving against each other is a lens, and that difference is the entire effect — and
+the seabed, the wreck, the rock and the kelp all share it, so the whole floor catches
+the same moving light for the cost of one program rather than five. The same patch
+carries the current's sway for the kelp, which is `ForestKit.windMaterial`'s trick
+under water.
+
+The kelp is `HighlandKit.bladeGeometry` instanced by `ForestKit.instance`; the marine
+snow is `ForestKit.buildMotes` with the fall reversed so it drifts up; the shafts are
+ten sprites on the sun's bearing. None of that is a second copy of anything.
+
+**Depth is colour, never darkness.** The hour is always noon — the brightest light rig
+in the game — and one ramp through `ReefKit.BANDS` drives the scene fog, the water's own
+fog, the caustic strength and the pressure vignette together. The trench end of it is a
+*saturated* cobalt whose luminance is no lower than the shelf's turquoise; what tells
+you it is dangerous is the colour going cold, the FOV narrowing, the surface receding
+overhead, and a cyan-white vignette closing in. A player who cannot see is not being
+threatened, they are being inconvenienced.
+
+### The Dive is where the music became a mechanic
+
+`Music` gained three surgical, backwards-compatible things: a score may bring its own
+`gears` (so the Dive can hold 96 BPM across every phase change — a beat-locked mechanic
+cannot survive an accelerando), `beat()` reads the bar's phase as exact arithmetic off
+the start time (`this.next` is a third of a second into the future by design and cannot
+be used as a clock), and one lowpass sits between the mix and the bus so submerging
+muffles the band and every surface break is a bright release. Existing scores keep their
+exact behaviour: `this.gears || GEARS`, a filter that starts wide open, and a new
+progression nobody else names.
+
+The mission runs a local metronome at the same tempo whenever the score has no clock, so
+a muted player still gets the whole mechanic.
 
 ### The cliffs are one grid with two materials
 
@@ -670,7 +825,7 @@ Missions.register({
   name: 'Shield Wall',
   tagline: 'Hold the line while the coins fall.',
   description: 'Longer text for the briefing screen.',
-  icon: '03', maxPrize: 22000, players: 'Squad', duration: '~4 min', order: 2,
+  icon: '04', maxPrize: 22000, players: 'Squad', duration: '~4 min', order: 3,
   create: (opts) => new ShieldWallMission(opts),
 });
 ```
@@ -682,9 +837,14 @@ come for free. Call `Missions.complete({ earned, completed, ... })` when the run
 the rest happens on its own.
 
 It also joins the PLAY rotation on its own. A night draws two missions from whatever is
-registered and unlocked, takes the first of your `modes` as its money mode, and deals one
-card from your own `preview().hand` as the night's twist — so a mission gets announced by
-Claudia, twisted and scored inside a night without knowing that any of that exists.
+registered and unlocked — three are, so a night is now a different pair of them — takes
+the first of your `modes` as its money mode, and deals one card from your own
+`preview().hand` as the night's twist. A mission gets announced by Claudia, twisted and
+scored inside a night without knowing that any of that exists.
+
+If it is a mission a Traitor could sabotage, give it a deck in `agendas.js` keyed by the
+same `id`. `mission-stats.test.js` will then hold you to it: every field a card reads has
+to be a field the mission actually writes.
 
 `opts` is whatever the briefing screen produced, and it is remembered so "race again"
 repeats the exact same run. A mission that wants no setup simply ignores it.
@@ -748,6 +908,14 @@ problem: `nextTime(id)` walks dawn → noon → dusk → night, so a mission can
 clock on between runs instead of asking the seed for an hour it has already had. The boat
 race keeps its place on that cycle in the save (`settings.raceTime`), which is why a
 retry of the run you just finished comes back at a different hour.
+
+The wood and the loch each **extend** this rather than forking it. `ForestConditions`
+keeps `Conditions.TIMES` for the light and adds the dial the sea does not have — what
+the air is doing, which really does push arrows and bend trees. `DiveConditions` does
+the same with how clear the water is, and takes no time-of-day option at all: the Dive
+is always noon on purpose, and the one thing that block exists to guarantee is that the
+water is never dark. Both hand the light rig straight back to `Conditions.lights`, so
+there is only ever one description of what noon looks like.
 
 ### Modifiers are data, not code
 
@@ -839,12 +1007,16 @@ useful message if anything reaches for it.
 | `agendas.test.js` | Every card and every alibi either side of its own threshold, plus the rules of the deck: a public tell, a way out, no free passes and no free alibis |
 | `mission-stats.test.js` | The other half of the deck: the missions' own trackers, driven frame by frame, producing the numbers the cards judge |
 | `transport.test.js` | A host and a guest in one process on a fake wire, including a guest that connects late and a guest that tries to vote as somebody else |
+| `swim.test.js` | The Dive's feel as arithmetic: the shaped impulse, the chain against `topSpeed`/`flowTop`, frame-rate independence at 20 fps and 120, and the dive profile that tuned every air constant |
 | `look.test.js` | That nothing you can put in localStorage produces a figure with no coat on |
 
-The whole thing takes about two seconds. Four of these have already earned their keep:
+The whole thing takes about four seconds. Five of these have already earned their keep:
 `agendas.test.js` found two cards that could be passed by doing nothing at all,
 `mission-stats.test.js` found a card reading a counter the boat race declared and never
 once wrote,
+`swim.test.js` is where the Dive's air, pressure and carry constants were *tuned* rather
+than merely checked — the trench is a round trip on the beat and not off it because that
+file says so and the numbers were moved until it did,
 `transport.test.js` found a guest that registered its listener *after* sending the
 message it was waiting for a reply to, and the floor tests found that a speaking turn
 left open really does keep ticking through every remaining seat — which is correct
@@ -855,8 +1027,13 @@ it.
 
 ## Tuning
 
-Most of the feel lives in three constant blocks:
+Most of the feel lives in four constant blocks:
 
+- `Swimmer.TUNE` in `js/entities/swimmer.js` — the Dive. The stroke (`kickAccel`,
+  `kickTime`), the glide (`glideDrag`, `carve`), the chain (`window`, `flowGain`,
+  `flowKick`) and the breath (`airDrain`, `pressureRef`, `intervalKeep`). Every number
+  in it has a unit comment and most of them are asserted in `swim.test.js`, so moving
+  one and running the suite tells you what you just changed about the game.
 - `Boat.TUNE` in `js/entities/boat.js` — acceleration, top speed, grip, `surfGain`
   (how much free speed a wave face gives), `launchSurf` (how hard a crest has to drop
   before you fly), `hullLength` (how much chop the hull planes over), and the air-trick
