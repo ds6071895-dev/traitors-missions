@@ -35,15 +35,28 @@ const ReefKit = (() => {
     sandWet:   new THREE.Color('#c9c089'),
     sandDeep:  new THREE.Color('#8fae9e'),
     silt:      new THREE.Color('#a9bfb2'),
-    coral:     new THREE.Color('#ff8f6a'),
-    coralPink: new THREE.Color('#ff9fd0'),
+    coral:     new THREE.Color('#ff7a52'),
+    coralPink: new THREE.Color('#ff8fd6'),
     coralGold: new THREE.Color('#ffd166'),
+    /* Three more, and they are the difference between a reef and a
+       sandbank. A tropical reef is not one warm hue with a bit of
+       pink in it — it is orange next to violet next to lime, all of
+       it at full saturation, and the eye reads that riot as *life*
+       long before it has worked out what any single thing is. */
+    coralViolet:new THREE.Color('#b06bff'),
+    coralTeal: new THREE.Color('#35f0c8'),
+    coralLime: new THREE.Color('#c8ff6a'),
     weed:      new THREE.Color('#2f8f6a'),
     weedDeep:  new THREE.Color('#1f6f78'),
     kelp:      new THREE.Color('#3aa06a'),
     kelpGold:  new THREE.Color('#a8c452'),
     rock:      new THREE.Color('#6f7f8c'),
     rockDark:  new THREE.Color('#41525f'),
+    /* The cave rock is the only genuinely dark thing in the loch, and
+       it is allowed to be, because it is the one place the mission
+       *wants* you to feel shut in. See `buildCaves`. */
+    caveRock:  new THREE.Color('#33414f'),
+    caveDark:  new THREE.Color('#16222e'),
     hull:      new THREE.Color('#5a6b6e'),
     hullRust:  new THREE.Color('#8a5a3c'),
     hullWeed:  new THREE.Color('#3f7f5f'),
@@ -377,13 +390,32 @@ const ReefKit = (() => {
         .lerp(COL.silt, U.smoothstep(0.66, 1.0, t) * 0.8)
         .lerp(COL.weed, U.clamp(fbm2(x * 0.06, z * 0.06, 2, 31) * 0.6 + 0.15, 0, 0.55))
         .lerp(COL.rock, U.smoothstep(0.55, 1.4, slope));
-      if (t < 0.42) {
-        const cor = Math.max(0, fbm2(x * 0.09, z * 0.09, 2, 71));
-        c.lerp(cor > 0.28 ? COL.coral : COL.coralPink,
-               U.smoothstep(0.20, 0.60, cor) * 0.55 * (1 - U.smoothstep(0.22, 0.45, t)));
-      }
+      /* ---- the coral fields ----
+         Two noise fields rather than one: the first says *whether*
+         there is coral here, the second says *which* coral, so the
+         reef comes out in patches of a colour rather than as a single
+         blended smear that averages to brown. And it now runs all the
+         way out to the lip of the trench instead of stopping at the
+         shelf — the slope is the best-looking half of the loch and it
+         used to be painted mud. */
+      const cor = Math.max(0, fbm2(x * 0.09, z * 0.09, 2, 71));
+      const which = fbm2(x * 0.045, z * 0.045, 2, 91);
+      const hue = which < -0.18 ? COL.coralViolet
+                : which < 0.02 ? COL.coralPink
+                : which < 0.22 ? COL.coral
+                : which < 0.40 ? COL.coralLime
+                : COL.coralTeal;
+      c.lerp(hue, U.smoothstep(0.14, 0.55, cor) * 0.72
+                  * (1 - U.smoothstep(0.62, 0.94, t)));
+      /* And a scatter of small bright flecks over the top of all of
+         it. They are half a metre across at this mesh's resolution, so
+         they never read as a *thing* — they read as the floor being
+         busy, which is exactly what forty metres of blue water needs
+         between you and it. */
+      const fleck = fbm2(x * 0.42, z * 0.42, 2, 113);
+      if (fleck > 0.34) c.lerp(COL.coralGold, (fleck - 0.34) * 1.1);
       const patch = fbm2(x * 0.16, z * 0.16, 2, 77);
-      c.offsetHSL(patch * 0.014, patch * 0.06, patch * 0.05);
+      c.offsetHSL(patch * 0.028, patch * 0.12, patch * 0.06);
     };
 
     /* ---- and above the tideline. Wet shingle, dry shingle, machair,
@@ -579,6 +611,266 @@ const ReefKit = (() => {
     return { geo: geos.length ? Sky.mergeGeometries(geos) : null, colliders };
   }
 
+  /* =============== the caves ===============
+
+     The one place in the loch that can kill you on its own.
+
+     Everything else down here is a negotiation with your own breath:
+     you can always stop, let go of the fourth chest and float, and the
+     water will carry you home. A cave takes that away. It is a rock
+     chamber with a lid on it and one gap in the rim, and inside it
+     *up is not a direction* — the only way out is the way you came in,
+     across the floor, on the air you have left.
+
+     So the trade is honest and it is legible from outside: the mouth
+     is lit by what is in there, the chests inside are worth several
+     times the trench, and the distance between you and the surface is
+     no longer the distance to the surface. It is that plus however
+     long it takes you to find the door.
+
+     Built out of the same displaced lumps as the boulders rather than
+     as a hollow shell, for two reasons. Overlapping blobs have no
+     zero-thickness edge anywhere — a one-sided dome viewed along its
+     rim reads as paper — and every rim lump is already the exact shape
+     the swimmer's collider list wants, so the walls of the cave cost
+     nothing that the reef was not paying anyway.
+
+     The roof is analytic, not geometric: `ceilingAt` is a cosine dome
+     the lumps are *placed against*, so what stops you is a function
+     rather than a mesh, and it stops you in the same place from every
+     direction and at every frame rate. */
+
+  /* One rock, as a geometry centred on the origin: a displaced
+     icosahedron shaded dark at the bottom and lit at the top. Pulled
+     out of `buildRocks` so the caves are built out of the reef's own
+     rock rather than out of a second kind of it. */
+  function blobGeometry(rng, r, scale, top, bottom, detail = 1) {
+    const g = new THREE.IcosahedronGeometry(r, detail);
+    const p = g.attributes.position;
+    const ls = lumps(rng);
+    for (let v = 0; v < p.count; v++) {
+      const vx = p.getX(v), vy = p.getY(v), vz = p.getZ(v);
+      const inv = 1 / (Math.hypot(vx, vy, vz) || 1);
+      const dx = vx * inv, dy = vy * inv, dz = vz * inv;
+      const rr = r * (1 + lumpAt(ls, dx * 2.2, dy * 2.2, dz * 2.2));
+      p.setXYZ(v, dx * rr * scale.x, dy * rr * scale.y, dz * rr * scale.z);
+    }
+    g.computeVertexNormals();
+    const c = new THREE.Color();
+    const cc = [];
+    const half = r * scale.y;
+    for (let v = 0; v < p.count; v++) {
+      const tt = U.clamp((p.getY(v) + half) / (2 * half), 0, 1);
+      c.copy(bottom).lerp(top, Math.pow(tt, 0.8));
+      c.multiplyScalar(0.5);
+      cc.push(c.r, c.g, c.b);
+    }
+    g.setAttribute('color', new THREE.Float32BufferAttribute(cc, 3));
+    return g;
+  }
+
+  /* How high the roof is over a point, as a fraction of the chamber's
+     height. A cosine rather than a hemisphere on purpose: a hemisphere
+     comes down to the floor at the rim, which would seal the mouth,
+     and the mouth is the entire mechanism. At the rim this still
+     leaves getting on for half the chamber's height, which is a slot
+     you can swim through without thinking about it. */
+  const CAVE_ROOF = (k) => 0.45 + 0.55 * Math.cos(Math.PI / 2 * U.clamp(k, 0, 1));
+  // both answers, reused: see `at` and `escape` below
+  const _caveHit = { cave: null, t: 0 };
+  const _caveOut = { x: 0, z: 0 };
+
+  function buildCaves(heightAt, rng, o) {
+    const list = [];
+    const geos = [];
+    const colliders = [];
+    const R = o.radius;
+    const seaA = (o.shoreAngle || 0) + Math.PI;
+
+    let tries = 0;
+    while (list.length < o.count && tries++ < o.count * 220) {
+      /* Seaward, and deep. A cave on the shelf would be a shortcut to
+         nothing — the whole proposition is "the money down here is
+         worth the roof", and on the shelf there is no money worth a
+         roof. */
+      const a = seaA + U.lerp(-1.30, 1.30, rng());
+      const rad = U.lerp(R * 0.46, R * 0.92, rng());
+      const x = Math.sin(a) * rad, z = Math.cos(a) * rad;
+      const floorY = heightAt(x, z);
+      if (floorY > o.maxY) continue;
+
+      const cR = rng.range(11.5, 15.5);
+      const cH = rng.range(7.6, 10.4);
+
+      /* The ground inside has to be something like a floor. A chamber
+         straddling a gully has its roof through the far wall and its
+         chests inside the rock, and both of those read as the game
+         being broken rather than as a cave being a cave. */
+      let lo = floorY, hi = floorY;
+      for (let k = 0; k < 9; k++) {
+        const ka = (k / 9) * Math.PI * 2;
+        const y = heightAt(x + Math.cos(ka) * cR * 0.62, z + Math.sin(ka) * cR * 0.62);
+        lo = Math.min(lo, y); hi = Math.max(hi, y);
+      }
+      if (hi - lo > 6.5) continue;
+
+      let ok = true;
+      for (const s of list) {
+        if ((s.x - x) ** 2 + (s.z - z) ** 2 < (s.R + cR + 34) ** 2) { ok = false; break; }
+      }
+      for (const av of (o.avoid || [])) {
+        if ((av.x - x) ** 2 + (av.z - z) ** 2 < (av.r + cR + 14) ** 2) { ok = false; break; }
+      }
+      if (!ok) continue;
+
+      /* The mouth faces the middle of the reef, so a cave is always
+         entered from the side you swam down — you never have to find
+         your way round the back of one on an empty bar. */
+      const mouthA = Math.atan2(-x, -z);
+      const mx = Math.sin(mouthA), mz = Math.cos(mouthA);
+      /* Half the mouth, in radians, and it is measured against the
+         *geometry* rather than against the colliders. The rim
+         boulders are four to six metres across and sit thirteen
+         apart, so they overlap heavily by design — which means
+         leaving out one of them opens a gap the colliders can see and
+         the eye cannot, and a diver would swim through solid rock
+         into a chamber with no visible door. Three out is a mouth. */
+      const MW = 0.75;
+
+      const cave = {
+        x, z, R: cR, H: cH, floorY,
+        mouthA, mx, mz,
+        // a point out in open water in front of the gap: where the
+        // resident shark patrols, and the doorway everything about a
+        // cave is measured from
+        mouth: { x: x + mx * cR * 1.02, z: z + mz * cR * 1.02,
+                 y: floorY + cH * CAVE_ROOF(1) * 0.45 },
+      };
+
+      // ---- the rim: a ring of boulders with a gap in it
+      const RIM = 13;
+      for (let i = 0; i < RIM; i++) {
+        const ang = mouthA + (i / RIM) * Math.PI * 2;
+        // the gap, and it is the only gap
+        const da = Math.abs(((ang - mouthA + Math.PI) % (Math.PI * 2)) - Math.PI);
+        if (da < MW) continue;
+        const rr = rng.range(4.4, 5.8);
+        const px = x + Math.sin(ang) * cR, pz = z + Math.cos(ang) * cR;
+        const gy = heightAt(px, pz);
+        const g = blobGeometry(rng, rr, { x: rng.range(0.9, 1.3), y: rng.range(0.95, 1.5),
+                                          z: rng.range(0.9, 1.3) },
+                               COL.caveRock, COL.caveDark);
+        g.rotateY(rng() * Math.PI * 2);
+        g.translate(px, gy + rr * 0.45, pz);
+        geos.push(g);
+        colliders.push({ x: px, z: pz, r: rr * 0.72, y0: gy - rr, y1: gy + rr * 2.2 });
+      }
+
+      // ---- the lid. Flattened lumps sat on the roof curve, working
+      // inwards, so the chamber is closed over and the rim boulders
+      // have something to hold up.
+      const ROOF = 9;
+      for (let i = 0; i < ROOF; i++) {
+        const ang = rng() * Math.PI * 2;
+        const d = cR * (i === 0 ? 0 : U.lerp(0.18, 0.86, rng()));
+        const rr = rng.range(5.0, 7.4);
+        // same (sin, cos) convention as the rim, so "which way is the
+        // mouth" means the same thing everywhere in this function
+        const px = x + Math.sin(ang) * d, pz = z + Math.cos(ang) * d;
+        const roofY = floorY + cH * CAVE_ROOF(d / cR);
+        const g = blobGeometry(rng, rr, { x: rng.range(1.0, 1.5), y: rng.range(0.34, 0.52),
+                                          z: rng.range(1.0, 1.5) },
+                               COL.caveRock, COL.caveDark);
+        g.rotateY(rng() * Math.PI * 2);
+        g.translate(px, roofY + rr * 0.30, pz);
+        geos.push(g);
+      }
+
+      list.push(cave);
+    }
+
+    /* The three questions the rest of the game asks a cave, and none
+       of them touch the geometry. */
+    const api = {
+      list,
+      geo: geos.length ? Sky.mergeGeometries(geos) : null,
+      colliders,
+
+      /* The roof, or +Infinity where the sky is the limit. This is the
+         whole risk of a cave expressed as four lines: inside one, the
+         diver's own buoyancy — and the float that a blackout puts them
+         into — stops being a way out. */
+      ceilingAt(x, z) {
+        for (let i = 0; i < list.length; i++) {
+          const s = list[i];
+          const dx = x - s.x, dz = z - s.z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 >= s.R * s.R) continue;
+          const roof = s.floorY + s.H * CAVE_ROOF(Math.sqrt(d2) / s.R);
+          /* Never lower than swimming height off whatever the floor is
+             actually doing under you. A cave is dangerous, not a vice
+             — and this is not a detail, because the mouth faces the
+             middle of the reef, which is the *up-slope* side, so the
+             ground rises into the doorway exactly where the roof is
+             at its lowest. Without the clamp the door is the tightest
+             point of the whole chamber. */
+          return Math.max(roof, heightAt(x, z) + 3.0);
+        }
+        return Infinity;
+      },
+
+      /* Which cave you are in, and how far into it — 0 at the rim, 1
+         in the middle. The mission drives the fog, the vignette and the
+         sharks' interest off this one number, every frame, so it
+         writes into one reused object rather than handing out a new
+         one sixty times a second. */
+      at(x, y, z) {
+        for (let i = 0; i < list.length; i++) {
+          const s = list[i];
+          const d = Math.hypot(x - s.x, z - s.z);
+          if (d >= s.R) continue;
+          if (y > s.floorY + s.H * CAVE_ROOF(d / s.R) + 1.5) continue;
+          _caveHit.cave = s;
+          _caveHit.t = 1 - U.smoothstep(s.R * 0.42, s.R, d);
+          return _caveHit;
+        }
+        return null;
+      },
+
+      /* The way out, flat and normalised. Used for exactly one thing:
+         a diver who blacked out under a roof would otherwise lie
+         against the ceiling until the bell, which is not a risk, it is
+         a broken run. Instead the body washes out of the mouth — which
+         is both what actually happens to a limp diver in a chamber
+         with a current through it, and the shot the whole rule is
+         worth watching for.
+
+         The reach is half again the chamber's radius, and the point it
+         aims at is well outside the rim, for a reason that only shows
+         up once you watch it happen: the roof comes down to its lowest
+         at the rim, so a body that stops being pushed the instant it
+         crosses the line drifts straight back under the lip, rises a
+         metre, is slammed down again, and sits there bobbing on the
+         doorstep for the rest of the run. Pushing it *past* the mouth
+         rather than *to* it is the difference between washing out and
+         getting stuck in the door. */
+      escape(x, z) {
+        for (let i = 0; i < list.length; i++) {
+          const s = list[i];
+          const dx = x - s.x, dz = z - s.z;
+          if (dx * dx + dz * dz >= (s.R * 1.5) ** 2) continue;
+          const tx = s.x + s.mx * s.R * 2.4, tz = s.z + s.mz * s.R * 2.4;
+          const ox = tx - x, oz = tz - z;
+          const d = Math.hypot(ox, oz) || 1;
+          _caveOut.x = ox / d; _caveOut.z = oz / d;
+          return _caveOut;
+        }
+        return null;
+      },
+    };
+    return api;
+  }
+
   /* =============== the wreck =============== */
 
   /* A broken trawler on the slope: a keel, ribs open to the water, a
@@ -729,6 +1021,155 @@ const ReefKit = (() => {
       if (y > -2.4) continue;
       if (rng() > U.clamp(1 - U.smoothstep(-16, -40, y), 0.06, 1)) continue;
       spots.push({ x, z, y, s: rng.range(0.8, 2.0), rot: rng() * 6.28, kind: i % geos.length });
+    }
+    return { geos, spots };
+  }
+
+  /* =============== sea fans and anemones ===============
+
+     The kelp already gives the loch movement. What it does not give it
+     is *colour*, because kelp is green and so is everything else that
+     grows. These two are the reef's paint: a gorgonian fan is a flat
+     lace screen you see the light through, and an anemone is a small
+     lit thing sitting on the sand — and between them they turn a
+     seabed you swim over into a seabed you swim *through*.
+
+     Both are one instanced draw each and both hang off machinery that
+     already exists: the fans sway on the same current uniform as the
+     kelp, and the tint comes off `ForestKit.instance` exactly as the
+     hillside's grass does. */
+
+  /* A fan: ribs radiating in a plane with three arcs webbed across
+     them. Flat on purpose — a sea fan is a two-dimensional animal, it
+     stands across the current to filter it, and that thinness is why
+     it flickers as you swim past one. Greyscale down the ribs so the
+     per-instance tint has something to shade. */
+  function fanGeometry(rng) {
+    const parts = [];
+    const ribs = 5 + (rng() * 4 | 0);
+    const spread = rng.range(0.48, 0.72);
+    for (let i = 0; i < ribs; i++) {
+      const k = ribs === 1 ? 0.5 : i / (ribs - 1);
+      const a = U.lerp(-spread, spread, k);
+      const len = (1 - Math.abs(a) * 0.40) * rng.range(0.86, 1.06);
+      const g = new THREE.BoxGeometry(0.050, len, 0.036);
+      g.translate(0, len / 2, 0);
+      g.rotateZ(-a);
+      parts.push(g);
+    }
+    for (let k = 1; k <= 3; k++) {
+      const t = k / 3.5;
+      const g = new THREE.BoxGeometry(2 * Math.sin(spread) * t * 1.05, 0.038, 0.030);
+      g.translate(0, t * 0.94, 0);
+      parts.push(g);
+    }
+    // and a stub of a holdfast, so it grows out of the sand
+    const foot = new THREE.CylinderGeometry(0.05, 0.10, 0.16, 5);
+    foot.translate(0, 0.06, 0);
+    parts.push(foot);
+
+    const g = Sky.mergeGeometries(parts);
+    const p = g.attributes.position;
+    const cc = new Float32Array(p.count * 3);
+    for (let v = 0; v < p.count; v++) {
+      // dark at the holdfast, bright at the tips: the same ramp the
+      // grass blade uses, for the same reason
+      const b = 0.40 + U.clamp(p.getY(v), 0, 1.2) * 0.70;
+      cc[v * 3] = b; cc[v * 3 + 1] = b; cc[v * 3 + 2] = b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(cc, 3));
+    g.computeVertexNormals();
+    return g;
+  }
+
+  const FAN_COLOURS = ['coralViolet', 'coral', 'coralPink', 'coralTeal',
+                       'coralGold', 'coralLime'];
+
+  function buildFans(heightAt, rng, o) {
+    const geos = [];
+    for (let i = 0; i < 4; i++) geos.push(fanGeometry(rng));
+    const spots = [];
+    for (let i = 0; i < o.count * 5 && spots.length < o.count; i++) {
+      const a = rng() * Math.PI * 2;
+      const r = U.lerp(o.r0, o.r1, Math.sqrt(rng()));
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      const y = heightAt(x, z);
+      if (y > -4 || y < -50) continue;
+      spots.push({ x, z, y, s: rng.range(1.6, 4.4), rot: rng() * 6.28,
+                   kind: i % geos.length, hue: FAN_COLOURS[(rng() * 6) | 0] });
+    }
+    return { geos, spots };
+  }
+
+  /* An anemone: a squat column with a crown of tentacles on it, and
+     the only thing on the seabed that makes its own light. That
+     matters twice — it is a bright dot on a blue floor from thirty
+     metres, and it is the only reason a cave has anything in it to see
+     by other than the chests you came for. */
+  function anemoneGeometry(rng) {
+    const parts = [];
+    const col = new THREE.CylinderGeometry(0.20, 0.30, 0.42, 7);
+    col.translate(0, 0.21, 0);
+    parts.push(col);
+    const n = 9 + (rng() * 5 | 0);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + rng() * 0.3;
+      const out = rng.range(0.55, 1.05);
+      const len = rng.range(0.34, 0.62);
+      const t = new THREE.CylinderGeometry(0.022, 0.055, len, 4);
+      t.translate(0, len / 2, 0);
+      t.rotateZ(out);
+      t.rotateY(a);
+      t.translate(0, 0.40, 0);
+      parts.push(t);
+    }
+    const g = Sky.mergeGeometries(parts);
+    const p = g.attributes.position;
+    const cc = new Float32Array(p.count * 3);
+    for (let v = 0; v < p.count; v++) {
+      const b = 0.34 + U.clamp(p.getY(v) / 0.95, 0, 1) * 0.86;
+      cc[v * 3] = b; cc[v * 3 + 1] = b; cc[v * 3 + 2] = b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(cc, 3));
+    g.computeVertexNormals();
+    return g;
+  }
+
+  /* Three colours, three draws. Emissive is a material uniform rather
+     than a per-instance one, so a single mesh could only ever glow one
+     colour — and one colour of glow over a whole loch is a light rig,
+     not a reef. */
+  const ANEMONE = [
+    { diffuse: '#ff5fae', glow: '#ff2f9c' },
+    { diffuse: '#4ff6ff', glow: '#00d8ff' },
+    { diffuse: '#ffd166', glow: '#ff9b1f' },
+  ];
+
+  function buildAnemones(heightAt, rng, o) {
+    const geos = [];
+    for (let i = 0; i < 3; i++) geos.push(anemoneGeometry(rng));
+    const spots = [];
+    for (let i = 0; i < o.count * 5 && spots.length < o.count; i++) {
+      const a = rng() * Math.PI * 2;
+      const r = U.lerp(o.r0, o.r1, Math.sqrt(rng()));
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      const y = heightAt(x, z);
+      if (y > -5 || y < -52) continue;
+      spots.push({ x, z, y, s: rng.range(0.8, 2.1), rot: rng() * 6.28,
+                   kind: (rng() * geos.length) | 0, hue: (rng() * ANEMONE.length) | 0 });
+    }
+    /* And a handful inside every cave, which is the only lighting a
+       cave gets. They are placed against the rim rather than in the
+       middle, so the chests are still the brightest thing in there. */
+    for (const cave of (o.caves || [])) {
+      for (let i = 0; i < 14; i++) {
+        const a = rng() * Math.PI * 2;
+        const r = cave.R * rng.range(0.40, 0.90);
+        const x = cave.x + Math.cos(a) * r, z = cave.z + Math.sin(a) * r;
+        spots.push({ x, z, y: heightAt(x, z), s: rng.range(1.3, 2.6),
+                     rot: rng() * 6.28, kind: (rng() * geos.length) | 0,
+                     hue: (rng() * ANEMONE.length) | 0 });
+      }
     }
     return { geos, spots };
   }
@@ -913,7 +1354,8 @@ const ReefKit = (() => {
 
   /* =============== the shoal =============== */
 
-  /* Fish, as one instanced mesh and a boids-lite update.
+  /* Fish, as one instanced mesh per species and a boids-lite update
+     over one flat array.
 
      A proper flock exists already in flyers.js, and it is the wrong
      tool here: it separates a *type* from a *behaviour* so that a
@@ -922,53 +1364,97 @@ const ReefKit = (() => {
      target. What the shoal has to be is scenery that moves like a
      living thing and gets out of your way — three rules and a wander
      point, updated on one flat array with no allocation, which is why
-     three hundred of them cost nothing.
+     six hundred of them cost nothing.
 
-     They also do a real job: a shoal that scatters is the only thing
-     down here that tells you somebody else has just swum past. */
+     They also do two real jobs. A shoal that scatters is the only
+     thing down here that tells you somebody else has just swum past —
+     and it is the first thing that tells you something *worse* has,
+     because the fish see a shark long before you do and they leave.
+
+     Species, rather than one fish repeated, because the single
+     cheapest way to make a reef read as alive is to have four
+     different colours of animal in the same water. They share the
+     whole simulation and differ only in size, speed, school size and
+     paint, so the fifth one is a row in a table. */
+  const SPECIES = [
+    { id: 'silver',  size: 1.00, share: 0.30, school: 34, speed: 9.0,
+      back: '#2f7fa8', belly: '#ffffff', glow: '#8fd9e8', shape: 'dart' },
+    { id: 'anthias', size: 0.62, share: 0.32, school: 46, speed: 7.6,
+      back: '#ff5a2f', belly: '#ffd166', glow: '#ff9b4a', shape: 'dart' },
+    { id: 'damsel',  size: 0.55, share: 0.22, school: 52, speed: 8.4,
+      back: '#2f5cff', belly: '#7ff0ff', glow: '#4aa8ff', shape: 'dart' },
+    { id: 'tang',    size: 1.15, share: 0.16, school: 14, speed: 6.4,
+      back: '#ffd23f', belly: '#35f0c8', glow: '#ffe98a', shape: 'disc' },
+  ];
+
+  /* One fish, pointing +Z. `dart` is the classic flattened diamond;
+     `disc` is a surgeonfish — tall, thin and side-on, which is a
+     completely different silhouette for two lines of scale. */
+  function fishGeometry(spec) {
+    const parts = [];
+    const s = spec.size;
+    const body = new THREE.OctahedronGeometry(0.34 * s, 0);
+    if (spec.shape === 'disc') body.scale(0.30, 1.35, 1.30);
+    else body.scale(0.55, 0.75, 1.90);
+    parts.push(body);
+    const tail = new THREE.ConeGeometry(0.26 * s, 0.42 * s, 3);
+    tail.rotateX(Math.PI / 2);
+    tail.translate(0, 0, spec.shape === 'disc' ? -0.50 * s : -0.72 * s);
+    parts.push(tail);
+    const geo = Sky.mergeGeometries(parts);
+    for (const p of parts) p.dispose();
+    // the classic countershade: bright belly, coloured back, so a
+    // shoal flickers as it turns instead of reading as a cloud of
+    // triangles
+    const p = geo.attributes.position;
+    const cols = new Float32Array(p.count * 3);
+    const c = new THREE.Color();
+    const back = new THREE.Color(spec.back), belly = new THREE.Color(spec.belly);
+    let lo = 1e9, hi = -1e9;
+    for (let i = 0; i < p.count; i++) { lo = Math.min(lo, p.getY(i)); hi = Math.max(hi, p.getY(i)); }
+    for (let i = 0; i < p.count; i++) {
+      const up = U.clamp((p.getY(i) - lo) / Math.max(1e-4, hi - lo), 0, 1);
+      c.copy(belly).lerp(back, up);
+      cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    geo.computeVertexNormals();
+    return geo;
+  }
+
   function buildShoal(scene, rng, o = {}) {
     const count = o.count || 140;
     const R = o.radius || 150;
     const heightAt = o.heightAt || (() => -30);
     const home = o.home || { x: 0, z: 0 };
 
-    // one fish: a flattened diamond with a tail, pointing +Z.
-    // (`mergeGeometries` expands an index itself, and asking a geometry
-    // that has none to drop one is a console warning per fish.)
-    const parts = [];
-    const body = new THREE.OctahedronGeometry(0.34, 0);
-    body.scale(0.55, 0.75, 1.9);
-    parts.push(body);
-    const tail = new THREE.ConeGeometry(0.26, 0.42, 3);
-    tail.rotateX(Math.PI / 2);
-    tail.translate(0, 0, -0.72);
-    parts.push(tail);
-    const geo = Sky.mergeGeometries(parts);
-    for (const p of parts) p.dispose();
-    // the classic countershade: bright back, pale belly, so a shoal
-    // flickers as it turns instead of reading as a cloud of triangles
-    const p = geo.attributes.position;
-    const cols = new Float32Array(p.count * 3);
-    const c = new THREE.Color();
-    for (let i = 0; i < p.count; i++) {
-      const up = U.clamp(p.getY(i) / 0.3 * 0.5 + 0.5, 0, 1);
-      c.setRGB(1, 1, 1).lerp(new THREE.Color('#2f7fa8'), up);
-      cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b;
+    /* ---- the meshes. One per species, each big enough for its share
+       of the population, and every fish carries the slot it owns in
+       its own species' mesh. ---- */
+    const kinds = [];
+    let given = 0;
+    for (let s = 0; s < SPECIES.length; s++) {
+      const spec = SPECIES[s];
+      const n = s === SPECIES.length - 1
+        ? Math.max(0, count - given) : Math.round(count * spec.share);
+      given += n;
+      const geo = fishGeometry(spec);
+      const mat = new THREE.MeshLambertMaterial({
+        vertexColors: true, flatShading: true,
+        emissive: spec.glow, emissiveIntensity: 0.30,
+      });
+      const mesh = n > 0 ? new THREE.InstancedMesh(geo, mat, n) : null;
+      if (mesh) {
+        mesh.frustumCulled = false;
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        scene.add(mesh);
+      }
+      kinds.push({ spec, geo, mat, mesh, n, used: 0 });
     }
-    geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-    geo.computeVertexNormals();
-
-    const mat = new THREE.MeshLambertMaterial({
-      vertexColors: true, flatShading: true,
-      emissive: '#8fd9e8', emissiveIntensity: 0.18,
-    });
-    const mesh = new THREE.InstancedMesh(geo, mat, count);
-    mesh.frustumCulled = false;
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
     // schools rather than one cloud: each fish belongs to a group with
     // its own wander point, so the loch has places that are busy
-    const SCHOOLS = Math.max(2, Math.round(count / 34));
+    const SCHOOLS = Math.max(3, Math.round(count / 30));
     const schools = [];
     for (let i = 0; i < SCHOOLS; i++) {
       let x = 0, z = 0;
@@ -977,7 +1463,8 @@ const ReefKit = (() => {
         x = Math.cos(a) * r; z = Math.sin(a) * r;
         if (heightAt(x, z) <= -7) break;
       }
-      schools.push({ x, z, y: heightAt(x, z) + rng.range(3, 12), t: rng() * 10 });
+      schools.push({ x, z, y: heightAt(x, z) + rng.range(3, 12), t: rng() * 10,
+                     spooked: 0 });
     }
     // a couple of schools always live on the wreck, because that is
     // where the middle tier's money is and it should look inhabited
@@ -989,34 +1476,66 @@ const ReefKit = (() => {
     const px = new Float32Array(count), py = new Float32Array(count), pz = new Float32Array(count);
     const vx = new Float32Array(count), vy = new Float32Array(count), vz = new Float32Array(count);
     const grp = new Int16Array(count);
+    const kind = new Int8Array(count);
+    const slot = new Int16Array(count);
     for (let i = 0; i < count; i++) {
       const s = schools[i % schools.length];
       grp[i] = i % schools.length;
+      /* A school is one species. Mixed shoals do exist and they look
+         like a bug: what the eye wants is a cloud of orange and, ten
+         metres past it, a cloud of blue. */
+      let k = grp[i] % kinds.length;
+      for (let tries = 0; tries < kinds.length && kinds[k].used >= kinds[k].n; tries++) {
+        k = (k + 1) % kinds.length;
+      }
+      if (kinds[k].used >= kinds[k].n) { kind[i] = -1; continue; }
+      kind[i] = k;
+      slot[i] = kinds[k].used++;
       px[i] = s.x + rng.range(-6, 6);
       py[i] = s.y + rng.range(-3, 3);
       pz[i] = s.z + rng.range(-6, 6);
       vx[i] = rng.range(-2, 2); vy[i] = rng.range(-0.4, 0.4); vz[i] = rng.range(-2, 2);
     }
+    /* A species whose share did not divide evenly into whole schools
+       ends up with slots nobody was assigned to, and an instance whose
+       matrix is never written is drawn at the identity — a knot of
+       fish standing perfectly still at the origin of the loch, which
+       is the middle of the shelf. Drawing only what was filled is the
+       whole fix, and it costs one line. */
+    for (const kd of kinds) if (kd.mesh) kd.mesh.count = kd.used;
 
     const d = new THREE.Object3D();
     const up = new THREE.Vector3(0, 1, 0);
     const look = new THREE.Vector3();
     let t = 0;
 
-    scene.add(mesh);
-
     return {
-      mesh, schools,
-      update(dt, diverPos, camPos) {
+      kinds, schools,
+      /* `threats` is a list of things with a position and a radius —
+         in practice the sharks. It is deliberately not a special case
+         of the diver: a fish does not know the difference between a
+         person and a predator, it knows the difference between
+         something six metres away and something that is not. */
+      update(dt, diverPos, camPos, threats) {
         t += dt;
         const step = Math.min(dt, 0.05);
         for (let s = 0; s < schools.length; s++) {
           const sc = schools[s];
           sc.t -= step;
+          sc.spooked = Math.max(0, sc.spooked - step);
+          /* A school with a shark in it leaves *now*, and stays jumpy
+             for a few seconds after. This is the tell: you notice the
+             water empty in front of you before you notice why. */
+          if (threats) {
+            for (const th of threats) {
+              const dx = sc.x - th.x, dz = sc.z - th.z;
+              if (dx * dx + dz * dz < 26 * 26) { sc.t = 0; sc.spooked = 4; break; }
+            }
+          }
           if (sc.t <= 0) {
             // a new place to be, always over the seabed, never above it,
             // and never up the beach
-            sc.t = 5 + Math.random() * 9;
+            sc.t = (sc.spooked ? 2 : 5) + Math.random() * (sc.spooked ? 3 : 9);
             for (let tries = 0; tries < 12; tries++) {
               const a = Math.random() * Math.PI * 2;
               const r = U.lerp(15, R, Math.sqrt(Math.random()));
@@ -1029,6 +1548,9 @@ const ReefKit = (() => {
           }
         }
         for (let i = 0; i < count; i++) {
+          const k = kind[i];
+          if (k < 0) continue;
+          const spec = kinds[k].spec;
           const sc = schools[grp[i]];
           // cohesion towards the school's wander point
           let ax = (sc.x - px[i]) * 0.55;
@@ -1044,20 +1566,32 @@ const ReefKit = (() => {
             const dx = px[i] - diverPos.x, dy = py[i] - diverPos.y, dz = pz[i] - diverPos.z;
             const d2 = dx * dx + dy * dy + dz * dz;
             if (d2 < 90 && d2 > 1e-4) {
-              const k = (90 - d2) / 90 * 46 / Math.sqrt(d2);
-              ax += dx * k; ay += dy * k; az += dz * k;
+              const k2 = (90 - d2) / 90 * 46 / Math.sqrt(d2);
+              ax += dx * k2; ay += dy * k2; az += dz * k2;
+            }
+          }
+          // ...and get out of a shark's way a great deal harder
+          if (threats) {
+            for (const th of threats) {
+              const dx = px[i] - th.x, dy = py[i] - th.y, dz = pz[i] - th.z;
+              const d2 = dx * dx + dy * dy + dz * dz;
+              const rr = (th.r || 14) * (th.r || 14);
+              if (d2 < rr && d2 > 1e-4) {
+                const k2 = (rr - d2) / rr * 150 / Math.sqrt(d2);
+                ax += dx * k2; ay += dy * k2; az += dz * k2;
+              }
             }
           }
           vx[i] = (vx[i] + ax * step) * 0.965;
           vy[i] = (vy[i] + ay * step) * 0.94;
           vz[i] = (vz[i] + az * step) * 0.965;
+          const top = spec.speed * (sc.spooked ? 1.6 : 1);
           const sp = Math.hypot(vx[i], vy[i], vz[i]);
-          if (sp > 9) { const k = 9 / sp; vx[i] *= k; vy[i] *= k; vz[i] *= k; }
+          if (sp > top) { const k2 = top / sp; vx[i] *= k2; vy[i] *= k2; vz[i] *= k2; }
           px[i] += vx[i] * step; py[i] += vy[i] * step; pz[i] += vz[i] * step;
           const floor = heightAt(px[i], pz[i]) + 1.0;
           if (py[i] < floor) { py[i] = floor; vy[i] = Math.abs(vy[i]); }
           if (py[i] > -1.5) { py[i] = -1.5; vy[i] = -Math.abs(vy[i]); }
-
           d.position.set(px[i], py[i], pz[i]);
           look.set(px[i] + vx[i], py[i] + vy[i], pz[i] + vz[i]);
           d.lookAt(look);
@@ -1067,14 +1601,16 @@ const ReefKit = (() => {
           d.rotation.z += wag;
           d.scale.set(1, 1, 1);
           d.updateMatrix();
-          mesh.setMatrixAt(i, d.matrix);
+          kinds[k].mesh.setMatrixAt(slot[i], d.matrix);
         }
-        mesh.instanceMatrix.needsUpdate = true;
+        for (const kd of kinds) if (kd.mesh) kd.mesh.instanceMatrix.needsUpdate = true;
       },
       dispose() {
-        Engine.disposeObject(mesh);
-        geo.dispose();
-        mat.dispose();
+        for (const kd of kinds) {
+          if (kd.mesh) Engine.disposeObject(kd.mesh);
+          kd.geo.dispose();
+          kd.mat.dispose();
+        }
       },
     };
   }
@@ -1086,8 +1622,15 @@ const ReefKit = (() => {
       radius: 190,
       rocks: 54,
       kelp: 620,
-      shafts: 9,
-      motes: 340,
+      /* The paint. Both of these are pure dressing and both of them
+         are worth more per instance than anything else in the file:
+         the loch reads as a *reef* rather than as a lit seabed almost
+         entirely because of the fans. */
+      fans: 300,
+      anemones: 230,
+      caves: 3,
+      shafts: 13,
+      motes: 460,
       trees: 900,
       grass: 1500,
       boulders: 70,
@@ -1156,10 +1699,27 @@ const ReefKit = (() => {
     wreckMesh.name = 'wreck';
     group.add(wreckMesh);
 
+    /* ---- the caves. Placed before the boulders so the boulders can
+       stay out of their mouths: a cave you cannot swim into is a very
+       expensive piece of scenery. ---- */
+    const caves = buildCaves(heightAt, rng, {
+      count: o.caves, radius: o.radius, shoreAngle: shoreAng,
+      maxY: -24,
+      avoid: [{ x: 0, z: 0, r: 24 }, { x: wAt.x, z: wAt.z, r: 40 }],
+    });
+    if (caves.geo) {
+      const caveMat = causticMaterial(uniforms, { gain: 0.28 });
+      geos.push(caves.geo); mats.push(caveMat);
+      const cm = new THREE.Mesh(caves.geo, caveMat);
+      cm.name = 'caves';
+      group.add(cm);
+    }
+
     // ---- rock and coral heads
     const rocks = buildRocks(heightAt, rng, {
       count: o.rocks, r0: 18, r1: o.radius * 0.98, size: [3.2, 9.5], coral: true,
-      avoid: [{ x: 0, z: 0, r: 16 }, { x: wAt.x, z: wAt.z, r: 30 }],
+      avoid: [{ x: 0, z: 0, r: 16 }, { x: wAt.x, z: wAt.z, r: 30 }].concat(
+        caves.list.map(c => ({ x: c.x, z: c.z, r: c.R + 8 }))),
     });
     if (rocks.geo) {
       const rockMat = causticMaterial(uniforms, { gain: 0.75 });
@@ -1189,6 +1749,50 @@ const ReefKit = (() => {
       geos.push(kelp.geos[k]);
     }
 
+    /* ---- the fans. Same sway uniform as the kelp and a per-instance
+       tint off the palette, so a hundred pounds of colour costs one
+       draw call and no new shader. ---- */
+    const fans = buildFans(heightAt, rng, { count: o.fans, r0: 12, r1: o.radius * 0.96 });
+    const fanMat = causticMaterial(uniforms, {
+      gain: 0.55, sway: 2.6, swayGain: 1.5,
+      mat: { side: THREE.DoubleSide },
+    });
+    mats.push(fanMat);
+    for (let k = 0; k < fans.geos.length; k++) {
+      const list = fans.spots.filter(sp => sp.kind === k);
+      if (!list.length) continue;
+      const mesh = ForestKit.instance(fans.geos[k], fanMat, list, rng, (c, sp, r) => {
+        c.copy(COL[sp.hue])
+         .offsetHSL(r.range(-0.04, 0.04), r.range(-0.06, 0.10), r.range(-0.10, 0.10))
+         .multiplyScalar(0.66);
+      });
+      if (mesh) { mesh.name = 'fans'; group.add(mesh); }
+      geos.push(fans.geos[k]);
+    }
+
+    /* ---- and the anemones, which are the only things on the floor
+       that make their own light. Three meshes, because emissive is a
+       material uniform: see `ANEMONE`. ---- */
+    const anem = buildAnemones(heightAt, rng, {
+      count: o.anemones, r0: 12, r1: o.radius * 0.96, caves: caves.list,
+    });
+    const anemMats = ANEMONE.map(a => new THREE.MeshLambertMaterial({
+      color: a.diffuse, vertexColors: true, flatShading: true,
+      emissive: a.glow, emissiveIntensity: 0.85,
+    }));
+    for (const m of anemMats) mats.push(m);
+    for (let k = 0; k < anem.geos.length; k++) {
+      for (let h = 0; h < anemMats.length; h++) {
+        const list = anem.spots.filter(sp => sp.kind === k && sp.hue === h);
+        if (!list.length) continue;
+        const mesh = ForestKit.instance(anem.geos[k], anemMats[h], list, rng, (c, sp, r) => {
+          c.setRGB(1, 1, 1).offsetHSL(0, 0, r.range(-0.14, 0.10));
+        });
+        if (mesh) { mesh.name = 'anemones'; group.add(mesh); }
+      }
+      geos.push(anem.geos[k]);
+    }
+
     // ---- shafts of sun
     const shafts = buildShafts(rng, { count: o.shafts });
     group.add(shafts.group);
@@ -1211,11 +1815,12 @@ const ReefKit = (() => {
 
     scene.add(group);
 
-    const colliders = rocks.colliders.concat(wreck.colliders, land.colliders);
+    const colliders = rocks.colliders.concat(wreck.colliders, land.colliders,
+                                             caves.colliders);
     const moteOpacity = motes.points.material.opacity;
 
     return {
-      group, heightAt, colliders, uniforms, radius: o.radius, shore,
+      group, heightAt, colliders, uniforms, radius: o.radius, shore, caves,
       wreck: { at: wAt, heading: wreck.heading, length: wreck.length },
       bandAt,
 
@@ -1261,8 +1866,9 @@ const ReefKit = (() => {
     };
   }
 
-  return { build, COL, BANDS, WET, bandAt, shoreFor, makeFloor, buildFloor, causticMaterial,
-           buildRocks, buildWreck, buildKelp, buildLand, buildShafts, buildShoal };
+  return { build, COL, BANDS, WET, SPECIES, ANEMONE, bandAt, shoreFor, makeFloor,
+           buildFloor, causticMaterial, buildRocks, buildWreck, buildKelp, buildLand,
+           buildShafts, buildShoal, buildCaves, buildFans, buildAnemones };
 })();
 
 

@@ -565,6 +565,94 @@ test('each tier comes back on its own clock', () => {
   const d = diver();
   ok(d._respawnFor(0) < d._respawnFor(1), 'the shelf refills faster than the wreck');
   ok(d._respawnFor(1) < d._respawnFor(2), 'and the wreck faster than the trench');
+  ok(DV.CONFIG.cave.respawn > d._respawnFor(2),
+     'and the caves slowest of all, or a cave is just a better trench');
+});
+
+/* ---- the caves ----
+   Cave salvage is a trench chest wearing violet: it uses the trench's
+   tier index everywhere so the depth bands, the tape and the music
+   gears keep working, and the *only* places it differs are the slot it
+   travels in and the column it lands in. Both of those are one-line
+   decisions and both are exactly the kind that rot silently. */
+
+test('cave salvage travels in its own slot and nothing else moves', () => {
+  eq(DV._packIndex({ tier: 0 }), 0, 'the shelf is slot nought');
+  eq(DV._packIndex({ tier: 2 }), 2, 'the trench is slot two');
+  eq(DV._packIndex({ tier: 2, cave: true }), 3, 'and a cave chest is slot three');
+  eq(DV._packIndex({ tier: 0, cave: true }), 3, 'whatever tier it was found in');
+  ok('cave' in DV.freshStats().tierBanked,
+     'the card has a column for it, or the money lands nowhere');
+});
+
+test('what a cave chest is worth is not what the trench is worth', () => {
+  const d = diver();
+  d.carry = [Object.assign(chest(2), { cave: true, value: DV.CONFIG.cave.value })];
+  eq(d._carryValue(), DV.CONFIG.cave.value, 'it is priced off CONFIG.cave');
+  ok(DV.CONFIG.cave.value > DV.CONFIG.tiers[2].value * 2,
+     'and it is worth going under a roof for');
+});
+
+/* The conservation rule, which is the one sentence this mission cannot
+   afford to lose: money taken off the reef comes back, money dropped on
+   the floor was never taken off it. The caves have to obey it too, or a
+   diver bitten in a cave mints violet gold. */
+test('the caves keep their own population, and a dropped one still counts', () => {
+  const spawned = [];
+  const base = () => ({
+    C: DV.CONFIG,
+    party: false, isHost: true,
+    caves: { list: [{ x: 0, z: 0, R: 12 }] },
+    _tierT: DV.CONFIG.tiers.map(() => 0),
+    _caveT2: 0,
+    _spawnChest: (t, at, o) => { spawned.push({ t, cave: !!(o && o.cave) }); return {}; },
+    _respawnFor: DV.prototype._respawnFor,
+  });
+
+  // a full loch asks for nothing, however long it waits
+  const full = Object.assign(base(), {
+    chests: [].concat(
+      DV.CONFIG.tiers.map((t, i) => Array.from({ length: t.chests }, () => ({ tier: i }))).flat(),
+      Array.from({ length: DV.CONFIG.cave.chests }, () => ({ tier: 2, cave: true }))),
+  });
+  DV.prototype._tickRespawn.call(full, DV.CONFIG.cave.respawn * 3);
+  eq(spawned.length, 0, 'nothing respawns while the reef is stocked');
+
+  // a cave chest lying on the sand where a shark knocked it is still
+  // cave money in the loch: the ground does not replace it
+  spawned.length = 0;
+  const dropped = Object.assign(base(), {
+    chests: [].concat(
+      DV.CONFIG.tiers.map((t, i) => Array.from({ length: t.chests }, () => ({ tier: i }))).flat(),
+      Array.from({ length: DV.CONFIG.cave.chests },
+                 (_, i) => ({ tier: 2, cave: true, dropped: i === 0 }))),
+  });
+  DV.prototype._tickRespawn.call(dropped, DV.CONFIG.cave.respawn * 3);
+  eq(spawned.length, 0, 'a dropped cave chest is not a missing one');
+
+  // ...but one actually carried out of the loch is
+  spawned.length = 0;
+  const short = Object.assign(base(), {
+    chests: [].concat(
+      DV.CONFIG.tiers.map((t, i) => Array.from({ length: t.chests }, () => ({ tier: i }))).flat(),
+      Array.from({ length: DV.CONFIG.cave.chests - 1 }, () => ({ tier: 2, cave: true }))),
+  });
+  DV.prototype._tickRespawn.call(short, DV.CONFIG.cave.respawn + 0.1);
+  eq(spawned.length, 1, 'a cave that is short refills');
+  eq(spawned[0].cave, true, 'and it refills with cave salvage, not with a trench chest');
+
+  // and cave chests must not be counted as trench stock, or the trench
+  // quietly stops refilling the moment somebody works the caves
+  spawned.length = 0;
+  const trenchShort = Object.assign(base(), {
+    chests: [].concat(
+      DV.CONFIG.tiers.map((t, i) => Array.from({ length: t.chests }, () => ({ tier: i }))).flat()
+        .filter((c, i, all) => !(c.tier === 2 && i === all.findIndex(x => x.tier === 2))),
+      Array.from({ length: DV.CONFIG.cave.chests + 4 }, () => ({ tier: 2, cave: true }))),
+  });
+  DV.prototype._tickRespawn.call(trenchShort, DV.CONFIG.tiers[2].respawn + 0.1);
+  ok(spawned.some(x => x.t === 2 && !x.cave),
+     'the trench refills even with a loch full of cave salvage');
 });
 
 test('what the other two are doing is read off their poses, not guessed', () => {

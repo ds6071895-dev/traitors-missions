@@ -49,6 +49,30 @@ class DiveMission {
         colour: '#39e6ff', name: 'Trench', respawn: 26 },
     ],
 
+    /* ---- the caves ----
+       The trench pays eleven times the shelf because it is deep. The
+       caves pay three times the trench because they are deep *and*
+       they have a lid on them, and a lid is a different kind of
+       expensive: in open water your own body is a way home, and under
+       a roof it is not. Everything else about a cave chest is a
+       trench chest — the same grab, the same drag in your hands — so
+       the only thing you are buying with the money is the swim back
+       out of the door you came in by, on the air you have left.
+
+       Five of them in the whole loch and half a minute to come back,
+       so a cave is somewhere you go once or twice in a run rather
+       than a better tier to live in. */
+    cave: {
+      chests: 5, value: 11500, colour: '#c77dff', respawn: 30, name: 'Cave',
+    },
+    /* ---- the sharks ----
+       Four, and the first ones live at the cave mouths — see
+       predators.js for why they cannot kill you and why the answer to
+       one is to swim at it. */
+    sharks:      4,
+    biteAir:     0.16,     // fraction of the bar a strike costs you
+    biteAirEmpty:0.07,     // ...and what it costs when your hands are empty
+
     carryMax:    4,        // chests in hand before you must surface
     grabRange:   3.0,      // metres; grabbing is automatic inside this
     flowMoney:   0.55,     // extra fraction of value at full chain
@@ -89,7 +113,7 @@ class DiveMission {
        is no longer over the moment your head is out of the water — it
        is over when you are stood on the shingle — and that is fifteen
        to forty seconds of swimming a run that used to be free. */
-    par:         21000,
+    par:         24000,
   };
 
   static MODES = {
@@ -163,7 +187,15 @@ class DiveMission {
       record: rec,
       bestText: rec.best ? U.money(rec.best.earned || 0) : null,
       hasGhost: !!GameState.getGhost('dive', key),
-      tiers: DiveMission.configFor(twist).tiers.map(t => t.name + ' ' + U.money(t.value)),
+      tiers: (() => {
+        const C = DiveMission.configFor(twist);
+        const rows = C.tiers.map(t => t.name + ' ' + U.money(t.value));
+        // the caves go on the briefing beside the tiers, because a
+        // number that big has to be visible before the run and not
+        // discovered forty metres down
+        if (C.cave && C.cave.chests) rows.push(C.cave.name + ' ' + U.money(C.cave.value));
+        return rows;
+      })(),
     };
   }
 
@@ -187,8 +219,14 @@ class DiveMission {
          card can tell you which. */
       landings: 0, bestHaul: 0,
       peakCarry: 0, peakCarryValue: 0,
-      tierBanked: { shelf: 0, wreck: 0, trench: 0 },
+      tierBanked: { shelf: 0, wreck: 0, trench: 0, cave: 0 },
       trenchTrips: 0, trenchEmpty: 0,
+      /* The caves, and the animals. Both halves of the same card: a
+         night with cave money on it is a night somebody took the roof
+         seriously, and a night with four bites and nothing to show is
+         either the worst diving at the table or a very good excuse. */
+      caveTrips: 0, caveChests: 0, deepestCave: 0,
+      bites: 0, fended: 0, biteLost: 0,
       strokes: 0, onBeat: 0, bestFlowRun: 0,
       lastMinuteBanked: 0, finalCarry: 0, finalCarryValue: 0,
       passedDrops: 0,
@@ -305,6 +343,16 @@ class DiveMission {
     this._wet = 0;             // seconds of water still on the lens
     this._dropHot = 0;         // how loudly the drop zone is calling you
     this._shownWet = -1;
+    /* The caves and the animals. All of it is per-run state: a restart
+       must put you back outside, unwatched, with nothing chasing you. */
+    this._caveT = 0;
+    this._caveT2 = 0;
+    this._inCave = null;
+    this._caveSaid = 0;
+    this._washOut = false;
+    this._threat = 0;
+    this._fend = false;
+    this._sharkList = null;
     this._paletteAt = undefined;
     this._skyOn = undefined;
     this._camRoll = 0;
@@ -364,11 +412,28 @@ class DiveMission {
     this.reef.setCurrent(cur.x, cur.z, cur.strength);
 
     this.shoal = ReefKit.buildShoal(scene, U.makeRng(this.seed + 21), {
-      count: this.flags.shoal ? 260 : 130,
+      count: this.flags.shoal ? 520 : 320,
       radius: C.reefRadius * 0.8,
       heightAt: this.reef.heightAt,
       home: this.reef.wreck.at,
     });
+
+    /* ---- and the thing the fish are afraid of.
+       Built after the reef because it needs the caves — the first
+       sharks den at their mouths — and after the shoal because the
+       shoal is handed the animals as threats every frame, which is
+       what makes an empty patch of water in front of you mean
+       something. */
+    this.sharks = PredatorKit.build(scene, U.makeRng(this.seed + 37), {
+      count: this.flags.noSharks ? 0 : C.sharks,
+      radius: C.reefRadius,
+      heightAt: this.reef.heightAt,
+      ceilingAt: (x, z) => this.reef.caves.ceilingAt(x, z),
+      caves: this.reef.caves.list,
+      onEvent: (kind, sh) => this._onShark(kind, sh),
+    });
+    this._threat = 0;         // the HUD's copy of how much trouble you are in
+    this._threatSaid = 0;
 
     // ---- the diver
     this.swimmer = new Swimmer({
@@ -385,7 +450,13 @@ class DiveMission {
       surfaceAt: (x, z) => Water.sampleHeight(x, z),
       colliders: this.reef.colliders,
       radius: C.reefRadius,
+      /* The one line that makes a cave a cave. Everything else about
+         them is scenery and money; this is the rule. */
+      ceilingAt: (x, z) => this.reef.caves.ceilingAt(x, z),
     };
+    this.caves = this.reef.caves;
+    this._caveT = 0;          // how far inside one you are, 0..1, damped
+    this._inCave = null;      // ...and which
 
     // ---- the money
     this._buildChestKit();
@@ -395,6 +466,12 @@ class DiveMission {
     for (let t = 0; t < C.tiers.length; t++) {
       for (let i = 0; i < C.tiers[t].chests; i++) this._spawnChest(t);
     }
+    // ...and the caves, which are stocked out of the trench's tier so
+    // every band, tape and music gear downstream keeps working
+    for (let i = 0; i < C.cave.chests; i++) {
+      this._spawnChest(C.tiers.length - 1, null, { cave: true });
+    }
+    this._caveT2 = 0;         // the caves' own respawn clock
 
     this._buildPeers(scene);
 
@@ -495,8 +572,29 @@ class DiveMission {
       color: t.colour, flatShading: true,
       emissive: t.colour, emissiveIntensity: 0.55,
     }));
+    /* And a fourth, on the end, for what comes out of the caves. It is
+       the only violet thing in a mission made of gold and cyan, and it
+       burns twice as hot as the trench does — a diver climbing the
+       slope with one of these under their arm should be visible from
+       the beach, because that is a person who went under a roof. */
+    this._chestMats.push(new THREE.MeshLambertMaterial({
+      color: this.C.cave.colour, flatShading: true,
+      emissive: this.C.cave.colour, emissiveIntensity: 1.05,
+    }));
     this._glowTex = Sky.glowTexture('rgba(255,255,255,0.95)', 'rgba(255,220,140,0.45)');
   }
+
+  /* Which of the four materials a chest wears. Cave salvage is a
+     trench chest as far as every tier, band and stat is concerned —
+     the violet is paint, not a fourth tier — so the one place that
+     difference exists is here. */
+  _chestMat(c) {
+    return this._chestMats[c && c.cave ? this._chestMats.length - 1
+                                       : U.clamp((c && c.tier) | 0, 0, 2)];
+  }
+
+  // ...and the same answer as a slot index, for the wire and the body
+  static _packIndex(c) { return c && c.cave ? 3 : U.clamp((c && c.tier) | 0, 0, 2); }
 
   /* ---- what is in your hands, on you ----
 
@@ -540,15 +638,43 @@ class DiveMission {
     for (let i = 0; i < pack.length; i++) {
       const t = tiers && tiers[i];
       pack[i].visible = t !== undefined && t !== null;
-      if (pack[i].visible) pack[i].material = this._chestMats[U.clamp(t | 0, 0, 2)];
+      if (pack[i].visible) pack[i].material = this._chestMats[U.clamp(t | 0, 0, 3)];
     }
   }
 
-  _spawnChest(tierIndex, at) {
+  /* `opts.cave` places it under a roof instead of on the open floor,
+     and paints and prices it accordingly. It is deliberately not a
+     fourth tier: everything downstream — the depth bands, the tape,
+     the music gears, the stats — keeps working because a cave chest
+     *is* a trench chest that happens to be somewhere worse. */
+  _spawnChest(tierIndex, at, opts = {}) {
     const C = this.C;
     const tier = C.tiers[tierIndex];
+    const cave = !!opts.cave;
     let x = 0, z = 0, y = 0;
     if (at) { x = at.x; z = at.z; y = at.y; }
+    else if (cave) {
+      /* Inside one, and never right by the mouth: the whole point of
+         the money being in there is that you have to commit to the
+         chamber to reach it. */
+      const caves = this.reef.caves.list;
+      if (!caves.length) return null;
+      const s = caves[(this.rng() * caves.length) | 0];
+      for (let tries = 0; tries < 60; tries++) {
+        const a = this.rng() * U.TAU;
+        const r = s.R * U.lerp(0.12, 0.72, Math.sqrt(this.rng()));
+        const px = s.x + Math.cos(a) * r, pz = s.z + Math.sin(a) * r;
+        const h = this.reef.heightAt(px, pz);
+        let clear = true;
+        for (const cd of this.reef.colliders) {
+          if ((cd.x - px) ** 2 + (cd.z - pz) ** 2 < (cd.r + 1.6) ** 2) { clear = false; break; }
+        }
+        if (!clear) continue;
+        x = px; z = pz; y = h + 0.35;
+        break;
+      }
+      if (y === 0) return null;
+    }
     else {
       // rejection-sample the tier's depth band off the floor function,
       // then sit the chest on the sand clear of any collider
@@ -576,16 +702,18 @@ class DiveMission {
       if (y === 0) return null;
     }
 
-    const mesh = new THREE.Mesh(this._chestGeo, this._chestMats[tierIndex]);
+    const colour = cave ? C.cave.colour : tier.colour;
+    const mesh = new THREE.Mesh(this._chestGeo, this._chestMat({ tier: tierIndex, cave }));
     mesh.position.set(x, y, z);
     mesh.rotation.y = this.rng() * U.TAU;
+    if (cave) mesh.scale.setScalar(1.22);
     this.scene.add(mesh);
 
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: this._glowTex, color: tier.colour, transparent: true,
+      map: this._glowTex, color: colour, transparent: true,
       opacity: 0.75, depthWrite: false, blending: THREE.AdditiveBlending,
     }));
-    glow.scale.setScalar(3.4 + tierIndex * 1.1);
+    glow.scale.setScalar(cave ? 7.2 : 3.4 + tierIndex * 1.1);
     glow.position.set(x, y + 0.4, z);
     glow.renderOrder = 5;
     this.scene.add(glow);
@@ -596,21 +724,27 @@ class DiveMission {
        rule was invisible past twenty metres of blue water, which meant
        it was a rule about a thing nobody could find. One sprite makes
        a blackout something the whole loch can see happen. */
+    /* Cave salvage gets one too, and gets it from birth rather than
+       only once somebody has dropped it. It is the mission telling you
+       there is eleven thousand pounds under that rock from the other
+       side of the loch, which is the only honest way to sell a risk:
+       show it to them, and let them decide. */
     let far = null;
-    if (at) {
+    if (at || cave) {
       far = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: this._glowTex, color: tier.colour, transparent: true,
+        map: this._glowTex, color: colour, transparent: true,
         opacity: 0.55, depthWrite: false, depthTest: false, fog: false,
         blending: THREE.AdditiveBlending,
       }));
-      far.scale.setScalar(2.4);
+      far.scale.setScalar(cave ? 3.2 : 2.4);
       far.position.set(x, y + 1.1, z);
       far.renderOrder = 39;
       this.scene.add(far);
     }
 
     const chest = {
-      id: this._nextChestId++, tier: tierIndex, value: tier.value,
+      id: this._nextChestId++, tier: tierIndex, cave,
+      value: cave ? C.cave.value : tier.value,
       x, y, z, mesh, glow, far, mult: 1, dropped: !!at, taken: false,
       phase: this.rng() * U.TAU, depth: -y,
     };
@@ -641,15 +775,20 @@ class DiveMission {
     /* A lantern on a pole over it. It is the only warm light in a
        mission made entirely of cyan, it is visible from the trench, and
        it is the answer to "which way is the beach" at every depth. */
+    /* Draped, for the same reason the eight torches on the rim are:
+       the landing pad is flat *enough*, not flat, and a three-metre
+       post pinned to the middle's height is a post standing on air the
+       moment the ground under it dips. */
+    const postY = this.reef.heightAt(sh.landing.x - 2.4, sh.landing.z) - sh.landing.y;
     const post = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.09, 0.12, 3.4, 6),
+      new THREE.CylinderGeometry(0.09, 0.12, 4.0, 6),
       new THREE.MeshLambertMaterial({ color: '#4a3b2c', flatShading: true }));
-    post.position.set(-2.4, 1.7, 0);
+    post.position.set(-2.4, postY + 1.8, 0);
     const lamp = new THREE.Mesh(
       new THREE.IcosahedronGeometry(0.34, 0),
       new THREE.MeshLambertMaterial({ color: '#ffe9a8', flatShading: true,
                                       emissive: '#ffb347', emissiveIntensity: 1.0 }));
-    lamp.position.set(-2.4, 3.4, 0);
+    lamp.position.set(-2.4, postY + 3.6, 0);
     this._lampGlow = new THREE.Sprite(new THREE.SpriteMaterial({
       map: this._glowTex, color: '#ffd166', transparent: true,
       opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -761,24 +900,56 @@ class DiveMission {
 
     g.add(pool, rim, call, beam);
 
-    /* Eight stakes with a lamp on each, because a ring of light with
-       nothing making it reads as a decal. They are the only built thing
-       on the beach and they say somebody works here. */
-    const postGeo = new THREE.CylinderGeometry(0.055, 0.08, 1.5, 5);
+    /* Eight torches round the rim, because a ring of light with
+       nothing making it reads as a decal. They are the only built
+       thing on the beach and they say somebody works here.
+
+       And they are *stood in the shingle*, which they were not. The
+       pad under the landing is flattened to eighty-five per cent, not
+       to a table, so the ground at six and a half metres out is still
+       doing whatever the coast noise felt like — and eight posts
+       pinned to one hard-coded height meant half of them hung in the
+       air over the beach and the other half were buried to the flame.
+       Everything else in this group is draped onto `heightAt`; these
+       are now too, and the post is long enough and sunk far enough
+       that no amount of shingle underneath one can leave a gap.
+
+       The fix is worth the paragraph because it is the class of bug
+       that survives for months: nothing about it is wrong until the
+       beach profile is touched, and then it is wrong everywhere at
+       once and nobody can say when it started. */
+    const postGeo = new THREE.CylinderGeometry(0.055, 0.09, 2.2, 5);
     const postMat = new THREE.MeshLambertMaterial({ color: '#4a3b2c', flatShading: true });
-    const bulbGeo = new THREE.IcosahedronGeometry(0.15, 0);
+    const bulbGeo = new THREE.IcosahedronGeometry(0.17, 0);
     const bulbMat = new THREE.MeshLambertMaterial({
       color: '#ffe9a8', flatShading: true, emissive: '#ffb347', emissiveIntensity: 1.1 });
     this._bulbMat = bulbMat;
+    this._flames = [];
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * U.TAU + 0.2;
       const px = Math.cos(a) * R, pz = Math.sin(a) * R;
+      // where the beach actually is under this one, in the group's own
+      // local space — the group sits at the landing, five centimetres up
+      const gy = this.reef.heightAt(sh.landing.x + px, sh.landing.z + pz) - baseY;
       const post = new THREE.Mesh(postGeo, postMat);
-      post.position.set(px, 0.72, pz);
+      // sunk a third of a metre, so a torch on a rise still has a foot
+      post.position.set(px, gy + 0.78, pz);
       post.rotation.z = Math.sin(a * 3.1) * 0.06;
       const bulb = new THREE.Mesh(bulbGeo, bulbMat);
-      bulb.position.set(px, 1.55, pz);
-      g.add(post, bulb);
+      bulb.position.set(px, gy + 1.82, pz);
+      /* And they are torches now rather than bulbs on sticks: a small
+         additive flame over each one that breathes with the rest of
+         the ring. Eight sprites is nothing, and it is the difference
+         between a lit circle and a circle somebody lit. */
+      const flame = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: this._glowTex, color: '#ffb347', transparent: true,
+        opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending,
+      }));
+      flame.scale.setScalar(1.5);
+      flame.position.set(px, gy + 1.95, pz);
+      flame.renderOrder = 6;
+      this._flames.push({ s: flame, ph: i * 1.37 });
+      g.add(post, bulb, flame);
     }
 
     /* The marker. Depth-tested off and fog off, so it draws over the
@@ -873,6 +1044,16 @@ class DiveMission {
     if (this._bulbMat) {
       this._bulbMat.emissiveIntensity = 0.7 + 0.45 * breathe + hot * 0.55;
     }
+    /* ...and each flame on its own phase over the top of it, because
+       eight torches breathing in perfect unison is a light rig and
+       eight torches breathing nearly together is a beach. */
+    if (this._flames) {
+      for (const f of this._flames) {
+        const fl = 0.5 + 0.5 * Math.sin(t * 5.6 + f.ph) * Math.sin(t * 2.3 + f.ph * 1.7);
+        f.s.material.opacity = 0.42 + 0.30 * fl + hot * 0.28;
+        f.s.scale.setScalar(1.25 + 0.35 * fl + hot * 0.5);
+      }
+    }
     if (this._lampLight) this._lampLight.distance = 26 + hot * 16;
   }
 
@@ -896,7 +1077,7 @@ class DiveMission {
       const n = this.pile.n++;
       if (n >= DiveMission.PILE_CAP) continue;
       const spot = DiveMission._pileSpot(n);
-      const mesh = new THREE.Mesh(this._chestGeo, this._chestMats[c.tier]);
+      const mesh = new THREE.Mesh(this._chestGeo, this._chestMat(c));
       mesh.position.set(spot.x, spot.y, spot.z);
       mesh.rotation.set(U.lerp(-0.14, 0.14, Math.random()), spot.rot,
                         U.lerp(-0.14, 0.14, Math.random()));
@@ -1051,7 +1232,8 @@ class DiveMission {
       compass: q('dv-compass'), compNeedle: q('dv-comp-needle'),
       compRing: q('dv-comp-ring'), compLbl: q('dv-comp-lbl'),
       haul: q('dv-haul'), wet: q('dv-wet'),
-      pressure: q('dv-pressure'), banner: q('dv-banner'), hint: q('dv-hint'),
+      pressure: q('dv-pressure'), threat: q('dv-threat'),
+      banner: q('dv-banner'), hint: q('dv-hint'),
       kick: document.querySelector('#touch-dive .kick-pad'),
       setup: q('dv-setup'),
       center: q('dv-center'), flash: q('screen-flash'),
@@ -1134,6 +1316,10 @@ class DiveMission {
     for (let t = 0; t < this.C.tiers.length; t++) {
       for (let i = 0; i < this.C.tiers[t].chests; i++) this._spawnChest(t);
     }
+    for (let i = 0; i < this.C.cave.chests; i++) {
+      this._spawnChest(this.C.tiers.length - 1, null, { cave: true });
+    }
+    this._caveT2 = 0;
     this._placeAshore();
     this.swimmer.airMax = 1;
     this.swimmer.air = 1;
@@ -1170,6 +1356,7 @@ class DiveMission {
     Input.setTouchMode('drive');
     if (this.swimmer) this.swimmer.dispose();
     if (this.shoal) this.shoal.dispose();
+    if (this.sharks) { this.sharks.dispose(); this.sharks = null; }
     if (this.reef) this.reef.dispose();
     if (this.fx) this.fx.dispose();
     for (const c of this.chests.slice()) this._removeChest(c);
@@ -1179,6 +1366,8 @@ class DiveMission {
     if (this.drop) {
       for (const g of this.drop.geos) g.dispose();
       for (const m of this.drop.mats) m.dispose();
+      if (this._flames) { for (const f of this._flames) f.s.material.dispose(); }
+      this._flames = null;
       // the marker shares the chest kit's glow, which is disposed below
       this.drop.tex.dispose();
       this.drop = null;
@@ -1200,6 +1389,10 @@ class DiveMission {
     this.scene = null;
     if (this.hud) {
       if (this.hud.pressure) this.hud.pressure.style.opacity = 0;
+      if (this.hud.threat) {
+        this.hud.threat.style.opacity = 0;
+        this.hud.threat.classList.remove('near');
+      }
       if (this.hud.flash) this.hud.flash.style.opacity = 0;
       if (this.hud.setup) this.hud.setup.innerHTML = '';
       if (this.hud.banner) this.hud.banner.classList.remove('show');
@@ -1254,6 +1447,8 @@ class DiveMission {
     this._readControls(dt);
     this.swimmer.update(dt, this._ctl, this.world);
     this._afterSwim(dt);
+    this._tickCave(dt);
+    this._tickSharks(dt);
     this._tickChests(dt);
     this._updateCamera(dt);
     this._updateDepth(dt);
@@ -1262,7 +1457,9 @@ class DiveMission {
     Sky.update(dt, this.camera.position, t);
     this._tickPile(dt, t);
     this._tickDrop(dt, t);
-    if (this.shoal) this.shoal.update(dt, this.swimmer.pos, this.camera.position);
+    if (this.shoal) {
+      this.shoal.update(dt, this.swimmer.pos, this.camera.position, this._sharkList);
+    }
     this.fx.update(dt);
     this.buoy.position.y = Water.sampleHeight(0, 0);
     this._updatePeers(dt, t);
@@ -1336,6 +1533,11 @@ class DiveMission {
 
     if (sw.stroked) {
       st.strokes++;
+      /* Every kick under water is also a kick *at* whatever is in
+         front of you. There is no second button and there was never
+         going to be one: the answer to a shark is the verb you already
+         have, aimed. See rule three in predators.js. */
+      if (!sw.up) this._fend = true;
       // the hint has done its job the moment anybody kicks
       if (this.hud.hint) this.hud.hint.classList.remove('show');
       AudioBus.play('dv-stroke', { power: 0.5 + sw.flow * 0.5 });
@@ -1443,15 +1645,35 @@ class DiveMission {
       // wherever they happened to be when the lights went out
       sw.onFoot = false;
       if (!sw.up) {
-        sw.vel.y = U.damp(sw.vel.y, 5.2, 2.5, dt);
-        sw.vel.x *= Math.exp(-1.6 * dt);
-        sw.vel.z *= Math.exp(-1.6 * dt);
+        /* ...unless there is rock over you, and then it does not work
+           at all. A limp body under a cave roof rises half a metre and
+           stops, and it would lie there against the ceiling until the
+           bell — which is not a risk, it is a broken run.
+
+           So it washes out instead: the chamber has a current through
+           it, the body goes with it, and what everybody watches is a
+           diver drifting out of a cave mouth face down and only then
+           starting to rise. It is the best shot in the mission and it
+           is also the fairest possible answer, because the cave still
+           costs you every second of it. */
+        const out = this._washOut && this.caves
+          ? this.caves.escape(sw.pos.x, sw.pos.z) : null;
+        if (out) {
+          sw.vel.x = U.damp(sw.vel.x, out.x * 5.5, 3.0, dt);
+          sw.vel.z = U.damp(sw.vel.z, out.z * 5.5, 3.0, dt);
+          sw.vel.y = U.damp(sw.vel.y, 1.8, 2.5, dt);
+        } else {
+          sw.vel.y = U.damp(sw.vel.y, 5.2, 2.5, dt);
+          sw.vel.x *= Math.exp(-1.6 * dt);
+          sw.vel.z *= Math.exp(-1.6 * dt);
+        }
         sw.pitchAim = U.damp(sw.pitchAim, 1.25, 3, dt);
         sw.yawAim = sw.yaw;
       } else {
         this.holdT -= dt;
         if (this.holdT <= 0) {
           this.out = false;
+          this._washOut = false;
           this._setCenter('', '');
           this._banner('BACK', 'Whatever you dropped is still down there, lit', 'bad');
         }
@@ -1486,6 +1708,177 @@ class DiveMission {
     // Buddy Line: two divers inside five metres share a bar, which turns
     // the whole mission into a conversation about who is next to whom
     if (this.flags.sharedAir) this._buddyAir(dt);
+  }
+
+  /* =================== the caves ===================
+
+     Two numbers a frame, and everything else in the mission reads
+     them: which chamber you are under, and how far in. The fog closes,
+     the music drops a gear, the sharks stop needing to see you, and
+     the compass keeps pointing at a beach you currently cannot swim
+     straight up to. */
+  _tickCave(dt) {
+    if (!this.caves) return;
+    const sw = this.swimmer;
+    const hit = this.caves.at(sw.pos.x, sw.pos.y, sw.pos.z);
+    const was = this._inCave;
+    this._inCave = hit ? hit.cave : null;
+    this._caveT = U.damp(this._caveT, hit ? hit.t : 0, 3.4, dt);
+
+    /* One announcement per entry, and not one per frame spent hovering
+       on the line: the chamber's edge is a hard radius, so a diver
+       parked in the doorway would otherwise re-enter it sixty times a
+       second. */
+    this._caveSaid = Math.max(0, (this._caveSaid || 0) - dt);
+    if (this._inCave && this._inCave !== was && this._caveSaid <= 0
+        && this.state === 'live' && !this.out) {
+      this._caveSaid = 5;
+      this.stats.caveTrips++;
+      AudioBus.play('dv-cave');
+      if (this.music) this.music.stinger('boon');
+      this._banner('UNDER THE ROOF',
+                   'There is no up in here. The way out is the way in', 'bad');
+      this.camKick = Math.min(this.camKick + 0.8, 1.8);
+      this.stats.deepestCave = Math.max(this.stats.deepestCave,
+                                        Math.round(sw.depth * 10) / 10);
+    }
+  }
+
+  /* =================== the animals ===================
+
+     The mission's whole half of the contract with predators.js: how
+     loud you are, whether you are worth crossing the loch for, and
+     what a strike costs. Nothing about the animals themselves is in
+     here and nothing about money is in there. */
+  _tickSharks(dt) {
+    if (!this.sharks) return;
+    const sw = this.swimmer;
+    const live = this.state === 'live';
+
+    /* ---- noise. Rule two of predators.js, as one line: what gets you
+       noticed is exactly what a good run looks like. Four chests, on
+       the beat, at full effort, in a cave is the loudest a diver can
+       be and it is also the best money in the mission. ---- */
+    const noise = 1
+                + this.carry.length * 0.26
+                + sw.effort * 0.42
+                + this._caveT * 0.55;
+
+    /* ...and what makes you not worth the swim. A head out of the
+       water, feet on the sand, or the first couple of metres under it:
+       the shallows are safe, and they are safe *visibly*, so the swim
+       home with four chests is a swim towards somewhere nothing
+       follows you. */
+    const safe = !live || this.out || sw.up || sw.onFoot || sw.depth < 3.0;
+
+    this.sharks.update(dt, {
+      diver: live ? sw.pos : null,
+      safe,
+      noise,
+      fend: this._fend,
+      facing: this._facingVec(),
+    });
+    this._fend = false;
+
+    // the HUD's copy, damped so a shark crossing behind a rock does
+    // not strobe the edge of the screen
+    this._threat = U.damp(this._threat, safe ? 0 : this.sharks.menace, 5, dt);
+
+    // what the fish are running from
+    this._sharkList = this.sharks.sharks;
+  }
+
+  /* Where the diver is pointing, pitch and all, as a unit vector. Used
+     for one thing: deciding whether a kick was *at* the animal. */
+  _facingVec() {
+    const sw = this.swimmer;
+    const cp = Math.cos(sw.pitch);
+    return this._tmpV2.set(Math.sin(sw.yaw) * cp, Math.sin(sw.pitch), Math.cos(sw.yaw) * cp);
+  }
+
+  /* Everything an animal can do to a run, in one place.
+
+     A strike never takes the run. It takes air — which at forty metres
+     is the same thing said politely — and it knocks one chest out of
+     your hands onto the sand, lit, exactly the way a blackout does.
+     That second half matters more than the first: it means a shark is
+     not a punishment, it is a *transfer*, and the money it costs you
+     is money somebody else can go and pick up. In a party that is the
+     whole reason to keep one on screen. */
+  _onShark(kind, sh) {
+    if (kind === 'notice') {
+      // one growl per animal per approach, and only when it is close
+      // enough to matter: the loch is not a horror film
+      if (this._threat < 0.25) AudioBus.play('dv-shark');
+      return;
+    }
+    if (kind === 'charge') {
+      AudioBus.play('dv-shark', { close: 1 });
+      if (this.music) this.music.stinger('hurt');
+      Input.rumble(0.35, 220);
+      return;
+    }
+    if (kind === 'fend') {
+      this.stats.fended++;
+      AudioBus.play('dv-fend');
+      this.camKick = Math.min(this.camKick + 0.9, 1.8);
+      this.fx.rings.fire(this._tmpV.copy(sh.pos), this.camera.quaternion,
+                         0.5, 5.0, 0.45, '#bff4ff');
+      this.fx.labels.add('OFF!', this._tmpV.copy(sh.pos), { life: 0.8, rise: 4 });
+      Input.haptic(20);
+      return;
+    }
+    if (kind !== 'strike') return;
+    if (this.state !== 'live' || this.out) return;
+
+    const sw = this.swimmer;
+    const st = this.stats;
+    st.bites++;
+    this.hitStop = 0.14;
+    this.shake = Math.min(1.0, this.shake + 0.85);
+    this.camKick = Math.min(this.camKick + 1.6, 1.8);
+    this.fovKick = Math.max(this.fovKick, 7);
+    this._flash(0.4, 'rgba(255,120,120,0.6)');
+    AudioBus.play('dv-bite');
+    if (this.music) this.music.stinger('hurt');
+    Input.rumble(0.85, 380);
+
+    // it knocks you off your line as well as out of your breath
+    sw.vel.addScaledVector(this._tmpV.copy(sw.pos).sub(sh.pos).setY(0.6).normalize(), 5.5);
+    sw.flow = 0;
+    this.flowRun = 0;
+
+    const hadHands = this.carry.length > 0;
+    sw.air = Math.max(0.02, sw.air - (hadHands ? this.C.biteAir : this.C.biteAirEmpty));
+
+    if (!hadHands) {
+      this._banner('HIT', 'It took a lungful and nothing else', 'bad');
+      return;
+    }
+
+    /* One chest, and it is the one you picked up last — the chest you
+       reached one metre too far for is the chest it takes off you. */
+    const c = this.carry.pop();
+    sw.carried = this.carry.length;
+    const worth = Math.round(c.value * this.payout);
+    st.lost += worth;
+    st.biteLost += worth;
+
+    let x = sw.pos.x, z = sw.pos.z;
+    for (let tries = 0; tries < 8; tries++) {
+      const a = Math.random() * U.TAU, r = 1.6 + Math.random() * 2.6;
+      x = sw.pos.x + Math.cos(a) * r; z = sw.pos.z + Math.sin(a) * r;
+      if (this.reef.heightAt(x, z) < -1.2) break;
+    }
+    const y = Math.max(this.reef.heightAt(x, z) + 0.35, sw.pos.y - 5);
+    const nc = this._spawnChest(c.tier, { x, y, z }, { cave: c.cave });
+    if (nc) { nc.value = c.value; nc.cave = c.cave; }
+    if (this.party) {
+      MissionNet.event({ kind: 'drop', tier: c.tier, value: c.value,
+                         cave: c.cave ? 1 : 0, x, y, z });
+    }
+    this._banner('IT TOOK ONE', U.money(worth) + ' on the floor', 'bad');
+    this._paintCarry();
   }
 
   /* Footsteps, measured in metres rather than in seconds, so they land
@@ -1634,7 +2027,8 @@ class DiveMission {
     if (this.party && !this.isHost) return;
     const C = this.C;
     const have = C.tiers.map(() => 0);
-    for (const c of this.chests) have[c.tier]++;
+    let caved = 0;
+    for (const c of this.chests) { if (c.cave) caved++; else have[c.tier]++; }
     for (let t = 0; t < C.tiers.length; t++) {
       if (have[t] >= C.tiers[t].chests) { this._tierT[t] = 0; continue; }
       this._tierT[t] += dt;
@@ -1642,6 +2036,24 @@ class DiveMission {
       this._tierT[t] = 0;
       this._spawnChest(t);
     }
+    /* The caves keep their own population on their own clock, and it
+       is a slow one — half a minute, so a cleared cave stays cleared
+       long enough for the decision to have been worth making.
+
+       Counted apart from the trench, and by exactly the same rule the
+       tiers use: everything violet still in the world counts, dropped
+       piles included. A cave chest knocked out of somebody's hands by
+       a shark is still cave money in the loch, so the ground does not
+       replace it — which is what keeps "there was more of it than
+       there is now" a sentence about a person rather than about the
+       spawner. */
+    if (caved < C.cave.chests && this.caves && this.caves.list.length) {
+      this._caveT2 = (this._caveT2 || 0) + dt;
+      if (this._caveT2 >= C.cave.respawn) {
+        this._caveT2 = 0;
+        this._spawnChest(C.tiers.length - 1, null, { cave: true });
+      }
+    } else this._caveT2 = 0;
   }
 
   _grab(c) {
@@ -1675,13 +2087,21 @@ class DiveMission {
       this._banner('HANDS FULL', 'None of it counts until you are stood in the light', 'good');
     }
     if (c.dropped) st.recovered += Math.round(c.value * this.payout);
+    if (c.cave) {
+      st.caveChests++;
+      this._banner('CAVE SALVAGE',
+                   U.money(Math.round(c.value * c.mult * this.payout))
+                   + ' — now find the door', 'perfect');
+      this.hitStop = Math.max(this.hitStop, 0.09);
+    }
 
+    const colour = c.cave ? this.C.cave.colour : this.C.tiers[c.tier].colour;
     this._tmpV.set(c.x, c.y + 0.6, c.z);
-    this.fx.rings.fire(this._tmpV, this.camera.quaternion, 0.6, 4.2, 0.5,
-                       this.C.tiers[c.tier].colour);
+    this.fx.rings.fire(this._tmpV, this.camera.quaternion, 0.6,
+                       c.cave ? 6.0 : 4.2, 0.5, colour);
     this.fx.labels.add(U.money(Math.round(c.value * c.mult * this.payout)), this._tmpV,
-      { className: c.tier === 2 ? 'gold' : '', life: 1.1, rise: 5 });
-    for (let i = 0; i < 14; i++) {
+      { className: (c.cave || c.tier === 2) ? 'gold' : '', life: 1.1, rise: 5 });
+    for (let i = 0; i < (c.cave ? 26 : 14); i++) {
       const a = Math.random() * U.TAU;
       this.fx.sparks.emit(c.x, c.y + 0.4, c.z,
         Math.cos(a) * 3, 1 + Math.random() * 3, Math.sin(a) * 3,
@@ -1693,7 +2113,7 @@ class DiveMission {
        the one that costs you the most air and most nearly drowns you,
        is the one at the top of it. */
     AudioBus.play('dv-grab', { tier: c.tier, n: this.carry.length - 1 });
-    if (c.tier === 2 && this.music) this.music.stinger('boon');
+    if (c.tier === 2 && !c.cave && this.music) this.music.stinger('boon');
     Input.haptic(16);
     this.camKick = Math.min(this.camKick + 0.6 + 0.12 * this.carry.length, 1.8);
     // and the last one lands with a beat of hit-stop on it
@@ -1759,8 +2179,10 @@ class DiveMission {
     paying.forEach((c, i) => {
       const cash = Math.round(c.value * c.mult * mult * this.payout * this.C.moneyScale);
       total += cash;
-      const tier = this.C.tiers[c.tier];
-      this.stats.tierBanked[tier.id] = (this.stats.tierBanked[tier.id] || 0) + cash;
+      // cave salvage is a trench chest everywhere except on the card,
+      // where it is the one column that says somebody went under a roof
+      const id = c.cave ? 'cave' : this.C.tiers[c.tier].id;
+      this.stats.tierBanked[id] = (this.stats.tierBanked[id] || 0) + cash;
       this._throwOnPile(c, i, cash);
     });
     this.money += total;
@@ -1794,7 +2216,8 @@ class DiveMission {
        for, and the whole point of putting the score in the world is
        that the other two can read it from the water. */
     if (this.party) {
-      MissionNet.event({ kind: 'landed', tiers: paying.map(c => c.tier) });
+      MissionNet.event({ kind: 'landed',
+                         tiers: paying.map(c => DiveMission._packIndex(c)) });
     }
     this._paintCarry();
   }
@@ -1814,7 +2237,7 @@ class DiveMission {
     const sw = this.swimmer;
     const spot = DiveMission._pileSpot(this.pile ? this.pile.n + i : i);
     const L = this.shore.landing;
-    const mesh = new THREE.Mesh(this._chestGeo, this._chestMats[chest.tier]);
+    const mesh = new THREE.Mesh(this._chestGeo, this._chestMat(chest));
     mesh.position.set(sw.pos.x, sw.pos.y + 0.4, sw.pos.z);
     mesh.rotation.y = Math.random() * U.TAU;
     this.scene.add(mesh);
@@ -1935,6 +2358,11 @@ class DiveMission {
     this.shake = 1.0;
     this.out = true;
     this.holdT = this.C.blackoutHold;
+    /* Decided here, once, rather than tested every frame while the
+       body is drifting: did the lights go out under a roof? Only then
+       does the wash-out apply, so a blackout in open water twenty
+       metres from a cave is not quietly nudged sideways by one. */
+    this._washOut = !!(sw.roofed || this._inCave);
     /* And the haul goes with it. That is the whole cost of greed in one
        line: not just the four chests on the sand, but the run you had
        going. It is also the reason a Traitor throwing a dive still
@@ -1961,10 +2389,11 @@ class DiveMission {
         if (this.reef.heightAt(x, z) < -1.2) break;
       }
       const y = Math.max(this.reef.heightAt(x, z) + 0.35, sw.pos.y - 4);
-      const nc = this._spawnChest(c.tier, { x, y, z });
-      if (nc) nc.value = c.value;
+      const nc = this._spawnChest(c.tier, { x, y, z }, { cave: c.cave });
+      if (nc) { nc.value = c.value; nc.cave = c.cave; }
       if (this.party) {
-        MissionNet.event({ kind: 'drop', tier: c.tier, value: c.value, x, y, z });
+        MissionNet.event({ kind: 'drop', tier: c.tier, value: c.value,
+                           cave: c.cave ? 1 : 0, x, y, z });
       }
     }
     st.lost += lost;
@@ -2111,6 +2540,23 @@ class DiveMission {
     fog.far = U.damp(fog.far, far, 5, dt);
     Water.setFog(fog.near, fog.far * 2.4, fog.color);
     this.reef.setCaustic(U.damp(this.reef.uniforms.caustic.value, b.caustic, 4, dt));
+    /* ---- and the roof, which is the only thing in this mission
+       allowed to take the light away.
+
+       The file's founding rule is that the water is never dark, and it
+       still is not: this closes the fog to a room's worth and drags
+       the colour towards the rock, and it only ever happens under a
+       lid you chose to swim under. It is *why* a cave is frightening
+       and it is bounded by the fact that you can always see the mouth
+       you came in by. */
+    if (this._caveT > 0.005) {
+      const k = this._caveT;
+      fog.color.lerp(DiveMission._CAVE_FOG, k * 0.8);
+      fog.near = U.lerp(fog.near, 3, k);
+      fog.far = U.lerp(fog.far, 46, k);
+      Water.setFog(fog.near, fog.far * 2.4, fog.color);
+    }
+
     /* The sea is a different colour depending on which side of it you
        are, and only one shader draws it. Repainting it is two uniform
        writes, and skipping the ones that would not move keeps it off
@@ -2138,10 +2584,12 @@ class DiveMission {
     const el = this.hud.pressure;
     if (el) {
       const air = 1 - this.swimmer.air;
-      const v = U.clamp(b.vignette * 0.8 + air * air * 0.75, 0, 1);
+      const v = U.clamp(b.vignette * 0.8 + air * air * 0.75 + this._caveT * 0.35, 0, 1);
       el.style.opacity = v.toFixed(3);
     }
   }
+
+  static _CAVE_FOG = new THREE.Color('#12202c');
 
   _updateMusic(dt) {
     if (!this.music) return;
@@ -2221,13 +2669,33 @@ class DiveMission {
     if (h.depth) h.depth.textContent = Math.round(sw.depth) + 'm';
     const tierIdx = this._tierAt(sw.depth);
     if (h.tier) {
+      /* Under a roof the tape stops reporting the tier and reports the
+         roof, because while you are in there the tier is not the thing
+         that is about to matter. */
       const T = this.C.tiers[tierIdx];
-      h.tier.textContent = T.name;
-      h.tier.style.color = T.colour;
+      const cave = !!this._inCave;
+      h.tier.textContent = cave ? this.C.cave.name : T.name;
+      h.tier.style.color = cave ? this.C.cave.colour : T.colour;
     }
     if (h.tapeMark) {
       const frac = U.clamp(sw.depth / this.tapeMax, 0, 1);
       h.tapeMark.style.top = (frac * 100).toFixed(1) + '%';
+    }
+
+    /* ---- the animal.
+       One element and one number. It is a rim rather than a label,
+       and it is on the *edges* of the screen rather than the middle,
+       because what it has to do is make you turn round — and a warning
+       you have to read is a warning you have already been bitten by.
+       The word only arrives once it has committed. */
+    if (h.threat) {
+      const th = this._threat;
+      h.threat.style.opacity = th.toFixed(3);
+      const say = th > 0.6;
+      if (say !== this._threatSaid) {
+        this._threatSaid = say;
+        h.threat.classList.toggle('near', say);
+      }
     }
 
     if (h.time) {
@@ -2425,7 +2893,7 @@ class DiveMission {
       u: U.r3(sw.swimPhase % U.TAU), e: U.r3(sw.effort),
       f: U.r3(sw.flow), a: U.r3(sw.air),
       c: this.carry.length, v: this._carryValue(),
-      ct: this.carry.map(c => c.tier),
+      ct: this.carry.map(c => DiveMission._packIndex(c)),
       m: Math.round(this.money), d: Math.round(this.deepest),
       tr: this.stats.trips,
     };
@@ -2442,7 +2910,7 @@ class DiveMission {
         // packet then costs one late chest instead of a phantom one
         MissionNet.event({ kind: 'reef', state: this.state, chests: this.chests.map(c => ({
           i: c.id, t: c.tier, x: U.r3(c.x), y: U.r3(c.y), z: U.r3(c.z),
-          d: c.dropped ? 1 : 0, v: c.value,
+          d: c.dropped ? 1 : 0, v: c.value, c: c.cave ? 1 : 0,
         })) });
       }
     }
@@ -2520,23 +2988,20 @@ class DiveMission {
        already carries the numbers — it is purely the heap growing on
        the beach where everyone can see whose run is going well. */
     if (d.kind === 'landed') {
+      // slot three is cave salvage: see `_packIndex`
       const tiers = Array.isArray(d.tiers) ? d.tiers : [];
       this._addToPile(tiers
-        .filter(t => t >= 0 && t < this.C.tiers.length)
-        .map(t => ({ tier: t })));
+        .filter(t => t >= 0 && t <= this.C.tiers.length)
+        .map(t => (t >= this.C.tiers.length
+                   ? { tier: this.C.tiers.length - 1, cave: true } : { tier: t })));
       return;
     }
 
-    if (d.kind === 'drop' && !this.isHost) {
+    if (d.kind === 'drop') {
       // a pile somebody else lost. The host will confirm it on the next
       // snapshot; showing it now is what makes a blackout legible.
-      const c = this._spawnChest(d.tier, { x: d.x, y: d.y, z: d.z });
-      if (c) c.value = d.value;
-      return;
-    }
-    if (d.kind === 'drop' && this.isHost) {
-      const c = this._spawnChest(d.tier, { x: d.x, y: d.y, z: d.z });
-      if (c) c.value = d.value;
+      const c = this._spawnChest(d.tier, { x: d.x, y: d.y, z: d.z }, { cave: !!d.cave });
+      if (c) { c.value = d.value; c.cave = !!d.cave; }
       return;
     }
 
@@ -2578,10 +3043,11 @@ class DiveMission {
       keep.add(st.i);
       let c = this.chests.find(x => x.id === st.i);
       if (!c) {
-        c = this._spawnChest(st.t, { x: st.x, y: st.y, z: st.z });
+        c = this._spawnChest(st.t, { x: st.x, y: st.y, z: st.z }, { cave: !!st.c });
         if (!c) continue;
         c.id = st.i;
         c.value = st.v;
+        c.cave = !!st.c;
         c.dropped = !!st.d;
         // never hand out an id the host has already used
         if (st.i >= this._nextChestId) this._nextChestId = st.i + 1;
@@ -2681,6 +3147,11 @@ class DiveMission {
       landings: st.landings,
       bestHaul: st.bestHaul,
       tierBanked: st.tierBanked,
+      caveTrips: st.caveTrips,
+      caveChests: st.caveChests,
+      bites: st.bites,
+      fended: st.fended,
+      biteLost: st.biteLost,
       landed: this.pile ? this.pile.n : 0,
       stats: Object.assign({}, st),
     }, part);
@@ -2891,6 +3362,122 @@ AudioBus.define('dv-drown', (c, dest) => {
   n.start(t); n.stop(t + 1.3);
 });
 
+/* Something big, moving. Not a roar and not a sting: a low swell that
+   rises and goes past, which is the only honest noise a large animal
+   makes in water. `close` opens the filter and drops the pitch, so the
+   same sound is a rumour at thirty metres and a fact at five. */
+AudioBus.define('dv-shark', (c, dest, o = {}) => {
+  const t = c.currentTime;
+  const close = U.clamp(o.close || 0, 0, 1);
+  const osc = c.createOscillator(), g = c.createGain(), f = c.createBiquadFilter();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(44 - close * 12, t);
+  osc.frequency.exponentialRampToValueAtTime(30 - close * 10, t + 1.1);
+  f.type = 'lowpass';
+  f.frequency.setValueAtTime(140 + close * 260, t);
+  f.frequency.exponentialRampToValueAtTime(70, t + 1.2);
+  f.Q.value = 2.2;
+  osc.connect(f); f.connect(g); g.connect(dest);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.10 + 0.16 * close, t + 0.28);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
+  osc.start(t); osc.stop(t + 1.4);
+  // the water it is pushing in front of it
+  const n = AudioBus.noiseSource();
+  if (!n) return;
+  const nf = c.createBiquadFilter(), ng = c.createGain();
+  nf.type = 'bandpass';
+  nf.frequency.setValueAtTime(180, t);
+  nf.frequency.exponentialRampToValueAtTime(520 + close * 500, t + 0.7);
+  nf.Q.value = 0.6;
+  n.connect(nf); nf.connect(ng); ng.connect(dest);
+  ng.gain.setValueAtTime(0.0001, t);
+  ng.gain.exponentialRampToValueAtTime(0.05 + 0.07 * close, t + 0.35);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+  n.start(t); n.stop(t + 1.2);
+});
+
+/* The strike. The only genuinely hard attack in the mission, and it is
+   allowed to be, because it is the only thing down here that happens
+   *to* you rather than because of you. */
+AudioBus.define('dv-bite', (c, dest) => {
+  const t = c.currentTime;
+  const n = AudioBus.noiseSource();
+  if (n) {
+    const f = c.createBiquadFilter(), g = c.createGain();
+    f.type = 'bandpass';
+    f.frequency.setValueAtTime(900, t);
+    f.frequency.exponentialRampToValueAtTime(140, t + 0.30);
+    f.Q.value = 0.9;
+    n.connect(f); f.connect(g); g.connect(dest);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.30, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+    n.start(t); n.stop(t + 0.5);
+  }
+  const o = c.createOscillator(), g2 = c.createGain(), f2 = c.createBiquadFilter();
+  o.type = 'square';
+  o.frequency.setValueAtTime(96, t);
+  o.frequency.exponentialRampToValueAtTime(34, t + 0.26);
+  f2.type = 'lowpass'; f2.frequency.value = 420;
+  o.connect(f2); f2.connect(g2); g2.connect(dest);
+  g2.gain.setValueAtTime(0.0001, t);
+  g2.gain.exponentialRampToValueAtTime(0.26, t + 0.01);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.40);
+  o.start(t); o.stop(t + 0.45);
+});
+
+/* A kick landing on two hundred kilos of fish. It is the only
+   *victorious* noise in the mission that is not money, so it goes up
+   rather than down. */
+AudioBus.define('dv-fend', (c, dest) => {
+  const t = c.currentTime;
+  const n = AudioBus.noiseSource();
+  if (n) {
+    const f = c.createBiquadFilter(), g = c.createGain();
+    f.type = 'bandpass';
+    f.frequency.setValueAtTime(300, t);
+    f.frequency.exponentialRampToValueAtTime(1700, t + 0.24);
+    f.Q.value = 1.1;
+    n.connect(f); f.connect(g); g.connect(dest);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.16, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.34);
+    n.start(t); n.stop(t + 0.4);
+  }
+  [523.25, 784].forEach((f, i) => {
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(f, t + i * 0.06);
+    o.connect(g); g.connect(dest);
+    g.gain.setValueAtTime(0.0001, t + i * 0.06);
+    g.gain.exponentialRampToValueAtTime(0.10, t + i * 0.06 + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.06 + 0.34);
+    o.start(t + i * 0.06); o.stop(t + i * 0.06 + 0.4);
+  });
+});
+
+/* Crossing under the lip of a cave. A room tone: the same note the
+   trench arrives on, an octave down, with the top taken off it —
+   which is what a ceiling does to sound and what this mission has
+   spent three minutes teaching you to hear as *deeper*. */
+AudioBus.define('dv-cave', (c, dest) => {
+  const t = c.currentTime;
+  [65.4, 98, 130.81].forEach((f, i) => {
+    const o = c.createOscillator(), g = c.createGain(), lp = c.createBiquadFilter();
+    o.type = i ? 'sine' : 'triangle';
+    o.frequency.setValueAtTime(f, t);
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(900, t);
+    lp.frequency.exponentialRampToValueAtTime(200, t + 1.8);
+    o.connect(lp); lp.connect(g); g.connect(dest);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.13 / (i + 1), t + 0.12 + i * 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+    o.start(t); o.stop(t + 2.5);
+  });
+});
+
 AudioBus.define('dv-bump', (c, dest) => {
   const t = c.currentTime;
   const o = c.createOscillator(), g = c.createGain(), f = c.createBiquadFilter();
@@ -2912,7 +3499,10 @@ Missions.register({
   name: 'The Dive',
   tagline: 'Walk it into the light and it is yours. Black out and it is anybody’s.',
   description:
-    'A sunlit highland sea loch with a broken trawler on the slope and a trench past it. '
+    'A sunlit highland sea loch: a coral shelf, a broken trawler on the slope, a trench '
+    + 'past it, and three rock caves cut into the deep water that are worth three times '
+    + 'the trench and have a roof on them. There are sharks, they notice noise and gold, '
+    + 'and a kick in the face turns one round. '
     + 'There is one lit ring on the shingle, you can see it from the bottom of the trench, '
     + 'and nothing you take is money until you are stood inside it. So every trip is the '
     + 'same round: dive, fill your hands, climb, swim home, wade in, and walk it up the '
@@ -2924,7 +3514,7 @@ Missions.register({
     + 'haul pays more every time, which is exactly what makes the next one harder to '
     + 'walk away from.',
   icon: '03',
-  maxPrize: 85000,
+  maxPrize: 96000,
   players: '1-3',
   duration: '3 min',
   order: 2,
@@ -2970,6 +3560,19 @@ Missions.register({
       + 'seconds while they do.',
     '<b>The trench pays fourteen times the shelf.</b> It is also the only tier you cannot '
       + 'reach and return from unless you are swimming well.',
+    '<b>The caves have no up in them.</b> Violet salvage is worth three trench chests, and '
+      + 'it is under a rock lid: you cannot float out, you have to swim out of the mouth '
+      + 'you came in by. Black out in there and your body washes out on its own — slowly, '
+      + 'in front of everybody.',
+    '<b>Sharks hear what you are winning.</b> Thrashing and a full carry get you noticed '
+      + 'from twice as far, and they will follow you out of a cave. They will not follow '
+      + 'you into the shallows.',
+    '<b>Kick at it.</b> There is no second button. A stroke landed inside touching '
+      + 'distance, pointed at the animal, turns it away — so the answer to a shark is to '
+      + 'swim straight at it, and the answer to two is not to be down there.',
+    '<b>A bite is not a death.</b> It costs you a lungful and the last chest you picked '
+      + 'up, which drops on the sand, lit, for anybody. What kills you is being forty '
+      + 'metres down afterwards.',
     '<b>Somebody else’s pile is worth full price.</b> If you see a glow on the sand '
       + 'that you did not put there, that is a diver who got greedy.',
     '<b>The lamp on the beach is north.</b> The ring, the column of light over it and the '
@@ -3020,9 +3623,15 @@ Missions.register({
       ['Shelf', U.money(tb.shelf || 0)],
       ['Wreck', U.money(tb.wreck || 0)],
       ['Trench', U.money(tb.trench || 0)]);
+    // the caves and the animals only appear on a card that earned them
+    if (tb.cave) rows.push(['Caves', U.money(tb.cave)]);
+    if (r.caveTrips) rows.push(['Went under a roof', String(r.caveTrips) + '×']);
     if (r.landed) rows.push(['Landed on the pile', String(r.landed) + ' chest'
                              + (r.landed === 1 ? '' : 's')]);
     if (r.blackouts) rows.push(['Blacked out', String(r.blackouts) + '×']);
+    if (r.bites) rows.push(['Bitten', String(r.bites) + '× · ' + U.money(r.biteLost || 0)
+                            + ' taken off you']);
+    if (r.fended) rows.push(['Kicked one off', String(r.fended) + '×']);
     if (r.lost) rows.push(['Left on the floor', U.money(r.lost)]);
     if (r.recovered) rows.push(['Taken off the floor', U.money(r.recovered)]);
     if (r.payout && Math.abs(r.payout - 1) > 0.005) {

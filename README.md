@@ -869,7 +869,8 @@ it and nothing is left hovering.
 
 `reef.js` builds the Dive's loch: a floor function with three terraces (shelf in the
 middle, the wreck on the slope, the trench at the rim) plus dunes, coral heads and a
-canyon cut across it from the seed, so no two runs are the same hunt.
+canyon cut across it from the seed, so no two runs are the same hunt — and, out in the
+deep water, three **caves**.
 
 Everything in it is lit by **one** `onBeforeCompile` patch. `ReefKit.causticMaterial`
 adds two crossed noise fields at different speeds, multiplied — one field is a texture,
@@ -881,7 +882,10 @@ under water.
 
 The kelp is `HighlandKit.bladeGeometry` instanced by `ForestKit.instance`; the marine
 snow is `ForestKit.buildMotes` with the fall reversed so it drifts up; the shafts are
-ten sprites on the sun's bearing. The wood on the hillside is `ForestKit.speciesGeometry`
+ten sprites on the sun's bearing. The **sea fans** are one more instanced draw against
+that same sway uniform, tinted per instance out of a six-colour coral palette, and the
+**anemones** are three draws rather than one because emissive is a material uniform and
+one colour of glow over a whole loch is a light rig, not a reef. The wood on the hillside is `ForestKit.speciesGeometry`
 against `ForestKit.windMaterial`, and the machair behind the beach is
 `HighlandKit.tuftGeometry`. None of that is a second copy of anything — the dive supplies
 a height function and a treeline and gets a Scottish hillside back, which is the whole
@@ -930,6 +934,65 @@ out of the water is simply a body that falls. And there is a sky, which there co
 be before: `Sky.setVisible(false)` turns it off underwater, because the dome sets
 `fog:false` on purpose and would otherwise paint a bright band along the top of the
 fogged reef rim.
+
+### A cave is a function, not a mesh
+
+The one thing the open sea guarantees is that **up works**: stop kicking and you rise,
+black out and you rise, empty the bar at forty metres and the water still hands you
+back. A cave takes that away, and it is the only thing in the mission that does.
+
+`ReefKit.buildCaves` puts three rock chambers on the slope, each one a ring of the
+reef's own displaced boulders with a gap in it and a lid of flattened lumps on top —
+overlapping blobs rather than a hollow shell, because a one-sided dome viewed along its
+rim reads as paper, and because every rim lump is already exactly the cylinder the
+swimmer's collider list wants. What actually stops you is not any of that geometry: it
+is `caves.ceilingAt(x, z)`, a cosine dome the lumps are *placed against*, so the roof
+is in the same place from every direction and at every frame rate. `Swimmer._collide`
+gained four lines for it, and they are the whole risk — under a lid, buoyancy pins you
+to rock instead of carrying you home, and the only way out is sideways on the breath
+you have left. The chests in there are worth three trench chests.
+
+The profile is a cosine rather than a hemisphere for one reason: a hemisphere comes down
+to the floor at the rim, which would seal the mouth. This one still leaves getting on
+for half the chamber's height out at the edge, which is a slot you swim through without
+thinking about it.
+
+**And blacking out under a roof cannot be a soft-lock.** A limp body rises half a metre,
+stops, and would lie against the ceiling until the bell — a broken run, not a risk. So
+`caves.escape` washes it out of the mouth instead. The first version aimed the push *at*
+the mouth and stopped the moment the body crossed the rim, and the body promptly drifted
+back under the lip (the roof is at its lowest exactly there), rose a metre, was slammed
+down, and bobbed on the doorstep for the rest of the run. Aiming well *past* the mouth
+and holding the push out to half again the radius is the difference between washing out
+and getting stuck in the door. It costs about fourteen seconds, which is the point.
+
+### Sharks are the first thing in the loch with an opinion
+
+Every risk in the Dive used to be something *you* did; nothing down there ever
+disagreed with you. `predators.js` is four animals that do, under three rules.
+
+**They never kill you.** A run ended by an animal is a run you did not lose, and this
+mission's whole social layer rests on a blackout being your fault and arguable. A strike
+costs a lungful and knocks the last chest out of your hands onto the sand, lit, exactly
+the way a blackout does — so a shark is not a punishment, it is a *transfer*, and the
+money it took off you is money somebody else can go and pick up. What kills you is being
+forty metres down afterwards, which is still a decision you made.
+
+**They are attracted to what you are winning.** Sight is a radius times a noise number,
+and noise is thrashing plus gold plus being under a roof. Working the trench with four
+chests, on the beat, at full effort is the loudest a diver can be, and it is also the
+best three seconds you will have all night. Those being the same three seconds is the
+design.
+
+**You can fight one off.** A kick, into it, inside touching distance turns it away.
+There is no second button and there was never going to be one: the answer to a shark is
+the verb you already have, aimed — so what the mission teaches is to swim *at* it, which
+is a far better thing to have learned than to swim away.
+
+They also do the fish a favour. `buildShoal` now runs four species over one flat array —
+size, speed, school size and paint, sharing the whole simulation — and takes the animals
+as threats, so a school empties out of the water in front of you a second before you
+work out why. That tell is free: it is the same three-rule boids the shoal always had.
 
 ### The Dive is where the music became a mechanic
 

@@ -1227,6 +1227,30 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
     radial-gradient(ellipse 62% 54% at 50% 50%, rgba(0,0,0,0) 58%, rgba(24,90,160,.42) 100%);
 }
 
+/* -------- something in the water --------
+   The dive's one hostile read, and it is deliberately built like the
+   pressure vignette rather than like an alarm: a rim that closes, in
+   the one hue nothing else in this mission uses. Underwater everything
+   is cyan and gold, so a warm red edge is legible at a glance and
+   impossible to confuse with money.
+
+   The word only appears once the animal has committed, and it sits
+   low and small. A diver who is reading text is a diver who is not
+   turning round, and turning round is the entire answer. */
+.dv-threat{position:fixed; inset:-4%; pointer-events:none; z-index:23; opacity:0;
+  transition:opacity .18s linear;
+  background:
+    radial-gradient(ellipse 46% 42% at 50% 50%, rgba(0,0,0,0) 46%, rgba(255,64,84,.30) 100%),
+    radial-gradient(ellipse 70% 62% at 50% 50%, rgba(0,0,0,0) 56%, rgba(150,10,34,.38) 100%);
+}
+.dv-threat b{position:absolute; left:0; right:0; bottom:15%; text-align:center;
+  font-weight:800; font-size:clamp(13px,1.5vw,18px); letter-spacing:.34em;
+  color:#ffd9de; text-shadow:0 0 14px rgba(255,60,80,.85), 0 2px 6px rgba(0,0,0,.7);
+  opacity:0; transform:translateY(6px); transition:opacity .14s linear, transform .14s ease;
+}
+.dv-threat.near b{opacity:1; transform:none; animation:dvThreat .5s ease-in-out infinite;}
+@keyframes dvThreat{50%{opacity:.45;}}
+
 /* -------- water on the lens --------
    A second and a half after every surface break. It is a handful of
    soft radial highlights and one opacity write a frame, and it is the

@@ -220,6 +220,11 @@ class Swimmer {
        in a trip and neither of them used to make a sound. */
     this.splashed = 0; this.launched = 0; this.jumped = false;
     this.landed = 0;             // ...and hitting the shingle, in m/s
+    /* Under a roof. Not an event — a state, held for as long as there
+       is rock over your head, because everything that reads it wants
+       to know "can this diver still float home" rather than "did they
+       just bump something". */
+    this.roofed = false;
     this.beatOff = 0;            // how far off the beat the last stroke was
     /* Blacking out is a one-frame event, so something has to remember
        that it has already happened on this breath. Without it the flag
@@ -697,6 +702,29 @@ class Swimmer {
       if (this.onFoot && !standable) { this.onFoot = false; this.onLand = false; }
     }
     this.wading = this.onFoot && !dryLand;
+
+    /* ---- the roof.
+       The open sea has one rule that every other rule in this swim
+       leans on: whatever else goes wrong, *up* works. Stop kicking and
+       you rise; black out and you rise; run the bar to nothing at
+       forty metres and the water still hands you back to the surface.
+
+       A cave takes that away, and it is the only thing in the mission
+       that does. Under a lid the ceiling is the cap — buoyancy pins
+       you against rock instead of carrying you home, and the only
+       direction out is sideways, on whatever breath you have left.
+       Four lines, and they are the entire reason a cave is worth
+       eleven thousand pounds. */
+    if (w.ceilingAt) {
+      const roof = w.ceilingAt(this.pos.x, this.pos.z);
+      const lid = roof - r;
+      this.roofed = roof < 1e8 && this.pos.y > lid - 2.5;
+      if (roof < 1e8 && this.pos.y > lid) {
+        if (this.vel.y > T.bumpSpeed) this.bumped = true;
+        this.pos.y = lid;
+        if (this.vel.y > 0) this.vel.y *= -0.12;
+      }
+    }
 
     // the wreck and the boulders, as upright cylinders
     if (w.colliders) {

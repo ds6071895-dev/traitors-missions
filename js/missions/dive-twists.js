@@ -90,6 +90,33 @@ const DiveTwists = (() => {
       config: { carryMax: 6 },
       tune: { carryDrain: 0.22, carryBuoy: -0.40 },
     },
+    /* The three cards the caves and the sharks brought with them. They
+       pull on the same three things every other card does — how long
+       your breath lasts, how fast you can move it about, and what
+       counts as money — because the animals and the roof are only ever
+       a tax on the first two. */
+    {
+      id: 'bloodwater', name: 'Blood in the Water', icon: '⌁', payout: 1.55,
+      blurb: 'Six of them, and they are hungry. Everything you take makes more '
+           + 'noise than it is worth — right up until you land it.',
+      config: { sharks: 6 },
+    },
+    {
+      id: 'spelunker', name: 'Spelunker', icon: '⌂', payout: 1.34,
+      blurb: 'The caves are full and they refill fast. Nothing else about them '
+           + 'has changed, including the part with no up in it.',
+      config: {
+        cave: { chests: 9, value: 11500, colour: '#c77dff', respawn: 16, name: 'Cave' },
+      },
+      cond: { water: 'gin' },
+    },
+    {
+      id: 'slack', name: 'Slack Water', icon: '·', payout: 0.88,
+      blurb: 'Nothing in the loch but you and the fish. It is the prettiest dive '
+           + 'in the deck and it is the one that pays the least.',
+      flags: { noSharks: true },
+      cond: { water: 'glassoff' },
+    },
     {
       id: 'silt', name: 'Silt Out', icon: '≡', payout: 1.38,
       blurb: 'Runoff off the hills. You will be on top of the trench before '
