@@ -1038,7 +1038,11 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .dv-bottom{display:flex; justify-content:center; align-items:flex-end; gap:20px}
 
 .dv-money{font-family:var(--display); font-size:clamp(24px,3.4vw,40px); line-height:1;
-  color:var(--gold); text-shadow:0 3px 0 rgba(4,12,22,.5), 0 0 34px rgba(242,193,78,.42)}
+  color:var(--gold); text-shadow:0 3px 0 rgba(4,12,22,.5), 0 0 34px rgba(242,193,78,.42);
+  transition:text-shadow .2s}
+/* the purse while it is still counting up to what it holds */
+.dv-money.rising{color:#fff2c8;
+  text-shadow:0 3px 0 rgba(4,12,22,.5), 0 0 44px rgba(255,225,150,.95)}
 .dv-gain{font-family:var(--display); font-size:clamp(15px,2vw,23px); line-height:1;
   color:var(--mint); text-shadow:0 0 18px rgba(125,252,208,.7); margin-top:2px;
   opacity:0; transform:translateY(-6px); transition:opacity .12s, transform .18s;
@@ -1079,15 +1083,63 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
    Three bands down the left edge, and a mark that slides through them.
    It is the only place in the mission that says how far the surface is,
    which is the question you are asking every two seconds. */
-/* how far the gold in your hands is from being money. Cyan while it is
-   still a swim, gold the moment it would bank — the rule needs no more
-   teaching than that. */
-.dv-shore{margin-top:5px; font-family:var(--display); font-size:clamp(12px,1.5vw,16px);
-  letter-spacing:.08em; color:var(--mint); text-align:right; white-space:nowrap;
-  opacity:0; transform:translateY(-4px); transition:opacity .16s, transform .16s, color .16s;
-  text-shadow:0 0 14px rgba(125,252,208,.55)}
-.dv-shore.show{opacity:1; transform:none}
-.dv-shore.home{color:var(--gold); text-shadow:0 0 20px rgba(255,209,102,.85)}
+/* -------- the compass --------
+   Which way home is, not how far. The needle is read against the tick
+   at the top — straight ahead — so "turn until the needle is up" is
+   the entire instruction and it works at forty metres in silt with the
+   beach behind a hill. The ring closes over the last forty metres, so
+   "nearly there" is a shape rather than a number, and the whole dial
+   goes gold the moment you are stood in the drop. */
+.dv-compass{--near:0; position:relative; width:62px; height:62px; margin:9px 0 0 auto;
+  border-radius:50%; opacity:0; transform:scale(.9);
+  transition:opacity .2s, transform .2s;
+  background:radial-gradient(circle at 50% 42%, rgba(10,30,46,.82), rgba(4,14,24,.9));
+  border:1.5px solid rgba(125,252,208,.35);
+  box-shadow:0 0 18px rgba(57,230,255,.18), 0 0 0 1px rgba(4,16,28,.5) inset}
+.dv-compass.show{opacity:1; transform:none}
+.dv-compass i{position:absolute; display:block}
+/* the closing ring: a conic sweep whose gap shuts as you come in */
+.dv-comp-ring{inset:3px; border-radius:50%;
+  background:conic-gradient(var(--mint) calc(var(--near) * 360deg), rgba(255,255,255,.10) 0);
+  -webkit-mask:radial-gradient(circle, transparent 62%, #000 64%);
+  mask:radial-gradient(circle, transparent 62%, #000 64%);
+  opacity:.85; transition:opacity .2s}
+/* the tick at twelve o'clock: where you are looking */
+.dv-comp-tick{left:50%; top:2px; width:2px; height:7px; margin-left:-1px; border-radius:1px;
+  background:rgba(240,249,255,.8)}
+/* And the needle, which is a triangle so it has a point rather than
+   two ends whose sense you have to work out.
+
+   The pivot is the fiddly part: a CSS border triangle is a zero-size
+   box, so a percentage transform-origin lands somewhere that is not
+   the dial's middle. It is written in pixels against the dial instead
+   — the disc is 62px, so its centre is 31px down, and the needle's
+   own top sits at 8px: 31 - 8 = 23. Get this wrong and the needle
+   orbits the dial rather than turning in it. */
+.dv-comp-needle{left:50%; top:8px; width:0; height:0; margin-left:-6px;
+  border-left:6px solid transparent; border-right:6px solid transparent;
+  border-bottom:18px solid var(--gold);
+  transform-origin:50% 23px;
+  filter:drop-shadow(0 0 7px rgba(255,209,102,.85));
+  transition:border-bottom-color .2s}
+.dv-comp-lbl{position:absolute; left:0; right:0; bottom:9px; text-align:center;
+  font-size:8px; letter-spacing:.18em; font-weight:800; color:rgba(240,249,255,.7)}
+.dv-compass.laden{border-color:rgba(255,209,102,.55);
+  box-shadow:0 0 26px rgba(255,209,102,.30), 0 0 0 1px rgba(4,16,28,.5) inset}
+.dv-compass.laden .dv-comp-ring{background:conic-gradient(var(--gold) calc(var(--near) * 360deg), rgba(255,255,255,.10) 0)}
+.dv-compass.home{border-color:var(--gold); animation:dvHome .9s ease-in-out infinite}
+.dv-compass.home .dv-comp-needle{border-bottom-color:#fff}
+.dv-compass.home .dv-comp-lbl{color:var(--gold)}
+@keyframes dvHome{50%{box-shadow:0 0 34px rgba(255,209,102,.75), 0 0 0 1px rgba(4,16,28,.5) inset}}
+
+/* the haul: consecutive trips landed. It appears at ×2 and stops
+   moving at the cap, so it is only ever on screen while it is news. */
+.dv-haul{font-family:var(--display); font-size:clamp(12px,1.5vw,16px); line-height:1;
+  letter-spacing:.06em; color:var(--mint); margin-top:4px; white-space:nowrap;
+  opacity:0; transform:translateY(-4px); transition:opacity .2s, transform .2s, color .2s;
+  text-shadow:0 0 16px rgba(125,252,208,.6)}
+.dv-haul.on{opacity:1; transform:none}
+.dv-haul.capped{color:var(--gold); text-shadow:0 0 22px rgba(255,209,102,.9)}
 
 .dv-tape{position:absolute; left:clamp(14px,3vw,34px); top:50%; transform:translateY(-50%);
   width:9px; height:min(46vh,340px); border-radius:5px; overflow:visible;
@@ -1101,6 +1153,12 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .dv-tape i.b2{top:60.7%; height:39.3%; background:linear-gradient(180deg,rgba(57,230,255,.6),rgba(57,230,255,.25))}
 .dv-tape-mark{position:absolute; left:-7px; width:23px; height:3px; border-radius:2px;
   background:var(--paper); box-shadow:0 0 12px rgba(255,255,255,.85); transition:top .08s linear}
+/* arriving in a tier lights its band once, on the way down. Descending
+   used to be thirty metres of nothing happening. */
+.dv-tape.lit0 i.b0, .dv-tape.lit1 i.b1, .dv-tape.lit2 i.b2{animation:dvBand 1.1s ease-out}
+@keyframes dvBand{
+  0%{filter:brightness(3.4) saturate(1.4); box-shadow:0 0 22px currentColor}
+  100%{filter:none}}
 .dv-depth{position:absolute; left:20px; top:50%; transform:translateY(-50%);
   font-family:var(--display); font-size:clamp(20px,2.6vw,30px); color:var(--paper);
   text-shadow:0 2px 0 rgba(4,12,22,.6); white-space:nowrap}
@@ -1168,6 +1226,26 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
     radial-gradient(ellipse 40% 36% at 50% 50%, rgba(0,0,0,0) 52%, rgba(120,215,240,.34) 100%),
     radial-gradient(ellipse 62% 54% at 50% 50%, rgba(0,0,0,0) 58%, rgba(24,90,160,.42) 100%);
 }
+
+/* -------- water on the lens --------
+   A second and a half after every surface break. It is a handful of
+   soft radial highlights and one opacity write a frame, and it is the
+   difference between the surface being a fog change and the surface
+   being something that just happened to you. Nothing here is dark:
+   they are *bright* beads, the way water on glass in sunlight is. */
+.dv-wet{position:fixed; inset:0; pointer-events:none; z-index:22; opacity:0;
+  transition:opacity .12s linear; mix-blend-mode:screen;
+  background:
+    radial-gradient(circle 22px at 18% 26%, rgba(226,250,255,.30), transparent 70%),
+    radial-gradient(circle 13px at 31% 62%, rgba(226,250,255,.26), transparent 70%),
+    radial-gradient(circle 30px at 72% 20%, rgba(226,250,255,.22), transparent 70%),
+    radial-gradient(circle 17px at 84% 55%, rgba(226,250,255,.28), transparent 70%),
+    radial-gradient(circle 11px at 57% 79%, rgba(226,250,255,.30), transparent 70%),
+    radial-gradient(circle 25px at 44% 12%, rgba(226,250,255,.18), transparent 70%),
+    radial-gradient(circle 9px at 8% 71%, rgba(226,250,255,.26), transparent 70%),
+    radial-gradient(circle 15px at 92% 82%, rgba(226,250,255,.20), transparent 70%),
+    radial-gradient(ellipse 90% 44% at 50% 0%, rgba(200,244,255,.20), transparent 72%),
+    radial-gradient(ellipse 90% 40% at 50% 100%, rgba(200,244,255,.16), transparent 72%)}
 
 .dv-banner{position:absolute; left:50%; top:16%; transform:translate(-50%,-14px);
   text-align:center; opacity:0; transition:opacity .25s, transform .25s; pointer-events:none}

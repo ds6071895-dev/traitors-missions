@@ -57,6 +57,35 @@ class Swimmer {
     gravity:      9.81,   // m/s^2, once you are properly out of the water
     airDrag:      0.10,   // and how little the air holds you back
     jumpDrag:     0.25,   // fraction of the water's quadratic drag, in air
+
+    /* --- the beach ---
+       The other half of the diver, and the half the mission is a round
+       trip to. Swimming and walking are genuinely different verbs: one
+       is a shaped impulse into a long glide, the other is a velocity
+       you own outright and lose the instant you stop asking for it.
+       Trying to express the second in the first's language is what
+       makes a swimmer on land feel like a boat on gravel.
+
+       You are on your feet whenever the ground under you is within
+       `wadeDepth` of the surface, so the last few metres of the swim
+       home turn into a wade and then into a walk without a button, a
+       prompt or a cut. */
+    wadeDepth:    1.25,   // ground this near the surface is standable
+    standSpeed:   5.4,    // ...but not while you are still travelling
+    standLockT:   0.45,   // seconds after a jump that you cannot re-plant
+    /* The three numbers the walk home is made of. They multiply, so
+       they were tuned together rather than one at a time: a laden
+       wade at 0.62 x 0.52 was two metres a second, which is nine
+       seconds of trudging on a twenty-second trip, and the best part
+       of the mission became the part everybody waited through. */
+    walkTop:      6.6,    // m/s flat out on dry shingle, empty-handed
+    walkWade:     0.72,   // ...and the fraction of it you keep knee-deep
+    walkCarry:    0.58,   // ...and the fraction left with your hands full
+    walkLambda:   9.0,    // how sharply the legs take up a new heading
+    walkStop:     12.0,   // and how sharply they give it back
+    footing:      14.0,   // m/s^2 holding you down while you are on your feet
+    jumpUp:       6.4,    // m/s of a standing jump
+    jumpOut:      4.2,    // ...and how much of it goes where you are looking
     /* And past a certain depth neither are you. A suit compresses, the
        air in it stops holding you up, and below about twenty metres a
        freediver falls. It is the real thing and it is also the whole
@@ -165,6 +194,17 @@ class Swimmer {
     this.up = true;              // is the head out of the water right now
     this.aloft = false;          // ...and is the whole body out of it
     this.onLand = false;         // stood on ground above the tideline
+    /* On your feet: the walking state, which is a different verb from
+       swimming and not simply "touching the bottom". You enter it by
+       arriving on ground that is within a wade of the surface and you
+       leave it by jumping, by the ground falling away, or by being
+       knocked off it — never halfway. */
+    this.onFoot = false;
+    this.wading = false;         // ...and doing it with water round your knees
+    this.grounded = false;       // resting on the floor, wet or dry
+    this.landMix = 0;            // 0 prone in the water, 1 upright on the sand
+    this.walkSpeed = 0;          // flat ground speed, for the gait
+    this.standLock = 0;          // ...and the grace after a jump
     this.underT = 0;             // seconds since it last was
     this.chainIdle = 0;          // seconds since the last stroke that landed
     this.chainGrace = 0.85;      // ...and how long the chain survives without one
@@ -174,6 +214,12 @@ class Swimmer {
     // one-frame events, cleared at the top of every update
     this.stroked = false; this.onBeat = false; this.surfaced = false;
     this.blackout = false; this.bumped = false; this.grabbed = false;
+    /* The waterline, both ways. `splashed` is a body arriving in the
+       loch from the air and `launched` is one leaving it, and the
+       mission turns both into spray — they are the two loudest moments
+       in a trip and neither of them used to make a sound. */
+    this.splashed = 0; this.launched = 0; this.jumped = false;
+    this.landed = 0;             // ...and hitting the shingle, in m/s
     this.beatOff = 0;            // how far off the beat the last stroke was
     /* Blacking out is a one-frame event, so something has to remember
        that it has already happened on this breath. Without it the flag
@@ -250,6 +296,7 @@ class Swimmer {
     this.grabT = Math.max(0, this.grabT - dt);
     this.stroked = false; this.onBeat = false; this.surfaced = false;
     this.blackout = false; this.bumped = false; this.grabbed = false;
+    this.splashed = 0; this.launched = 0; this.jumped = false; this.landed = 0;
 
     const c = ctl || {};
     // ---- aim. The mouse is 1:1 with where you are pointing; the body
@@ -260,7 +307,14 @@ class Swimmer {
     // ---- the stroke gate, once per frame: a rising edge, not a hold
     this.strokeT = Math.max(0, this.strokeT - dt);
     const want = !!c.stroke;
-    if (want && !this.wasStroke && this.strokeT <= 0 && this.air > 0) this._fire(c.beat);
+    if (want && !this.wasStroke && this.strokeT <= 0) {
+      /* The same button, and deliberately so. On the sand it is a jump
+         and in the water it is a kick, and the only thing the player
+         ever learns is "this is how you go". A jump is free — it costs
+         no air, because standing on a beach is not a breath-hold. */
+      if (this.onFoot) this._jump();
+      else if (this.air > 0) this._fire(c.beat);
+    }
     this.wasStroke = want;
 
     // ---- physics, on fixed sub-steps
@@ -315,9 +369,27 @@ class Swimmer {
       - T.airStroke * pressure * (this.onBeat ? T.flowAirScale : 1));
   }
 
+  /* Off the shingle. A jump goes mostly up and partly where you are
+     looking, so a standing player hops and a sprinting one arcs out
+     over the water — which is what makes going back in at the end of
+     every trip an act rather than a fade. */
+  _jump() {
+    const T = this.tune;
+    const cp = Math.cos(this.pitch);
+    this.vel.y = T.jumpUp;
+    this.vel.x += Math.sin(this.yaw) * cp * T.jumpOut;
+    this.vel.z += Math.cos(this.yaw) * cp * T.jumpOut;
+    this.onFoot = false;
+    this.grounded = false;
+    this.jumped = true;
+    this.standLock = T.standLockT;
+    this.strokeT = T.strokeCd;
+  }
+
   _step(h, c, world) {
     const T = this.tune;
     const v = this.vel;
+    this.standLock = Math.max(0, this.standLock - h);
 
     // ---- attitude: the body swings towards the aim, slower at speed
     const sp0 = v.length();
@@ -343,6 +415,52 @@ class Swimmer {
        the difference between pressing D and going right and pressing D
        and going left, and nothing else in the file would have told you. */
     this._right.set(-Math.cos(this.yaw), 0, Math.sin(this.yaw));
+
+    /* ================= on your feet =================
+
+       A complete alternative to everything below it, and the reason it
+       is written as an early return rather than as a pile of `if
+       (!onFoot)` guards: walking is not swimming with different
+       numbers. There is no glide, no carve, no buoyancy and no soft
+       ceiling — there is a direction you are asking for, legs that
+       take it up in about a tenth of a second, and gravity holding you
+       on the ground. Everything you are carrying makes it slower, so
+       the last twenty metres of a four-chest trip are a trudge and the
+       walk back down empty-handed is a sprint. */
+    if (this.onFoot) {
+      const mvL = c.move || null;
+      const ax = mvL ? mvL.x : 0, ay = mvL ? mvL.y : 0;
+      const mag = Math.min(1, Math.hypot(ax, ay));
+      const top = T.walkTop
+        * U.lerp(1, T.walkCarry, U.clamp(this.carried / 4, 0, 1))
+        * (this.wading ? T.walkWade : 1);
+      if (mag > 0.02) {
+        // flat: you walk where you are looking, not where you are aiming
+        const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+        const rx = -Math.cos(this.yaw), rz = Math.sin(this.yaw);
+        const dx = rx * ax + fx * ay, dz = rz * ax + fz * ay;
+        const dl = Math.hypot(dx, dz) || 1;
+        v.x = U.damp(v.x, (dx / dl) * top * mag, T.walkLambda, h);
+        v.z = U.damp(v.z, (dz / dl) * top * mag, T.walkLambda, h);
+      } else {
+        v.x = U.damp(v.x, 0, T.walkStop, h);
+        v.z = U.damp(v.z, 0, T.walkStop, h);
+      }
+      // and the ground keeps you: strong enough to hold you down through
+      // a wade, weak enough that a jump still clears it
+      v.y -= T.footing * h;
+      this.pos.addScaledVector(v, h);
+      this.speed = v.length();
+      this.walkSpeed = Math.hypot(v.x, v.z);
+      this._collide(h, world);
+      this._breathe(h);
+      this.chainIdle += h;
+      if (this.flow > 0 && this.chainIdle > this.chainGrace) {
+        this.flow = Math.max(0, this.flow - T.flowDecay * h);
+      }
+      return;
+    }
+    this.walkSpeed = U.damp(this.walkSpeed, 0, 6, h);
 
     // ---- the kick.
     // The shape is sin(pi*u) over the kick, and the impulse across a
@@ -419,16 +537,37 @@ class Swimmer {
     // ---- the world pushes back
     this._collide(h, world);
 
-    /* ---- breath.
-       The blackout is raised on *being* empty rather than on the step
-       that emptied you, and latched so it happens once. It used to be
-       raised on the crossing, which quietly missed the commonest way a
-       deep diver actually runs out: a stroke costs air too, and at
-       thirty metres it costs more than a whole frame of drain. Spend
-       the last of the bar on a kick rather than on time and the flag
-       never fired — no drop, no float, no drowning. The diver simply
-       lay on the sand with an empty bar and no way to kick off it for
-       the rest of the run. */
+    this._breathe(h);
+
+    // ---- the chain bleeds once the beat has gone past unanswered
+    this.chainIdle += h;
+    if (this.flow > 0 && this.chainIdle > this.chainGrace) {
+      this.flow = Math.max(0, this.flow - T.flowDecay * h);
+    }
+
+    // ---- the body's own wave: one full cycle per kick, idling in the glide
+    const rate = this.kickT > 0 ? (U.TAU / Math.max(0.05, this.kickDur))
+                                : U.TAU * (0.30 + 0.045 * this.speed);
+    this.swimPhase += rate * h;
+  }
+
+  /* ---- breath.
+     The blackout is raised on *being* empty rather than on the step
+     that emptied you, and latched so it happens once. It used to be
+     raised on the crossing, which quietly missed the commonest way a
+     deep diver actually runs out: a stroke costs air too, and at
+     thirty metres it costs more than a whole frame of drain. Spend the
+     last of the bar on a kick rather than on time and the flag never
+     fired — no drop, no float, no drowning. The diver simply lay on
+     the sand with an empty bar and no way to kick off it for the rest
+     of the run.
+
+     Its own method because there are two ways through a sub-step now
+     and both of them have to breathe. A diver stood on the shingle is
+     filling their lungs, and that is most of why the walk home is
+     worth having. */
+  _breathe(h) {
+    const T = this.tune;
     const pressure = 1 + Math.max(0, this.depth) / T.pressureRef;
     const carry = 1 + T.carryDrain * this.carried;
     if (!this.up) {
@@ -445,17 +584,6 @@ class Swimmer {
       if (this.air > 0.06) this.drowned = false;
       if (this.air > this.airMax * 0.985) this.holdDeep = 0;
     }
-
-    // ---- the chain bleeds once the beat has gone past unanswered
-    this.chainIdle += h;
-    if (this.flow > 0 && this.chainIdle > this.chainGrace) {
-      this.flow = Math.max(0, this.flow - T.flowDecay * h);
-    }
-
-    // ---- the body's own wave: one full cycle per kick, idling in the glide
-    const rate = this.kickT > 0 ? (U.TAU / Math.max(0.05, this.kickDur))
-                                : U.TAU * (0.30 + 0.045 * this.speed);
-    this.swimPhase += rate * h;
   }
 
   _collide(h, world) {
@@ -476,13 +604,28 @@ class Swimmer {
     const cap = sy + T.surfaceY;
     const gy = w.heightAt ? w.heightAt(this.pos.x, this.pos.z) + r : -1e9;
     const dryLand = gy > cap;
+    /* Shallow enough to stand up in. This is the number that turns the
+       swim home into a walk home without a prompt: the ground comes up
+       to meet you, your feet find it, and you are wading before you
+       have decided to be. */
+    const standable = gy > cap - T.wadeDepth;
 
+    const wasAloft = this.aloft;
     if (!dryLand && this.pos.y >= cap) {
       this.pos.y = cap;
       if (this.vel.y > 0) this.vel.y *= -0.12;
     }
     this.aloft = this.pos.y > cap + 0.05;
-    this.up = this.aloft || this.pos.y >= cap - T.surfaceBand;
+    /* The waterline, crossed. Both directions are events the mission
+       turns into spray, and the speed is carried with them because a
+       body falling in off the bank and a head easing up through the
+       surface are the same crossing at very different volumes. */
+    if (wasAloft && !this.aloft) this.splashed = Math.abs(this.vel.y) + this.speed * 0.35;
+    else if (!wasAloft && this.aloft) this.launched = Math.abs(this.vel.y);
+    // ...and a diver stood in the shallows is breathing whatever their
+    // collision centre thinks: they are a person, not a sphere, and a
+    // person stood in a metre of water has their head in the air.
+    this.up = this.aloft || this.onFoot || this.pos.y >= cap - T.surfaceBand;
     if (this.up) {
       if (this.underT > 0.05) this.surfaced = true;
       this.underT = 0;
@@ -494,18 +637,66 @@ class Swimmer {
     // the seabed — and, past the tideline, the beach
     if (w.heightAt) {
       if (this.pos.y < gy) {
+        const fall = -this.vel.y;
         if (this.vel.y < -T.bumpSpeed) this.bumped = true;
         this.pos.y = gy;
         if (this.vel.y < 0) this.vel.y *= (this.aloft ? -0.02 : -0.15);
-        // sand is not a wall: it scrubs you off rather than stopping you
-        const scrub = this.aloft ? 6.5 : 2.2;
-        this.vel.x *= Math.exp(-scrub * h);
-        this.vel.z *= Math.exp(-scrub * h);
-        this.onLand = dryLand;
-      } else if (this.pos.y > gy + 0.15) {
+        // sand is not a wall: it scrubs you off rather than stopping you.
+        // On your feet it is your own legs doing the work, so it does not.
+        if (!this.onFoot) {
+          const scrub = this.aloft ? 6.5 : 2.2;
+          this.vel.x *= Math.exp(-scrub * h);
+          this.vel.z *= Math.exp(-scrub * h);
+        }
+        this.grounded = true;
+        this.onLand = standable;
+        /* Arriving on the shingle. You get on your feet the moment the
+           ground under you is shallow enough to stand in, and the
+           landing is reported once so the mission can put a crunch and
+           a puff of shingle under it. */
+        if (standable && !this.onFoot) {
+          this.onFoot = true;
+          if (fall > 1.2) this.landed = fall;
+          /* Arriving carries a swimmer's momentum, and a swimmer moves
+             twice as fast as a walker: without this you land on the
+             shingle and skate up it. Keep a little of it — coming in
+             hot should still put you further up the beach. */
+          const flat = Math.hypot(this.vel.x, this.vel.z);
+          const capV = T.walkTop * 1.25;
+          if (flat > capV) { this.vel.x *= capV / flat; this.vel.z *= capV / flat; }
+        }
+      } else if (this.pos.y > gy + 0.14) {
+        this.grounded = false;
         this.onLand = false;
+        this.onFoot = false;
       }
+      /* ...and finding your feet from the water, which is the handover
+         that actually matters. A floating diver never reaches the sand
+         — the surface lift holds them a body's length above it — so
+         waiting for a collision means you can only ever stand up on
+         dry land, and the wade the whole trip home ends in never
+         happens. Instead: if the ground is shallow enough to stand in,
+         your head is out, and it is within reach of your feet, you
+         stand. It reads as arriving. */
+      /* ...and the two guards that stop it from being a nuisance. A
+         diver travelling at eight metres a second does not put their
+         feet down — they glide over the shallows, which is what makes
+         swimming home *past* the shelf a real option — and the half
+         second after a jump belongs to the jump, or wading back out
+         would plant you again before you had left. */
+      if (!this.onFoot && standable && !this.jumped && !this.aloft
+          && this.standLock <= 0 && this.speed < T.standSpeed
+          && this.vel.y < 1.0 && this.pos.y - gy < T.wadeDepth) {
+        this.pos.y = gy;
+        this.vel.y = Math.min(this.vel.y, 0);
+        this.grounded = true;
+        this.onFoot = true;
+        this.onLand = true;
+      }
+      // and the ground falling away underneath you puts you back in the water
+      if (this.onFoot && !standable) { this.onFoot = false; this.onLand = false; }
     }
+    this.wading = this.onFoot && !dryLand;
 
     // the wreck and the boulders, as upright cylinders
     if (w.colliders) {
@@ -554,6 +745,14 @@ class Swimmer {
     this.curl = U.damp(this.curl,
       this.grabT > 0 ? 1 : U.clamp(this.carried / 4, 0, 1) * 0.35, 9, dt);
     this.trail = U.damp(this.trail, this.kickT > 0 ? 1 : sp01 * 0.35, 6, dt);
+    /* Standing up. The rig is built along +Y and rolled a quarter turn
+       face-down to swim, so coming ashore is that quarter turn played
+       backwards — and because it is damped rather than switched, a
+       diver arriving in the shallows *gets to their feet* over about a
+       third of a second instead of popping upright. The mesh drops by
+       a body radius at the same time, so the feet land on the sand
+       rather than hovering at the collision centre. */
+    this.landMix = U.damp(this.landMix, this.onFoot ? 1 : 0, 7, dt);
 
     this.group.position.copy(this.pos);
     /* The sign on the pitch is not a taste call.
@@ -563,11 +762,21 @@ class Swimmer {
        pointed the opposite way to their travel — at full pitch that is
        a hundred and fifty degrees out, which is a diver swimming to the
        surface while lying on their back looking at the sand. */
-    this._e.set(-this.pitch, this.yaw, this.lean, 'YXZ');
+    const land = this.landMix;
+    this._e.set(-this.pitch * (1 - land), this.yaw, this.lean * (1 - land), 'YXZ');
     this.group.quaternion.setFromEuler(this._e);
+    this.mesh.position.y = -T.bodyRadius * land;
 
     if (this.fig) {
-      Figure.setSwim(this.fig, this.swimPhase, this.effort, this.curl);
+      this.fig.rotation.x = (Math.PI / 2) * (1 - land);
+      if (this.onFoot) {
+        Figure.setSwimming(this.fig, false);
+        Figure.setLocomotion(this.fig, this.walkSpeed, -this.yawVel * 0.5, T.walkTop);
+        Figure.setHolding(this.fig, this.carried > 0);
+      } else {
+        Figure.setSwim(this.fig, this.swimPhase, this.effort, this.curl);
+        Figure.setHolding(this.fig, false);
+      }
       Figure.update(this.fig, dt, this.swimPhase * 0.16);
     }
   }
@@ -593,6 +802,9 @@ class Swimmer {
     this.kickT = 0; this.strokeT = 0; this.flow = 0;
     this.underT = 0; this.up = true; this.speed = 0; this.holdDeep = 0;
     this.aloft = false; this.onLand = false; this.drowned = false;
+    this.onFoot = false; this.wading = false; this.grounded = false;
+    this.walkSpeed = 0; this.standLock = 0;
+    this.splashed = 0; this.launched = 0; this.jumped = false; this.landed = 0;
     this.air = Math.min(this.air, this.airMax);
     this.group.position.copy(this.pos);
   }

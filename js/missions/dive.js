@@ -58,8 +58,23 @@ class DiveMission {
        somebody the other two can watch swimming home. That is the
        whole reason the shore exists: it puts a *journey* between
        having it and keeping it, in front of an audience. */
-    bankTime:    0.35,     // seconds ashore before it counts
-    landRange:   11,       // metres from the tideline that count as ashore
+    /* And "ashore" is now a *place*, not a radius round the waterline.
+       There is a lit ring on the shingle with the pile in the middle of
+       it, you have to be stood in it on your own two feet, and it is
+       the brightest thing in the loch from every depth. Wading in with
+       your head out no longer pays: the last few metres are a walk up
+       a beach carrying four boxes, in front of everybody, and that walk
+       is the best fifteen seconds in the mission. */
+    dropRange:   6.6,      // metres of lit shingle that count as the drop
+    bankTime:    0.15,     // seconds stood in it before it counts
+    /* The haul. Land a trip without blacking out and the next one is
+       worth a little more, up to a fifth again after five — which is
+       what turns sixty separate trips into one run with a shape. It is
+       reset by a blackout and by nothing else, so the question the
+       mission asks ("one more?") gets sharper the better the night is
+       going. */
+    haulStep:    0.045,
+    haulMax:     5,
     respawn:     11,       // fallback, if a tier does not name its own
     blackoutHold: 3.0,     // the forced float after you black out
     moneyScale:  1,
@@ -164,6 +179,13 @@ class DiveMission {
     return {
       banked: 0, lost: 0, recovered: 0,
       deepest: 0, trips: 0, emptyTrips: 0, blackouts: 0,
+      /* How many trips actually made it onto the pile, and the longest
+         run of them without blacking out. Both are tells and both are
+         alibis: a night of five landings and no blackouts is the best
+         diving at the table, and a night of one landing and four
+         blackouts is either the worst or a Traitor, and nothing on the
+         card can tell you which. */
+      landings: 0, bestHaul: 0,
       peakCarry: 0, peakCarryValue: 0,
       tierBanked: { shelf: 0, wreck: 0, trench: 0 },
       trenchTrips: 0, trenchEmpty: 0,
@@ -218,6 +240,13 @@ class DiveMission {
 
     this._tmpV = new THREE.Vector3();
     this._tmpV2 = new THREE.Vector3();
+    /* A ring lying flat on the sea rather than facing the lens. The
+       splash reads as a disturbance *of the water* from any angle, and
+       from the beach that is the only way it reads at all. */
+    if (!DiveMission._FLAT) {
+      DiveMission._FLAT = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(-Math.PI / 2, 0, 0));
+    }
     this._camPos = new THREE.Vector3();
     this._camLook = new THREE.Vector3();
     this._band = { colour: new THREE.Color(), near: 0, far: 0, caustic: 0, vignette: 0 };
@@ -227,6 +256,11 @@ class DiveMission {
 
   _resetRun() {
     this.money = 0;
+    /* What the purse *says*, which chases what it holds rather than
+       being it. Four chests landing one after another put four rising
+       numbers on the screen, and a counter that jumped to the total on
+       the first of them threw away three of them. */
+    this._moneyShown = 0;
     this.carry = [];              // the chests in your hands, in grab order
     this.elapsed = 0;
     this.timeLeft = this.C.runTime;
@@ -261,6 +295,16 @@ class DiveMission {
     this._gear = -1;
     this._muffle = 0;
     this._toldShore = false;
+    /* The haul, the chests in the air on their way to the pile, and
+       the two little clocks that make the beach and the surface feel
+       like events rather than states. */
+    this.haul = 0;
+    this.bestHaul = 0;
+    this._flying = [];
+    this._tripTiers = 0;       // which tiers this trip has already visited
+    this._wet = 0;             // seconds of water still on the lens
+    this._dropHot = 0;         // how loudly the drop zone is calling you
+    this._shownWet = -1;
     this._paletteAt = undefined;
     this._skyOn = undefined;
     this._camRoll = 0;
@@ -345,6 +389,8 @@ class DiveMission {
 
     // ---- the money
     this._buildChestKit();
+    // ...and where four of it rides on the way home
+    this._pack = this._carryPack(this.swimmer);
     this.chests = [];
     for (let t = 0; t < C.tiers.length; t++) {
       for (let i = 0; i < C.tiers[t].chests; i++) this._spawnChest(t);
@@ -354,8 +400,13 @@ class DiveMission {
 
     this.fx = {
       bubbles: new ParticleField(scene, 700, { drag: 1.5, gravity: -3.2 }),
-      sparks: new ParticleField(scene, 420, { drag: 1.2, gravity: -1.2, additive: true }),
-      rings: new RingBurst(scene, 14),
+      /* Both pools grew when the landing did. Four chests arriving one
+         after another is five rings and a hundred and sixteen sparks
+         inside half a second, on top of whatever the splash that got
+         them there is still spending — at the old sizes the flourish
+         quietly ate the spray that preceded it. */
+      sparks: new ParticleField(scene, 680, { drag: 1.2, gravity: -1.2, additive: true }),
+      rings: new RingBurst(scene, 22),
       labels: new FloatingLabels(document.getElementById('world-labels'), camera),
       update(dt) {
         this.bubbles.update(dt); this.sparks.update(dt);
@@ -380,8 +431,10 @@ class DiveMission {
     this.buoy.position.set(this.buoyAt.x, 0, this.buoyAt.z);
     scene.add(this.buoy);
 
-    // and the pile, which is what all of this is for
+    // and the pile, which is what all of this is for — stood in the
+    // ring of light that is the only place it can be put down
     this._buildPile();
+    this._buildDrop();
 
     if (this.opts.ghost) {
       const g = GameState.getGhost('dive', this.key);
@@ -445,6 +498,52 @@ class DiveMission {
     this._glowTex = Sky.glowTexture('rgba(255,255,255,0.95)', 'rgba(255,220,140,0.45)');
   }
 
+  /* ---- what is in your hands, on you ----
+
+     The entire mission is a question about how much you are carrying,
+     and until now the answer lived in four pips on a HUD. Nobody
+     watching you could see it, which is a strange thing for a game
+     whose whole social layer is *watching somebody swim home rich*.
+
+     So the chests go on the body: hung off the rig's chest joint, so
+     they tuck when the arms tuck and roll when the body rolls, and
+     coloured by tier — a diver climbing out of the trench with two
+     cyan boxes under them is the most legible thing in the loch. Six
+     slots, because The Hoard exists. */
+  static CARRY_SLOTS = [
+    [-0.17,  0.19, 0.25], [0.17,  0.19, 0.25],
+    [-0.18,  0.01, 0.28], [0.18,  0.01, 0.28],
+    [-0.16, -0.16, 0.25], [0.16, -0.16, 0.25],
+  ];
+
+  _carryPack(sw) {
+    const rig = sw.fig && sw.fig.userData && sw.fig.userData.rig;
+    if (!rig || !rig.chest) return null;
+    const pack = [];
+    for (let i = 0; i < 6; i++) {
+      const s = DiveMission.CARRY_SLOTS[i];
+      const m = new THREE.Mesh(this._chestGeo, this._chestMats[0]);
+      m.position.set(s[0], s[1], s[2]);
+      m.rotation.set(Math.PI / 2, (i % 2 ? 1 : -1) * 0.22, (i % 3) * 0.14 - 0.14);
+      m.scale.setScalar(0.40);
+      m.visible = false;
+      rig.chest.add(m);
+      pack.push(m);
+    }
+    return pack;
+  }
+
+  /* Show `n` of them, in the tiers given. Used for the local diver off
+     `this.carry` and for every peer off what their machine sent. */
+  _showCarried(pack, tiers) {
+    if (!pack) return;
+    for (let i = 0; i < pack.length; i++) {
+      const t = tiers && tiers[i];
+      pack[i].visible = t !== undefined && t !== null;
+      if (pack[i].visible) pack[i].material = this._chestMats[U.clamp(t | 0, 0, 2)];
+    }
+  }
+
   _spawnChest(tierIndex, at) {
     const C = this.C;
     const tier = C.tiers[tierIndex];
@@ -491,9 +590,28 @@ class DiveMission {
     glow.renderOrder = 5;
     this.scene.add(glow);
 
+    /* A chest somebody dropped gets a second marker that ignores fog
+       and depth entirely. It is the mission's one rule — *whatever you
+       black out holding lies there for anybody* — and until now that
+       rule was invisible past twenty metres of blue water, which meant
+       it was a rule about a thing nobody could find. One sprite makes
+       a blackout something the whole loch can see happen. */
+    let far = null;
+    if (at) {
+      far = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: this._glowTex, color: tier.colour, transparent: true,
+        opacity: 0.55, depthWrite: false, depthTest: false, fog: false,
+        blending: THREE.AdditiveBlending,
+      }));
+      far.scale.setScalar(2.4);
+      far.position.set(x, y + 1.1, z);
+      far.renderOrder = 39;
+      this.scene.add(far);
+    }
+
     const chest = {
       id: this._nextChestId++, tier: tierIndex, value: tier.value,
-      x, y, z, mesh, glow, mult: 1, dropped: !!at, taken: false,
+      x, y, z, mesh, glow, far, mult: 1, dropped: !!at, taken: false,
       phase: this.rng() * U.TAU, depth: -y,
     };
     this.chests.push(chest);
@@ -549,6 +667,215 @@ class DiveMission {
     this._lamp = lamp;
   }
 
+  /* =================== the drop ===================
+
+     The one place in the loch that counts, and the loudest thing in
+     it. It used to be a radius round the tideline with no picture at
+     all: a diver forty metres down, holding four thousand pounds,
+     could not see where home was, and the HUD answered them with a
+     number of metres — which is an instrument reading, not a place.
+
+     So it is a *place* now. A ring of light on the shingle with the
+     pile standing in the middle of it, eight lit stakes round the rim,
+     a column of gold going up out of it, and — the part that does the
+     real work — a marker that ignores fog and depth entirely, so from
+     the bottom of the trench in silt-out water there is still one warm
+     point on the screen and it is the way home.
+
+     Everything in here brightens with what is in your hands. Swimming
+     home empty it is a lamp on a beach; swimming home with four
+     chests it is a lighthouse. */
+  _buildDrop() {
+    const sh = this.shore;
+    const R = this.C.dropRange;
+    const g = new THREE.Group();
+    g.position.set(sh.landing.x, sh.landing.y + 0.05, sh.landing.z);
+    this.scene.add(g);
+
+    const gold = '#ffd166';
+    const add = (geo, opts) => new THREE.Mesh(geo, new THREE.MeshBasicMaterial(
+      Object.assign({ color: gold, transparent: true, depthWrite: false,
+                      blending: THREE.AdditiveBlending }, opts || {})));
+
+    /* The pool of light the pile stands in, and the rim that is the
+       line you have to be inside. Both are laid *on the shingle* — the
+       ground under the landing is flattened but it is not a table, and
+       a flat disc floating a hand's breadth over a beach is the one
+       piece of a scene everybody's eye finds. Each vertex is dropped
+       onto `heightAt`, which costs a couple of hundred samples once. */
+    /* The mesh is laid flat with `rotation.x = -PI/2`, which sends the
+       geometry's local (x, y, z) to a world offset of (x, z, -y). So
+       the ground sample is taken at (x, -y) and the answer is written
+       into the vertex's *z*. Getting either of those the wrong way
+       round produces a ring that follows some other patch of beach. */
+    const baseY = sh.landing.y + 0.05;
+    const drape = (geo, lift) => {
+      const p = geo.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const wx = sh.landing.x + p.getX(i);
+        const wz = sh.landing.z - p.getY(i);
+        p.setZ(i, this.reef.heightAt(wx, wz) - baseY + lift);
+      }
+      p.needsUpdate = true;
+      geo.computeVertexNormals();
+      return geo;
+    };
+    const pool = add(drape(new THREE.CircleGeometry(R, 44), 0.10), { opacity: 0.16 });
+    pool.rotation.x = -Math.PI / 2;
+    pool.renderOrder = 3;
+
+    const rim = add(drape(new THREE.RingGeometry(R - 0.42, R, 64), 0.14),
+                    { opacity: 0.85, side: THREE.DoubleSide });
+    rim.rotation.x = -Math.PI / 2;
+    rim.renderOrder = 4;
+
+    /* And a second ring that runs outwards from the middle over and
+       over. A static circle is a decal; a circle that keeps arriving at
+       the rim is an instruction, and nobody has ever had to be told
+       what it means. */
+    const call = add(new THREE.RingGeometry(R - 0.30, R, 64), { opacity: 0.5, side: THREE.DoubleSide });
+    call.rotation.x = -Math.PI / 2;
+    // it scales, so it cannot be draped; it sits a hand over the
+    // highest shingle in the ring instead, which comes to the same
+    // thing on a pad this flat and costs sixteen samples
+    let crest = -1e9;
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * U.TAU;
+      crest = Math.max(crest, this.reef.heightAt(sh.landing.x + Math.cos(a) * R * 0.7,
+                                                 sh.landing.z + Math.sin(a) * R * 0.7));
+    }
+    call.position.y = Math.max(0.03, crest - (sh.landing.y + 0.05) + 0.08);
+    call.renderOrder = 4;
+
+    /* The column. `fog: false` is the whole point of it — the mission's
+       fog closes to twenty metres in the trench, and a beam that obeyed
+       it would be invisible from exactly the place you most need to see
+       it from. */
+    const beamGeo = new THREE.CylinderGeometry(R * 0.86, R * 0.5, 54, 22, 1, true);
+    const beamTex = DiveMission._beamTexture();
+    const beam = add(beamGeo, {
+      opacity: 0.13, side: THREE.DoubleSide, fog: false, map: beamTex,
+    });
+    beam.position.y = 27;
+    beam.renderOrder = 3;
+
+    g.add(pool, rim, call, beam);
+
+    /* Eight stakes with a lamp on each, because a ring of light with
+       nothing making it reads as a decal. They are the only built thing
+       on the beach and they say somebody works here. */
+    const postGeo = new THREE.CylinderGeometry(0.055, 0.08, 1.5, 5);
+    const postMat = new THREE.MeshLambertMaterial({ color: '#4a3b2c', flatShading: true });
+    const bulbGeo = new THREE.IcosahedronGeometry(0.15, 0);
+    const bulbMat = new THREE.MeshLambertMaterial({
+      color: '#ffe9a8', flatShading: true, emissive: '#ffb347', emissiveIntensity: 1.1 });
+    this._bulbMat = bulbMat;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * U.TAU + 0.2;
+      const px = Math.cos(a) * R, pz = Math.sin(a) * R;
+      const post = new THREE.Mesh(postGeo, postMat);
+      post.position.set(px, 0.72, pz);
+      post.rotation.z = Math.sin(a * 3.1) * 0.06;
+      const bulb = new THREE.Mesh(bulbGeo, bulbMat);
+      bulb.position.set(px, 1.55, pz);
+      g.add(post, bulb);
+    }
+
+    /* The marker. Depth-tested off and fog off, so it draws over the
+       hillside, over the silt and over forty metres of blue water. It
+       is the only thing in the mission allowed to do that, and it earns
+       it: without it the whole shore rule is a guessing game. */
+    const mark = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: this._glowTex, color: gold, transparent: true, opacity: 0.8,
+      depthWrite: false, depthTest: false, fog: false,
+      blending: THREE.AdditiveBlending,
+    }));
+    mark.scale.setScalar(7);
+    mark.position.set(0, 13, 0);
+    mark.renderOrder = 40;
+    g.add(mark);
+
+    this.drop = { group: g, pool, rim, call, beam, mark, R, tex: beamTex,
+                  geos: [pool.geometry, rim.geometry, call.geometry, beamGeo,
+                         postGeo, bulbGeo],
+                  mats: [pool.material, rim.material, call.material, beam.material,
+                         postMat, bulbMat, mark.material] };
+    this._callT = 0;
+  }
+
+  /* A vertical fade, for the column. One column of pixels is enough:
+     the cylinder's UVs run 0 at the bottom to 1 at the top. */
+  static _beamTexture() {
+    const c = document.createElement('canvas');
+    c.width = 4; c.height = 64;
+    const x = c.getContext('2d');
+    const grd = x.createLinearGradient(0, 64, 0, 0);
+    grd.addColorStop(0.00, 'rgba(255,255,255,1)');
+    grd.addColorStop(0.35, 'rgba(255,255,255,0.42)');
+    grd.addColorStop(1.00, 'rgba(255,255,255,0)');
+    x.fillStyle = grd;
+    x.fillRect(0, 0, 4, 64);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+
+  /* How far the diver is from the middle of the drop, flat. */
+  _dropDist() {
+    const l = this.shore.landing;
+    return Math.hypot(this.swimmer.pos.x - l.x, this.swimmer.pos.z - l.z);
+  }
+
+  /* Stood in it, on your feet. Both halves matter: the ring is where,
+     and being on your feet is the walk up the shingle that the whole
+     rule exists to buy. Floating in the shallows with your head out is
+     not landing anything. */
+  _inDrop() {
+    const sw = this.swimmer;
+    return (sw.onFoot || sw.onLand) && this._dropDist() <= this.C.dropRange;
+  }
+
+  /* The drop, breathing. Everything here is driven by two numbers —
+     how much gold is in your hands and how close you are — so the
+     beach is quiet while you are working the reef and is shouting by
+     the time you are swimming home rich. */
+  _tickDrop(dt, t) {
+    const d = this.drop;
+    if (!d) return;
+    const held = this._carryValue();
+    const want = U.clamp(held / 4200, 0, 1) * 0.75
+               + (this.carry.length ? 0.25 : 0)
+               + (this._inDrop() ? 0.6 : 0);
+    this._dropHot = U.damp(this._dropHot, Math.min(1.4, want), 3, dt);
+    const hot = this._dropHot;
+
+    const breathe = 0.5 + 0.5 * Math.sin(t * (1.5 + hot * 2.2));
+    d.rim.material.opacity = 0.45 + 0.45 * breathe + hot * 0.25;
+    d.pool.material.opacity = 0.10 + 0.10 * breathe + hot * 0.18;
+    d.beam.material.opacity = 0.07 + 0.05 * breathe + hot * 0.16;
+
+    // the call ring: out from the middle to the rim, again and again,
+    // faster the more you are carrying
+    this._callT += dt * (0.42 + hot * 0.75);
+    const k = this._callT % 1;
+    d.call.scale.setScalar(0.08 + k * 0.95);
+    d.call.material.opacity = (1 - k) * (0.30 + hot * 0.55);
+
+    /* The marker holds a roughly constant size on screen rather than
+       shrinking to a pixel from the trench, which is the difference
+       between a landmark and a speck. */
+    const dist = this.camera.position.distanceTo(d.group.position);
+    d.mark.scale.setScalar(U.clamp(2.2 + dist * 0.075, 3, 26));
+    d.mark.material.opacity = (0.35 + 0.45 * breathe + hot * 0.35)
+                            * U.clamp(dist / 26, 0.25, 1);
+
+    // one material behind all eight lamps, so the rim breathes together
+    if (this._bulbMat) {
+      this._bulbMat.emissiveIntensity = 0.7 + 0.45 * breathe + hot * 0.55;
+    }
+    if (this._lampLight) this._lampLight.distance = 26 + hot * 16;
+  }
+
   /* Where the nth chest on the pile sits: courses of seven, each one
      ringed a little tighter than the course below it, so what grows out
      of the shingle is a tapering stack of salvage crates rather than a
@@ -582,6 +909,8 @@ class DiveMission {
   }
 
   _clearPile() {
+    for (const f of this._flying) this.scene.remove(f.mesh);
+    this._flying.length = 0;
     if (!this.pile) return;
     for (const m of this.pile.items) this.pile.group.remove(m);
     this.pile.items.length = 0;
@@ -589,6 +918,7 @@ class DiveMission {
   }
 
   _tickPile(dt, t) {
+    this._tickFlights(dt);
     if (!this.pile) return;
     for (const m of this.pile.items) {
       const d = m.userData.drop;
@@ -596,13 +926,28 @@ class DiveMission {
       m.userData.drop = Math.max(0, d - dt * 4);
       m.position.y = m.userData.restY + m.userData.drop * m.userData.drop * 2.4;
     }
+    /* The pad says what the button currently does. It is the same
+       button either way, but a pad labelled KICK while you are stood
+       on gravel is a lie told sixty times a run. */
+    if (Input.isTouch && this.hud && this.hud.kick) {
+      const jump = !!(this.swimmer && this.swimmer.onFoot);
+      if (jump !== this._padJump) {
+        this._padJump = jump;
+        this.hud.kick.textContent = jump ? 'JUMP' : 'KICK';
+      }
+    }
     if (this._lamp) {
       // a lamp that breathes, so the beach is never a still photograph
-      const f = 0.85 + 0.15 * Math.sin(t * 2.3) + 0.06 * Math.sin(t * 7.1);
+      /* ...and one that gets brighter as the heap under it does, so a
+         run going well is visibly lighting up its own beach. Twenty
+         chests in and the landing is the brightest thing in the loch
+         from anywhere on the reef. */
+      const rich = U.clamp((this.pile.n || 0) / 26, 0, 1);
+      const f = 0.85 + 0.15 * Math.sin(t * 2.3) + 0.06 * Math.sin(t * 7.1) + rich * 0.5;
       this._lamp.material.emissiveIntensity = f;
       this._lampGlow.material.opacity = 0.55 + 0.3 * f;
-      this._lampGlow.scale.setScalar(8.4 + f * 1.4);
-      this._lampLight.intensity = 2.2 + f * 0.7;
+      this._lampGlow.scale.setScalar(8.4 + f * 1.4 + rich * 3);
+      this._lampLight.intensity = 2.2 + f * 0.7 + rich * 1.6;
     }
   }
 
@@ -625,24 +970,17 @@ class DiveMission {
     const sh = this.shore;
     const sw = this.swimmer;
     if (!sw.onLand && !sw.aloft) return;
-    sw.vel.set(-sh.nx * 8.4, 3.6, -sh.nz * 8.4);
+    /* Off your feet first, or the walk takes the velocity straight back
+       off you: standing on the shingle is a state with its own physics
+       now, and it does not believe in anything it did not ask for. */
+    sw.onFoot = false;
+    sw.grounded = false;
+    sw.vel.set(-sh.nx * 9.6, 4.2, -sh.nz * 9.6);
     sw.pitchAim = -0.55;
     this.camKick = 0.8;
     this.fovKick = 5;
-    AudioBus.play('dv-stroke', { power: 1 });
-  }
-
-  /* How far you are from being ashore, in metres, measured flat. The
-     tideline point rather than the pile: you have to get out of the
-     water, not climb the beach. */
-  _shoreDist() {
-    const t = this.shore.tide;
-    return Math.hypot(this.swimmer.pos.x - t.x, this.swimmer.pos.z - t.z);
-  }
-
-  _ashore() {
-    const sw = this.swimmer;
-    return (sw.up || sw.onLand) && this._shoreDist() <= this.C.landRange;
+    AudioBus.play('dv-shingle', { power: 0.8 });
+    this._shingle(sw.pos.x, sw.pos.y, sw.pos.z, 0.8);
   }
 
   _removeChest(chest) {
@@ -653,7 +991,11 @@ class DiveMission {
       this.scene.remove(chest.glow);
       chest.glow.material.dispose();
     }
-    chest.mesh = null; chest.glow = null;
+    if (chest.far) {
+      this.scene.remove(chest.far);
+      chest.far.material.dispose();
+    }
+    chest.mesh = null; chest.glow = null; chest.far = null;
   }
 
   static _buildBuoy() {
@@ -689,6 +1031,7 @@ class DiveMission {
       this.peers.set(p.id, {
         sw, name: p.name, seen: false, pos: new THREE.Vector3(),
         air: 1, carried: 0, value: 0, deepest: 0, money: 0, trips: 0,
+        pack: this._carryPack(sw),
       });
       this.scores.set(p.id, 0);
     }
@@ -704,8 +1047,12 @@ class DiveMission {
       tape: q('dv-tape'), tapeMark: q('dv-tape-mark'),
       breath: q('dv-breath'), breathFill: q('dv-breath-fill'), breathLbl: q('dv-breath-lbl'),
       ring: q('dv-ring'), ringPulse: q('dv-ring-pulse'),
-      carry: q('dv-carry'), carryVal: q('dv-carry-val'), shore: q('dv-shore'),
+      carry: q('dv-carry'), carryVal: q('dv-carry-val'),
+      compass: q('dv-compass'), compNeedle: q('dv-comp-needle'),
+      compRing: q('dv-comp-ring'), compLbl: q('dv-comp-lbl'),
+      haul: q('dv-haul'), wet: q('dv-wet'),
       pressure: q('dv-pressure'), banner: q('dv-banner'), hint: q('dv-hint'),
+      kick: document.querySelector('#touch-dive .kick-pad'),
       setup: q('dv-setup'),
       center: q('dv-center'), flash: q('screen-flash'),
     };
@@ -779,16 +1126,19 @@ class DiveMission {
     for (const c of this.chests.slice()) this._removeChest(c);
     this.chests = [];
     this.fx.labels.clear();
+    // before the reset, which hands `_flying` a fresh array and would
+    // otherwise leave the last run's chests hanging over the beach
+    this._clearPile();
     this._resetRun();
     this.rng = U.makeRng(this.seed);
     for (let t = 0; t < this.C.tiers.length; t++) {
       for (let i = 0; i < this.C.tiers[t].chests; i++) this._spawnChest(t);
     }
-    this._clearPile();
     this._placeAshore();
     this.swimmer.airMax = 1;
     this.swimmer.air = 1;
     this.swimmer.carried = 0;
+    this._paintCarry();          // and the boxes come off the body
     // The Deep's escalation lives on the tune, so a retry has to undo it
     this.swimmer.tune.gaspRefill = ((this.twist && this.twist.tune) || {}).gaspRefill
                                    || Swimmer.TUNE.gaspRefill;
@@ -824,6 +1174,15 @@ class DiveMission {
     if (this.fx) this.fx.dispose();
     for (const c of this.chests.slice()) this._removeChest(c);
     this.chests = [];
+    for (const f of this._flying) this.scene.remove(f.mesh);
+    this._flying.length = 0;
+    if (this.drop) {
+      for (const g of this.drop.geos) g.dispose();
+      for (const m of this.drop.mats) m.dispose();
+      // the marker shares the chest kit's glow, which is disposed below
+      this.drop.tex.dispose();
+      this.drop = null;
+    }
     if (this._chestGeo) this._chestGeo.dispose();
     if (this._chestMats) for (const m of this._chestMats) m.dispose();
     if (this._glowTex) this._glowTex.dispose();
@@ -848,7 +1207,9 @@ class DiveMission {
       if (this.hud.gain) this.hud.gain.classList.remove('show');
       if (this.hud.chainWrap) this.hud.chainWrap.classList.remove('on');
       if (this.hud.carry) this.hud.carry.innerHTML = '';
-      if (this.hud.shore) this.hud.shore.classList.remove('show', 'home');
+      if (this.hud.compass) this.hud.compass.classList.remove('show', 'home', 'laden');
+      if (this.hud.haul) this.hud.haul.classList.remove('on', 'capped');
+      if (this.hud.wet) this.hud.wet.style.opacity = '0';
       this._setCenter('', '');
     }
   }
@@ -875,6 +1236,7 @@ class DiveMission {
     let dt = rawDt;
     if (this.hitStop > 0) { this.hitStop -= rawDt; dt = rawDt * 0.10; }
     dt = Math.min(dt, 0.1);
+    this._lastDt = dt;
 
     Water.update(dt);
     Water.follow(this.camera.position.x, this.camera.position.z);
@@ -899,6 +1261,7 @@ class DiveMission {
     this.reef.update(dt, this.camera.position);
     Sky.update(dt, this.camera.position, t);
     this._tickPile(dt, t);
+    this._tickDrop(dt, t);
     if (this.shoal) this.shoal.update(dt, this.swimmer.pos, this.camera.position);
     this.fx.update(dt);
     this.buoy.position.y = Water.sampleHeight(0, 0);
@@ -994,6 +1357,7 @@ class DiveMission {
 
     // bubbles off every kick, and a thin stream while you glide
     if (sw.trail > 0.02) this._bubbles(dt, sw);
+    this._footfall(dt, sw);
 
     const depth = sw.depth;
     this.deepest = Math.max(this.deepest, depth);
@@ -1009,10 +1373,61 @@ class DiveMission {
       Input.rumble(0.35, 90);
     }
 
-    // ---- the surface: bank, gasp, and the bright release
+    /* ---- the waterline, both ways.
+       The two loudest moments in a trip, and until now neither of them
+       put a single particle on the screen. Coming up is the bright
+       release the whole breath-hold is for; going back in off the
+       shingle at a sprint is the moment the next one starts. Both get
+       a ring on the water, a fan of spray and a lungful of noise. */
     if (sw.surfaced) {
       this.camGasp = 1;
+      this._wet = 1;
       AudioBus.play('dv-gasp');
+      this._splash(sw.pos.x, sw.pos.z, 0.7 + U.clamp(sw.speed / 9, 0, 0.8), '#dff9ff');
+      this._flash(0.16, 'rgba(220,250,255,0.75)');
+    }
+    if (sw.splashed > 0.6) {
+      const p = U.clamp(sw.splashed / 9, 0.35, 1.7);
+      this._wet = 1;
+      this.camKick = Math.min(this.camKick + p * 0.7, 1.8);
+      AudioBus.play('dv-splash', { power: p });
+      this._splash(sw.pos.x, sw.pos.z, p, '#eaffff');
+      Input.rumble(0.25 * p, 120);
+    }
+    // and the crunch of arriving on gravel
+    if (sw.landed > 1.2) {
+      this.camKick = Math.min(this.camKick + U.clamp(sw.landed / 12, 0.1, 0.7), 1.8);
+      AudioBus.play('dv-shingle', { power: U.clamp(sw.landed / 9, 0.3, 1) });
+      this._shingle(sw.pos.x, sw.pos.y, sw.pos.z, U.clamp(sw.landed / 8, 0.3, 1));
+    }
+    if (sw.jumped) {
+      AudioBus.play('dv-shingle', { power: 0.45 });
+      this._shingle(sw.pos.x, sw.pos.y, sw.pos.z, 0.4);
+    }
+    this._wet = Math.max(0, this._wet - dt * 0.62);
+
+    /* ---- the tiers, met on the way down.
+       Descending used to be dead air: thirty metres of holding one
+       button with nothing happening until a chest came into range. Now
+       each tier announces itself the first time you enter it on a
+       trip — a note, the band on the tape lighting, and what it is
+       worth — so going down has a shape and arriving in the trench
+       feels like arriving somewhere. */
+    if (live && !sw.up && !this.out) {
+      const ti = this._tierAt(depth);
+      const bit = 1 << ti;
+      if (ti > 0 && !(this._tripTiers & bit) && depth > -this.C.tiers[ti].top + 1.5) {
+        this._tripTiers |= bit;
+        const T = this.C.tiers[ti];
+        AudioBus.play('dv-tier', { tier: ti });
+        this._banner(T.name.toUpperCase(), U.money(Math.round(T.value * this.payout))
+                     + ' a chest', ti === 2 ? 'perfect' : '');
+        if (this.hud.tape) {
+          this.hud.tape.classList.remove('lit0', 'lit1', 'lit2');
+          void this.hud.tape.offsetWidth;
+          this.hud.tape.classList.add('lit' + ti);
+        }
+      }
     }
 
     /* ---- coming back from a blackout.
@@ -1024,6 +1439,9 @@ class DiveMission {
        helpless, on the strip, in front of two people who have just
        watched a pile of gold land on the floor. */
     if (this.out) {
+      // an unconscious diver is not stood in the shallows: they float,
+      // wherever they happened to be when the lights went out
+      sw.onFoot = false;
       if (!sw.up) {
         sw.vel.y = U.damp(sw.vel.y, 5.2, 2.5, dt);
         sw.vel.x *= Math.exp(-1.6 * dt);
@@ -1035,7 +1453,7 @@ class DiveMission {
         if (this.holdT <= 0) {
           this.out = false;
           this._setCenter('', '');
-          this._banner('BACK', 'Whatever you dropped is still down there', 'bad');
+          this._banner('BACK', 'Whatever you dropped is still down there, lit', 'bad');
         }
       }
     }
@@ -1051,9 +1469,10 @@ class DiveMission {
       if (this.inTrip && this.tripDeepest > 3) this._endTrip();
     } else if (!this.inTrip && depth > 3) {
       this.inTrip = true; this.tripDeepest = depth; this.tripTook = 0;
+      this._tripTiers = 0;
     }
 
-    if (this._ashore()) {
+    if (this._inDrop()) {
       this.bankT += dt;
       if (this.bankT >= this.C.bankTime && this.carry.length && live) this._bank();
     } else {
@@ -1067,6 +1486,36 @@ class DiveMission {
     // Buddy Line: two divers inside five metres share a bar, which turns
     // the whole mission into a conversation about who is next to whom
     if (this.flags.sharedAir) this._buddyAir(dt);
+  }
+
+  /* Footsteps, measured in metres rather than in seconds, so they land
+     with the gait at every speed and a diver stood still makes none.
+     A stride in the shallows throws water and one on dry shingle
+     throws gravel — the same three lines, twice, and between them they
+     are most of why the walk up the beach feels like a walk up a beach
+     rather than a camera sliding over a texture. */
+  _footfall(dt, sw) {
+    if (!sw.onFoot || sw.walkSpeed < 0.6) { this._stepAcc = 0.9; return; }
+    this._stepAcc = (this._stepAcc || 0) + sw.walkSpeed * dt;
+    const stride = sw.wading ? 1.35 : 1.55;
+    if (this._stepAcc < stride) return;
+    this._stepAcc = 0;
+    const p = sw.pos;
+    const pw = U.clamp(sw.walkSpeed / this.swimmer.tune.walkTop, 0.25, 1);
+    if (sw.wading) {
+      AudioBus.play('dv-splash', { power: 0.24 * pw });
+      const y = Water.sampleHeight(p.x, p.z);
+      for (let i = 0; i < 9; i++) {
+        const a = Math.random() * U.TAU;
+        this.fx.sparks.emit(p.x + Math.cos(a) * 0.35, y, p.z + Math.sin(a) * 0.35,
+          Math.cos(a) * 2.2 * pw, 1.4 + Math.random() * 2.6 * pw, Math.sin(a) * 2.2 * pw,
+          0.13 + Math.random() * 0.18, 0.32 + Math.random() * 0.3,
+          DiveMission._SPRAY);
+      }
+    } else {
+      AudioBus.play('dv-shingle', { power: 0.22 * pw });
+      this._shingle(p.x, p.y, p.z, 0.22 * pw);
+    }
   }
 
   _bubbles(dt, sw) {
@@ -1088,6 +1537,45 @@ class DiveMission {
   }
 
   static _BUBBLE = { r: 0.85, g: 0.98, b: 1.0 };
+  static _SPRAY = { r: 0.92, g: 1.0, b: 1.0 };
+  static _GRIT = { r: 0.72, g: 0.66, b: 0.56 };
+
+  /* A body crossing the waterline. A ring flat on the sea and a fan of
+     droplets thrown up out of it — the ring is what sells it from the
+     shore and the droplets are what sell it from inside. `power` is
+     roughly how hard: a head easing up is 0.7, a diver arriving off a
+     sprinting jump is nearer two. */
+  _splash(x, z, power, colour) {
+    const y = Water.sampleHeight(x, z);
+    this._tmpV.set(x, y + 0.05, z);
+    this.fx.rings.fire(this._tmpV, DiveMission._FLAT, 0.4, 3 + power * 7,
+                       0.45 + power * 0.25, colour || '#eaffff');
+    const n = Math.round(14 + power * 26);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * U.TAU;
+      const out = (0.6 + Math.random() * 2.6) * power;
+      this.fx.sparks.emit(x + Math.cos(a) * 0.5, y + 0.1, z + Math.sin(a) * 0.5,
+        Math.cos(a) * out * 2.2, (1.6 + Math.random() * 4.4) * power, Math.sin(a) * out * 2.2,
+        0.16 + Math.random() * 0.26, 0.45 + Math.random() * 0.55,
+        DiveMission._SPRAY);
+    }
+  }
+
+  /* ...and one hitting the beach. Shingle, not water: it goes sideways
+     and dies fast, which is the whole difference between gravel and a
+     splash in two numbers. */
+  _shingle(x, y, z, power) {
+    const n = Math.round(8 + power * 16);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * U.TAU;
+      this.fx.sparks.emit(x + Math.cos(a) * 0.4, y - 0.3, z + Math.sin(a) * 0.4,
+        Math.cos(a) * (1.5 + Math.random() * 3) * power,
+        (0.8 + Math.random() * 2.2) * power,
+        Math.sin(a) * (1.5 + Math.random() * 3) * power,
+        0.12 + Math.random() * 0.18, 0.3 + Math.random() * 0.35,
+        DiveMission._GRIT);
+    }
+  }
 
   /* -------- the money -------- */
 
@@ -1106,8 +1594,14 @@ class DiveMission {
       c.mesh.position.y = c.y + bob;
       c.mesh.rotation.y += dt * (c.dropped ? 0.5 : 0.18);
       c.glow.position.y = c.y + 0.4 + bob;
-      c.glow.material.opacity = (c.dropped ? 0.75 : 0.5)
-        + 0.28 * (0.5 + 0.5 * Math.sin(c.phase * 1.7));
+      const pulse = 0.5 + 0.5 * Math.sin(c.phase * 1.7);
+      c.glow.material.opacity = (c.dropped ? 0.75 : 0.5) + 0.28 * pulse;
+      if (c.far) {
+        // held at a readable size on screen, the way the drop marker is
+        const fd = this.camera.position.distanceTo(c.far.position);
+        c.far.scale.setScalar(U.clamp(1.1 + fd * 0.035, 1.4, 9));
+        c.far.material.opacity = (0.30 + 0.30 * pulse) * U.clamp(fd / 14, 0.2, 1);
+      }
 
       // an unconscious diver takes nothing and notices nothing — including
       // the pile they are drifting up through, which is their own
@@ -1178,7 +1672,7 @@ class DiveMission {
        the first time your hands are full and none of it is money yet. */
     if (this.carry.length >= this.C.carryMax && !this._toldShore) {
       this._toldShore = true;
-      this._banner('HANDS FULL', 'None of it counts until it is on the pile', 'good');
+      this._banner('HANDS FULL', 'None of it counts until you are stood in the light', 'good');
     }
     if (c.dropped) st.recovered += Math.round(c.value * this.payout);
 
@@ -1194,10 +1688,19 @@ class DiveMission {
         0.28 + Math.random() * 0.3, 0.6 + Math.random() * 0.5,
         DiveMission._SPARK);
     }
-    AudioBus.play('dv-grab', { tier: c.tier });
+    /* Each chest in a carry is a step up the scale, so filling your
+       hands is a four-note phrase that resolves — and the fourth note,
+       the one that costs you the most air and most nearly drowns you,
+       is the one at the top of it. */
+    AudioBus.play('dv-grab', { tier: c.tier, n: this.carry.length - 1 });
     if (c.tier === 2 && this.music) this.music.stinger('boon');
     Input.haptic(16);
-    this.camKick = Math.min(this.camKick + 0.6, 1.8);
+    this.camKick = Math.min(this.camKick + 0.6 + 0.12 * this.carry.length, 1.8);
+    // and the last one lands with a beat of hit-stop on it
+    if (this.carry.length >= this.C.carryMax) {
+      this.hitStop = 0.11;
+      this.fovKick = Math.max(this.fovKick, 4);
+    }
     this._removeChest(c);
     this._paintCarry();
   }
@@ -1242,20 +1745,39 @@ class DiveMission {
       paying = [best];
     }
 
+    /* The haul. A trip landed without blacking out makes the next one
+       worth a little more, and the number is only ever spent here — so
+       the thing you are protecting when you decide not to take a
+       fourth chest is not just the four chests. */
+    const mult = 1 + this.C.haulStep * Math.min(this.haul, this.C.haulMax);
+
+    /* Cheapest first, so the haul is a *rising* phrase rather than a
+       diminuendo. It used to be sorted the other way round, and the
+       best moment in the mission was arriving in the wrong order. */
     let total = 0;
-    paying.sort((a, b) => b.value - a.value);
+    paying.sort((a, b) => a.value - b.value);
     paying.forEach((c, i) => {
-      const cash = Math.round(c.value * c.mult * this.payout * this.C.moneyScale);
+      const cash = Math.round(c.value * c.mult * mult * this.payout * this.C.moneyScale);
       total += cash;
       const tier = this.C.tiers[c.tier];
       this.stats.tierBanked[tier.id] = (this.stats.tierBanked[tier.id] || 0) + cash;
-      setTimeout(() => {
-        if (!this.scene) return;
-        AudioBus.play('dv-bank', { step: i });
-        this._gain(cash);
-      }, i * 150);
+      this._throwOnPile(c, i, cash);
     });
     this.money += total;
+    this.haul++;
+    this.bestHaul = Math.max(this.bestHaul, this.haul);
+    this.stats.bestHaul = this.bestHaul;
+    this.stats.landings = (this.stats.landings || 0) + 1;
+    Input.rumble(0.45, 200);
+    /* Only while it is still moving. A banner on every landing for
+       three minutes is wallpaper; five of them, each one saying a
+       larger number, is a run going well. */
+    const steps = Math.min(this.haul, this.C.haulMax);
+    if (steps >= 1 && this.haul <= this.C.haulMax) {
+      this._banner('HAUL ×' + this.haul,
+                   '+' + Math.round(this.C.haulStep * steps * 100) + '% on the next one',
+                   steps >= this.C.haulMax ? 'perfect' : 'good');
+    }
     this.stats.banked = Math.round(this.money);
     /* "The last minute" has to be a rolling window rather than a test
        against the clock, because The Deep has no clock — and a card
@@ -1271,24 +1793,107 @@ class DiveMission {
        counted your own would be a picture of a number nobody is playing
        for, and the whole point of putting the score in the world is
        that the other two can read it from the water. */
-    this._addToPile(paying);
     if (this.party) {
       MissionNet.event({ kind: 'landed', tiers: paying.map(c => c.tier) });
     }
-
-    const pileTop = this.pile
-      ? this.shore.landing.y + 0.4 + Math.min(this.pile.n, DiveMission.PILE_CAP) * 0.047
-      : this.swimmer.pos.y + 1.2;
-    this._tmpV.set(this.shore.landing.x, pileTop + 1.0, this.shore.landing.z);
-    this.fx.rings.fire(this._tmpV, this.camera.quaternion, 1.0, 10, 0.7, '#ffd166');
-    for (let i = 0; i < 40; i++) {
-      const a = Math.random() * U.TAU;
-      this.fx.sparks.emit(this._tmpV.x, this._tmpV.y, this._tmpV.z,
-        Math.cos(a) * 7, 2 + Math.random() * 6, Math.sin(a) * 7,
-        0.3 + Math.random() * 0.4, 0.9 + Math.random() * 0.8,
-        DiveMission._SPARK);
-    }
     this._paintCarry();
+  }
+
+  /* ---- putting one down ----
+
+     The chest leaves your hands, turns over once in the air and lands
+     on the heap. It is a tenth of a second of animation and it is the
+     entire reason to have taken a fourth chest: the money arrives as
+     four separate physical events with four rising notes under them,
+     instead of as a number that used to change all at once while you
+     were still walking.
+
+     The spot is reserved at launch rather than at landing, so four
+     chests in the air already know they are going to stack. */
+  _throwOnPile(chest, i, cash) {
+    const sw = this.swimmer;
+    const spot = DiveMission._pileSpot(this.pile ? this.pile.n + i : i);
+    const L = this.shore.landing;
+    const mesh = new THREE.Mesh(this._chestGeo, this._chestMats[chest.tier]);
+    mesh.position.set(sw.pos.x, sw.pos.y + 0.4, sw.pos.z);
+    mesh.rotation.y = Math.random() * U.TAU;
+    this.scene.add(mesh);
+    this._flying.push({
+      mesh, chest, cash, step: i,
+      t: -i * 0.13,                       // ...and they go one after another
+      dur: 0.38,
+      x0: sw.pos.x, y0: sw.pos.y + 0.4, z0: sw.pos.z,
+      x1: L.x + spot.x, y1: L.y + spot.y, z1: L.z + spot.z,
+      spin: (Math.random() < 0.5 ? -1 : 1) * (3 + Math.random() * 3),
+      rot: spot.rot,
+    });
+  }
+
+  /* Everything in the air, moved on. Called from `_tickPile`, which is
+     already the one place the beach is animated from. */
+  _tickFlights(dt) {
+    if (!this._flying.length) return;
+    let landed = 0;
+    for (let i = this._flying.length - 1; i >= 0; i--) {
+      const f = this._flying[i];
+      f.t += dt;
+      if (f.t < 0) continue;
+      const k = U.clamp(f.t / f.dur, 0, 1);
+      f.mesh.position.set(
+        U.lerp(f.x0, f.x1, k),
+        U.lerp(f.y0, f.y1, k) + Math.sin(k * Math.PI) * (1.5 + k * 0.4),
+        U.lerp(f.z0, f.z1, k));
+      f.mesh.rotation.y += f.spin * dt;
+      f.mesh.rotation.x = Math.sin(k * Math.PI) * 0.8;
+      if (k < 1) continue;
+
+      this.scene.remove(f.mesh);
+      this._flying.splice(i, 1);
+      this._addToPile([f.chest]);
+      landed++;
+      AudioBus.play('dv-bank', { step: f.step, haul: this.haul });
+      this._gain(f.cash);
+      this._tmpV.set(f.x1, f.y1 + 0.5, f.z1);
+      this.fx.rings.fire(this._tmpV, DiveMission._FLAT, 0.3, 3.4 + f.step * 1.1,
+                         0.45, this.C.tiers[f.chest.tier].colour);
+      this.fx.labels.add('+' + U.money(f.cash), this._tmpV,
+                         { className: f.chest.tier === 2 ? 'gold' : '', life: 1.0, rise: 4 });
+      for (let s = 0; s < 18; s++) {
+        const a = Math.random() * U.TAU;
+        this.fx.sparks.emit(f.x1, f.y1 + 0.3, f.z1,
+          Math.cos(a) * 4, 1.5 + Math.random() * 5, Math.sin(a) * 4,
+          0.24 + Math.random() * 0.35, 0.7 + Math.random() * 0.7,
+          DiveMission._SPARK);
+      }
+      this.camKick = Math.min(this.camKick + 0.35, 1.8);
+      Input.haptic(14);
+    }
+    /* The last one on the heap gets the flourish, and only the last
+       one: four flourishes in a row is not four times as good. */
+    if (landed && !this._flying.length) {
+      const top = this.shore.landing.y + 0.4
+                + Math.min(this.pile ? this.pile.n : 0, DiveMission.PILE_CAP) * 0.047;
+      this._tmpV.set(this.shore.landing.x, top + 1.0, this.shore.landing.z);
+      this.fx.rings.fire(this._tmpV, DiveMission._FLAT, 1.0, 13, 0.75, '#ffd166');
+      for (let s = 0; s < 44; s++) {
+        const a = Math.random() * U.TAU;
+        this.fx.sparks.emit(this._tmpV.x, this._tmpV.y, this._tmpV.z,
+          Math.cos(a) * 7, 2 + Math.random() * 7, Math.sin(a) * 7,
+          0.3 + Math.random() * 0.4, 0.9 + Math.random() * 0.9,
+          DiveMission._SPARK);
+      }
+      this._flash(0.22, 'rgba(255,225,150,0.85)');
+      if (this.music) this.music.stinger('boon');
+      this.camKick = Math.min(this.camKick + 0.8, 1.8);
+    }
+  }
+
+  /* Nothing may be left in the air when the bell goes: the money is
+     already in the purse, and a chest frozen two metres over the heap
+     is the last thing anybody sees. */
+  _landAll() {
+    for (const f of this._flying) { f.t = f.dur; }
+    this._tickFlights(0);
   }
 
   _endTrip() {
@@ -1330,6 +1935,11 @@ class DiveMission {
     this.shake = 1.0;
     this.out = true;
     this.holdT = this.C.blackoutHold;
+    /* And the haul goes with it. That is the whole cost of greed in one
+       line: not just the four chests on the sand, but the run you had
+       going. It is also the reason a Traitor throwing a dive still
+       looks exactly like a Traitor having a bad night. */
+    this.haul = 0;
     AudioBus.play('dv-drown');
     if (this.music) this.music.stinger('hurt');
     Input.rumble(0.9, 500);
@@ -1399,8 +2009,15 @@ class DiveMission {
     this.camGasp = U.damp(this.camGasp, 0, 4.0, dt);
     this.fovKick = U.damp(this.fovKick, 0, 4.5, dt);
 
-    const dist = U.lerp(4.2, 6.8, U.clamp(sp01, 0, 1)) + this.camKick * 0.55;
-    const height = U.lerp(1.5, 2.3, U.clamp(sp01, 0, 1)) + this.camGasp * 0.8;
+    /* On the beach the shot is a different shot. A swim camera hangs
+       level with a prone body and looks along it; a walk camera has to
+       sit over a standing one's shoulder or the whole trip home is
+       filmed from a diver's ankles. It is one lerp on the two numbers
+       the chase already had, driven by the same `landMix` the body
+       stands up on, so the handover happens once and in one place. */
+    const land = sw.landMix || 0;
+    const dist = U.lerp(4.2, 6.8, U.clamp(sp01, 0, 1)) + this.camKick * 0.55 + land * 1.1;
+    const height = U.lerp(1.5, 2.3, U.clamp(sp01, 0, 1)) + this.camGasp * 0.8 + land * 1.5;
 
     const cp = Math.cos(sw.pitch), sp = Math.sin(sw.pitch);
     const fx = Math.sin(sw.yaw) * cp, fy = sp, fz = Math.cos(sw.yaw) * cp;
@@ -1423,8 +2040,15 @@ class DiveMission {
        nothing has to be re-framed for the air. */
     this.surfaceMix = U.damp(this.surfaceMix || 0,
                              (sw.up || sw.onLand) ? 1 : 0, 5.5, dt);
+    /* ...and it has to go away entirely once you are stood on the
+       beach. The shingle at the landing is two and a half metres above
+       the loch, so a lid measured off the sea sits *below* a standing
+       diver's head: the shot the whole trip home is for — walking up
+       into the light with your arms full — was framed from their
+       knees. `landMix` is the same number the body stands up on, so
+       the lid lifts exactly as the diver does. */
     const wy = Water.sampleHeight(want.x, want.z) - 0.35;
-    const lid = wy + this.surfaceMix * 4.2;
+    const lid = wy + this.surfaceMix * 4.2 + land * 60;
     if (want.y > lid) want.y = lid;
     const floor = this.reef.heightAt(want.x, want.z) + 1.1;
     if (want.y < floor) want.y = floor;
@@ -1525,7 +2149,13 @@ class DiveMission {
     // surface, then one gear per tier: the arrangement is the depth
     const gear = sw.depth < 3 ? 0 : this._tierAt(sw.depth) + 1;
     if (gear !== this._gear) { this._gear = gear; this.music.setGear(gear, 1.6); }
-    this.music.setIntensity(0.5 + (1 - sw.air) * 0.8);
+    /* Air and gold, together. The trip home used to be the quietest
+       part of a run and it is the part with the most at stake in it:
+       four chests in your hands in open water. Now the score leans on
+       you the whole way back, and lets go the moment you put them
+       down — which is the release the pile is for. */
+    const hands = U.clamp(this.carry.length / this.C.carryMax, 0, 1);
+    this.music.setIntensity(0.46 + (1 - sw.air) * 0.7 + hands * 0.34);
     /* The muffle closes over the first two metres, which makes every
        surface break a bright release — sixty times a run, on a loop
        that is thirty seconds long. It is the single best moment in the
@@ -1546,7 +2176,13 @@ class DiveMission {
     const sw = this.swimmer;
     if (!h) return;
 
-    if (h.money) h.money.textContent = U.money(this.money);
+    if (h.money) {
+      const gap = this.money - this._moneyShown;
+      this._moneyShown = Math.abs(gap) < 1 ? this.money
+        : U.damp(this._moneyShown, this.money, 11, this._lastDt || 0.016);
+      h.money.textContent = U.money(Math.round(this._moneyShown));
+      h.money.classList.toggle('rising', Math.abs(gap) >= 1);
+    }
 
     /* The breath bar: the mission, drawn once. The *cap* is drawn too —
        in The Deep the bar itself shrinks, and a bar that simply stopped
@@ -1600,18 +2236,44 @@ class DiveMission {
         : Math.ceil(this.timeLeft);
       h.time.classList.toggle('low', this.mode === 'salvage' && this.timeLeft <= 20);
     }
-    /* Holding gold is now a *place* problem, so the panel that shows
-       what is in your hands has to show how far it is from counting.
-       It turns gold when you are close enough for it to bank, which is
-       the only feedback the rule needs. */
-    if (h.shore) {
+    /* The compass.
+
+       It used to be "\u2191 shore 42m", which is an instrument reading: it
+       tells you the answer to a question nobody was asking. You never
+       wanted to know how far away home was, you wanted to know *which
+       way*, and a number cannot say that at forty metres in silt with
+       the beach behind a hillside.
+
+       So: a needle in a dial, pointing at the drop relative to where
+       you are looking, with the ring round it closing as you get
+       nearer and going gold the moment you are stood in it. No units,
+       no digits, nothing to read \u2014 you glance at it and turn. */
+    if (h.compass) {
+      const home = this._inDrop();
       const carrying = this.carry.length > 0;
-      h.shore.classList.toggle('show', carrying);
-      if (carrying) {
-        const d = this._shoreDist();
-        const home = this._ashore();
-        h.shore.classList.toggle('home', home);
-        h.shore.textContent = home ? 'ASHORE' : '\u2191 shore ' + Math.round(d) + 'm';
+      const show = carrying || sw.depth > 2.5 || this._dropDist() > this.C.dropRange * 2;
+      h.compass.classList.toggle('show', show && this.state !== 'finished');
+      h.compass.classList.toggle('home', home);
+      h.compass.classList.toggle('laden', carrying);
+      if (show) {
+        const L = this.shore.landing;
+        // bearing to the drop, measured against the way the camera is
+        // pointing, so "up" on the dial is always "straight ahead"
+        const bearing = Math.atan2(L.x - sw.pos.x, L.z - sw.pos.z);
+        const vx = this._camLook.x - this.camera.position.x;
+        const vz = this._camLook.z - this.camera.position.z;
+        const view = (vx * vx + vz * vz) > 1e-6 ? Math.atan2(vx, vz) : sw.yaw;
+        const rel = U.wrapAngle(bearing - view);
+        // the pivot is baked into the stylesheet; this only ever turns it
+        if (h.compNeedle) {
+          h.compNeedle.style.transform = 'rotate(' + (rel * 180 / Math.PI).toFixed(1) + 'deg)';
+        }
+        // the ring closes over the last forty metres: a picture of
+        // "nearly there" that never has to be read
+        const d = this._dropDist();
+        const near = 1 - U.clamp((d - this.C.dropRange) / 46, 0, 1);
+        if (h.compRing) h.compRing.style.setProperty('--near', near.toFixed(3));
+        if (h.compLbl) h.compLbl.textContent = home ? 'DROP' : (carrying ? 'HOME' : 'SHORE');
       }
     }
 
@@ -1620,9 +2282,32 @@ class DiveMission {
       h.carryVal.textContent = v ? U.money(v) : '—';
       h.carryVal.classList.toggle('held', v > 0);
     }
+
+    /* The haul, which only exists on screen while it is worth
+       something. It sits under the purse because it is a property of
+       the purse, not of the swim. */
+    if (h.haul) {
+      const on = this.haul > 1;
+      h.haul.classList.toggle('on', on);
+      if (on) {
+        const steps = Math.min(this.haul, this.C.haulMax);
+        h.haul.textContent = '×' + (1 + this.C.haulStep * steps).toFixed(2) + ' haul';
+        h.haul.classList.toggle('capped', steps >= this.C.haulMax);
+      }
+    }
+
+    /* Water on the lens. It costs one opacity write and it is the
+       single cheapest thing in the file that says "you were just under
+       there" — the surface break stops being a fog change and becomes
+       something that happened to you. */
+    if (h.wet) {
+      const w = Math.round(U.clamp(this._wet, 0, 1) * 100) / 100;
+      if (w !== this._shownWet) { this._shownWet = w; h.wet.style.opacity = String(w * 0.85); }
+    }
   }
 
   _paintCarry() {
+    this._showCarried(this._pack, this.carry.map(c => c.tier));
     if (!this._pips) return;
     for (let i = 0; i < this._pips.length; i++) {
       const c = this.carry[i];
@@ -1740,6 +2425,7 @@ class DiveMission {
       u: U.r3(sw.swimPhase % U.TAU), e: U.r3(sw.effort),
       f: U.r3(sw.flow), a: U.r3(sw.air),
       c: this.carry.length, v: this._carryValue(),
+      ct: this.carry.map(c => c.tier),
       m: Math.round(this.money), d: Math.round(this.deepest),
       tr: this.stats.trips,
     };
@@ -1780,6 +2466,7 @@ class DiveMission {
       peer.sw.effort = U.lerp(a.e || 0, b.e || 0, k);
       peer.sw.flow = b.f || 0;
       peer.sw.carried = b.c || 0;
+      this._showCarried(peer.pack, b.ct || null);
       peer.sw.air = b.a === undefined ? 1 : b.a;
       peer.sw.renderPose(dt);
       peer.pos.set(x, y, z);
@@ -1920,6 +2607,8 @@ class DiveMission {
     st.finalCarryValue = this._carryValue();
     st.banked = Math.round(this.money);
     st.lastMinuteBanked = this._bankedSince(this.elapsed - 60);
+    st.bestHaul = this.bestHaul;
+    this._landAll();
     if (this.inTrip) this._endTrip();
     if (this.music) { this.music.setMuffle(0, 0.6); this.music.stop(1.2); this.music = null; }
     Input.setMouseAim(false);
@@ -1989,6 +2678,8 @@ class DiveMission {
       onBeat: st.onBeat,
       beatPct: st.strokes ? st.onBeat / st.strokes : 0,
       bestFlowRun: st.bestFlowRun,
+      landings: st.landings,
+      bestHaul: st.bestHaul,
       tierBanked: st.tierBanked,
       landed: this.pile ? this.pile.n : 0,
       stats: Object.assign({}, st),
@@ -2036,7 +2727,13 @@ AudioBus.define('dv-stroke', (c, dest, o = {}) => {
 
 AudioBus.define('dv-grab', (c, dest, o = {}) => {
   const t = c.currentTime;
-  const base = [392, 523.25, 784][U.clamp(o.tier | 0, 0, 2)];
+  /* The tier picks the register and the chest in your hands picks the
+     degree, so a full carry off the trench is a rising figure that
+     ends high. Pentatonic on purpose: there is no wrong order to pick
+     four chests up in, so there must be no wrong note. */
+  const STEP = [1, 9 / 8, 4 / 3, 3 / 2, 5 / 3, 2];
+  const base = [392, 523.25, 784][U.clamp(o.tier | 0, 0, 2)]
+             * STEP[U.clamp(o.n | 0, 0, 5)];
   [1, 1.5].forEach((m, i) => {
     const osc = c.createOscillator(), g = c.createGain();
     osc.type = 'triangle';
@@ -2049,18 +2746,105 @@ AudioBus.define('dv-grab', (c, dest, o = {}) => {
   });
 });
 
+/* A chest landing on the heap. Two voices a fifth apart with a knock
+   under them, because a box of salvage hitting a box of salvage is a
+   thump before it is a chime — and the whole figure climbs a step for
+   every trip you have landed in a row, so a run going well is audibly
+   in a higher key than the one that started it. */
 AudioBus.define('dv-bank', (c, dest, o = {}) => {
   const t = c.currentTime;
   const step = U.clamp(o.step | 0, 0, 5);
-  const f = [659.25, 783.99, 987.77, 1174.66, 1318.5, 1567.98][step];
-  const osc = c.createOscillator(), g = c.createGain();
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(f, t);
-  osc.connect(g); g.connect(dest);
+  const lift = Math.pow(2, U.clamp(o.haul | 0, 0, 6) / 12);
+  const f = [659.25, 783.99, 987.77, 1174.66, 1318.5, 1567.98][step] * lift;
+  [[1, 0.16, 0.7], [1.5, 0.07, 0.5]].forEach(([m, amp, tail], i) => {
+    const osc = c.createOscillator(), g = c.createGain();
+    osc.type = i ? 'triangle' : 'sine';
+    osc.frequency.setValueAtTime(f * m, t);
+    osc.connect(g); g.connect(dest);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(amp, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + tail);
+    osc.start(t); osc.stop(t + tail + 0.1);
+  });
+  // the wood
+  const k = c.createOscillator(), kg = c.createGain(), kf = c.createBiquadFilter();
+  k.type = 'triangle';
+  k.frequency.setValueAtTime(190, t);
+  k.frequency.exponentialRampToValueAtTime(78, t + 0.09);
+  kf.type = 'lowpass'; kf.frequency.value = 1200;
+  k.connect(kf); kf.connect(kg); kg.connect(dest);
+  kg.gain.setValueAtTime(0.0001, t);
+  kg.gain.exponentialRampToValueAtTime(0.11, t + 0.006);
+  kg.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+  k.start(t); k.stop(t + 0.22);
+});
+
+/* Hitting the water from the air. Broadband, fast, and *bright* at the
+   front — the one moment in the mission where the muffle has not
+   closed yet, so it gets to be the loudest thing you hear. */
+AudioBus.define('dv-splash', (c, dest, o = {}) => {
+  const t = c.currentTime;
+  const p = U.clamp(o.power === undefined ? 1 : o.power, 0.2, 2);
+  const n = AudioBus.noiseSource();
+  if (!n) return;
+  const f = c.createBiquadFilter(), g = c.createGain();
+  f.type = 'bandpass';
+  f.frequency.setValueAtTime(1800 + 900 * p, t);
+  f.frequency.exponentialRampToValueAtTime(220, t + 0.42);
+  f.Q.value = 0.7;
+  n.connect(f); f.connect(g); g.connect(dest);
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.16, t + 0.012);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
-  osc.start(t); osc.stop(t + 0.8);
+  g.gain.exponentialRampToValueAtTime(0.10 + 0.14 * p, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+  n.start(t); n.stop(t + 0.6);
+  // the body of it, under the spray
+  const o2 = c.createOscillator(), g2 = c.createGain();
+  o2.type = 'sine';
+  o2.frequency.setValueAtTime(150, t);
+  o2.frequency.exponentialRampToValueAtTime(48, t + 0.3);
+  o2.connect(g2); g2.connect(dest);
+  g2.gain.setValueAtTime(0.0001, t);
+  g2.gain.exponentialRampToValueAtTime(0.09 * p, t + 0.02);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+  o2.start(t); o2.stop(t + 0.45);
+});
+
+/* Shingle. Short, dry, high — deliberately the only sound in the whole
+   mission with no water in it, because that is exactly what arriving
+   on the beach is meant to feel like. */
+AudioBus.define('dv-shingle', (c, dest, o = {}) => {
+  const t = c.currentTime;
+  const p = U.clamp(o.power === undefined ? 1 : o.power, 0.2, 1.4);
+  const n = AudioBus.noiseSource();
+  if (!n) return;
+  const f = c.createBiquadFilter(), g = c.createGain();
+  f.type = 'highpass';
+  f.frequency.setValueAtTime(1400, t);
+  n.connect(f); f.connect(g); g.connect(dest);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.07 + 0.07 * p, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16 + 0.1 * p);
+  n.start(t); n.stop(t + 0.3);
+});
+
+/* Arriving in a tier. One low bell that gets lower and longer the
+   deeper the tier is, so the trench announces itself as a room rather
+   than as a number changing on a tape. */
+AudioBus.define('dv-tier', (c, dest, o = {}) => {
+  const t = c.currentTime;
+  const i = U.clamp(o.tier | 0, 0, 2);
+  const f = [261.63, 196, 130.81][i];
+  const tail = 1.1 + i * 0.7;
+  [1, 2, 3].forEach((m, k) => {
+    const osc = c.createOscillator(), g = c.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(f * m, t);
+    osc.connect(g); g.connect(dest);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.11 / (k + 1), t + 0.03 + k * 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + tail);
+    osc.start(t); osc.stop(t + tail + 0.1);
+  });
 });
 
 /* The one sound in the mission that is *air*, and it is deliberately
@@ -2126,16 +2910,19 @@ AudioBus.define('dv-bump', (c, dest) => {
 Missions.register({
   id: 'dive',
   name: 'The Dive',
-  tagline: 'Get it to the shore and it is yours. Black out and it is anybody’s.',
+  tagline: 'Walk it into the light and it is yours. Black out and it is anybody’s.',
   description:
     'A sunlit highland sea loch with a broken trawler on the slope and a trench past it. '
-    + 'You jump off the shingle, and nothing counts until you carry it back there and put '
-    + 'it on the pile — so every chest you take is a decision about the swim home. Three '
-    + 'minutes, one breath at a time. Black out and every chest in your hands drops where '
-    + 'you are and lies there, lit, for anybody to take, including the other two. There '
-    + 'is no button but the stroke, and the stroke has a beat: land it in the window and '
-    + 'you swim faster, breathe cheaper and get paid more. The shelf is easy money. The '
-    + 'trench is one round trip if you are on the beat, and a long walk home if you are not.',
+    + 'There is one lit ring on the shingle, you can see it from the bottom of the trench, '
+    + 'and nothing you take is money until you are stood inside it. So every trip is the '
+    + 'same round: dive, fill your hands, climb, swim home, wade in, and walk it up the '
+    + 'beach past two people watching. Three minutes, one breath at a time. Black out and '
+    + 'every chest in your hands drops where you are and lies there, lit, for anybody to '
+    + 'take. One button does everything: in the water it is a kick, on the sand it is a '
+    + 'jump, and in the water it has a beat — land it in the window and you swim faster, '
+    + 'breathe cheaper and get paid more. Land trip after trip without drowning and the '
+    + 'haul pays more every time, which is exactly what makes the next one harder to '
+    + 'walk away from.',
   icon: '03',
   maxPrize: 85000,
   players: '1-3',
@@ -2162,11 +2949,22 @@ Missions.register({
       + 'expensive half of every dive.',
     '<b>Four is a decision.</b> Every chest in your hands costs drag, air and a longer '
       + 'kick, and pulls you down. The fourth one is the one that drowns people.',
-    '<b>The shore is the bank.</b> Surfacing keeps you alive; it does not keep the gold. '
-      + 'Nothing counts until you carry it back to the shingle and it goes on the pile, '
-      + 'and the swim home is the part everybody watches.',
+    '<b>The ring is the bank.</b> Surfacing keeps you alive; it does not keep the gold. '
+      + 'Nothing counts until you are stood in the lit ring on the shingle with it, and '
+      + 'the walk up the beach is the part everybody watches.',
+    '<b>Follow the compass, not the coast.</b> The needle by your hands points at the '
+      + 'ring, and its dial closes as you get near. Come ashore anywhere else and you '
+      + 'have a long walk along a beach carrying boxes.',
+    '<b>You walk out of the water.</b> Your feet find the bottom on their own in the '
+      + 'shallows and the same button becomes a jump — so run down the shingle and dive '
+      + 'back in rather than wading out.',
+    '<b>Gold is heavy on land too.</b> A full carry walks at half speed. The trip up the '
+      + 'beach is the slowest part of a rich trip and the fastest part of a poor one.',
     '<b>Swim home on the surface.</b> Your bar refills up there and the water is thinner, '
       + 'so the fast way back from the trench is straight up first and along after.',
+    '<b>The haul is the real score.</b> Every trip you land without blacking out makes '
+      + 'the next one worth more, up to a fifth again. Drowning does not just cost you '
+      + 'what is in your hands, it costs you the run you had going.',
     '<b>Blacking out does not end the run.</b> It drops everything you were holding on the '
       + 'floor, lit, where anybody can take it — and floats you helplessly for three '
       + 'seconds while they do.',
@@ -2174,11 +2972,12 @@ Missions.register({
       + 'reach and return from unless you are swimming well.',
     '<b>Somebody else’s pile is worth full price.</b> If you see a glow on the sand '
       + 'that you did not put there, that is a diver who got greedy.',
-    '<b>The lamp on the beach is north.</b> It is the only warm light in the loch and it '
-      + 'is visible from the bottom of the trench. If you can see it, you know the way home.',
+    '<b>The lamp on the beach is north.</b> The ring, the column of light over it and the '
+      + 'mark above that are the only warm things in the loch, and none of them care how '
+      + 'deep you are or how thick the water is. If you can see it, you know the way home.',
   ],
-  keys: ['<kbd>Space</kbd> kick', '<kbd>Mouse</kbd> steer',
-         '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> scull'],
+  keys: ['<kbd>Space</kbd> kick / jump', '<kbd>Mouse</kbd> steer',
+         '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> scull / walk'],
 
   /* The columns the boat argues about afterwards. Every card in this
      deck moves one of these, and every card's alibi moves another the
@@ -2214,6 +3013,7 @@ Missions.register({
       ['On the beat', `${Math.round((r.beatPct || 0) * 100)}% of ${r.strokes} strokes`],
       ['Longest chain', String(r.bestFlowRun || 0) + ' strokes'],
       ['Biggest carry', `${r.peakCarry} chests · ${U.money(r.peakCarryValue || 0)}`],
+      ['Longest haul', (r.bestHaul || 0) + ' trips landed in a row'],
     ];
     const tb = r.tierBanked || {};
     rows.push(null,

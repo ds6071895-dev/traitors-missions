@@ -570,4 +570,172 @@ test('turning keeps most of your speed — the carve is the whole reward', () =>
      'a held turn cost ' + Math.round((1 - turning.speed / straight.speed) * 100) + '% of the speed');
 });
 
+/* ------------------------------------------------------------------
+   The beach, as a place you walk on rather than a lid you bump into.
+
+   Walking is a second verb with its own arithmetic — a velocity you
+   own outright, not an impulse into a glide — and every one of these
+   is a property the swim on its own can never have. The two of them
+   meeting in the shallows is the whole of the trip home, so the
+   handover in both directions gets asserted rather than eyeballed.
+   ------------------------------------------------------------------ */
+section('the beach — the other verb');
+
+// hold a direction on the ground for `secs` and hand back the diver
+function walk(sw, world, secs, move, opts = {}) {
+  const ctl = { move, yaw: 0, pitch: 0, stroke: false, beat: null };
+  let t = 0;
+  while (t < secs) {
+    ctl.stroke = !!(opts.strokeAt !== undefined && t >= opts.strokeAt
+                    && t < opts.strokeAt + 0.2);
+    sw.update(1 / 60, ctl, world);
+    if (opts.each) opts.each(sw, t);
+    t += 1 / 60;
+  }
+  return sw;
+}
+
+const standOn = (sw, world, z) => {
+  sw.place(0, world.heightAt(0, z) + T.bodyRadius, z, 0);
+  // a few settling frames, so the feet have actually found the ground
+  walk(sw, world, 0.25, null);
+};
+
+test('holding forward on the shingle walks you up the beach', () => {
+  const sw = diver(noAir);
+  const world = beach();
+  standOn(sw, world, 10);
+  ok(sw.onFoot, 'a diver stood on dry shingle is not on their feet');
+  walk(sw, world, 3, { x: 0, y: 1 });
+  const gone = sw.pos.z - 10;
+  ok(gone > T.walkTop * 3 * 0.8,
+     'three seconds of walking covered only ' + gone.toFixed(1) + 'm');
+  ok(sw.walkSpeed > T.walkTop * 0.9,
+     'the walk never reached its own top speed: ' + sw.walkSpeed.toFixed(2));
+  ok(sw.landMix > 0.9, 'the diver walked up the beach still lying face down');
+});
+
+test('letting go stops you: there is no glide on gravel', () => {
+  const sw = diver(noAir);
+  const world = beach();
+  standOn(sw, world, 10);
+  walk(sw, world, 2, { x: 0, y: 1 });
+  const at = sw.pos.z;
+  walk(sw, world, 1, { x: 0, y: 0 });
+  ok(sw.pos.z - at < 0.8, 'a walker slid ' + (sw.pos.z - at).toFixed(2) + 'm after stopping');
+});
+
+test('gold is heavy and water is thick: both slow the walk home', () => {
+  const world = beach();
+  const dry = diver(noAir); standOn(dry, world, 10);
+  walk(dry, world, 3, { x: 1, y: 0 });
+
+  const laden = diver(noAir); standOn(laden, world, 10);
+  laden.carried = 4;
+  walk(laden, world, 3, { x: 1, y: 0 });
+
+  const wet = diver(noAir); standOn(wet, world, -1.2);
+  ok(wet.onFoot && wet.wading, 'knee-deep water is not standable');
+  walk(wet, world, 3, { x: 1, y: 0 });
+
+  const d = Math.abs(dry.pos.x), l = Math.abs(laden.pos.x), w = Math.abs(wet.pos.x);
+  ok(l < d * 0.75, 'a full carry cost nothing: ' + l.toFixed(1) + 'm against ' + d.toFixed(1));
+  ok(w < d * 0.85, 'wading cost nothing: ' + w.toFixed(1) + 'm against ' + d.toFixed(1));
+});
+
+test('the shallows put you on your feet without a button', () => {
+  const sw = diver(noAir);
+  const world = beach();
+  // out in the loch, swimming at the beach
+  sw.place(0, -3, -14, 0);
+  const ctl = { move: null, yaw: 0, pitch: 0, stroke: false, beat: null };
+  let t = 0, arrived = -1;
+  while (t < 12) {
+    ctl.stroke = (t % SPB) < 1 / 60;
+    sw.update(1 / 60, ctl, world);
+    if (sw.onFoot && arrived < 0) arrived = t;
+    t += 1 / 60;
+  }
+  ok(arrived > 0, 'a diver swam into a beach and never stood up');
+  ok(sw.pos.z > -3, 'they stood up out in the loch: z = ' + sw.pos.z.toFixed(2));
+});
+
+test('the same button jumps you back in, and the water reports it', () => {
+  const sw = diver(noAir);
+  const world = beach();
+  standOn(sw, world, 8);
+  sw.yaw = sw.yawAim = Math.PI;          // facing the loch
+  let splash = 0, jumped = false, air = 0;
+  walk(sw, world, 3.5, { x: 0, y: 1 }, {
+    strokeAt: 1.2,
+    each: (s) => {
+      splash = Math.max(splash, s.splashed);
+      jumped = jumped || s.jumped;
+      if (!s.grounded) air = Math.max(air, s.pos.y - world.heightAt(0, s.pos.z));
+    },
+  });
+  ok(jumped, 'the button on the beach did not jump');
+  ok(air > T.bodyRadius + 0.6, 'the jump had no air in it: ' + air.toFixed(2) + 'm clear');
+  ok(splash > 0, 'the diver entered the loch without the waterline noticing');
+  ok(!sw.onFoot, 'they were still walking after landing in the sea');
+  ok(sw.pos.z < 0, 'they never made it to the water: z = ' + sw.pos.z.toFixed(2));
+});
+
+test('swimming home fast glides over the shallows instead of planting you', () => {
+  /* The bug this exists for: the shelf near the beach is shallow
+     enough to stand in for eighty metres in some seeds, so a diver
+     swimming home at eight metres a second was being stood up on it
+     and made to walk the rest. Speed is the guard — you glide over
+     water you could have waded through. */
+  const sw = diver(noAir);
+  const world = beach();
+  sw.place(0, -1.0, -6, 0);
+  sw.vel.set(0, 0, 9);                    // travelling, hard, at the beach
+  let planted = -1, t = 0;
+  const ctl = { move: null, yaw: 0, pitch: 0, stroke: false, beat: null };
+  while (t < 0.6) {
+    sw.update(1 / 60, ctl, world);
+    if (sw.onFoot && planted < 0) planted = sw.pos.z;
+    t += 1 / 60;
+  }
+  ok(planted < 0 || planted > -2.5,
+     'a diver at nine metres a second was planted at z = ' + planted.toFixed(2));
+});
+
+test('a jump out of the shallows is not undone by the next frame', () => {
+  const sw = diver(noAir);
+  const world = beach();
+  standOn(sw, world, -1.2);
+  ok(sw.onFoot, 'the setup did not put them on their feet');
+  sw.yaw = sw.yawAim = Math.PI;
+  let backOnFoot = 0;
+  walk(sw, world, 0.4, { x: 0, y: 1 }, {
+    strokeAt: 0.05,
+    each: (s, tt) => { if (tt > 0.1 && s.onFoot) backOnFoot++; },
+  });
+  ok(backOnFoot === 0, 'the wade re-planted them ' + backOnFoot + ' frames after a jump');
+});
+
+test('arriving at swimming speed does not skate you up the beach', () => {
+  const sw = diver(noAir);
+  const world = beach();
+  sw.place(0, world.heightAt(0, 1) + T.bodyRadius, 1, 0);
+  sw.vel.set(0, 0, 13);
+  let top = 0;
+  walk(sw, world, 1.0, { x: 0, y: 0 }, {
+    each: (s) => { if (s.onFoot) top = Math.max(top, s.walkSpeed); },
+  });
+  ok(top < T.walkTop * 1.45,
+     'a diver arrived on the shingle doing ' + top.toFixed(1) + ' m/s');
+});
+
+test('a walk costs no air at all — the beach is where you breathe', () => {
+  const sw = diver();
+  const world = beach();
+  standOn(sw, world, 10);
+  sw.air = 0.25;
+  walk(sw, world, 3, { x: 0, y: 1 }, { strokeAt: 1.0 });
+  ok(sw.air > 0.95, 'walking ashore did not fill the bar: ' + sw.air.toFixed(3));
+});
+
 report();

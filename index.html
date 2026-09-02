@@ -652,6 +652,9 @@
       <div class="hud-label">Banked</div>
       <div class="dv-money" id="dv-money">£0</div>
       <div class="dv-gain" id="dv-gain"></div>
+      <!-- the haul: consecutive trips landed, and what they are worth.
+           It only exists on screen while it is worth something. -->
+      <div class="dv-haul" id="dv-haul"></div>
       <div class="dv-chain-wrap" id="dv-chain-wrap">
         <span class="dv-chain" id="dv-chain">×1.00</span>
         <span class="dv-chain-lbl">flow</span>
@@ -668,9 +671,16 @@
       <div class="hud-label">In hand</div>
       <div class="dv-carry-val" id="dv-carry-val">—</div>
       <div class="dv-carry" id="dv-carry"></div>
-      <!-- what is in your hands is not money until it is on the pile,
-           so the panel that counts it also says how far that is -->
-      <div class="dv-shore" id="dv-shore"></div>
+      <!-- What is in your hands is not money until it is on the pile,
+           so the panel that counts it also says which way that is.
+           A needle, not a number of metres: you never wanted to know
+           how far the beach was, you wanted to know where it is. -->
+      <div class="dv-compass" id="dv-compass">
+        <i class="dv-comp-ring" id="dv-comp-ring"></i>
+        <i class="dv-comp-tick"></i>
+        <i class="dv-comp-needle" id="dv-comp-needle"></i>
+        <b class="dv-comp-lbl" id="dv-comp-lbl">HOME</b>
+      </div>
     </div>
   </div>
 
@@ -700,9 +710,12 @@
     </div>
   </div>
 
-  <div class="dv-hint" id="dv-hint">Click to swim · <kbd>Space</kbd> kicks · bring it back to the shore</div>
+  <div class="dv-hint" id="dv-hint">Click to swim · <kbd>Space</kbd> kicks and jumps · walk it up the beach into the light</div>
   <!-- pressure, as a cyan-white closing-in rather than a darkness -->
   <div class="dv-pressure" id="dv-pressure"></div>
+  <!-- and water on the lens for a second and a half after every time
+       your head comes out, which is what makes it an event -->
+  <div class="dv-wet" id="dv-wet"></div>
   <!-- the dive gets its own, because #center-msg lives inside the boat
        race's HUD section and that section is display:none while another
        screen is up -->
