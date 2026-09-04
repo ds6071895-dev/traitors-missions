@@ -39,6 +39,36 @@
     }, { passive: false });
   });
 
+  /* --- double-tap zoom ---------------------------------------------
+     Some iPad Safari versions still recognise a rapid pair of taps even
+     when the target says touch-action:none. Refuse only the second end of
+     a one-finger tap in the same small patch of screen. The first tap —
+     and therefore ordinary buttons — keeps its normal click, while inputs
+     retain all native selection and zoom behaviour. */
+  var lastTapAt = 0, lastTapX = 0, lastTapY = 0;
+  document.addEventListener('touchend', function (e) {
+    if (isTextish(e.target)) { lastTapAt = 0; return; }
+    if (!e.changedTouches || e.changedTouches.length !== 1 || e.touches.length) {
+      lastTapAt = 0;
+      return;
+    }
+
+    var touch = e.changedTouches[0];
+    var now = Date.now();
+    var close = Math.abs(touch.clientX - lastTapX) < 44
+             && Math.abs(touch.clientY - lastTapY) < 44;
+    if (close && now - lastTapAt < 350) {
+      e.preventDefault();
+      lastTapAt = 0;
+      return;
+    }
+    lastTapAt = now;
+    lastTapX = touch.clientX;
+    lastTapY = touch.clientY;
+  }, { passive: false });
+
+  document.addEventListener('touchcancel', function () { lastTapAt = 0; });
+
   /* --- long-press selection and the callout that rides on it -------
      -webkit-user-select and -webkit-touch-callout cover this in CSS,
      but a drag that begins on a canvas or an SVG can still start a

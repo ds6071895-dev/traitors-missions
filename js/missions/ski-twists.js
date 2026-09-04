@@ -84,27 +84,17 @@ const SkiTwists = (() => {
     },
     {
       id: 'park', name: 'Terrain Park', icon: '⧗', payout: 1.34,
-      blurb: 'The whole mountain has been shaped. Pads everywhere, rails down '
+      blurb: 'The whole mountain has been shaped. Pads everywhere, kickers on '
            + 'every pitch, spinners in the air and no room left to just ski.',
-      config: { rampSpacing: 34, padSpacing: 20, railSpacing: 90,
+      config: { rampSpacing: 34, padSpacing: 20,
                 spinnerSpacing: 130, rampBoost: 1.25, treeScale: 0.5 },
-    },
-    {
-      id: 'ironworks', name: 'Ironworks', icon: '≡', payout: 1.40,
-      blurb: 'Steel down the whole hill. Rails everywhere, no boost pads at all, '
-           + 'and the only free speed on the mountain is the kind you grind for.',
-      // per metre, the same three-to-one cut every rail took when a
-      // rail stopped being forty metres long — per run this card still
-      // pays about what it always paid
-      config: { railSpacing: 68, railScale: 1.6, padSpacing: 0, rampBoost: 0,
-                moneyPerGrindMetre: 16 },
     },
     {
       id: 'groomed', name: 'Cat Track', icon: '▬', payout: 1.24,
       blurb: 'Groomed flat overnight. Two kickers on the whole hill, no park, and '
            + 'nothing pushing you down it but the gradient.',
       config: { rampSpacing: 210, rampBoost: 0, padSpacing: 0,
-                railScale: 0, spinnerScale: 0 },
+                spinnerScale: 0 },
     },
     {
       id: 'bounty', name: 'Poacher’s Bounty', icon: '✦', payout: 1.38,

@@ -208,7 +208,11 @@ const Input = (() => {
     if (typeof Screens === 'undefined') return;
     const paint = (id) => {
       const blocked = !!id && THUMBS_OK.indexOf(id) < 0;
-      for (const n of ['touch-shoot', 'touch-dive']) {
+      /* All three overlays are siblings of the screen stack. Leaving the
+         driving pad out of this list made its BOOST button sit above the
+         title, briefing and results screens whenever touch mode was drive
+         (which is also the startup default). */
+      for (const n of ['touch-controls', 'touch-shoot', 'touch-dive']) {
         const el = document.getElementById(n);
         if (el) el.classList.toggle('blocked', blocked);
       }

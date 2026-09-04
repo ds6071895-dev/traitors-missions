@@ -45,27 +45,14 @@ class SkiMission {
     rampBoost: 1,            // how hard the pads on them push
 
     /* ---- the park ----
-       Three things that are not the mountain, and the only three dials
+       Two things that are not the mountain, and the only two dials
        that matter about them: how far apart they are. Every one of them
        is off by default in exactly one card and doubled in another,
        which is the deck's whole job. */
     padSpacing: 34,          // boost pads, which is the densest thing on the hill
-    railSpacing: 120,
-    railScale: 1,
     spinnerSpacing: 240,
     spinnerScale: 1,
 
-    /* What the park pays. Both of these were set when a rail was forty
-       metres of steel and a whole run might string three of them
-       together; a chain is a quarter of a kilometre and one of them is
-       the ride. Per metre they pay a third of what they did, so a good
-       run earns about what a good run earned — and per *ride* they pay
-       four times more, which is the trade being made deliberately:
-       steel is now something you commit to rather than something you
-       clip on the way past. */
-    moneyPerGrindMetre: 9,
-    grindFlow: 0.22,         // per second on steel
-    grindStep: 50,           // ...and the metres between "still going" beats
     spinnerMoney: 520,
     spinnerFlow: 0.30,
     treeScale: 1,
@@ -214,7 +201,7 @@ class SkiMission {
       hoops: 0, gatesMissed: 0, golds: 0, goldsDeclined: 0, perfects: 0,
       airTime: 0, biggestAir: 0, tricks: 0, stomps: 0, landings: 0,
       // the park
-      grinds: 0, grindMetres: 0, longestGrind: 0, spinners: 0, boosts: 0,
+      spinners: 0, boosts: 0,
       // the shortcuts, which are the loudest thing on the board
       chutesTaken: [], chutesPassed: [], chutesBailed: 0, chuteMetres: 0,
       // and the ways it goes wrong
@@ -367,7 +354,6 @@ class SkiMission {
     this.stats = SkiMission.freshStats();
     this._grazeT = 0;
     this._boostT = 0;
-    this._grindTotal = 0;
     this._slowT = 0;
     this._straightT = 0;
     this._atTopT = 0;
@@ -448,15 +434,9 @@ class SkiMission {
       }
     }
 
-    /* ---- the park ----
-       Pads first, then rails, then spinners, and the order is not
-       arbitrary: a rail bakes the snow height at both its ends when it
-       is added, so every ramp that is ever going to move the ground has
-       to already be in place before one goes down. */
+    // ---- the park ----
     MountainKit.buildPads(this.face, U.makeRng(this.seed + 59),
       { spacing: C.padSpacing, boost: C.rampBoost });
-    MountainKit.buildRails(this.face, U.makeRng(this.seed + 61),
-      { spacing: C.railSpacing, scale: C.railScale });
     MountainKit.buildSpinners(this.face, U.makeRng(this.seed + 67),
       { spacing: C.spinnerSpacing, scale: C.spinnerScale });
 
@@ -483,8 +463,6 @@ class SkiMission {
     this.markers = MountainKit.buildMarkers(this.face, { spacing: 34 });
     scene.add(this.markers.group);
 
-    this.railMesh = MountainKit.buildRailMeshes(this.face);
-    scene.add(this.railMesh);
     this.spinnerMesh = MountainKit.buildSpinnerMeshes(this.face);
     scene.add(this.spinnerMesh);
     this.spinners = this.face.spinners;
@@ -511,17 +489,7 @@ class SkiMission {
     scene.add(this.startArch, this.finishArch);
 
     // ---- the skier ----
-    /* ---- the one thing a thumb needs that a keyboard does not ----
-       Catching a rail is a lateral aim, and a thumbstick is a coarser
-       instrument than a key: fifty-two pixels of travel is the whole
-       steering range, and the difference between a run that goes past
-       a rail and one that gets on it is about a metre and a half. So
-       touch gets a wider catch. Nothing else changes — a chain now
-       holds station beside the piste for two hundred metres, so once a
-       touch player has lined it up it stays lined up, which is most of
-       the problem solved before this number does anything. */
     const feel = Object.assign({}, (this.mod && this.mod.tune) || {});
-    if (Input.isTouch && feel.railGrab == null) feel.railGrab = 3.2;
     this.skier = new Skier({
       look: this.myLook,
       snow: this.snow,
@@ -1700,7 +1668,7 @@ class SkiMission {
        a pad you drive the length of both say it exactly once. */
     this._boostT = Math.max(0, (this._boostT || 0) - dt);
     const b = s.boost || 0;
-    if (b > 0.22 && this._boostT <= 0 && !s.crashed && !s.grinding) {
+    if (b > 0.22 && this._boostT <= 0 && !s.crashed) {
       this._boostT = 0.9;
       const amt = U.clamp(b, 0, 1.8);
       this.camPush = Math.min(1, this.camPush + 0.30 * amt);
@@ -1713,64 +1681,6 @@ class SkiMission {
       }
     }
 
-    /* ---- steel ----
-       Paid by the metre, like the descent, because a rail is a stretch
-       of ground you covered and not a thing you collected. It pays more
-       than snow does per metre and it climbs the meter while you are on
-       it, which between them are the reason to take the line that goes
-       over one. */
-    if (s.grinding) {
-      const m = C.moneyPerGrindMetre * s.speed * dt * this.flowLevel * this._mult;
-      this.money += m;
-      this.trickMoney += m;
-      this.flow += C.grindFlow * dt;
-      this.stats.grindMetres = Math.round((this._grindTotal += s.speed * dt));
-      this.stats.longestGrind = Math.max(this.stats.longestGrind, Math.round(s.grindDist));
-
-      /* ---- the ride says how it is going ----
-         A quarter of a kilometre of steel is eight seconds, and eight
-         seconds of a number quietly counting up in the corner is not a
-         ride, it is a progress bar. So every fifty metres the metres
-         themselves come off the skis, one note higher than the last.
-         It costs one label and one tone and it is the difference
-         between a long rail and a long wait. */
-      const step = Math.floor(s.grindDist / C.grindStep);
-      if (step > (this._grindStep || 0)) {
-        this._grindStep = step;
-        this.fx.labels.add(Math.round(s.grindDist) + 'm',
-          this._tmpV.copy(s.pos).setY(s.pos.y + 2.4),
-          { className: 'air', life: 0.65, rise: 15 });
-        AudioBus.play('railtick', { step: step - 1 });
-        Input.rumble(0.16, 45);
-      }
-    }
-    if (s.railOn) {
-      this.stats.grinds++;
-      this._grindStep = 0;
-      AudioBus.play('boostpop', { amount: 0.5 });
-      /* How much steel is in front of you, said at the moment you get
-         on it. Committing to a rail costs you the racing line for the
-         next quarter of a kilometre, and a player who cannot see that
-         number until it has already happened cannot make the choice
-         the feature is asking them to make. */
-      const chain = (s._rail && s._rail.chainLen) || 0;
-      this.fx.labels.add(chain > 60 ? 'GRIND ' + Math.round(chain) + 'm' : 'GRIND',
-        this._tmpV.copy(s.pos).setY(s.pos.y + 2.2),
-        { className: 'air', life: 0.8, rise: 12 });
-      Input.rumble(0.3, 90);
-    }
-    if (s.railOff) {
-      /* The exit is sized off the ride, the same way the pop the skier
-         just took was, so a chain ridden end to end leaves the camera
-         behind and pulls the lens open — and a two-metre hop off the
-         side of one does neither. */
-      const ride = U.clamp(s.railOff, 0.3, 1.5);
-      this.camPush = Math.min(1, this.camPush + 0.25 + ride * 0.3);
-      this.fovKick = Math.min(14, this.fovKick + ride * 6);
-      AudioBus.play('air', { amount: ride });
-      Input.rumble(0.25 + ride * 0.2, 110);
-      this._grindStep = 0;
-    }
     /* Every trick announces itself at the moment it is thrown rather
        than when it lands, because half of what makes a big one feel big
        is the second and a half of knowing what is coming. */
@@ -2080,9 +1990,6 @@ class SkiMission {
       topSpeed: this.topSpeed,
       airTime: this.airTotal,
       biggestAir: this.biggestAir,
-      grinds: this.stats.grinds,
-      grindMetres: this.stats.grindMetres,
-      longestGrind: this.stats.longestGrind,
       spinners: this.stats.spinners,
       route: this.face.sections.map(s => s.name),
       par: this.targets.par,
@@ -2202,34 +2109,6 @@ class SkiMission {
     }
     if (s.airborne || s.speed < 5) { this._sprayAcc = 0; return; }
 
-    /* ---- steel ----
-       Snow off a rail was always wrong and never mattered, because a
-       rail lasted a second. It lasts eight now, so a plume of powder
-       coming off a steel bar is eight seconds of the mission telling
-       you it does not know what you are standing on. Sparks instead —
-       thrown backwards and downwards, short-lived, no trench behind
-       them, because steel does not take a trench. */
-    if (s.grinding) {
-      this._sprayAcc = (this._sprayAcc || 0) + (6 + s.speed * 0.42) * dt;
-      let k = 0;
-      while (this._sprayAcc >= 1 && k < 8) {
-        this._sprayAcc -= 1; k++;
-        const side = (Math.random() - 0.5) * 2;
-        this.fx.spray.emit(
-          s.pos.x + (Math.random() - 0.5) * 0.5,
-          s.pos.y - 0.10 + Math.random() * 0.2,
-          s.pos.z + (Math.random() - 0.5) * 0.5,
-          -s.fwd.x * (4 + Math.random() * 9) + s.right.x * side * 3.5,
-          0.6 + Math.random() * 2.6,
-          -s.fwd.y * (4 + Math.random() * 9) + s.right.y * side * 3.5,
-          0.30 + Math.random() * 0.35, 0.18 + Math.random() * 0.22,
-          // the mountain's one warm colour, which is already the one
-          // that means "this is the fast line" everywhere else on it
-          Math.random() < 0.35 ? C.snowLit : C.boostHot);
-      }
-      return;
-    }
-
     // the trench, lying in the snow behind you
     this.fx.wake.push(s.pos.x, s.pos.z, s.right.x, s.right.y,
       0.52 + s.slip * 0.045, U.clamp(0.35 + s.slip * 0.11, 0, 1.5));
@@ -2273,15 +2152,9 @@ class SkiMission {
     if (this.windSnd) this.windSnd.set(U.clamp(sp01 * 0.95 + (s.airborne ? 0.22 : 0), 0, 1));
     if (this.carveSnd) {
       const on = !s.airborne && !s.crashed && this.state !== 'idle';
-      /* Steel is the fourth thing this one sound has to be, after snow,
-         a skid and silence. It gets `slip` for free — there is none on
-         a rail and there is nothing else for the bright band to track —
-         and the band itself moves up and narrows, which is the whole
-         difference between a hiss and a ring. */
       this.carveSnd.set(on ? sp01 : 0,
-        on && !s.grinding ? U.clamp(s.slip / 9, 0, 1) : (s.grinding ? 0.55 : 0),
-        (this.snow && this.snow.spray) || 1,
-        s.grinding ? 1 : 0);
+        on ? U.clamp(s.slip / 9, 0, 1) : 0,
+        (this.snow && this.snow.spray) || 1);
     }
   }
 
@@ -2356,13 +2229,9 @@ class SkiMission {
        while they are off the ground: how far round am I, and is that a
        whole number yet. The needle going green *is* the landing cue. */
     if (h.air) {
-      const flying = s.airborne || s.grinding;
+      const flying = s.airborne;
       h.air.classList.toggle('show', flying);
-      if (s.grinding) {
-        h.airRot.textContent = 'GRIND';
-        h.airH.textContent = Math.round(s.grindDist) + 'm';
-        h.air.classList.add('true');
-      } else if (flying) {
+      if (flying) {
         const spin = Math.abs(s.airYaw) / U.TAU;
         const flip = Math.abs(s.airPitch) / U.TAU;
         const roll = Math.abs(s.airRoll) / U.TAU;
@@ -2443,7 +2312,7 @@ class SkiMission {
     for (const [, p] of this.peers) p.skier.dispose();
     if (this.ghostSkier) this.ghostSkier.dispose();
     if (this.trees) { if (this.trees.geo) this.trees.geo.dispose(); if (this.trees.mat) this.trees.mat.dispose(); }
-    for (const g of [this.railMesh, this.spinnerMesh]) {
+    for (const g of [this.spinnerMesh]) {
       if (!g) continue;
       Engine.disposeObject(g);
       for (const m of g.userData.mats || []) m.dispose();
@@ -2508,7 +2377,7 @@ class SkiMission {
     this.vertical = 0; this.topSpeed = 0; this.airTotal = 0; this.biggestAir = 0;
     this.stats = SkiMission.freshStats();
     this._grazing = false; this._grazeT = 0; this._slowT = 0; this._straightT = 0;
-    this._boostT = 0; this._grindTotal = 0;
+    this._boostT = 0;
     if (this.spinners) for (const sp of this.spinners) {
       sp.taken = false;
       if (sp.obj) sp.obj.scale.setScalar(1);
@@ -2580,23 +2449,17 @@ const SkiAudio = (() => {
     n2.connect(bp); bp.connect(g2); g2.connect(dest); n2.start(t);
 
     return {
-      /* speed01 = 0..1, slip01 = 0..1, spray scales how loud this snow
-         is, and `steel` swaps the whole thing over to a rail: the low
-         rush drops away because a bar has no bed to push, and the
-         bright band climbs and narrows until it rings rather than
-         hisses. One crossfade, no second graph, no second node to keep
-         alive across a run. */
-      set(speed01, slip01, spray = 1, steel = 0) {
+      /* speed01 = 0..1, slip01 = 0..1, and spray scales how loud this
+         snow is. */
+      set(speed01, slip01, spray = 1) {
         const tt = ctx.currentTime;
         const sp = U.clamp(speed01, 0, 1), sl = U.clamp(slip01, 0, 1);
-        const st = U.clamp(steel, 0, 1);
-        g1.gain.setTargetAtTime(0.0001 + 0.085 * sp * sp * spray * (1 - st * 0.72), tt, 0.10);
-        lp.frequency.setTargetAtTime(380 + sp * 2100 + st * 900, tt, 0.10);
+        g1.gain.setTargetAtTime(0.0001 + 0.085 * sp * sp * spray, tt, 0.10);
+        lp.frequency.setTargetAtTime(380 + sp * 2100, tt, 0.10);
         g2.gain.setTargetAtTime(
-          0.0001 + 0.115 * sl * (0.35 + sp * 0.65) * spray * (1 + st * 0.35), tt, 0.07);
-        bp.frequency.setTargetAtTime(
-          U.lerp(1500 + sl * 3400 + sp * 900, 3100 + sp * 2600, st), tt, 0.08);
-        bp.Q.setTargetAtTime(U.lerp(1.1 + sl * 1.6, 9.5, st), tt, 0.12);
+          0.0001 + 0.115 * sl * (0.35 + sp * 0.65) * spray, tt, 0.07);
+        bp.frequency.setTargetAtTime(1500 + sl * 3400 + sp * 900, tt, 0.08);
+        bp.Q.setTargetAtTime(1.1 + sl * 1.6, tt, 0.12);
       },
       stop() {
         const tt = ctx.currentTime;
@@ -2637,38 +2500,6 @@ AudioBus.define('land', (c, dest, o = {}) => {
   ng.gain.exponentialRampToValueAtTime(0.30 * amt, t + 0.010);
   ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
   n.start(t); n.stop(t + 0.5);
-});
-
-/* Fifty more metres of steel. A struck bar rather than a chime: a
-   short, hard partial with a fifth over it and a scrape of noise on the
-   front of it, and it climbs a semitone every time so that a long grind
-   is audibly a run of them going up rather than the same note four
-   times. It is deliberately not the hoop sound — a rail is not a thing
-   you collected, it is a thing you are still doing. */
-AudioBus.define('railtick', (c, dest, o = {}) => {
-  const t = c.currentTime;
-  const step = U.clamp(o.step ?? 0, 0, 11);
-  const base = 740 * Math.pow(2, step / 12);
-  for (const [mult, peak, dur] of [[1, 0.16, 0.22], [1.5, 0.09, 0.16], [3.02, 0.05, 0.10]]) {
-    const os = c.createOscillator(), g = c.createGain();
-    os.type = 'triangle';
-    os.frequency.setValueAtTime(base * mult, t);
-    os.connect(g); g.connect(dest);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(peak, t + 0.004);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    os.start(t); os.stop(t + dur + 0.05);
-  }
-  const n = AudioBus.noiseSource();
-  if (!n) return;
-  const f = c.createBiquadFilter(), ng = c.createGain();
-  f.type = 'bandpass'; f.Q.value = 3.2;
-  f.frequency.setValueAtTime(base * 2.4, t);
-  n.connect(f); f.connect(ng); ng.connect(dest);
-  ng.gain.setValueAtTime(0.0001, t);
-  ng.gain.exponentialRampToValueAtTime(0.10, t + 0.004);
-  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
-  n.start(t); n.stop(t + 0.12);
 });
 
 /* Going over. A long tumbling scrape rather than a bang: you do not
@@ -2728,12 +2559,7 @@ Missions.register({
     + 'there is room to land it. '
     + 'The mountain is built for it. Blue and amber bars on the snow are boost pads and '
     + 'there are hundreds: drive down the middle of one and it pushes you the whole way '
-    + 'along it. Steel runs off the piste in quarter-kilometre lines — straight, welded end '
-    + 'to end and following the run round its bends — and steel has no gradient and no '
-    + 'scrub, so a rail is the only place on the hill that makes speed on flat ground, '
-    + 'which is why one of them is down the runout where the mountain has stopped helping. '
-    + 'Ride the whole thing and the pop off the end is the biggest jump on the mountain. '
-    + 'And spinners turn in the air over the fall line: get to one, through the middle, '
+    + 'along it. Spinners turn in the air over the fall line: get to one, through the middle, '
     + 'and it pays, shoves you and hands you a fresh trick on the way past. '
     + 'The mountain is littered with kickers, hips, rollers and cliffs, and it is cut '
     + 'through by shortcuts: straight lines down the fall line where the groomed run '
@@ -2774,11 +2600,6 @@ Missions.register({
       + 'you the whole way along and turn what is left into height off the lip, so the '
       + 'middle of one is worth a lot more than the corner. The amber ones are the big '
       + 'ones, and the meanest are down the shortcuts.',
-    '<b>Rails beat snow.</b> Ski at one and you are on it — no button — and it does not '
-      + 'stop for a couple of hundred metres. Steel has no scrub and no gradient, so you '
-      + 'leave one faster than you arrived, and the longer you hold it the harder it throws '
-      + 'you: press <kbd>Space</kbd> at the bottom of a long one and what comes off the end '
-      + 'has room in it for something enormous.',
     '<b>Spinners are never a miss.</b> The turning rings are above the snow, so getting '
       + 'through one means arriving already in the air, off something, on purpose. Through '
       + 'the middle pays most, and it hands you a fresh trick on the way out.',
@@ -2837,8 +2658,6 @@ Missions.register({
       + (r.stomps ? ` (${r.stomps} stomped)` : '')]);
     if (r.biggestAir) rows.push(['Biggest air', r.biggestAir.toFixed(1) + 'm'
       + ` · ${(r.airTime || 0).toFixed(1)}s off the snow`]);
-    if (r.grinds) rows.push(['On steel', `${r.grindMetres}m over ${r.grinds}`
-      + (r.longestGrind ? ` · longest ${r.longestGrind}m` : '')]);
     if (r.spinners) rows.push(['Spinners', String(r.spinners)]);
     rows.push(['Top speed', Math.round(r.topSpeed * 3.6) + ' km/h']);
     rows.push(['Best meter', '×' + r.peakFlow]);

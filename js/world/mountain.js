@@ -121,38 +121,6 @@ const MountainKit = (() => {
 
   const YSTEP = 6;              // arc of the descent profile table
 
-  /* ---- what makes a rail a rail ----
-     Four numbers and one function, and between them they are the whole
-     difference between steel and the sampled rope that used to be here.
-     `CLEAR` is the least air a bar may have under it — below that the
-     snow eats the ski. `STILT` is the most — above that the legs are a
-     ladder nobody can get onto. `GMIN` is zero because steel that runs
-     uphill is the one fault a skier feels instantly, and `GMAX` is
-     steeper than any groomed pitch on the hill. */
-  const RAIL_CLEAR = 0.55;
-  const RAIL_STILT = 4.2;
-  const RAIL_GMIN  = 0;         // steel never runs uphill
-  const RAIL_GMAX  = 0.78;
-  const RAIL_WELD  = 5;         // least metres of blend either side of a join
-  const RAIL_WELD_MAX = 16;
-
-  /* The weld. `x` is signed distance along the chain from the join, the
-     line arriving has grade `gIn` and the one leaving has `gOut`, and
-     both pass through `yj`. Away from the join in either direction this
-     is exactly one of the two lines; across it the position and the
-     slope are both continuous, so a chain has no steps in it and no
-     corners either.
-
-     `b` is how many metres it takes to make the change, and it is sized
-     off the size of the change rather than fixed: the whole point of
-     the weld is that no join throws vertical speed at the camera, and a
-     join that changes the grade by a half needs three times the run of
-     one that changes it by a sixth to stay under the same number. */
-  function weldY(yj, gIn, gOut, x, b) {
-    const w = U.smoothstep(-b, b, x);
-    return yj - gIn * x + (gIn - gOut) * x * w;
-  }
-
   class Face {
     constructor(rng, opts = {}) {
       this.rng = rng;
@@ -264,15 +232,13 @@ const MountainKit = (() => {
       this.ramps = [];
       this.chutes = [];
       /* The park furniture. None of it is terrain: a pad does not move
-         the snow, a rail floats above it and a spinner is in the air, so
-         they are three plain lists the skier queries rather than three
-         more things `heightAt` has to add up sixty thousand times. */
+         the snow and a spinner is in the air, so they are plain lists
+         the skier queries rather than two more things `heightAt` has to
+         add up sixty thousand times. */
       this.pads = [];
-      this.rails = [];
       this.spinners = [];
       this._bucket = null;                 // ramps, indexed by z, built on seal
       this._padBucket = null;
-      this._railBucket = null;
       this._chuteBucket = null;
     }
 
@@ -427,10 +393,8 @@ const MountainKit = (() => {
       };
       this._bucket = fresh();
       this._padBucket = fresh();
-      this._railBucket = fresh();
       file(this.ramps, this._bucket, 20);
       file(this.pads, this._padBucket, 12);
-      file(this.rails, this._railBucket, 12);
       this._B = B;
       return this;
     }
@@ -449,203 +413,12 @@ const MountainKit = (() => {
       return p;
     }
 
-    /* ---- rails ----
-       A rail is a *straight line in three dimensions*. It used to be a
-       table of ground samples taken every six metres, which meant the
-       thing bent to every roller under it: piecewise-linear, so the
-       slope stepped five times a second at speed, so riding one threw
-       ten metres a second of vertical at the camera on every join. That
-       is what "the rails lag you out" was — not frames, geometry.
-
-       Steel is welded, not draped. So one grade for the whole link, and
-       the fitting is a pair of one-sided constraints on that single
-       number: never nearer the snow than `RAIL_CLEAR` (you cannot ride
-       a bar that is buried), never further from it than `RAIL_STILT`
-       (you cannot reach a bar on four-metre legs). Both are linear in
-       the grade, so both are a `min`/`max` over the samples and there
-       is nothing to iterate.
-
-       Links chain. A link that has a `prev` starts exactly where that
-       one ended, in all three axes, so a chain of them is one unbroken
-       run of steel that follows the piste round its bends without any
-       single piece of it ever being curved.
-
-       `fitRail` does the arithmetic without registering anything — the
-       chain builder tries a link at a few lengths and keeps the first
-       that behaves, so the fit has to be callable on a candidate that
-       is about to be thrown away. `r` is filled in place and handed
-       back; `addRail` is that plus a place in the list. */
-    fitRail(r) {
-      r.c = Math.cos(r.ax || 0);
-      r.s = Math.sin(r.ax || 0);
-      r.h = r.h ?? 1.15;
-
-      /* The snow under the span, kept: the legs are drawn from it, and
-         it is the only part of this that costs anything. Every two and
-         a half metres, because `clearMin` and `clearMax` below are what
-         the chain builder accepts or rejects a link on, and a sample
-         spacing coarser than the bumps it is checking for is a test
-         that passes links it should not. */
-      const n = Math.max(4, Math.round(r.len / 2.5) + 1);
-      const gnd = new Float64Array(n);
-      for (let i = 0; i < n; i++) {
-        const t = i / (n - 1);
-        gnd[i] = this.heightAt(r.x + r.s * r.len * t, r.z + r.c * r.len * t);
-      }
-
-      /* Where it starts. A link with a `prev` starts *exactly* where
-         that one ended and is given no say in it: lifting it to clear
-         the snow would put a step in the middle of a chain, and a step
-         in a rail is worse than the thirty centimetres of burial it was
-         trying to avoid. Only the head of a chain, which has nothing
-         behind it, gets stood on the snow. */
-      let y0 = r.y0 ?? (gnd[0] + r.h);
-      if (r.prev == null && y0 < gnd[0] + RAIL_CLEAR) y0 = gnd[0] + RAIL_CLEAR;
-
-      /* The grade that best follows the snow under the whole span —
-         least squares through the pinned start, not a chord between the
-         two ends. A chord is decided entirely by the two metres of hill
-         at either end of it, so a link whose far end happens to sit on
-         a mogul is a link that ignores the eighty metres in between. */
-      let sxy = 0, sxx = 0;
-      for (let i = 1; i < n; i++) {
-        const d = r.len * (i / (n - 1));
-        sxy += d * (y0 - gnd[i] - r.h);
-        sxx += d * d;
-      }
-      let g = sxx > 0 ? sxy / sxx : 0;
-
-      /* Two hard bounds, and they are one-sided and linear in the grade,
-         so each is a single pass of `min`/`max` with nothing to solve.
-         A chain's request not to kink sits *between* the fit and these:
-         it can shape a link that has room to be shaped and it can never
-         hold one above the snow it is supposed to be lying over, which
-         is the bug that made a five-link chain climb into the sky. */
-      let gHi = RAIL_GMAX, gLo = RAIL_GMIN;
-      for (let i = 1; i < n; i++) {
-        const d = r.len * (i / (n - 1));
-        gHi = Math.min(gHi, (y0 - gnd[i] - RAIL_CLEAR) / d);   // never buried
-        gLo = Math.max(gLo, (y0 - gnd[i] - RAIL_STILT) / d);   // never on stilts
-      }
-      if (r.gKink != null && r.gPrev != null) {
-        g = U.clamp(g, r.gPrev - r.gKink, r.gPrev + r.gKink);
-      }
-      // of the two, "you can ride it" beats "you can reach it"
-      g = Math.min(g, gHi);
-      g = Math.max(g, Math.min(gLo, gHi));
-      // ...and neither beats "steel does not run uphill", which is the
-      // one a skier feels immediately and reads as the rail being broken
-      g = U.clamp(g, RAIL_GMIN, RAIL_GMAX);
-
-      r.gnd = gnd;
-      r.n = n;
-      r.grade = g;
-      r.y0 = y0;
-      r.y1 = y0 - g * r.len;
-      r.x1 = r.x + r.s * r.len;
-      r.z1 = r.z + r.c * r.len;
-
-      // what the fit actually achieved, so the caller can reject it
-      let lo = 1e9, hi = -1e9;
-      for (let i = 0; i < n; i++) {
-        const c = y0 - g * r.len * (i / (n - 1)) - gnd[i];
-        if (c < lo) lo = c;
-        if (c > hi) hi = c;
-      }
-      r.clearMin = lo;
-      r.clearMax = hi;
-      return r;
-    }
-
-    addRail(r) {
-      this.fitRail(r);
-      r.next = r.next || null;
-      r.prev = r.prev || null;
-      r.weldNext = r.weldPrev = 0;       // sized once the chain is joined
-      r.after = 0;                       // metres of chain past this link
-      this.rails.push(r);
-      this._railBucket = null;
-      return r;
-    }
-
-    /* Height along a link. Straight everywhere except the last few
-       metres either side of a join, where the two lines are blended so
-       the *slope* matches too — without it a chain is C0 and every join
-       is a small version of the jolt the old sampled rails had. The
-       weight is a smoothstep, whose derivative vanishes at both ends,
-       which is the whole reason it is that and not a lerp. */
-    railY(r, u) {
-      const t = U.clamp(u, 0, 1);
-      const dEnd = (1 - t) * r.len;
-      if (r.next && dEnd < r.weldNext) {
-        return weldY(r.y1, r.grade, r.next.grade, -dEnd, r.weldNext);
-      }
-      const dStart = t * r.len;
-      if (r.prev && dStart < r.weldPrev) {
-        return weldY(r.y0, r.prev.grade, r.grade, dStart, r.weldPrev);
-      }
-      return r.y0 - r.grade * r.len * t;
-    }
-
-    // rise over run along the rail, downhill positive
-    railGrade(r, u) {
-      const t = U.clamp(u, 0, 1);
-      const near = (r.next && (1 - t) * r.len < r.weldNext)
-                || (r.prev && t * r.len < r.weldPrev);
-      if (!near) return r.grade;
-      const d = 1.2 / r.len;
-      return (this.railY(r, t - d) - this.railY(r, t + d)) / (2 * d * r.len);
-    }
-
     addSpinner(sp) { this.spinners.push(sp); return sp; }
 
     _padsNear(z) {
       if (!this._padBucket) this.seal();
       const i = U.clamp(Math.floor(z / this._B), 0, this._padBucket.length - 1);
       return this._padBucket[i];
-    }
-
-    _railsNear(z) {
-      if (!this._railBucket) this.seal();
-      const i = U.clamp(Math.floor(z / this._B), 0, this._railBucket.length - 1);
-      return this._railBucket[i];
-    }
-
-    /* The rail under a point, if there is one and you are close enough
-       to be on it. Returns where along it you are and how high its top
-       is there, which is everything the skier needs to lock on. */
-    railNear(x, z, y, grab = 1.9, vgrab = 2.2) {
-      const near = this._railsNear(z);
-      let best = null, bd = 1e9;
-      for (let i = 0; i < near.length; i++) {
-        const r = near[i];
-        const dx = x - r.x, dz = z - r.z;
-        const u = (dz * r.c + dx * r.s) / r.len;
-        if (u < -0.02 || u > 1.0) continue;
-        const v = (-dz * r.s + dx * r.c);
-        const av = Math.abs(v);
-        if (av > grab) continue;
-        const ry = this.railY(r, u);
-        const dy = y - ry;
-        /* The lower bound is the rail's own height plus a little, not a
-           constant: a skier standing on the snow beside a rail is
-           exactly `h` below its top, and a constant tighter than that
-           meant rails could only ever be caught out of the air. Skiing
-           straight at one now puts you on it, which is what everybody
-           tries first. */
-        if (dy < -(r.h + 0.45) || dy > vgrab) continue;
-        const d = av + Math.abs(dy) * 0.5;
-        if (d < bd) { bd = d; best = { rail: r, u, v, ry }; }
-      }
-      return best;
-    }
-
-    railPoint(r, u, out) {
-      const t = U.clamp(u, 0, 1);
-      out.x = r.x + r.s * r.len * t;
-      out.z = r.z + r.c * r.len * t;
-      out.y = this.railY(r, t);
-      return out;
     }
 
     /* One ramp's contribution. `u` runs along the ramp and `v` across
@@ -1151,11 +924,10 @@ const MountainKit = (() => {
 
   /* =============== the park ===============
 
-     Three things the mountain grows that are not the mountain: pads
-     that give you speed for nothing but a line, rails that give you
-     speed for a line you have to hold, and spinners that give you a
-     trick for a line you had to plan. They are separate lists rather
-     than three more `kind`s of ramp because none of them touch the
+     Two things the mountain grows that are not the mountain: pads
+     that give you speed for nothing but a line, and spinners that give
+     you a trick for a line you had to plan. They are separate lists
+     rather than two more `kind`s of ramp because neither touches the
      snow: `heightAt` is the hottest function in the mission and adding
      four hundred more objects to it to move the ground by zero metres
      would have been the most expensive way possible of doing nothing.
@@ -1215,323 +987,6 @@ const MountainKit = (() => {
     return out;
   }
 
-  /* Rails. Down the fall line, always, because a rail across a slope is
-     a rail you fall off the low side of and there is nothing to learn
-     from that. They sit just off the middle of the piste — the line
-     down a rail is a line that is not the racing line, which is the
-     trade the whole feature is made of.
-
-     What gets built is not a rail, it is a *chain*: three to five
-     straight links laid end to end, each one starting exactly where the
-     last finished and each one aimed at the piste's own bearing where
-     it starts. So the steel is dead straight everywhere and still
-     follows the run round its bends, and what a player rides is one
-     unbroken two-hundred-metre line rather than eight separate
-     forty-metre trips with a launch, a cooldown and a re-mount between
-     each of them. That stutter was the other half of "the rails lag
-     you out": every join used to be a dismount. */
-  function buildRails(face, rng, opts = {}) {
-    const spacing = opts.spacing ?? 120;
-    const scale = opts.scale ?? 1;
-    if (scale <= 0 || spacing <= 0) return [];
-    const out = [];
-    const travel = (z) => Math.atan(face.cxSlopeAt(z));
-
-    /* How much a link may differ in grade from the one before it. It is
-       a preference and not a rule — clearance overrides it — but where
-       there is room, it is what stops a chain that crosses a bench from
-       folding in half. */
-    const KINK = 0.16;
-
-    /* ---- the corridor ----
-       Ramps are terrain and are built before rails, deliberately, so
-       that a rail knows how high the snow it stands on is. The cost of
-       that ordering is that a two-hundred-metre straight line laid down
-       a mountain littered with kickers every fifty metres will cross
-       four of them, and a straight bar over a five-metre lip is either
-       buried in it or on a ladder over it — which is what every "rail
-       on stilts" and every buried one in this generator was.
-
-       So a chain clears its own line first: the kickers actually
-       standing in it come out, the face is re-sealed, and only then is
-       the steel fitted to what is left. A park run trades its jumps for
-       its rail line; that is what a park run is, and the exit pop off
-       the end of the chain is the jump it is trading them for. What
-       keeps the trade honest is the budget below — a hill may not spend
-       more than a quarter of its lips on steel.
-
-       `rampsOn` finds which kickers are actually in the way. Not "near
-       it" — `rampY` is the ramp's own contribution to the snow, so this
-       asks the only question that matters: at the points this rail is
-       going to occupy, is there a lip under it? Anything not lifting
-       the ground by a third of a metre across the width of the bar is
-       left exactly where it is, which is what keeps a chain from
-       clear-cutting the pitch it crosses. */
-    const rampsOn = (pts) => {
-      const doomed = new Set();
-      for (let i = 0; i + 1 < pts.length; i++) {
-        const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
-        const L = Math.hypot(bx - ax, bz - az);
-        const steps = Math.max(2, Math.ceil(L / 3));
-        for (let k = 0; k <= steps; k++) {
-          const t = k / steps;
-          const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
-          for (const r of face._rampsNear(z)) {
-            if (r.kind === 'bank' || doomed.has(r)) continue;
-            /* Across the bar and a little beyond it. The margin is
-               not for the ski, it is for the fit: a lip whose shoulder
-               reaches to within a few metres of the line is a lip the
-               straight line still has to climb over. */
-            if (face.rampY(r, x - 4.0, z) > 0.35 || face.rampY(r, x, z) > 0.35
-                || face.rampY(r, x + 4.0, z) > 0.35) doomed.add(r);
-          }
-        }
-      }
-      return doomed;
-    };
-
-    const clearRamps = (doomed) => {
-      if (!doomed.size) return;
-      face.ramps = face.ramps.filter(r => !doomed.has(r));
-      face._bucket = null;
-      face.seal();
-    };
-
-    /* The plan for one chain, in plan view and before anything exists —
-       where it goes, and what it would cost the mountain to put it
-       there. Returned rather than acted on, so the caller can price
-       four lines and buy the cheapest. */
-    const plan = (z, lat, want) => {
-      const aim = (zz) => face.cxAt(zz) + lat * face.halfAt(zz);
-      const pts = [];
-      let qz = z;
-      pts.push([aim(qz), qz]);
-      while (qz < z + want + 70 && qz < face.total - 30 && pts.length < 16) {
-        qz += 50;
-        pts.push([aim(qz), qz]);
-      }
-      /* A chute is a gully cut through the wood with banked sides, and
-         the one thing a straight line cannot do is cross one: the
-         ground under it swings by metres in both directions inside a
-         single link, so the fit ends up either buried in the near bank
-         or on a ladder over the floor. It is also the wrong place for a
-         rail on purpose — a shortcut is the line you take *instead* of
-         the park. */
-      for (const [qx, qq] of pts) {
-        for (const ch of face.chutes) if (face.chuteAmount(ch, qx, qq) > 0.22) return null;
-      }
-      return { z, lat, want, aim, pts, doomed: rampsOn(pts) };
-    };
-
-    /* One chain, laid from `z` down the hill holding station `lat`
-       fractions of the piste's half-width off its middle.
-
-       Every link is aimed at where the piste *will be* at the far end
-       of it rather than along the piste's bearing where it starts. The
-       difference between those two sounds like nothing and is the whole
-       thing: a tangent is an open loop, so on a run that traverses, a
-       chain laid along tangents walks steadily off the side of it and
-       fifty metres later is in the moguls, where the ground is rough,
-       so no straight line stays near it, so the fit ends up either
-       buried or on stilts. Aiming at the run closes the loop — every
-       link corrects the last one's drift — and the chain stays on the
-       groomed snow it was meant for while no piece of it is curved. */
-    const lay = (pl, opts2 = {}) => {
-      const { z, want, aim } = pl;
-      clearRamps(pl.doomed);
-
-      const links = [];
-      let px = aim(z), pz = z, py = null, pg = null, run = 0;
-      let guard = 0;
-      while (run < want && pz < face.total - 60 && guard++ < 12) {
-        const spec = (dz) => {
-          const tz = pz + dz, tx = aim(tz);
-          return {
-            kind: opts2.kind || (links.length ? 'link' : 'head'),
-            x: px, z: pz,
-            ax: Math.atan2(tx - px, dz),
-            len: Math.hypot(tx - px, dz),
-            h: opts2.h ?? 1.15,
-            wide: opts2.wide ?? 0.40,
-            finale: !!opts2.finale,
-            y0: py,
-            // set here rather than after the fact: `fitRail` refuses to
-            // lift a link that has something behind it, and a link that
-            // learns it was chained only afterwards has already been
-            // lifted — which is a step in the middle of a rail
-            prev: links.length ? links[links.length - 1] : null,
-            gPrev: pg, gKink: KINK,
-          };
-        };
-        /* How long a straight line can be here is a property of the
-           hill, not a number to pick: a link across an even pitch can
-           run seventy metres and one that crosses the lip of a bench
-           cannot run thirty without either burying itself or standing
-           on a ladder. So ask for the long one, measure what the fit
-           actually managed, and shorten until it behaves. */
-        let dz = U.clamp(rng.range(46, 70), 34, want - run + 30);
-        let fit = face.fitRail(spec(dz));
-        // the floor is thirty-four rather than twenty-four because a
-        // link short enough to fit anywhere is a link that is all weld
-        // and no rail, and the chain is better off simply ending
-        for (let k = 0; k < 4 && dz > 34; k++) {
-          if (fit.clearMin >= RAIL_CLEAR - 0.02 && fit.clearMax <= RAIL_STILT + 0.02) break;
-          dz = Math.max(34, dz * 0.76);
-          fit = face.fitRail(spec(dz));
-        }
-        /* If it still does not fit after four goes at shortening it,
-           the chain ends here rather than laying a link that is buried
-           or on a ladder. A chain that stops early is a shorter ride;
-           a chain that carries on regardless is a broken one. */
-        if (fit.clearMin < RAIL_CLEAR - 0.15 || fit.clearMax > RAIL_STILT + 0.5) break;
-
-        const link = face.addRail(spec(dz));
-        if (links.length) links[links.length - 1].next = link;
-        links.push(link);
-        px = link.x1; pz = link.z1; py = link.y1; pg = link.grade;
-        run += link.len;
-      }
-      /* A chain that stopped at its first link is not a chain, it is
-         the old forty-metre rail with extra steps. Hand the links back
-         and let the caller try a different line down the hill. */
-      const total = links.reduce((a, l) => a + l.len, 0);
-      if (links.length < 2 || total < 90) {
-        face.rails = face.rails.filter(l => !links.includes(l));
-        face._railBucket = null;
-        return null;
-      }
-
-      /* ---- the welds ----
-         Sized off the grade change they have to absorb and capped so a
-         short link is never all weld. Done here rather than in the fit
-         because a join needs both of its links to exist.
-
-         And then measured, because a weld is not free: rounding a join
-         where the hill flattens pulls the line *below* both of the
-         straight lines it is blending, by as much as a quarter of the
-         grade change times the width of the blend. On a join with room
-         under it that is invisible; on one already sitting half a metre
-         off the snow it is the bar disappearing into the piste. So the
-         blend is shortened, at that one join only, until it clears. */
-      const weldClear = (l) => {
-        let lo = 1e9;
-        const walk = (r, t0, t1) => {
-          for (let k = 0; k <= 8; k++) {
-            const t = t0 + (t1 - t0) * (k / 8);
-            const x = r.x + r.s * r.len * t, z = r.z + r.c * r.len * t;
-            lo = Math.min(lo, face.railY(r, t) - face.heightAt(x, z));
-          }
-        };
-        walk(l, Math.max(0, 1 - l.weldNext / l.len), 1);
-        walk(l.next, 0, Math.min(1, l.next.weldPrev / l.next.len));
-        return lo;
-      };
-      for (const l of links) {
-        if (!l.next) continue;
-        const dg = Math.abs(l.grade - l.next.grade);
-        let b2 = Math.min(U.clamp(RAIL_WELD + dg * 62, RAIL_WELD, RAIL_WELD_MAX),
-                          l.len * 0.38, l.next.len * 0.38);
-        for (let k = 0; k < 7; k++) {
-          l.weldNext = l.next.weldPrev = b2;
-          if (b2 <= 1.2 || weldClear(l) > RAIL_CLEAR * 0.55) break;
-          b2 *= 0.68;
-        }
-      }
-      // every link knows how much chain is left after it, which is what
-      // decides whether catching one late is a grind or a trip
-      let acc = 0;
-      for (let i = links.length - 1; i >= 0; i--) { links[i].after = acc; acc += links[i].len; }
-      // ...and how long the whole thing is, which is what the mission
-      // puts on the screen the moment you get on the front of it
-      for (const l of links) l.chainLen = acc;
-      out.push(...links);
-      return links;
-    };
-
-    /* ---- what the steel is allowed to cost ----
-       A chain takes the kickers standing in its line out of the hill,
-       and left to itself a park card would lay enough of them to leave
-       the mountain with no jumps on it at all. So the whole generator
-       gets one budget of lips it may spend, spent cheapest-line-first,
-       and when it runs out the remaining chains simply do not get
-       built. Better a hill with five long rails and its kickers than
-       one with nine and nothing to launch off.
-
-       A card that asks for more steel gets to spend more, which is the
-       one place the dial is allowed to change the mountain rather than
-       just the furniture on it: "rails everywhere" has to mean
-       something, and on the hill it means fewer lips. */
-    let budget = Math.round(face.ramps.filter(r => r.kind !== 'bank').length
-                            * 0.26 * U.clamp(scale, 0.6, 2));
-
-    /* Chains are three times the old rail's reach, so a third as many
-       of them keeps the same metres of steel on the hill while turning
-       twenty short trips into six long rides. */
-    const per = spacing * 3.0;
-    for (const sec of face.sections) {
-      const n = Math.max(0, Math.round((sec.len / per) * scale));
-      for (let i = 0; i < n; i++) {
-        const z = sec.z0 + sec.len * ((i + 0.4) / Math.max(1, n))
-                + rng.range(-per * 0.18, per * 0.18);
-        if (z < 60 || z > face.total - 150) continue;
-        /* Kept in towards the piste, because groomed snow is smooth
-           snow and a straight line only stays near the ground it is
-           over if that ground is not moguls — and then chosen from
-           several lines by what each would cost. A chain has to take
-           the kickers standing in it out of the hill, so the line that
-           has to take out the fewest is the line it takes, and a pitch
-           keeps its jumps unless there was nowhere else for the steel
-           to go. */
-        const side = rng() < 0.5 ? -1 : 1;
-        const mag = rng.range(0.16, 0.50), want = rng.range(160, 260);
-        const lats = [side * mag, -side * mag, side * 0.22, -side * 0.22,
-                      side * 0.62, -side * 0.62, side * 0.40, -side * 0.40];
-        const plans = [];
-        for (const zz of [z, z + 120]) {
-          // ...the second start only if a chute crosses the whole width
-          if (plans.length) break;
-          if (zz > face.total - 150) break;
-          for (const lat of lats) {
-            const pl = plan(zz, lat, want);
-            if (pl) plans.push(pl);
-          }
-        }
-        plans.sort((a, b) => a.doomed.size - b.doomed.size);
-        for (const pl of plans) {
-          if (pl.doomed.size > budget) break;
-          const links = lay(pl);
-          if (links) { budget -= pl.doomed.size; break; }
-        }
-      }
-    }
-
-    /* One long one down the middle of the runout. The bottom of the
-       mountain is flat and pays double, and a rail is the only thing on
-       the hill that makes speed on flat ground — so the last three
-       hundred metres of every run now has an answer in it. */
-    const zr = face.total - 300;
-    if (zr > 200) {
-      const plans = [];
-      for (const lat of [0, 0.26, -0.26, 0.5, -0.5]) {
-        const pl = plan(zr, lat, 240);
-        if (pl) plans.push(pl);
-      }
-      plans.sort((a, b) => a.doomed.size - b.doomed.size);
-      // the finale is the one chain that gets built whatever it costs:
-      // the runout is flat, and flat ground with no steel on it is the
-      // one place a run can simply stop paying
-      for (const pl of plans) if (lay(pl, { h: 1.15, wide: 0.42, finale: true })) break;
-    }
-
-    face.seal();
-    return out;
-  }
-
-  /* Spinners: a ring standing in the air on the fall line, turning.
-     Pass through one and it hands you a trick and a shove. They are the
-     one piece of park furniture you cannot collect by accident — the
-     ring is above the snow, so getting through it means arriving at it
-     already in the air, off something, on purpose. */
   function buildSpinners(face, rng, opts = {}) {
     const spacing = opts.spacing ?? 240;
     const scale = opts.scale ?? 1;
@@ -1562,73 +1017,8 @@ const MountainKit = (() => {
   }
 
   /* =============== the park, as things you can see ===============
-     One merged geometry for the rails and one instanced ring for the
-     spinners: four hundred separate meshes on a mountain is four
-     hundred draw calls and a mission that runs at nine frames a second
-     on the machine it was written for. */
-
-  function buildRailMeshes(face) {
-    const group = new THREE.Group();
-    group.name = 'rails';
-    if (!face.rails.length) return group;
-
-    const steel = new THREE.MeshLambertMaterial({
-      color: '#c9d8e6', emissive: '#3d5c73', emissiveIntensity: 0.35, flatShading: true,
-    });
-    const post = new THREE.MeshLambertMaterial({ color: '#2a3038', flatShading: true });
-
-    /* A link is straight, so a link is one box. That is the whole
-       saving: the old rails were a box per six metres of length plus a
-       leg per twelve, and the joins between those boxes were the visible
-       half of the kink the skier was riding. One box cannot kink. */
-    const bars = [], posts = [];
-    for (const r of face.rails) {
-      const drop = r.y0 - r.y1;
-      const span = Math.hypot(r.len, drop);
-      const bar = new THREE.BoxGeometry(r.wide * 2, 0.22, span + 0.10);
-      bar.rotateX(Math.atan2(-drop, r.len));
-      bar.rotateY(r.ax || 0);
-      bar.translate((r.x + r.x1) * 0.5, (r.y0 + r.y1) * 0.5, (r.z + r.z1) * 0.5);
-      bars.push(bar);
-
-      /* Legs every eight metres or so, from the snow the fit already
-         sampled. They are the only thing that shows the hill moving
-         under a bar that is not moving with it, which is what makes a
-         straight rail read as built rather than as floating. */
-      // `r.n` is the *fit's* sample count, which is far denser than a
-      // leg wants; step through it by whatever lands one every ten
-      // metres or so, and always plant one at the very end
-      const step = Math.max(1, Math.round(10 / (r.len / (r.n - 1))));
-      for (let i = 0; i < r.n; i += step) {
-        const t = i / (r.n - 1);
-        const px = r.x + r.s * r.len * t, pz = r.z + r.c * r.len * t;
-        const base = r.gnd[i];
-        const h = Math.max(0.2, (r.y0 - r.grade * r.len * t) - base);
-        const leg = new THREE.BoxGeometry(0.17, h, 0.17);
-        leg.translate(px, base + h * 0.5, pz);
-        posts.push(leg);
-      }
-
-      /* The head of a chain gets a wedge up to it out of the snow. It
-         is twelve triangles and it is the difference between a player
-         seeing a bar they might hit and a player seeing a thing they
-         are meant to ride onto. */
-      if (!r.prev) {
-        const lift = Math.max(0.3, r.y0 - r.gnd[0]);
-        const run = Math.max(2.5, lift * 3.2);
-        const w = new THREE.BoxGeometry(r.wide * 2, 0.20, Math.hypot(run, lift) + 0.1);
-        w.rotateX(Math.atan2(lift, run));
-        w.rotateY(r.ax || 0);
-        w.translate(r.x - r.s * run * 0.5, r.gnd[0] + lift * 0.5, r.z - r.c * run * 0.5);
-        bars.push(w);
-      }
-    }
-    group.add(new THREE.Mesh(Sky.mergeGeometries(bars), steel));
-    group.add(new THREE.Mesh(Sky.mergeGeometries(posts), post));
-    for (const m of group.children) { m.frustumCulled = false; m.name = 'rail-part'; }
-    group.userData.mats = [steel, post];
-    return group;
-  }
+     One instanced ring for the spinners: hundreds of separate meshes
+     would be hundreds of draw calls. */
 
   function buildSpinnerMeshes(face) {
     const group = new THREE.Group();
@@ -1869,7 +1259,7 @@ const MountainKit = (() => {
       taken.get(k).push({ x, z });
     };
 
-    // nothing grows in a chute, on a takeoff, on a pad or across a rail
+    // nothing grows in a chute, on a takeoff or on a pad
     const clearOf = (x, z) => {
       for (const c of face.chutes) if (face.chuteAmount(c, x, z) > 0.16) return false;
       for (const r of face._rampsNear(z)) {
@@ -1880,15 +1270,6 @@ const MountainKit = (() => {
         if (u > -0.7 && u < 2.6 && Math.abs(v) < 1.7) return false;
       }
       if (face.boostAmount(x, z) > 0.01) return false;
-      for (const r of face._railsNear(z)) {
-        const dx = x - r.x, dz = z - r.z;
-        const u = (dz * r.c + dx * r.s) / r.len;
-        // tight bounds now that a link is eighty metres long: the chain
-        // covers its own continuation, so overhang past the end would
-        // only clear wood the rail never goes near
-        if (u < -0.30 || u > 1.02) continue;
-        if (Math.abs(-dz * r.s + dx * r.c) < 5) return false;
-      }
       return true;
     };
 
@@ -1964,15 +1345,6 @@ const MountainKit = (() => {
       const x = face.cxAt(z) + lat;
       let skip = false;
       for (const ch of face.chutes) if (face.chuteAmount(ch, x, z) > 0.3) skip = true;
-      // and nothing sits on a rail: the skier is locked to the steel
-      // while grinding and does not test colliders, so a boulder across
-      // one would be a boulder you ski straight through
-      for (const rr of face._railsNear(z)) {
-        const dx = x - rr.x, dz = z - rr.z;
-        const u = (dz * rr.c + dx * rr.s) / rr.len;
-        if (u < -0.30 || u > 1.02) continue;
-        if (Math.abs(-dz * rr.s + dx * rr.c) < 6) skip = true;
-      }
       if (skip) continue;
       const r = rng.range(1.3, 4.2);
       const g = new THREE.IcosahedronGeometry(r, 0);
@@ -2114,7 +1486,7 @@ const MountainKit = (() => {
   }
 
   return { COL, SECTIONS, Face, makeFace, findChutes, buildRamps, buildTerrain,
-           buildPads, buildRails, buildSpinners, buildRailMeshes, buildSpinnerMeshes,
+           buildPads, buildSpinners, buildSpinnerMeshes,
            updateSpinners,
            buildTrees, buildRocks, buildMarkers, buildChuteGate, buildSnowfall,
            pineGeometry, CHUTE_NAMES, byId };

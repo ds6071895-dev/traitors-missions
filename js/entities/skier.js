@@ -105,32 +105,6 @@ class Skier {
     trickLift:    7.0,    // ...and the most a lip will find to fit a trick in
     spinnerLift:  7.0,    // what passing through a ring is worth, straight up
 
-    /* --- the rails ---
-       Faster than snow and immune to gradient, which is the entire
-       proposition: the only thing on the mountain that makes speed on
-       the flat. The cooldown is what stops the end of a rail from
-       immediately re-mounting the rail you just left. */
-    /* Six and a half rather than eleven. A rail used to be forty metres
-       and this was the number that made those forty metres worth the
-       line; a chain is a quarter of a kilometre, and eleven over that
-       distance simply parks you on the boost ceiling and holds you
-       there. Steel still beats snow everywhere and still makes speed on
-       the flat, which is the whole claim — it just no longer wins the
-       run on its own. */
-    railBoost:    6.5,    // m/s² along it, on top of whatever it drops
-    railDrag:     0.010,
-    railPop:      6.2,    // straight up, off the end of one
-    railGrab:     2.2,    // how near you have to be to catch it
-    railMin:      12,     // ...and how much steel has to be left in front
-    railCarryMin: 0.70,   // least of your entry speed a catch can keep
-    /* Steel does not scrub, so the brake barely bites on it. This is
-       not a kindness, it is the fiction being consistent — but it is
-       also what stops a touch player who is resting a thumb on the back
-       of the stick from stalling out halfway down a long one. */
-    railBrake:    0.30,
-    railRide:     110,    // metres of grind that count as a full ride
-    grindCd:      0.34,
-
     // --- the air ---
     airDrag:      0.0016,
     airYawGain:   1.9,    // steering, off the snow and not tricking
@@ -262,14 +236,6 @@ class Skier {
     this.airRoll = 0; this.airPitch = 0; this.airYaw = 0;
     this.grab = 0;                      // 0..1, how deep a hand is on a ski
     this.boost = 0;                     // 0..1+, the pad under you right now
-    // ---- rails ----
-    this.grinding = false;
-    this.grindT = 0;                    // seconds on this one
-    this.grindDist = 0;                 // ...and metres, which is what pays
-    this.railU = 0;
-    this._rail = null;
-    this.grindCd = 0;
-    this.railOn = 0; this.railOff = 0;  // one-frame events, like the rest
     this._auto = null;                  // the trick the mountain threw, if any
     /* Its own generator, so the same run throws the same tricks off the
        same lips on every machine in a party. `Math.random` here would
@@ -296,7 +262,6 @@ class Skier {
     this.alive = true;
 
     this._n = { nx: 0, ny: 1, nz: 0, gx: 0, gz: 0 };
-    this._rp = { x: 0, y: 0, z: 0 };    // scratch, for the rail lock
     this._fwd = new THREE.Vector2(0, 1);
     this._right = new THREE.Vector2(1, 0);
     this._e = new THREE.Euler();
@@ -342,9 +307,9 @@ class Skier {
       tip.rotation.x = -0.42;
       holder.add(tip);
       // a bright steel edge along the base
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.126, 0.014, 1.70), edgeMat);
-      rail.position.set(0, -0.022, 0.16);
-      holder.add(rail);
+      const skiEdge = new THREE.Mesh(new THREE.BoxGeometry(0.126, 0.014, 1.70), edgeMat);
+      skiEdge.position.set(0, -0.022, 0.16);
+      holder.add(skiEdge);
       const bind = new THREE.Mesh(new THREE.BoxGeometry(0.135, 0.075, 0.30), dark);
       bind.position.set(0, 0.05, 0.04);
       holder.add(bind);
@@ -413,8 +378,6 @@ class Skier {
     this.tuck = 0; this.braking = 0; this.crouch = 0;
     this.crashed = false; this.crashT = 0; this.tumble = 0;
     this.grab = 0; this.boost = 0; this._auto = null;
-    this.grinding = false; this._rail = null; this.grindT = 0;
-    this.grindDist = 0; this.grindCd = 0;
     this.sv = 0;
     const gy = this.sampleGround(x, z, Math.sin(heading), Math.cos(heading), world);
     this.groundY = gy;
@@ -450,7 +413,7 @@ class Skier {
   update(dt, ctl, world) {
     if (!(dt > 0)) return;
     this.launched = 0; this.landed = 0; this.popped = 0;
-    this.railOn = 0; this.railOff = 0; this.threw = 0; this.spun = 0;
+    this.threw = 0; this.spun = 0;
     this.bumped = null; this.crashedNow = null; this.lastTrick = null;
 
     const step = this.tune.subStep;
@@ -473,7 +436,7 @@ class Skier {
        You keep sliding, because you are on a mountain and gravity has
        not stopped caring. Bleeding the velocity to nothing instead —
        which is what this did first — meant every fall cost twelve
-       seconds: a second and a half on the floor and ten more grinding
+       seconds: a second and a half on the floor and ten more building
        back up to speed from a standstill on a slope. Sliding out of it
        at eight or nine metres a second is both what actually happens
        and a punishment a run can survive. */
@@ -505,9 +468,6 @@ class Skier {
       }
       return;
     }
-
-    this.grindCd = Math.max(0, this.grindCd - dt);
-    if (this.grinding) { this._grindStep(dt, ctl, world); return; }
 
     const steer = U.clamp(ctl.steer ?? 0, -1, 1);
     const thr = U.clamp(ctl.throttle ?? 0, -1, 1);
@@ -691,25 +651,6 @@ class Skier {
       }
     }
     this.grounded = !this.airborne;
-
-    /* ---- catching a rail ----
-       Last, and off the finished position, so what gets tested is where
-       the skier actually ended up rather than where it was going. There
-       is no separate "ollie onto it" input: arrive near one at speed,
-       from the snow or out of the air, and you are on it. Making that a
-       button would have made rails a thing players miss. */
-    if (!this.crashed && this.grindCd <= 0 && this.speed > 5.5 && face && face.railNear) {
-      const hit = face.railNear(this.pos.x, this.pos.z, this.pos.y, T.railGrab);
-      /* Catching one at the far end is not a grind, it is a trip: there
-         has to be real steel left to be worth locking to. Measured over
-         the whole chain rather than the link, because arriving late on
-         the second of five links still has three hundred metres of ride
-         in front of it. */
-      if (hit) {
-        const left = (1 - hit.u) * hit.rail.len + (hit.rail.after || 0);
-        if (left > T.railMin) this._mount(hit);
-      }
-    }
 
     // ---- attitude ----
     if (!this.airborne) {
@@ -988,174 +929,6 @@ class Skier {
     this.grab = U.damp(this.grab, want, 9, dt);
   }
 
-  /* =============== rails ===============
-
-     A rail is the only place on the mountain where the snow stops
-     charging you rent. Steel has no scrub, no slip and no gradient of
-     its own worth speaking of, so what a rail does is *keep* speed
-     across ground that would otherwise take it — which is why the long
-     one is down the runout, where the gradient has run out and the run
-     is decided.
-
-     It is deliberately impossible to fall off. There is no balance
-     minigame here and there was never going to be one: the mission
-     already has four ways to end a run badly, and a fifth that punishes
-     you for having tried the interesting line is a fifth that teaches
-     players not to take it. */
-
-  _mount(hit) {
-    const r = hit.rail;
-    this.grinding = true;
-    this._rail = r;
-    this.railU = U.clamp(hit.u, 0, 1);
-    this.grindT = 0;
-    this.railOn = 1;
-    this.airborne = false;
-    this.grounded = true;
-    this.vy = 0;
-    this.airYaw = this.airPitch = this.airRoll = 0;
-    this._auto = null;
-    this.grab = 0;
-    this.crouch = 0;
-    this.pos.y = hit.ry;
-
-    /* Alignment still matters, but an automatic catch must not turn a
-       fast lateral approach into a dead stop. That looked exactly like
-       a one-second game freeze while the rail boost rebuilt the lost
-       speed. Keep the along-rail component when it is healthy and put a
-       floor under it when the catch itself has redirected the skier. */
-    const incoming = Math.hypot(this.vel.x, this.vel.y);
-    const along = this.vel.x * r.s + this.vel.y * r.c;
-    const v = Math.max(0, along, incoming * this.tune.railCarryMin);
-    this.vel.set(r.s * v, r.c * v);
-    this.speed = v;
-    this.heading = Math.atan2(r.s, r.c);
-    this.slip = 0; this.carve = 0; this.edge = 0;
-  }
-
-  _grindStep(dt, ctl, world) {
-    const T = this.tune;
-    let r = this._rail;
-    const trick = !!ctl.trick;
-    const steer = U.clamp(ctl.steer ?? 0, -1, 1);
-    const thr = U.clamp(ctl.throttle ?? 0, -1, 1);
-
-    this.grindT += dt;
-    this.grounded = true;
-    this.airborne = false;
-    this.tuck = U.damp(this.tuck, Math.max(0, thr), 7, dt);
-    this.braking = U.damp(this.braking, Math.max(0, -thr), 12, dt);
-
-    // the rail's own pitch where you are on it, then the thing that
-    // makes it a rail rather than a stretch of snow
-    const face = world && world.face;
-    const m = face && face.railGrade ? face.railGrade(r, this.railU) : (r.y0 - r.y1) / r.len;
-    let v = this.speed;
-    v += T.gravity * m / (1 + m * m) * dt;
-    v += T.railBoost * dt * (1 - U.smoothstep(T.boostCeil * 0.72, T.boostCeil, v));
-    v -= T.railDrag * v * v * dt;
-    v -= T.brakeScrub * T.railBrake * v * this.braking * dt;
-    v = Math.max(0, v);
-
-    /* ---- off the end of a link ----
-       If the chain continues, this is not an event. The next link
-       starts exactly where this one finished, in all three axes, so the
-       hand-over is a change of which line we are reading and nothing
-       else: no launch, no cooldown, no re-mount, no `GRIND` label
-       firing for the fourth time in three seconds. The metres carried
-       by `grindDist` run straight through it, which is what makes a
-       chain read as one two-hundred-metre ride. */
-    this.railU += (v * dt) / r.len;
-    while (this.railU >= 1 && r.next) {
-      const over = (this.railU - 1) * r.len;
-      r = this._rail = r.next;
-      this.railU = over / r.len;
-    }
-
-    const p = this._rp;
-    if (face) face.railPoint(r, this.railU, p);
-    else { p.x = this.pos.x; p.y = this.pos.y; p.z = this.pos.z; }
-    this.pos.set(p.x, p.y, p.z);
-    this.groundY = p.y;
-    this._gyPrev = p.y;
-    this.sv = 0;
-    this.speed = v;
-    // wrapped, not damped raw: a rail pointing just past ±π and a
-    // skier just short of it are half a degree apart and a plain damp
-    // takes them the long way round, spinning the body on the spot
-    this.heading += U.wrapAngle(Math.atan2(r.s, r.c) - this.heading)
-                  * (1 - Math.exp(-14 * dt));
-    this._fwd.set(Math.sin(this.heading), Math.cos(this.heading));
-    this._right.set(this._fwd.y, -this._fwd.x);
-    this.vel.set(this._fwd.x * v, this._fwd.y * v);
-    this.grindDist += v * dt;
-    this.boost = U.damp(this.boost, 0.7, 6, dt);   // it reads as a pad, because it is one
-    this.slip = U.damp(this.slip, 0, 10, dt);
-    this.carve = 0;
-
-    // a body balancing rather than a body carving: shoulders square,
-    // weight over the feet, and a lean that answers the stick
-    this.crouch = U.damp(this.crouch, 0.42, 8, dt);
-    this.roll = U.damp(this.roll, steer * 0.24, 9, dt);
-    this.pitch = U.damp(this.pitch, Math.atan2(-m, 1) * 0.8, 9, dt);
-    this.yawVel = U.damp(this.yawVel, 0, 10, dt);
-
-    const pressed = trick && !this.wasTrick;
-    this.wasTrick = trick;
-    if (this.railU >= 1 || pressed || v < 2.5) this._dismount(world, v, pressed);
-  }
-
-  /* Off the end, or off it because you asked. Either way it is a jump,
-     not a step down: the trick system is on the other side of a launch
-     and a rail that put you back on the snow with nothing to show for
-     it would be a rail nobody rode twice. */
-  _dismount(world, v, jumped) {
-    const T = this.tune;
-    this.grinding = false;
-    this._rail = null;
-    this.grindCd = T.grindCd;
-    this.railOff = Math.max(0.1, U.clamp(this.grindDist / 40, 0, 1.5));
-    this.crouch = 0;
-
-    // put the feet back on the snow's own reckoning before launching
-    const gy = this.sampleGround(this.pos.x, this.pos.z, this._fwd.x, this._fwd.y, world);
-    const ahead = Math.max(2, v * 0.06);
-    const gA = this.sampleGround(this.pos.x + this._fwd.x * ahead,
-                                 this.pos.z + this._fwd.y * ahead,
-                                 this._fwd.x, this._fwd.y, world);
-    this.groundY = gy;
-    this._gyPrev = gy;
-    this._slopeAhead = (gA - gy) / ahead;
-    this._slopeBack = 0;
-    this.pos.y = Math.max(this.pos.y, gy);
-
-    if (v < 2.5 && !jumped) { this.grindDist = 0; return; }
-    /* The kick off the end goes in as `lift` rather than being added
-       afterwards, because `_launch` sizes the trick off the hang time
-       and a trick sized before the kick is a trick that finishes with
-       half a second to spare and looks like it gave up.
-
-       Two things size it, and the ordering of them is the point. A
-       *chosen* exit beats being spat off the end, because the whole
-       reason to give a player a button is to let them decide when the
-       good bit happens. And a long ride beats a short one, because a
-       two-hundred-metre grind that ends in the same little hop as a
-       twenty-metre one teaches players that length was never worth
-       riding for. Together they are the payoff the rails are built
-       around: hold it all the way down, press at the bottom, and what
-       comes off the end has enough hang time in it for the trick
-       composer to reach for something enormous. */
-    const ride = U.clamp(this.grindDist / T.railRide, 0, 1);
-    const kick = T.railPop * (jumped ? 1.15 : 0.75) * (0.70 + 0.50 * ride);
-    this._launch(world, jumped ? 0.35 * (1 + ride) : 0, false, kick);
-    this.grindDist = 0;
-  }
-
-  /* Putting it down. Three things decide it and they are deliberately
-     independent: how square you are to the snow, whether the rotation
-     came round to a whole number, and how sideways the skis are to the
-     direction you are actually travelling. Getting two of the three is
-     a wobble; getting one is a yard sale. */
   _touchdown(world, n) {
     const T = this.tune;
     const SN = this.snow;

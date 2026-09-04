@@ -1081,36 +1081,15 @@ test('a landing is graded, and the grades are ordered', () => {
   }
 });
 
-test('catching a rail cannot stall a fast skier', () => {
-  const S = ctx.Skier;
-  const vel = {
-    x: 36, y: 0,
-    set(x, y) { this.x = x; this.y = y; return this; },
-  };
-  const body = Object.assign(Object.create(S.prototype), {
-    tune: S.TUNE,
-    vel,
-    speed: 36,
-    pos: { y: 0 },
-    grinding: false,
-    airborne: false,
-    grounded: true,
-    vy: 0,
-    airYaw: 0,
-    airPitch: 0,
-    airRoll: 0,
-    _auto: null,
-    grab: 0,
-    crouch: 0,
-    slip: 0,
-    carve: 0,
-    edge: 0,
-  });
-  // A side-on automatic catch used to project all 36m/s away.
-  body._mount({ rail: { s: 0, c: 1 }, u: 0.2, ry: 10 });
-  ok(body.speed >= 36 * S.TUNE.railCarryMin,
-     'the catch retained only ' + body.speed.toFixed(1) + 'm/s');
-  ok(body.grinding, 'the skier still mounts the rail');
+test('rails are absent from the descent and its modifier deck', () => {
+  ok(!Object.keys(SK.CONFIG).some(k => /rail|grind/i.test(k)),
+     'the mission still exposes rail configuration');
+  ok(!ctx.SkiTwists.DECK.some(t => t.id === 'ironworks'),
+     'the rail-only modifier is still dealt');
+  for (const t of ctx.SkiTwists.DECK) {
+    ok(!Object.keys(t.config || {}).some(k => /rail|grind/i.test(k)),
+       t.id + ' still configures rails');
+  }
 });
 
 section('the descent — the mountain the seed draws');
