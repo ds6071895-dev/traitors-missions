@@ -771,7 +771,10 @@ const Game = (() => {
         setupDef = def;
         document.getElementById('brief-title').textContent = def.name;
         document.getElementById('brief-tagline').textContent = def.tagline;
-        document.getElementById('brief-desc').textContent = def.description;
+        // Mission copy is authored alongside the already-rich tips and
+        // key guide. Render it the same way so inline <kbd> controls do
+        // not appear as literal markup in the briefing.
+        document.getElementById('brief-desc').innerHTML = def.description;
         document.getElementById('brief-tips').innerHTML =
           (def.tips || []).map(t => `<li>${t}</li>`).join('');
         document.getElementById('brief-keys').innerHTML =

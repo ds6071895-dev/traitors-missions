@@ -122,6 +122,7 @@ class Skier {
     railPop:      6.2,    // straight up, off the end of one
     railGrab:     2.2,    // how near you have to be to catch it
     railMin:      12,     // ...and how much steel has to be left in front
+    railCarryMin: 0.70,   // least of your entry speed a catch can keep
     /* Steel does not scrub, so the brake barely bites on it. This is
        not a kindness, it is the fiction being consistent — but it is
        also what stops a touch player who is resting a thumb on the back
@@ -1018,12 +1019,14 @@ class Skier {
     this.crouch = 0;
     this.pos.y = hit.ry;
 
-    /* Only the part of the velocity that was going along the rail
-       survives. Arriving across one at forty degrees costs you the
-       cosine of forty degrees, which is the entire skill of the
-       feature: line it up on the way in. */
+    /* Alignment still matters, but an automatic catch must not turn a
+       fast lateral approach into a dead stop. That looked exactly like
+       a one-second game freeze while the rail boost rebuilt the lost
+       speed. Keep the along-rail component when it is healthy and put a
+       floor under it when the catch itself has redirected the skier. */
+    const incoming = Math.hypot(this.vel.x, this.vel.y);
     const along = this.vel.x * r.s + this.vel.y * r.c;
-    const v = Math.max(0, along);
+    const v = Math.max(0, along, incoming * this.tune.railCarryMin);
     this.vel.set(r.s * v, r.c * v);
     this.speed = v;
     this.heading = Math.atan2(r.s, r.c);
