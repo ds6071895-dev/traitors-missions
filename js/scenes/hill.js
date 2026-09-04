@@ -8,9 +8,10 @@
    The camera does all the acting. It opens with its lens in the grass
    because that is the detail the whole hill is built around and you
    should see it before you see anything else, rises over the crest to
-   let the glen open behind Claudia, and then goes to her and stays
-   there. Nothing here is interactive: the only input is "go on", and
-   the beat runner already owns that.
+   let the glen open behind Claudia, holds once on the castle out in the
+   loch so you know where you are, and then goes to her and stays there.
+   Nothing here is interactive: the only input is "go on", and the beat
+   runner already owns that.
 ------------------------------------------------------------------ */
 class HillScene {
 
@@ -86,7 +87,7 @@ class HillScene {
 
     Scenes.run([
       { wait: 1.6 },
-      ...speak('welcome', {}, ['grass', 'rise', 'wide']),
+      ...speak('welcome', {}, ['grass', 'rise', 'loch']),
       ...speak('theRules', {}, ['claudia', null, null]),
       ...speak('roleIntro', {}, ['claudiaTight', null, null]),
 

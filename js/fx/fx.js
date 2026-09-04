@@ -122,6 +122,16 @@ class WakeRibbon {
     this.max = opts.segments || 90;
     this.life = opts.life || 2.6;
     this.samples = [];
+    /* Where the ribbon lies. A wake lies on the water and a ski track
+       lies in the snow, and the only thing that differs between them is
+       this function — so it is an argument rather than a second class.
+       `min` keeps a track visible against ground it is nearly the same
+       colour as; the sea did not need one because foam on water never
+       had that problem. */
+    this.heightAt = opts.heightAt || ((x, z) => Water.sampleHeight(x, z));
+    this.lift = opts.lift ?? 0.10;
+    this.tint = new THREE.Color(opts.color || '#ffffff');
+    this.alpha = opts.alpha ?? 0.24;
     // three vertices per sample (left / centre / right) so the ribbon can
     // fade out at its edges instead of ending in a hard white rectangle
     const verts = this.max * 3;
@@ -174,16 +184,18 @@ class WakeRibbon {
       const t = U.clamp(si.age / this.life, 0, 1);
       // the wake spreads and fades as it ages behind you
       const w = si.w * (0.45 + t * 0.95);
-      const y = Water.sampleHeight(si.x, si.z) + 0.10;
+      const y = this.heightAt(si.x, si.z) + this.lift;
       const set = (v, dx) => {
         this.posArr[v * 3] = si.x + si.rx * dx;
         this.posArr[v * 3 + 1] = y;
         this.posArr[v * 3 + 2] = si.z + si.rz * dx;
-        this.colArr[v * 4] = 1; this.colArr[v * 4 + 1] = 1; this.colArr[v * 4 + 2] = 1;
+        this.colArr[v * 4] = this.tint.r;
+        this.colArr[v * 4 + 1] = this.tint.g;
+        this.colArr[v * 4 + 2] = this.tint.b;
       };
       set(o, w); set(o + 1, 0); set(o + 2, -w);
       // fade in briefly at the stern, then out with age; edges always soft
-      const a = (1 - t) * (1 - t) * 0.24 * si.s * U.smoothstep(0, 0.06, t);
+      const a = (1 - t) * (1 - t) * this.alpha * si.s * U.smoothstep(0, 0.06, t);
       this.colArr[o * 4 + 3] = 0;
       this.colArr[(o + 1) * 4 + 3] = a;
       this.colArr[(o + 2) * 4 + 3] = 0;
@@ -275,10 +287,13 @@ class FloatingLabels {
 
 /* One bundle a mission can own and dispose in a single call. */
 class FXSystem {
-  constructor(scene, camera, labelContainer) {
-    this.spray = new ParticleField(scene, 1100, { drag: 1.4, gravity: 13, buoyant: false });
-    this.sparks = new ParticleField(scene, 400, { drag: 0.9, gravity: 4, additive: true });
-    this.wake = new WakeRibbon(scene, { segments: 96, life: 3.0 });
+  constructor(scene, camera, labelContainer, opts = {}) {
+    this.spray = new ParticleField(scene, opts.sprayMax || 1100,
+      Object.assign({ drag: 1.4, gravity: 13, buoyant: false }, opts.spray || {}));
+    this.sparks = new ParticleField(scene, opts.sparkMax || 400,
+      Object.assign({ drag: 0.9, gravity: 4, additive: true }, opts.sparks || {}));
+    this.wake = new WakeRibbon(scene,
+      Object.assign({ segments: 96, life: 3.0 }, opts.wake || {}));
     this.rings = new RingBurst(scene, 14);
     this.labels = new FloatingLabels(labelContainer, camera);
     this._c = new THREE.Color();

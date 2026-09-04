@@ -275,6 +275,7 @@ const SOURCE = {
   'boat-race': fs.readFileSync(path.join(H.ROOT, 'js/missions/boat-race.js'), 'utf8'),
   shootout: fs.readFileSync(path.join(H.ROOT, 'js/missions/shootout.js'), 'utf8'),
   dive: fs.readFileSync(path.join(H.ROOT, 'js/missions/dive.js'), 'utf8'),
+  ski: fs.readFileSync(path.join(H.ROOT, 'js/missions/ski.js'), 'utf8'),
 };
 
 // every `s.something` a card's own source reads
@@ -287,8 +288,12 @@ function fieldsRead(c) {
 
 // ...and whether the mission ever puts a value in it
 function isWritten(src, field) {
+  /* Pushing onto an array counts. A list of the shortcuts you took is
+     written by `stats.chutesTaken.push(name)` and never by an
+     assignment, and a check that could not see that would have called
+     a field the mission demonstrably fills in "never written". */
   const w = new RegExp('(?:st|this\\.stats)\\.' + field
-                       + '\\s*(?:=[^=]|\\+\\+|\\+=|-=)');
+                       + '\\s*(?:=[^=]|\\+\\+|\\+=|-=|\\.push\\()');
   return w.test(src);
 }
 

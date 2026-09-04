@@ -688,13 +688,13 @@ const ReefKit = (() => {
     const seaA = (o.shoreAngle || 0) + Math.PI;
 
     let tries = 0;
-    while (list.length < o.count && tries++ < o.count * 220) {
+    while (list.length < o.count && tries++ < o.count * 320) {
       /* Seaward, and deep. A cave on the shelf would be a shortcut to
          nothing — the whole proposition is "the money down here is
          worth the roof", and on the shelf there is no money worth a
          roof. */
-      const a = seaA + U.lerp(-1.30, 1.30, rng());
-      const rad = U.lerp(R * 0.46, R * 0.92, rng());
+      const a = seaA + U.lerp(-1.55, 1.55, rng());
+      const rad = U.lerp(R * 0.40, R * 0.94, rng());
       const x = Math.sin(a) * rad, z = Math.cos(a) * rad;
       const floorY = heightAt(x, z);
       if (floorY > o.maxY) continue;
@@ -712,11 +712,11 @@ const ReefKit = (() => {
         const y = heightAt(x + Math.cos(ka) * cR * 0.62, z + Math.sin(ka) * cR * 0.62);
         lo = Math.min(lo, y); hi = Math.max(hi, y);
       }
-      if (hi - lo > 6.5) continue;
+      if (hi - lo > 8.2) continue;
 
       let ok = true;
       for (const s of list) {
-        if ((s.x - x) ** 2 + (s.z - z) ** 2 < (s.R + cR + 34) ** 2) { ok = false; break; }
+        if ((s.x - x) ** 2 + (s.z - z) ** 2 < (s.R + cR + 21) ** 2) { ok = false; break; }
       }
       for (const av of (o.avoid || [])) {
         if ((av.x - x) ** 2 + (av.z - z) ** 2 < (av.r + cR + 14) ** 2) { ok = false; break; }
@@ -871,20 +871,31 @@ const ReefKit = (() => {
     return api;
   }
 
-  /* =============== the wreck =============== */
+  /* =============== the wrecks =============== */
 
-  /* A broken trawler on the slope: a keel, ribs open to the water, a
-     snapped mast to swim through and a scatter of her own cargo. It is
-     the mission's one landmark, so it is hand-built rather than
-     scattered, and its colliders are what the trench divers navigate by
-     on the way down. */
+  /* A broken hull on the slope: a keel, ribs open to the water, a
+     snapped mast to swim through and a scatter of her own cargo. The
+     colliders are a chain down the keel rather than one fat one, so a
+     diver can get *inside* her, which is where the best of the middle
+     tier's money lives.
+
+     `o.scale` shrinks the whole boat, which is what turns one landmark
+     into a fleet of them: the trawler is still full size and still the
+     thing you navigate by, and the smaller hulls round her are launches
+     and puffers that went down in the same weather.
+
+     Every hull carries one sealed hold — see `holdOf` — bolted to her
+     plating where a diver can actually get at it. That is the only
+     thing in the reef that has to be *broken into* rather than picked
+     up, and putting it on the wrecks is why there are now several. */
   function buildWreck(heightAt, rng, o) {
     const geos = [], colliders = [];
     const c = new THREE.Color();
     const at = o.at;
+    const sc = o.scale === undefined ? 1 : o.scale;
     const heading = rng() * Math.PI * 2;
     const list = U.lerp(-0.45, 0.45, rng());         // how far she has rolled over
-    const L = 44, halfBeam = 7.2;
+    const L = 44 * sc, halfBeam = 7.2 * sc;
 
     const push = (g, colour, shade) => {
       const p = g.attributes.position;
@@ -903,7 +914,7 @@ const ReefKit = (() => {
     };
 
     // the keel: a long tapered box lying along the slope
-    const keel = new THREE.BoxGeometry(2.2, 2.6, L, 1, 1, 12);
+    const keel = new THREE.BoxGeometry(2.2 * sc, 2.6 * sc, L, 1, 1, 12);
     {
       const p = keel.attributes.position;
       for (let v = 0; v < p.count; v++) {
@@ -920,16 +931,16 @@ const ReefKit = (() => {
       const z = i * (L / 14);
       const k = 1 - Math.pow(Math.abs(z) / (L / 2), 1.9) * 0.85;
       const w = halfBeam * k;
-      const rib = new THREE.TorusGeometry(w, 0.30, 6, 14, Math.PI * 1.05);
+      const rib = new THREE.TorusGeometry(w, 0.30 * sc, 6, 14, Math.PI * 1.05);
       rib.rotateZ(-Math.PI * 0.02);
       rib.rotateY(Math.PI / 2);
-      rib.translate(0, 0.6, z);
+      rib.translate(0, 0.6 * sc, z);
       push(rib, i > 2 ? COL.hullRust : COL.hull);
     }
 
     // plating still on the after half, so she is not only a skeleton
     for (const side of [1, -1]) {
-      const plate = new THREE.BoxGeometry(0.5, 6.4, L * 0.42, 1, 2, 6);
+      const plate = new THREE.BoxGeometry(0.5 * sc, 6.4 * sc, L * 0.42, 1, 2, 6);
       const p = plate.attributes.position;
       for (let v = 0; v < p.count; v++) {
         const y = p.getY(v), z = p.getZ(v);
@@ -937,53 +948,147 @@ const ReefKit = (() => {
         p.setXYZ(v, p.getX(v), y * k, z);
       }
       plate.computeVertexNormals();
-      plate.translate(side * halfBeam * 0.86, 2.0, -L * 0.26);
+      plate.translate(side * halfBeam * 0.86, 2.0 * sc, -L * 0.26);
       push(plate, COL.hull);
     }
 
     // the wheelhouse, sitting over her stern, and the funnel off it
-    const house = new THREE.BoxGeometry(6.4, 4.2, 6.0);
-    house.translate(0, 4.6, -L * 0.30);
+    const house = new THREE.BoxGeometry(6.4 * sc, 4.2 * sc, 6.0 * sc);
+    house.translate(0, 4.6 * sc, -L * 0.30);
     push(house, COL.hullRust);
-    const funnel = new THREE.CylinderGeometry(1.0, 1.25, 4.0, 10);
+    const funnel = new THREE.CylinderGeometry(1.0 * sc, 1.25 * sc, 4.0 * sc, 10);
     funnel.rotateX(0.22);
-    funnel.translate(0, 8.0, -L * 0.36);
+    funnel.translate(0, 8.0 * sc, -L * 0.36);
     push(funnel, COL.hullRust);
 
     // the mast, snapped and lying forward: the thing you swim through
-    const mast = new THREE.CylinderGeometry(0.42, 0.55, 20, 8);
+    const mast = new THREE.CylinderGeometry(0.42 * sc, 0.55 * sc, 20 * sc, 8);
     mast.rotateX(Math.PI / 2 - 0.28);
-    mast.translate(0, 5.2, L * 0.34);
+    mast.translate(0, 5.2 * sc, L * 0.34);
     push(mast, COL.timber, 0.5);
-    const spar = new THREE.CylinderGeometry(0.24, 0.24, 9, 6);
+    const spar = new THREE.CylinderGeometry(0.24 * sc, 0.24 * sc, 9 * sc, 6);
     spar.rotateZ(Math.PI / 2);
-    spar.translate(0, 7.4, L * 0.20);
+    spar.translate(0, 7.4 * sc, L * 0.20);
     push(spar, COL.timber, 0.5);
 
     // spilled crates on the sand beside her
     for (let i = 0; i < 9; i++) {
-      const s = rng.range(1.0, 2.1);
+      const s = rng.range(1.0, 2.1) * sc;
       const box = new THREE.BoxGeometry(s, s * 0.7, s * 1.2);
       box.rotateY(rng() * 6.28);
       box.rotateZ(rng.range(-0.4, 0.4));
-      box.translate(rng.range(-18, 18), rng.range(-1.2, 0.6), rng.range(-24, 24));
+      box.translate(rng.range(-18, 18) * sc, rng.range(-1.2, 0.6) * sc,
+                    rng.range(-24, 24) * sc);
       push(box, COL.timber, 0.52);
     }
+
+    /* Where the hold is, in her own frame, and which way its hatch
+       faces. On the plating rather than on the keel, and deliberately:
+       the colliders are a chain of two-and-a-half-metre cylinders down
+       the centreline, so a hatch on the keel is a hatch nobody can get
+       a boot near. Out on her flank it is reachable from open water,
+       which is also the only place a diver has room to swing. */
+    const side = rng() < 0.5 ? 1 : -1;
+    const local = { x: side * halfBeam * 0.98, y: 2.0 * sc, z: -L * 0.24 };
 
     const merged = Sky.mergeGeometries(geos);
     merged.rotateZ(list);
     merged.rotateY(heading);
-    merged.translate(at.x, at.y + 1.6, at.z);
+    merged.translate(at.x, at.y + 1.6 * sc, at.z);
 
-    /* Colliders: a chain of cylinders down the keel rather than one
-       fat one, so a diver can get inside her ribs — which is where the
-       best of the wreck tier's money lives. */
+    /* Her own frame, applied to a point: the same roll, the same
+       heading and the same lift the geometry got, in the same order.
+       One function, so the hold cannot drift away from the boat the
+       moment either number is touched. */
+    const cl = Math.cos(list), sl = Math.sin(list);
+    const ch = Math.cos(heading), shd = Math.sin(heading);
+    const place = (lx, ly, lz) => {
+      const rx = lx * cl - ly * sl, ry = lx * sl + ly * cl;
+      return { x: at.x + rx * ch + lz * shd,
+               y: at.y + 1.6 * sc + ry,
+               z: at.z - rx * shd + lz * ch };
+    };
+    const hold = place(local.x, local.y, local.z);
+    // ...and the way the hatch looks, which is straight out from her side
+    const nrm = place(local.x + side, local.y, local.z);
+    hold.nx = nrm.x - hold.x; hold.nz = nrm.z - hold.z;
+    const nl = Math.hypot(hold.nx, hold.nz) || 1;
+    hold.nx /= nl; hold.nz /= nl;
+    /* And never in the sand. A hatch a diver has to lie on the seabed
+       to reach is a hatch that does not work, and a hull sat on a slope
+       can bury her low side — so the ground is sampled over a couple of
+       metres round the hatch rather than under it, and the hatch is
+       lifted until there is a diver's worth of water in front of it.
+       The lift is usually nothing and never more than a metre, which on
+       a hull this size is still somewhere on her plating. */
+    let ground = heightAt(hold.x, hold.z);
+    for (let k = 0; k < 6; k++) {
+      const ka = (k / 6) * Math.PI * 2;
+      ground = Math.max(ground, heightAt(hold.x + Math.cos(ka) * 2.4,
+                                         hold.z + Math.sin(ka) * 2.4));
+    }
+    hold.y = Math.max(hold.y, ground + 2.1);
+
     for (let i = -3; i <= 3; i++) {
       const z = i * (L / 7);
       const lx = at.x + Math.sin(heading) * z, lz = at.z + Math.cos(heading) * z;
-      colliders.push({ x: lx, z: lz, r: 2.4, y0: at.y - 2, y1: at.y + 5 });
+      colliders.push({ x: lx, z: lz, r: 2.4 * sc, y0: at.y - 2 * sc, y1: at.y + 5 * sc });
     }
-    return { geo: merged, colliders, at, heading, length: L, halfBeam };
+    return { geo: merged, colliders, at, heading, length: L, halfBeam, scale: sc, hold };
+  }
+
+  /* A fleet of them. The trawler first, full size and out where the
+     middle tier lives — everything downstream still calls her `wreck`
+     and still navigates by her — and then two or three smaller hulls
+     scattered over the rest of the slope.
+
+     They exist for the holds. One thing to break into is a novelty;
+     three or four of them spread across the loch is a second way to
+     play the mission, because now there is a route round the reef that
+     is nothing to do with which tier you are working. */
+  function buildWrecks(heightAt, rng, o) {
+    const list = [], geos = [], colliders = [];
+    const R = o.radius;
+    const seaA = (o.shoreAngle || 0) + Math.PI;
+    for (let i = 0; i < o.count; i++) {
+      const first = i === 0;
+      let at = null;
+      for (let t = 0; t < 200; t++) {
+        const a = seaA + U.lerp(-1.25, 1.25, rng());
+        const r = first ? U.lerp(R * 0.42, R * 0.56, rng())
+                        : U.lerp(R * 0.30, R * 0.90, Math.sqrt(rng()));
+        const x = Math.sin(a) * r, z = Math.cos(a) * r;
+        const y = heightAt(x, z);
+        // deep enough to be a dive rather than a paddle, and on ground
+        // flat enough that she is not half buried in a gully wall
+        if (y > (first ? -12 : -17)) continue;
+        let ok = true;
+        for (const w of list) {
+          if ((w.at.x - x) ** 2 + (w.at.z - z) ** 2 < 68 ** 2) { ok = false; break; }
+        }
+        for (const av of (o.avoid || [])) {
+          if ((av.x - x) ** 2 + (av.z - z) ** 2 < (av.r + 28) ** 2) { ok = false; break; }
+        }
+        if (!ok) continue;
+        let lo = y, hi = y;
+        for (let k = 0; k < 8; k++) {
+          const ka = (k / 8) * Math.PI * 2;
+          const h = heightAt(x + Math.cos(ka) * 16, z + Math.sin(ka) * 16);
+          lo = Math.min(lo, h); hi = Math.max(hi, h);
+        }
+        if (hi - lo > 13) continue;
+        at = { x, z, y };
+        break;
+      }
+      if (!at) continue;
+      const w = buildWreck(heightAt, rng, {
+        at, scale: first ? 1 : rng.range(0.46, 0.72),
+      });
+      geos.push(w.geo);
+      for (const cd of w.colliders) colliders.push(cd);
+      list.push(w);
+    }
+    return { geo: geos.length ? Sky.mergeGeometries(geos) : null, colliders, list };
   }
 
   /* =============== kelp =============== */
@@ -1167,6 +1272,28 @@ const ReefKit = (() => {
         const r = cave.R * rng.range(0.40, 0.90);
         const x = cave.x + Math.cos(a) * r, z = cave.z + Math.sin(a) * r;
         spots.push({ x, z, y: heightAt(x, z), s: rng.range(1.3, 2.6),
+                     rot: rng() * 6.28, kind: (rng() * geos.length) | 0,
+                     hue: (rng() * ANEMONE.length) | 0 });
+      }
+      /* ...and an arch of big ones round the *outside* of the mouth.
+
+         This is the one piece of dressing in the file that is there to
+         be navigation rather than paint. A cave is the best decision in
+         the mission and for a long time almost nobody made it, for a
+         reason that had nothing to do with the risk: from thirty metres
+         out a chamber is a dark lump among sixty other dark lumps, and
+         a door you cannot find is a door nobody opens. The anemones are
+         already the only things on this seabed that make their own
+         light, so the doorway gets a lit frame — five either side of the
+         gap, biggest at the lip — and a cave now reads as a cave from
+         the far side of the slope. */
+      for (let i = 0; i < 10; i++) {
+        const side = (i % 2) ? 1 : -1;
+        const k = (i >> 1) / 4;
+        const a = cave.mouthA + side * U.lerp(0.34, 1.10, k);
+        const r = cave.R * U.lerp(1.06, 0.98, k);
+        const x = cave.x + Math.sin(a) * r, z = cave.z + Math.cos(a) * r;
+        spots.push({ x, z, y: heightAt(x, z), s: U.lerp(3.4, 2.0, k) * rng.range(0.88, 1.12),
                      rot: rng() * 6.28, kind: (rng() * geos.length) | 0,
                      hue: (rng() * ANEMONE.length) | 0 });
       }
@@ -1628,7 +1755,12 @@ const ReefKit = (() => {
          entirely because of the fans. */
       fans: 300,
       anemones: 230,
-      caves: 3,
+      /* Six, not three. The caves are the best decision in the mission
+         and for most of a run nobody was making it, because with three
+         of them in a two-hundred-metre loch you could work the trench
+         for a full three minutes and never swim past a door. */
+      caves: 6,
+      wrecks: 3,
       shafts: 13,
       motes: 460,
       trees: 900,
@@ -1684,28 +1816,32 @@ const ReefKit = (() => {
     floor.frustumCulled = false;
     group.add(floor);
 
-    // ---- the wreck, out on the slope where the middle tier lives
-    /* She is out in the loch, never up the beach: the bearing is drawn
-       in the seaward half-turn measured off the shore normal, so no seed
-       can ever ground her on the shingle. */
-    const wa = shoreAng + Math.PI + U.lerp(-1.15, 1.15, rng());
-    const wr = U.lerp(o.radius * 0.42, o.radius * 0.56, rng());
-    const wAt = { x: Math.sin(wa) * wr, z: Math.cos(wa) * wr };
-    wAt.y = heightAt(wAt.x, wAt.z);
-    const wreck = buildWreck(heightAt, rng, { at: wAt });
-    const wreckMat = causticMaterial(uniforms, { gain: 0.7 });
-    geos.push(wreck.geo); mats.push(wreckMat);
-    const wreckMesh = new THREE.Mesh(wreck.geo, wreckMat);
-    wreckMesh.name = 'wreck';
-    group.add(wreckMesh);
+    // ---- the wrecks, out on the slope where the middle tier lives
+    /* They are out in the loch, never up the beach: every bearing is
+       drawn in the seaward half-turn measured off the shore normal, so
+       no seed can ever ground one on the shingle. */
+    const wrecks = buildWrecks(heightAt, rng, {
+      count: o.wrecks, radius: o.radius, shoreAngle: shoreAng,
+      avoid: [{ x: 0, z: 0, r: 26 }],
+    });
+    const wAt = wrecks.list.length ? wrecks.list[0].at
+                                   : { x: 0, z: 0, y: heightAt(0, 0) };
+    if (wrecks.geo) {
+      const wreckMat = causticMaterial(uniforms, { gain: 0.7 });
+      geos.push(wrecks.geo); mats.push(wreckMat);
+      const wreckMesh = new THREE.Mesh(wrecks.geo, wreckMat);
+      wreckMesh.name = 'wreck';
+      group.add(wreckMesh);
+    }
 
     /* ---- the caves. Placed before the boulders so the boulders can
        stay out of their mouths: a cave you cannot swim into is a very
        expensive piece of scenery. ---- */
     const caves = buildCaves(heightAt, rng, {
       count: o.caves, radius: o.radius, shoreAngle: shoreAng,
-      maxY: -24,
-      avoid: [{ x: 0, z: 0, r: 24 }, { x: wAt.x, z: wAt.z, r: 40 }],
+      maxY: -22,
+      avoid: [{ x: 0, z: 0, r: 24 }].concat(
+        wrecks.list.map(w => ({ x: w.at.x, z: w.at.z, r: w.length * 0.9 }))),
     });
     if (caves.geo) {
       const caveMat = causticMaterial(uniforms, { gain: 0.28 });
@@ -1718,7 +1854,8 @@ const ReefKit = (() => {
     // ---- rock and coral heads
     const rocks = buildRocks(heightAt, rng, {
       count: o.rocks, r0: 18, r1: o.radius * 0.98, size: [3.2, 9.5], coral: true,
-      avoid: [{ x: 0, z: 0, r: 16 }, { x: wAt.x, z: wAt.z, r: 30 }].concat(
+      avoid: [{ x: 0, z: 0, r: 16 }].concat(
+        wrecks.list.map(w => ({ x: w.at.x, z: w.at.z, r: w.length * 0.7 })),
         caves.list.map(c => ({ x: c.x, z: c.z, r: c.R + 8 }))),
     });
     if (rocks.geo) {
@@ -1815,13 +1952,19 @@ const ReefKit = (() => {
 
     scene.add(group);
 
-    const colliders = rocks.colliders.concat(wreck.colliders, land.colliders,
+    const colliders = rocks.colliders.concat(wrecks.colliders, land.colliders,
                                              caves.colliders);
     const moteOpacity = motes.points.material.opacity;
 
     return {
       group, heightAt, colliders, uniforms, radius: o.radius, shore, caves,
-      wreck: { at: wAt, heading: wreck.heading, length: wreck.length },
+      /* `wreck` is still the trawler, singular, because the shoal
+         schools over her and the briefing names her; `wrecks` is the
+         whole fleet, and it is what the holds hang off. */
+      wreck: wrecks.list.length
+        ? { at: wAt, heading: wrecks.list[0].heading, length: wrecks.list[0].length }
+        : { at: wAt, heading: 0, length: 44 },
+      wrecks: wrecks.list,
       bandAt,
 
       setCurrent(x, z, strength) {
@@ -1867,7 +2010,8 @@ const ReefKit = (() => {
   }
 
   return { build, COL, BANDS, WET, SPECIES, ANEMONE, bandAt, shoreFor, makeFloor,
-           buildFloor, causticMaterial, buildRocks, buildWreck, buildKelp, buildLand,
+           buildFloor, causticMaterial, buildRocks, buildWreck, buildWrecks,
+           buildKelp, buildLand,
            buildShafts, buildShoal, buildCaves, buildFans, buildAnemones };
 })();
 

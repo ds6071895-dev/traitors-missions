@@ -151,6 +151,8 @@ class RoundtableScene {
     };
 
     return [
+      // the castle has its lamps lit by now; one beat on it and then in
+      { shot: 'loch', cut: true, wait: 2.4 },
       { shot: 'wide', wait: 1.4 },
       ...speak('tableOpen', { pot: U.money(s.pot) }, ['table', 'claudia', null]),
 
@@ -251,7 +253,12 @@ class RoundtableScene {
      frame; the camera follows them slowly, and holds. */
 
   _followVoices(dt) {
-    const loud = VoiceChat.loudest(0.14);
+    /* Live microphones first, always. A rehearsal night has none, so it
+       falls back to whichever bot is reading a line — the same answer
+       to the same question, from the only thing in the room that knows
+       it. */
+    const loud = VoiceChat.loudest(0.14)
+      || (typeof Bots !== 'undefined' && Bots.running ? Bots.speaking : null);
 
     if (loud !== this._speaking) {
       this._speaking = loud;

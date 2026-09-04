@@ -397,6 +397,11 @@ class FinaleScene {
 
   async _drive() {
     const s = Session.state;
+    /* One long empty beat on the loch before anybody speaks. It is the
+       only time all night the castle is fully lit, and the fire behind
+       the lens is doing the rest of the work. */
+    await Scenes.run([{ shot: 'loch', cut: true, wait: 2.8 }], this);
+    if (!this._alive) return;
     await this._say('fireOpen', { pot: U.money(s.pot) }, 'wide');
     if (!this._alive) return;
     await this._say('fireRules', {}, 'claudia');

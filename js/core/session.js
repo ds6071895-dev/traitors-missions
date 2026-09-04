@@ -45,6 +45,8 @@ const Session = (() => {
 
   let state = null;
   let mode = 'host';               // 'host' owns the reducer, 'guest' mirrors it
+  let rehearsal = false;           // a bot night, and the only thing that may
+                                   // choose the roles or skip parts of the show
   let toldRole = null;             // what a guest was privately told it is
   let toldAgendas = null;          // and the tasks that came with it
   let floorTimer = null;
@@ -93,13 +95,111 @@ const Session = (() => {
     agendas:  0xc2b2ae35,
   };
 
-  function drawRoles(seed) {
+  /* `force` is the rehearsal door and nothing else uses it: a seat
+     number puts the Traitor in that chair, and -1 deals a night with no
+     Traitor in it at all. Left undefined — which is every real run —
+     the hand is dealt from the seed exactly as it always was.
+
+     It is unreachable except through `Bots`, and that is enforced one
+     level up rather than here: `startParty` ignores a forced seat unless
+     the same call also declared itself a rehearsal, and only the
+     hidden bot argument ever declares that. A real party cannot ask for
+     it, because nothing in the lobby knows how to say it. */
+  function drawRoles(seed, force) {
+    if (force !== undefined && force !== null) {
+      const seat = Math.floor(force);
+      return seat < 0 || seat >= SEATS ? { has: false, seat: -1 }
+                                       : { has: true, seat };
+    }
     const r = rngFor(SALT.roles, seed);
     const has = r() < 0.75;                     // a quarter of all runs are clean
     return { has, seat: has ? r.int(0, SEATS - 1) : -1 };
   }
 
   const roleOfSeat = (seat) => (secret.seat === seat ? 'traitor' : 'faithful');
+
+  /* ---------------- the running order ----------------
+     The night, as a list, because something had to be. It used to be
+     three `if` statements spread over `doAdvance` and `doResult`, which
+     was fine while every night played every part and impossible the
+     moment one did not.
+
+     `state.parts` is which of these are being played. It is the whole
+     of the rehearsal door: a night that is only a fire is this list
+     with four entries switched off, and everything downstream — the
+     scenes, the transports, the verdict — cannot tell the difference
+     between a mission that was skipped and one that was played badly,
+     because a skipped one is marked done with money in it exactly as a
+     played one is.
+
+     Real nights pass no `parts` at all and get `ALL_PARTS`, which is
+     every entry, which is the behaviour this file has always had. */
+
+  const RUN = [
+    { part: 'intro',  phase: 'hill' },
+    { part: 'm1',     phase: 'mission', at: 0 },
+    { part: 'table',  phase: 'table' },
+    { part: 'm2',     phase: 'mission', at: 1 },
+    { part: 'finale', phase: 'finale' },
+  ];
+  const ALL_PARTS = RUN.map(s => s.part);
+
+  const partOn = (id) => !state || !state.parts || state.parts.indexOf(id) >= 0;
+
+  /* A mission nobody is going to play still has to have happened: the
+     round table argues about a board and the fire divides a pot, and
+     both of those are worse than useless if they are empty. So it is
+     marked done, paid at roughly what a decent run pays, and given a
+     board with everybody on it. Deterministic from the seed, like
+     everything else here, so a rehearsal can be repeated. */
+  function skipMission(at) {
+    const m = state.missions[at];
+    if (!m || m.done) return;
+    const r = rngFor(0x5eed5eed ^ (at * 977), state.seed);
+    m.earned = 2600 + r.int(0, 9) * 700;
+    m.completed = r() < 0.72;
+    m.done = true;
+    m.skipped = true;
+    state.pot = Math.max(0, state.pot + m.earned);
+    const order = state.players.slice().sort(() => r() - 0.5);
+    state.debrief = {
+      missionId: m.id,
+      missionName: m.name + ' (not played)',
+      columns: ['Place', 'Won'],
+      rows: order.map((p, i) => ({
+        playerId: p.id, name: p.name, seat: p.seat, place: i + 1,
+        earned: Math.round(m.earned / 3),
+        cells: [['1st', '2nd', '3rd'][i] || '—', U.money(Math.round(m.earned / 3))],
+      })),
+    };
+  }
+
+  /* Walk forward from a step index to the next part that is actually
+     being played, marking anything stepped over as having happened.
+     Running out of list is a night that is over. */
+  function goToStep(from) {
+    for (let i = from; i < RUN.length; i++) {
+      const step = RUN[i];
+      if (!partOn(step.part)) {
+        if (step.phase === 'mission') skipMission(step.at);
+        continue;
+      }
+      if (step.phase === 'mission') {
+        state.missionAt = step.at;
+        setPhase('mission', true);
+      } else if (step.phase === 'finale') {
+        state.finale = newFinale();
+        setPhase('finale', true);
+      } else setPhase(step.phase, true);
+      return true;
+    }
+    /* Nothing left to play and nobody banished: the circle that is
+       still sitting there is the circle that wins. */
+    endGame('ended-by-vote');
+    return true;
+  }
+
+  const stepIndexOf = (part) => RUN.findIndex(s => s.part === part);
 
   /* ---------------- the run plan ----------------
      Generic on purpose: any mission that registers with a `create` and
@@ -160,7 +260,7 @@ const Session = (() => {
 
   /* ---------------- lifecycle ---------------- */
 
-  function fresh(seed, roster) {
+  function fresh(seed, roster, parts) {
     const players = (roster || []).slice(0, SEATS).map((p, i) => ({
       id: p.id,
       seat: i,
@@ -174,6 +274,7 @@ const Session = (() => {
       seed,
       startedAt: Date.now(),
       phase: 'hill',            // hill | mission | table | finale | verdict
+      parts: parts && parts.length ? parts.slice() : ALL_PARTS.slice(),
       beat: 0,                  // shared scene beat, for when scenes sync
       missionAt: 0,
       resultReady: [],          // players who have left the shared scoreboard
@@ -217,11 +318,21 @@ const Session = (() => {
     toldAgendas = null;
     claimedOutcome = null;
     clearFloorTimer();
+    /* Both of the rehearsal levers are gated on the same flag, and the
+       flag is only ever set by `Bots`. A night with real people in it
+       deals its own hand and plays its whole running order. */
+    rehearsal = !!opts.rehearsal;
+    const forcedSeat = rehearsal ? opts.traitorSeat : undefined;
     secret = mode === 'host'
-      ? Object.assign(drawRoles(seed), { agendas: null, exposed: null })
+      ? Object.assign(drawRoles(seed, forcedSeat), { agendas: null, exposed: null })
       : { has: false, seat: -1, agendas: null, exposed: null };
-    state = fresh(seed, opts.players || []);
+    state = fresh(seed, opts.players || [], rehearsal ? opts.parts : null);
     if (mode === 'host') secret.agendas = drawAgendas(seed, state.missions);
+    /* A night that is not playing its welcome starts wherever it does
+       start. This runs before anybody is listening — `Show` reads the
+       phase off the state rather than waiting to be told about it — so
+       the emits it makes on the way go nowhere, which is correct. */
+    if (mode === 'host' && !partOn('intro')) goToStep(1);
     syncGameState();
     emit('phase', state.phase, null);
     emit('change', state);
@@ -272,6 +383,7 @@ const Session = (() => {
 
   function abandon() {
     clearFloorTimer();
+    rehearsal = false;
     state = null;
     secret = { has: false, seat: -1, agendas: null, exposed: null };
     toldRole = null;
@@ -456,9 +568,13 @@ const Session = (() => {
     return false;
   }
 
-  function setPhase(next) {
+  /* `force` exists for one case: a night whose round table is switched
+     off goes mission -> mission, and a phase change from 'mission' to
+     'mission' still has to clear the floor, the barriers and the scene
+     handshake or the second mission inherits the first one's. */
+  function setPhase(next, force) {
     const prev = state.phase;
-    if (prev === next) return;
+    if (prev === next && !force) return;
     state.phase = next;
     state.beat = 0;
     clearFloorTimer();
@@ -520,8 +636,8 @@ const Session = (() => {
 
   // the scenes that are pure theatre end by asking for the next phase
   function doAdvance() {
-    if (state.phase === 'hill') { setPhase('mission'); state.missionAt = 0; return true; }
-    if (state.phase === 'table') { setPhase('mission'); state.missionAt = 1; return true; }
+    if (state.phase === 'hill') return goToStep(stepIndexOf('intro') + 1);
+    if (state.phase === 'table') return goToStep(stepIndexOf('table') + 1);
     return false;
   }
 
@@ -540,8 +656,7 @@ const Session = (() => {
     state.debrief = buildDebrief(m, reports);
     judgeAgenda(reports);
     GameState.logEvent('mission', `${m.name}: ${U.money(m.earned)} into the pot`, { id: m.id });
-    if (state.missionAt === 0) setPhase('table');
-    else { state.finale = newFinale(); setPhase('finale'); }
+    goToStep(stepIndexOf(state.missionAt === 0 ? 'm1' : 'm2') + 1);
     return true;
   }
 
@@ -977,6 +1092,11 @@ const Session = (() => {
         agendas: roleOfSeat(p.seat) === 'traitor' ? (secret.agendas || null) : null,
       }));
     },
+
+    // the running order, so a caller can validate a list of parts
+    get PARTS() { return ALL_PARTS.slice(); },
+    // whether this night was dealt by the rehearsal door rather than the seed
+    get rehearsal() { return rehearsal; },
 
     /* Whether a ceremony is owed at the next gathering. Host-only, and
        deliberately a boolean: the name is not something a scene needs

@@ -333,21 +333,236 @@ const HighlandKit = (() => {
 
   /* =============== dressing =============== */
 
-  function buildStones(heightAt, rng, o) {
-    const g = new THREE.Group();
-    const mat = new THREE.MeshLambertMaterial({ color: '#78808d', flatShading: true });
-    for (let i = 0; i < o.count; i++) {
-      const a = (i / o.count) * Math.PI * 2 + rng.range(-0.3, 0.3);
-      const r = rng.range(o.ring * 0.82, o.ring * 1.18);
-      const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      const h = rng.range(1.6, 3.4);
-      const s = new THREE.Mesh(new THREE.BoxGeometry(rng.range(0.6, 1.2), h, rng.range(0.4, 0.8)), mat);
-      s.position.set(x, heightAt(x, z) + h * 0.42, z);
-      s.rotation.set(rng.range(-0.09, 0.09), rng() * 6.28, rng.range(-0.08, 0.08));
-      g.add(s);
+  /* Everything below is one merged, flat-shaded, vertex-coloured mesh
+     per kind. None of it moves and none of it is ever closer than the
+     ten metres the stage lets you walk, so the only thing that matters
+     about any of it is what it does to the silhouette between you and
+     the water. */
+
+  function paintPart(geo, col, shade = 0.14) {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    g.computeVertexNormals();
+    const pos = g.attributes.position, nrm = g.attributes.normal;
+    const arr = new Float32Array(pos.count * 3);
+    const c = new THREE.Color();
+    for (let i = 0; i < pos.count; i += 3) {
+      c.copy(col).multiplyScalar(1 + nrm.getY(i) * shade + nrm.getX(i) * 0.06);
+      for (let k = 0; k < 3; k++) {
+        arr[(i + k) * 3] = c.r; arr[(i + k) * 3 + 1] = c.g; arr[(i + k) * 3 + 2] = c.b;
+      }
     }
-    g.name = 'stones';
+    g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
     return g;
+  }
+
+  const merge = (parts, name) => {
+    if (!parts.length) return null;
+    const geo = Sky.mergeGeometries(parts);
+    geo.computeVertexNormals();
+    parts.forEach(p => p.dispose());
+    const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+      vertexColors: true, flatShading: true }));
+    m.name = name;
+    return m;
+  };
+
+  /* The circle. It was seven boxes in a ring and it now has the two
+     things that make a stone circle read as one from a distance: stones
+     of wildly different heights, and one pair with a lintel still across
+     it. A fallen stone lying in the grass does the rest — a ring of
+     upright stones all the same age looks installed. */
+  function buildStones(heightAt, rng, o) {
+    const parts = [];
+    const rock = COL.rock.clone().multiplyScalar(0.62);
+    const rockLo = COL.rockDark.clone().multiplyScalar(0.62);
+    const put = (geo, x, y, z, rx, ry, rz, col) => {
+      geo.rotateX(rx); geo.rotateY(ry); geo.rotateZ(rz);
+      geo.translate(x, y, z);
+      parts.push(paintPart(geo, col));
+    };
+    for (let i = 0; i < o.count; i++) {
+      const a = (i / o.count) * Math.PI * 2 + rng.range(-0.22, 0.22);
+      const r = rng.range(o.ring * 0.88, o.ring * 1.12);
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      const fallen = i === 2;
+      const h = fallen ? rng.range(3.2, 4.2) : rng.range(2.6, 6.4);
+      const w = rng.range(0.9, 1.9), d = rng.range(0.5, 1.0);
+      const g = new THREE.BoxGeometry(w, h, d, 1, 2, 1);
+      // taper the head of each stone so none of them is a pillar
+      const pos = g.attributes.position;
+      for (let v = 0; v < pos.count; v++) {
+        const t = (pos.getY(v) + h / 2) / h;
+        pos.setX(v, pos.getX(v) * (1 - t * rng.range(0.10, 0.34)));
+        pos.setZ(v, pos.getZ(v) * (1 - t * 0.18));
+        pos.setY(v, pos.getY(v) + (rng() - 0.5) * 0.25);
+      }
+      if (fallen) {
+        put(g, x, heightAt(x, z) + d * 0.6, z, Math.PI / 2 - 0.12, a, 0, rockLo);
+      } else {
+        put(g, x, heightAt(x, z) + h * 0.44, z,
+            rng.range(-0.10, 0.10), a + rng.range(-0.4, 0.4), rng.range(-0.09, 0.09),
+            rng() < 0.4 ? rockLo : rock);
+      }
+    }
+    /* The trilithon: two uprights and a lintel, set just inside the ring
+       and turned across the shot rather than along it. */
+    const ta = -1.15, tr = o.ring * 0.74;
+    const tx = Math.cos(ta) * tr, tz = Math.sin(ta) * tr;
+    const ty = heightAt(tx, tz);
+    for (const sx of [-1, 1]) {
+      const px = tx + Math.cos(ta + Math.PI / 2) * sx * 1.5;
+      const pz = tz + Math.sin(ta + Math.PI / 2) * sx * 1.5;
+      put(new THREE.BoxGeometry(1.3, 5.4, 0.85), px, heightAt(px, pz) + 2.6, pz,
+          0, ta, 0.02 * sx, rock);
+    }
+    put(new THREE.BoxGeometry(4.6, 0.85, 1.05), tx, ty + 5.5, tz, 0, ta, 0, rockLo);
+    return merge(parts, 'stones');
+  }
+
+  /* Glacial erratics: single big boulders sitting on open grass where
+     nothing put them. They are the cheapest possible sense of scale —
+     three metres of rock at forty metres tells you how big the hill is
+     in a way an unbroken sheet of green never can. */
+  function buildErratics(heightAt, rng, o) {
+    const parts = [];
+    for (let i = 0; i < o.count; i++) {
+      const a = rng() * Math.PI * 2;
+      const r = o.inner + Math.pow(rng(), 0.6) * (o.outer - o.inner);
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      const s = rng.range(o.size[0], o.size[1]);
+      const g = new THREE.IcosahedronGeometry(s, 0);
+      const pos = g.attributes.position;
+      for (let v = 0; v < pos.count; v++) {
+        const k = 1 + fbm2(pos.getX(v) * 1.4, pos.getZ(v) * 1.4, 2, i * 7) * 0.34;
+        pos.setXYZ(v, pos.getX(v) * k, pos.getY(v) * k * 0.72, pos.getZ(v) * k);
+      }
+      g.rotateY(rng() * 6.283);
+      g.rotateZ(rng.range(-0.2, 0.2));
+      g.translate(x, heightAt(x, z) + s * 0.32, z);
+      const c = COL.rock.clone().lerp(COL.rockDark, rng()).multiplyScalar(0.58);
+      parts.push(paintPart(g, c));
+      // and a smaller one leaning on it, most of the time
+      if (rng() < 0.6) {
+        const s2 = s * rng.range(0.28, 0.5);
+        const g2 = new THREE.IcosahedronGeometry(s2, 0);
+        const ax = x + Math.cos(a + 1.9) * s * 1.1, az = z + Math.sin(a + 1.9) * s * 1.1;
+        g2.translate(ax, heightAt(ax, az) + s2 * 0.4, az);
+        parts.push(paintPart(g2, c.clone().multiplyScalar(1.08)));
+      }
+    }
+    return merge(parts, 'erratics');
+  }
+
+  /* A dry-stone dyke: a run of them, following a wandering line over the
+     shoulder and dropping out of sight over the rim. Built as one course
+     of overlapping blocks rather than individual stones — from anywhere
+     you can stand it is a grey line with texture in it, and forty
+     thousand pebbles would be the same grey line. */
+  function buildWalls(heightAt, rng, o) {
+    const parts = [];
+    for (let w = 0; w < o.runs; w++) {
+      let a = rng() * Math.PI * 2;
+      let r = rng.range(o.inner, o.inner * 1.8);
+      let x = Math.cos(a) * r, z = Math.sin(a) * r;
+      let dir = a + rng.range(-0.5, 0.5);
+      const len = rng.int(o.length[0], o.length[1]);
+      for (let i = 0; i < len; i++) {
+        dir += fbm2(i * 0.22, w * 3.1, 2, 31) * 0.22;
+        const step = 1.5;
+        const nx = x + Math.cos(dir) * step, nz = z + Math.sin(dir) * step;
+        const rr = Math.hypot(nx, nz);
+        if (rr > o.outer) break;
+        const y = heightAt(nx, nz);
+        const h = 1.05 + fbm2(nx * 0.3, nz * 0.3, 2, 5) * 0.22;
+        const g = new THREE.BoxGeometry(step * 1.18, h, 0.55, 1, 1, 1);
+        g.rotateY(-dir);
+        g.translate(nx, y + h * 0.42, nz);
+        const c = COL.rock.clone().lerp(COL.rockDark, 0.25 + rng() * 0.5)
+                                  .multiplyScalar(0.6);
+        parts.push(paintPart(g, c));
+        // the coping stones on top, set on edge, which is what a dyke is
+        if (i % 2 === 0) {
+          const g2 = new THREE.BoxGeometry(0.5, 0.4, 0.62);
+          g2.rotateY(-dir);
+          g2.rotateZ(rng.range(-0.3, 0.3));
+          g2.translate(nx, y + h + 0.16, nz);
+          parts.push(paintPart(g2, c.clone().multiplyScalar(1.12)));
+        }
+        x = nx; z = nz;
+      }
+    }
+    return merge(parts, 'dykes');
+  }
+
+  /* The broch: a broken drum of a tower on the shoulder, roofless and
+     half fallen, with the stair still in it. Every Scottish hill has
+     one of these and it is the near-field thing that gives the castle
+     out on the water something to rhyme with. */
+  function buildRuin(heightAt, rng, o) {
+    const parts = [];
+    const cx = o.x, cz = o.z;
+    const y0 = heightAt(cx, cz);
+    const rock = COL.rock.clone().multiplyScalar(0.60);
+    const dark = COL.rockDark.clone().multiplyScalar(0.60);
+    const SEG = 22;
+    for (let i = 0; i < SEG; i++) {
+      const a = (i / SEG) * Math.PI * 2;
+      // the wall stands tall on one side and is down to its footings on
+      // the other, so it reads as a ruin from every angle
+      const fall = 0.5 + 0.5 * Math.cos(a - 1.1);
+      const h = o.height * (0.16 + fall * 0.84)
+              * (1 + fbm2(i * 0.7, 0, 2, 13) * 0.16);
+      const g = new THREE.BoxGeometry(o.thick, h, (Math.PI * 2 * o.radius / SEG) * 1.25);
+      g.rotateY(-a);
+      g.translate(cx + Math.cos(a) * o.radius, y0 + h / 2, cz + Math.sin(a) * o.radius);
+      parts.push(paintPart(g, i % 3 ? rock : dark));
+    }
+    // a doorway you can see straight through, because there is nothing
+    // behind it
+    const da = 1.9;
+    parts.push(paintPart((() => {
+      const g = new THREE.BoxGeometry(o.thick * 1.4, 0.8, 2.4);
+      g.rotateY(-da);
+      g.translate(cx + Math.cos(da) * o.radius, y0 + 2.6, cz + Math.sin(da) * o.radius);
+      return g;
+    })(), dark));
+    // fallen stone piled against the low side
+    for (let i = 0; i < 14; i++) {
+      const a = da + rng.range(-1.5, 1.5);
+      const r = o.radius * rng.range(1.05, 1.7);
+      const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+      const s = rng.range(0.28, 0.75);
+      const g = new THREE.IcosahedronGeometry(s, 0);
+      g.rotateY(rng() * 6.283);
+      g.translate(x, heightAt(x, z) + s * 0.4, z);
+      parts.push(paintPart(g, rng() < 0.5 ? rock : dark));
+    }
+    return merge(parts, 'broch');
+  }
+
+  /* Pines, in copses. Scots pine grows in tight stands with open grass
+     between them, so they are scattered around a handful of centres
+     rather than over the whole hill — and every one of them is outside
+     the grass radius, so the near ground is still nothing but grass. */
+  function scatterPines(heightAt, rng, o) {
+    const list = [];
+    for (let c = 0; c < o.copses; c++) {
+      const a = (c / o.copses) * Math.PI * 2 + rng.range(-0.5, 0.5);
+      const r = rng.range(o.inner, o.outer);
+      const cx = Math.cos(a) * r, cz = Math.sin(a) * r;
+      const spread = rng.range(9, 22);
+      const n = rng.int(o.per[0], o.per[1]);
+      for (let i = 0; i < n; i++) {
+        const ta = rng() * Math.PI * 2;
+        const tr = Math.pow(rng(), 0.55) * spread;
+        const x = cx + Math.cos(ta) * tr, z = cz + Math.sin(ta) * tr;
+        const rr = Math.hypot(x, z);
+        if (rr < o.inner * 0.8 || rr > o.outer * 1.35) continue;
+        list.push({ x, z, y: heightAt(x, z), rot: rng() * 6.283,
+                    s: rng.range(o.size[0], o.size[1]) });
+      }
+    }
+    return list;
   }
 
   /* =============== the whole place =============== */
@@ -371,7 +586,22 @@ const HighlandKit = (() => {
       motes: Math.round(220 * budget),
       moteColor: '#e8f7b0',
       hills: { count: 18, near: 520, far: 1750, height: [90, 260], baseY: -14 },
-      stones: { count: 7, ring: 74 },
+      stones: { count: 9, ring: 74 },
+      erratics: { count: Math.round(26 * budget) || 8, inner: 20, outer: 180,
+                  size: [1.1, 3.4] },
+      dykes: { runs: Math.round(5 * budget) || 2, inner: 46, outer: 250,
+               length: [40, 110] },
+      ruin: { x: 58, z: -52, radius: 6.4, height: 7.6, thick: 1.5 },
+      pines: { copses: Math.round(7 * budget) || 3, inner: 52, outer: 185,
+               per: [7, 18], size: [0.5, 0.95] },
+      /* The castle. It stands off the far shore, in the quarter of the
+         loch the summit shots all look into — every named shot in
+         `stage.js` looks roughly down −z, so this sits down −z and a
+         little to the left of it, which puts it a third of the way
+         across the frame rather than dead centre behind Claudia's
+         head. */
+      castle: { x: -132, z: -378, facing: 0.95, scale: 1.35 },
+      night: false,
       water: true,
     }, opts);
 
@@ -381,7 +611,14 @@ const HighlandKit = (() => {
 
     group.add(buildGround(heightAt, rng, o));
     group.add(buildHills(rng, o.hills));
-    group.add(buildStones(heightAt, rng, o.stones));
+
+    const dressing = [
+      buildStones(heightAt, rng, o.stones),
+      o.erratics && o.erratics.count ? buildErratics(heightAt, rng, o.erratics) : null,
+      o.dykes && o.dykes.runs ? buildWalls(heightAt, rng, o.dykes) : null,
+      o.ruin ? buildRuin(heightAt, rng, o.ruin) : null,
+    ];
+    dressing.forEach(m => { if (m) group.add(m); });
 
     /* One shared wind, exactly as the wood does it: the grass, the
        tufts and the flowers all read the same two uniforms, so the
@@ -430,9 +667,37 @@ const HighlandKit = (() => {
       });
     if (flowers) { flowers.name = 'flowers'; meshes.push(flowers); group.add(flowers); }
 
+    /* Pines. They share the grass's wind so the whole hillside moves as
+       one weather, but they get their own material because a twenty
+       metre tree that sways as hard as a blade of grass is a cartoon:
+       the sway threshold starts at head height and the gain is a
+       fraction of the grass's. */
+    const treeMat = ForestKit.windMaterial(uniforms, 3.0, 20.0, 0.06);
+    const pineGeo = ForestKit.speciesGeometry('pine', rng);
+    geos.push(pineGeo);
+    const pineSpots = scatterPines(heightAt, rng, o.pines);
+    const pines = ForestKit.instance(pineGeo, treeMat, pineSpots, rng, (c, sp, r) => {
+      c.setHSL(0.32 + r.range(-0.02, 0.03), 0.42 + r.range(-0.06, 0.10),
+               0.36 + r.range(-0.06, 0.08));
+    });
+    if (pines) { pines.name = 'pines'; meshes.push(pines); group.add(pines); }
+
     // pollen in the light
     const motes = ForestKit.buildMotes(rng, o.motes, { color: o.moteColor, box: 70 });
     group.add(motes.points);
+
+    /* The castle across the water. It is built last because it wants to
+       know whether it is night, and it is added to the hill's own group
+       so it goes away with everything else. */
+    let castle = null;
+    if (o.castle) {
+      castle = CastleKit.build(U.makeRng(((rng() * 1e9) | 0) >>> 0 || 7), {
+        x: o.castle.x, z: o.castle.z, facing: o.castle.facing,
+        scale: o.castle.scale, night: !!o.night,
+        lit: o.night ? 1 : (o.evening ? 0.45 : 0.06),
+      });
+      group.add(castle.group);
+    }
 
     /* The loch in the glen. It is the sea kit, calmed right down and
        sunk below the rim, because a real moving surface out there is
@@ -447,25 +712,30 @@ const HighlandKit = (() => {
     scene.add(group);
 
     return {
-      group, heightAt, uniforms, meshes,
+      group, heightAt, uniforms, meshes, castle,
       radius: o.radius,
       hasWater: !!o.water,
       // where the eye goes: the top of the hill
       crest: { x: 0, y: heightAt(0, 0), z: 0 },
+      // and where it goes when it wants somewhere to look *out* at
+      landmark: castle ? castle.peak : null,
       setWind(x, z, strength) { uniforms.wind.value.set(x, z, strength); },
-      update(dt, camPos) {
+      update(dt, camPos, t) {
         uniforms.time.value += dt;
         motes.update(dt, { x: uniforms.wind.value.x, y: uniforms.wind.value.y }, camPos, 0.55);
+        if (castle) castle.update(dt, t === undefined ? uniforms.time.value : t);
       },
       dispose() {
         Engine.disposeObject(group);
         for (const g of geos) g.dispose();
         grassMat.dispose();
+        treeMat.dispose();
         flowerMat.dispose();
       },
     };
   }
 
-  return { build, makeHill, buildGround, buildHills, tuftGeometry, bladeGeometry,
+  return { build, makeHill, buildGround, buildHills, buildStones, buildErratics,
+           buildWalls, buildRuin, scatterPines, tuftGeometry, bladeGeometry,
            COL, ROLL_MAX };
 })();

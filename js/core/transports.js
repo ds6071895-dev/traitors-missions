@@ -134,6 +134,56 @@ const Transports = (() => {
     },
   };
 
+  /* ---------------- one machine, three contestants ----------------
+
+     `SoloTransport` is the wire for a night with nobody else on it:
+     the loopback, with the two things a party would otherwise have
+     supplied bolted on.
+
+     - Every action is stamped `authority`, because there is nobody else
+       to be the authority and an unstamped `readyResult` would sit
+       there forever waiting for a board that is never coming.
+     - `readyResult` is stamped with the local player id, for the same
+       reason and in the same place the host transport stamps it: the
+       press of a Continue button says who pressed it, and nothing else
+       in the message does.
+
+     Nothing else is stamped, and that is load-bearing rather than
+     conservative. Half the actions the fire sends are the *ceremony*
+     rather than a contestant — `decisionPouch`, `speakName`, `reveal`,
+     `pouch` — and the reducer reads a `playerId` on those as "this is
+     whose pouch I am opening". Stamping them with whoever is holding
+     the mouse pointed every one of them at you, and a queue whose head
+     was somebody else simply stopped moving.
+
+     It is only ever installed by `Bots`, and `Bots` only ever runs when
+     the hidden argument asked for it. */
+
+  const SoloTransport = {
+
+    open(emit) {
+      this._emit = emit;
+      this._offs = EVENTS.map(([name, shape]) =>
+        Session.on(name, (a, b) => emit(shape(a, b))));
+    },
+
+    close() {
+      (this._offs || []).forEach(off => off());
+      this._offs = null;
+      this._emit = null;
+    },
+
+    send(action) {
+      if (!action) return;
+      const own = Object.assign({}, action, { authority: true });
+      if (own.type === 'readyResult' && !own.playerId) {
+        const me = Session.state && Session.state.players.find(p => p.local);
+        own.playerId = me ? me.id : null;
+      }
+      Session.dispatch(own);
+    },
+  };
+
   /* ---------------- guest ---------------- */
 
   const GuestTransport = {
@@ -215,5 +265,5 @@ const Transports = (() => {
     },
   };
 
-  return { HostTransport, GuestTransport, EVENTS, GUEST_ACTIONS };
+  return { HostTransport, GuestTransport, SoloTransport, EVENTS, GUEST_ACTIONS };
 })();

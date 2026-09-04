@@ -302,6 +302,139 @@ const Agendas = (() => {
                                    : 'your hands were not full — no alibi')),
       },
     ],
+
+    /* ---------------- The Descent ----------------
+       Three people on one mountain, all of them on the same strip with
+       everybody's position and — the number this whole deck turns on —
+       everybody's meter, live, at five frames a second. The meter is
+       the mission: it is the multiplier on every pound, it climbs when
+       you ski well and it empties when you stop, and it is a single
+       digit that two other people can read at a glance from anywhere
+       on the hill.
+
+       So there is nowhere on this mountain to be slow quietly. There is
+       only being slow somewhere that makes sense — in the trees, off a
+       cliff, or down a line nobody else had the nerve to take. Every
+       alibi in this deck is the same shape: do the damage in the most
+       expensive place on the mountain and let the board argue about
+       whether that was bravery. */
+
+    'ski': [
+      {
+        id: 'sk-bottom-rung',
+        text: 'Cross the finish line on the bottom rung of the meter.',
+        tell: 'Everybody’s meter is on the shared strip the whole way down. Arriving at ×1 is a skier who stopped trying somewhere, and the strip says roughly where.',
+        alibi: 'Have it at ×5 or better first. A meter that was the highest on the mountain and is the lowest at the line is a terrible last thirty seconds, not a decision — and everyone watched you earn it.',
+        hud: 'Finish on ×1',
+        check: (s) => s.finished === true && n(s.flowAtFinish) <= 1,
+        cover: (s) => s.finished === true && n(s.peakFlow) >= 5,
+        progress: (s) => {
+          const peak = n(s.peakFlow) || 1;
+          if (!s.finished) {
+            return 'On ×' + (n(s.flowAtFinish) || 1) + ' · peaked ×' + peak
+                 + (peak >= 5 ? ' — alibi ready' : ' (need ×5 for the alibi)');
+          }
+          return (n(s.flowAtFinish) <= 1 ? 'Finished on ×1 — ' : 'NOT on ×1 — ')
+               + (peak >= 5 ? 'and you had ×' + peak + '. Alibi holding.'
+                            : 'no alibi: you never got above ×' + peak + '.');
+        },
+      },
+      {
+        id: 'sk-never-cut',
+        text: 'Get to the bottom without taking a single shortcut.',
+        tell: 'Every mouth on the mountain is lit and announced, and the board has a Cuts column. Nought out of five next to two people on four is not a line choice, it is a refusal.',
+        alibi: 'Beat them anyway. The groomed run is the long way round and everybody knows it, so arriving first having taken none of them is the best skiing anybody at that table will see this year.',
+        hud: 'Take no shortcuts',
+        check: (s) => s.finished === true && arr(s.chutesTaken).length === 0
+                      && arr(s.chutesPassed).length >= 3,
+        cover: (s) => s.finished === true && s.place === 1 && n(s.of) >= 2,
+        progress: (s) => {
+          const took = arr(s.chutesTaken).length, past = arr(s.chutesPassed).length;
+          if (!s.finished) {
+            return took ? 'You took ' + arr(s.chutesTaken)[0] + ' — task failed'
+                        : 'Clean · ' + past + ' passed up'
+                          + (past >= 3 ? '' : ' (need 3)');
+          }
+          return (took === 0 ? 'None taken — ' : 'You took ' + took + ' — ')
+               + (s.place === 1 ? 'and you won it. Alibi holding.'
+                                : 'P' + (s.place || '?') + ', no alibi');
+        },
+      },
+      {
+        id: 'sk-stall',
+        text: 'Come to a near-standstill for five seconds in one go.',
+        tell: 'The strip is everybody’s position on the mountain, live. Yours simply stops, and there is no gate, no tree and no landing near where it stopped.',
+        alibi: 'Do it in the wood. A skier who spent that five seconds inside the trees was picking a line through them, and the board will see eight tree bonuses in the same run to prove it.',
+        hud: 'Five seconds at a standstill',
+        needs: (f) => !f.avalanche,
+        check: (s) => n(s.slowestStretch) >= 5,
+        cover: (s) => n(s.trees) >= 8,
+        progress: (s) => {
+          const st = n(s.slowestStretch);
+          if (st < 5) return 'Longest stop ' + st.toFixed(1) + 's (need 5s) · '
+                            + n(s.trees) + ' tree bonuses banked';
+          return 'Stopped for ' + st.toFixed(1) + 's · '
+               + (n(s.trees) >= 8 ? n(s.trees) + ' in the wood. Alibi holding.'
+                                  : 'only ' + n(s.trees) + ' in the wood — no alibi (need 8)');
+        },
+      },
+      {
+        id: 'sk-miss-ten',
+        text: 'Miss ten hoops.',
+        tell: 'A missed hoop makes a noise, drops your meter a step and costs the run seconds — three things two other people are looking at while it happens.',
+        alibi: 'Take four gold ones. Every gold hoop on this mountain is off the natural line, so nobody who was hunting them threaded everything, and a board with four golds and ten misses on the same row reads as greed rather than sabotage.',
+        hud: 'Miss ten hoops',
+        check: (s) => n(s.gatesMissed) >= 10,
+        cover: (s) => n(s.golds) >= 4,
+        progress: (s) => 'Missed ' + n(s.gatesMissed) + '/10 · '
+                       + n(s.golds) + ' gold taken'
+                       + (n(s.golds) >= 4 ? ' — alibi holding' : ' (need 4)'),
+      },
+      {
+        id: 'sk-yardsale',
+        text: 'Fall over three times.',
+        tell: 'A crash is the loudest thing that happens on this mountain: the strip stops dead, your meter goes to ×1, and it does all of that three times.',
+        alibi: 'Put all three of them in the trees. Three falls in the open is a bad skier; three falls inside the wood, with the tree bonuses on the board to show for it, is somebody who was going for the money.',
+        hud: 'Three crashes',
+        needs: (f) => !f.oneCrash,
+        check: (s) => n(s.crashes) >= 3,
+        cover: (s) => n(s.trees) >= 10,
+        progress: (s) => 'Down ' + n(s.crashes) + '/3 · '
+                       + n(s.trees) + ' tree bonuses'
+                       + (n(s.trees) >= 10 ? ' — alibi holding' : ' (need 10)'),
+      },
+      {
+        id: 'sk-bail',
+        text: 'Enter a shortcut and come out of the side of it instead of the bottom.',
+        tell: 'Entering one is announced to the mountain and bailing out of it drops your meter half a rung. On the strip it is a line that leaves the run, slows down, and comes back.',
+        alibi: 'Complete two others. A skier who bailed one line and cleaned two more was reading them, not avoiding them — and the Cuts column is the only place on that board anybody looks twice.',
+        hud: 'Bail out of a shortcut',
+        check: (s) => n(s.chutesBailed) >= 1,
+        cover: (s) => arr(s.chutesTaken).length >= 2,
+        progress: (s) => {
+          const done = arr(s.chutesTaken).length;
+          if (!n(s.chutesBailed)) return 'No bail yet · ' + done + ' completed';
+          return 'Bailed ' + n(s.chutesBailed) + ' · ' + done + ' completed'
+               + (done >= 2 ? ' — alibi holding' : ' (need 2)');
+        },
+      },
+      {
+        id: 'sk-no-air',
+        text: 'Get to the bottom without landing a single trick.',
+        tell: 'This mountain is nothing but kickers and the board has an Air column. A run with nothing in it is a run somebody skied round the whole thing.',
+        alibi: 'Take two shortcuts instead. A line with no air in it and two cuts nobody else dared is a purist picking the fastest way down, and it is a genuinely defensible way to ski this hill.',
+        hud: 'Land no tricks',
+        needs: (f) => !f.bigAir,
+        check: (s) => s.finished === true && n(s.tricks) === 0 && n(s.airTime) < 2.0,
+        cover: (s) => arr(s.chutesTaken).length >= 2,
+        progress: (s) => {
+          const cut = arr(s.chutesTaken).length;
+          if (n(s.tricks) > 0) return n(s.tricks) + ' landed — task failed';
+          return 'Clean · ' + n(s.airTime).toFixed(1) + 's off the snow (under 2.0s) · '
+               + cut + ' cuts' + (cut >= 2 ? ' — alibi holding' : ' (need 2)');
+        },
+      },
+    ],
   };
 
   /* Any mission without a deck deals nothing, which is the correct

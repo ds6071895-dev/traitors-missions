@@ -65,11 +65,59 @@ class DiveMission {
     cave: {
       chests: 5, value: 11500, colour: '#c77dff', respawn: 30, name: 'Cave',
     },
+    /* ---- the holds ----
+
+       The one thing in the loch you cannot simply pick up.
+
+       Every wreck on the slope has a strongroom hatch bolted to her
+       plating, and behind it is more money than anything else in the
+       mission pays in one go. It does not open because you swam to it.
+       It opens because you put a boot through it — four of them, on
+       the verb you already have, while the bar goes down and while
+       every animal that can hear steel being kicked comes to see what
+       is making that noise.
+
+       That is the whole design, and it is the mission's argument told
+       backwards. Everywhere else the risk is silent and private: you
+       drown yourself, quietly, at a rate you chose. A hold is *loud*.
+       You cannot break one open discreetly, you cannot break one open
+       quickly, and on a beach with two other people on it you cannot
+       break one open without everybody knowing exactly where you are
+       and what you are about to be holding.
+
+       Three or four to a loch and they never come back inside a run,
+       so a hold is a plan rather than a tier — and a hold somebody
+       else already emptied is the most eloquent thing on the seabed.
+
+       `value` is per chest and it is scaled by how deep the hull lies,
+       because the shallow trawler would otherwise be strictly better
+       than the deep ones and nobody would ever swim past her. */
+    holds: {
+      hits:      4,          // boots through the hatch
+      air:       0.055,      // ...and what each one costs
+      din:       2.0,        // how far the noise carries, as a noise multiplier
+      wake:      95,         // ...and the radius of animals it turns round
+      chests:    3,          // what comes out
+      /* Priced against the two things you could have done with the same
+         twenty-five seconds. A four-chest trench carry is about fifteen
+         thousand and a two-chest cave trip is about twenty-three, and a
+         hold sits between them: better money than the trench for the
+         same swim, worse money than a roof, and the only one of the
+         three that arrives all at once in front of an audience. */
+      value:     4200,       // each, before the depth scaling
+      deepGain:  0.018,      // ...which is this much again per metre down
+      colour:   '#ff5d8f',
+      name:     'Hold',
+      range:     4.0,        // how close a boot has to land
+      cool:      0.30,       // seconds between blows, so it cannot be spammed
+    },
+
     /* ---- the sharks ----
-       Four, and the first ones live at the cave mouths — see
-       predators.js for why they cannot kill you and why the answer to
-       one is to swim at it. */
-    sharks:      4,
+       Seven, and the first ones live on the dens — the cave mouths and
+       the hatches, which are the two places in the loch where somebody
+       is about to do something stupid. See predators.js for why they
+       cannot kill you and why the answer to one is to swim at it. */
+    sharks:      8,
     biteAir:     0.16,     // fraction of the bar a strike costs you
     biteAirEmpty:0.07,     // ...and what it costs when your hands are empty
 
@@ -194,6 +242,11 @@ class DiveMission {
         // number that big has to be visible before the run and not
         // discovered forty metres down
         if (C.cave && C.cave.chests) rows.push(C.cave.name + ' ' + U.money(C.cave.value));
+        // ...and so does the hold, for the same reason and more so: it
+        // is the only price on this card you cannot pay by swimming
+        if (C.holds && C.holds.chests) {
+          rows.push(C.holds.name + ' ' + U.money(C.holds.value) + ' ×' + C.holds.chests);
+        }
         return rows;
       })(),
     };
@@ -219,13 +272,20 @@ class DiveMission {
          card can tell you which. */
       landings: 0, bestHaul: 0,
       peakCarry: 0, peakCarryValue: 0,
-      tierBanked: { shelf: 0, wreck: 0, trench: 0, cave: 0 },
+      tierBanked: { shelf: 0, wreck: 0, trench: 0, cave: 0, hold: 0 },
       trenchTrips: 0, trenchEmpty: 0,
       /* The caves, and the animals. Both halves of the same card: a
          night with cave money on it is a night somebody took the roof
          seriously, and a night with four bites and nothing to show is
          either the worst diving at the table or a very good excuse. */
       caveTrips: 0, caveChests: 0, deepestCave: 0,
+      /* And the holds, which are the loudest thing anybody does down
+         there. A night with a hold on it is a night somebody stood
+         still on the bottom for four kicks with the whole loch coming
+         to look — you cannot do it quietly and you cannot do it by
+         accident, so it is the one line on the card that is never an
+         alibi. */
+      holdHits: 0, holdsOpened: 0, hoardChests: 0, deepestHold: 0,
       bites: 0, fended: 0, biteLost: 0,
       strokes: 0, onBeat: 0, bestFlowRun: 0,
       lastMinuteBanked: 0, finalCarry: 0, finalCarryValue: 0,
@@ -349,6 +409,13 @@ class DiveMission {
     this._caveT2 = 0;
     this._inCave = null;
     this._caveSaid = 0;
+    /* The holds. `_din` is how much noise the hatch you are kicking is
+       still making, which is the only thing in the mission that raises
+       your profile without you swimming anywhere. */
+    this._din = 0;
+    this._priseCool = 0;
+    this._toldHold = false;
+    this._toldDin = false;
     this._washOut = false;
     this._threat = 0;
     this._fend = false;
@@ -424,12 +491,31 @@ class DiveMission {
        shoal is handed the animals as threats every frame, which is
        what makes an empty patch of water in front of you mean
        something. */
+    /* The dens: every doorway and every hatch in the loch, interleaved
+       so neither kind ends up unguarded when there are more dens than
+       animals. A hold with nothing living on it is a free four kicks,
+       and a free four kicks is not a decision. One shark is always left
+       over to work the open slope, because a reef where the only danger
+       is standing on the two things you might want is a reef you can
+       read off a map. */
+    const holdDens = (this.reef.wrecks || []).filter(w => w.hold).map(w => ({
+      x: w.hold.x, z: w.hold.z, R: 13,
+      mouth: { x: w.hold.x + w.hold.nx * 5.5, z: w.hold.z + w.hold.nz * 5.5,
+               y: w.hold.y + 1.5 },
+    }));
+    const caveDens = this.reef.caves.list;
+    const dens = [];
+    for (let i = 0; i < Math.max(holdDens.length, caveDens.length); i++) {
+      if (i < holdDens.length) dens.push(holdDens[i]);
+      if (i < caveDens.length) dens.push(caveDens[i]);
+    }
+
     this.sharks = PredatorKit.build(scene, U.makeRng(this.seed + 37), {
       count: this.flags.noSharks ? 0 : C.sharks,
       radius: C.reefRadius,
       heightAt: this.reef.heightAt,
       ceilingAt: (x, z) => this.reef.caves.ceilingAt(x, z),
-      caves: this.reef.caves.list,
+      dens: dens.slice(0, Math.max(0, C.sharks - 1)),
       onEvent: (kind, sh) => this._onShark(kind, sh),
     });
     this._threat = 0;         // the HUD's copy of how much trouble you are in
@@ -472,6 +558,12 @@ class DiveMission {
       this._spawnChest(C.tiers.length - 1, null, { cave: true });
     }
     this._caveT2 = 0;         // the caves' own respawn clock
+
+    // ...and the things you have to break rather than pick up, plus the
+    // lights over the doors. Both want the chest kit's glow texture, so
+    // both come after it.
+    this._buildHolds();
+    this._buildCaveMarks();
 
     this._buildPeers(scene);
 
@@ -581,20 +673,33 @@ class DiveMission {
       color: this.C.cave.colour, flatShading: true,
       emissive: this.C.cave.colour, emissiveIntensity: 1.05,
     }));
+    /* And a fifth, for what comes out of a hold. It is the only rose
+       thing in the mission and it exists for one reason: a diver
+       walking up the shingle with three of these is a diver who put a
+       boot through a hatch on the far side of the reef, and the two
+       people watching from the water should be able to tell that from
+       the colour rather than from being told. */
+    this._chestMats.push(new THREE.MeshLambertMaterial({
+      color: this.C.holds.colour, flatShading: true,
+      emissive: this.C.holds.colour, emissiveIntensity: 1.05,
+    }));
     this._glowTex = Sky.glowTexture('rgba(255,255,255,0.95)', 'rgba(255,220,140,0.45)');
   }
 
-  /* Which of the four materials a chest wears. Cave salvage is a
-     trench chest as far as every tier, band and stat is concerned —
-     the violet is paint, not a fourth tier — so the one place that
-     difference exists is here. */
+  /* Which of the five materials a chest wears. Cave salvage and hold
+     spoils are both trench chests as far as every tier, band and stat
+     is concerned — the violet and the rose are paint, not extra tiers —
+     so the one place that difference exists is here. */
   _chestMat(c) {
-    return this._chestMats[c && c.cave ? this._chestMats.length - 1
-                                       : U.clamp((c && c.tier) | 0, 0, 2)];
+    return this._chestMats[DiveMission._packIndex(c)];
   }
 
   // ...and the same answer as a slot index, for the wire and the body
-  static _packIndex(c) { return c && c.cave ? 3 : U.clamp((c && c.tier) | 0, 0, 2); }
+  static _packIndex(c) {
+    if (c && c.hoard) return 4;
+    if (c && c.cave) return 3;
+    return U.clamp((c && c.tier) | 0, 0, 2);
+  }
 
   /* ---- what is in your hands, on you ----
 
@@ -638,7 +743,9 @@ class DiveMission {
     for (let i = 0; i < pack.length; i++) {
       const t = tiers && tiers[i];
       pack[i].visible = t !== undefined && t !== null;
-      if (pack[i].visible) pack[i].material = this._chestMats[U.clamp(t | 0, 0, 3)];
+      if (pack[i].visible) {
+        pack[i].material = this._chestMats[U.clamp(t | 0, 0, this._chestMats.length - 1)];
+      }
     }
   }
 
@@ -651,6 +758,13 @@ class DiveMission {
     const C = this.C;
     const tier = C.tiers[tierIndex];
     const cave = !!opts.cave;
+    /* Spoils out of a hold. They wear the cave's violet and count as
+       cave salvage everywhere it matters — the body, the pile, the
+       wire — because they *are* the same box; the flag exists for one
+       thing only, which is that the ground must not treat three chests
+       somebody let out of a wreck as three chests missing from the
+       caves and quietly mint them again. */
+    const hoard = !!opts.hoard;
     let x = 0, z = 0, y = 0;
     if (at) { x = at.x; z = at.z; y = at.y; }
     else if (cave) {
@@ -702,8 +816,9 @@ class DiveMission {
       if (y === 0) return null;
     }
 
-    const colour = cave ? C.cave.colour : tier.colour;
-    const mesh = new THREE.Mesh(this._chestGeo, this._chestMat({ tier: tierIndex, cave }));
+    const colour = hoard ? C.holds.colour : cave ? C.cave.colour : tier.colour;
+    const mesh = new THREE.Mesh(this._chestGeo,
+                                this._chestMat({ tier: tierIndex, cave, hoard }));
     mesh.position.set(x, y, z);
     mesh.rotation.y = this.rng() * U.TAU;
     if (cave) mesh.scale.setScalar(1.22);
@@ -743,7 +858,7 @@ class DiveMission {
     }
 
     const chest = {
-      id: this._nextChestId++, tier: tierIndex, cave,
+      id: this._nextChestId++, tier: tierIndex, cave, hoard,
       value: cave ? C.cave.value : tier.value,
       x, y, z, mesh, glow, far, mult: 1, dropped: !!at, taken: false,
       phase: this.rng() * U.TAU, depth: -y,
@@ -752,6 +867,437 @@ class DiveMission {
     return chest;
   }
 
+
+  /* =================== the holds ===================
+
+     Everything else in the loch is a decision about *distance*: how
+     far down, how far out, how far back with how much left. A hold is
+     a decision about standing still.
+
+     It is a steel hatch bolted to the plating of a sunk hull, and it
+     opens for exactly one thing — the kick, which is the same verb
+     that turns a shark away and the same verb that swims. Four of
+     them, inside touching distance, each one costing a slice of the
+     bar and each one ringing across the whole loch. You cannot do it
+     on the move and you cannot do it quietly, and the animal that
+     lives on the hatch is already looking at you before the first one
+     lands.
+
+     What comes out is three chests at once, which is most of a full
+     carry arriving in your hands in a second and a half at the exact
+     moment there is something behind you. That is the entire point:
+     the mission's question is *one more?*, and a hold is the only
+     place that asks it with the answer already in your arms. */
+
+  /* One hatch, as geometry: a steel ring let into the plating, a dished
+     door inside it on a hinge, and a locking wheel on the front of the
+     door. All three are the same two materials, and the door is a child
+     of a pivot so breaking it open is a rotation rather than a swap. */
+  _buildHoldKit() {
+    const ringParts = [];
+    const ring = new THREE.TorusGeometry(1.28, 0.20, 6, 16);
+    ringParts.push(ring);
+    for (let i = 0; i < 10; i++) {              // the bolts round the rim
+      const a = (i / 10) * U.TAU;
+      const b = new THREE.IcosahedronGeometry(0.11, 0);
+      b.translate(Math.cos(a) * 1.28, Math.sin(a) * 1.28, 0.16);
+      ringParts.push(b);
+    }
+    const back = new THREE.CylinderGeometry(1.20, 1.20, 0.16, 14);
+    back.rotateX(Math.PI / 2);
+    back.translate(0, 0, -0.24);
+    ringParts.push(back);
+    this._holdRingGeo = Sky.mergeGeometries(ringParts);
+    this._holdRingGeo.computeVertexNormals();
+    for (const g of ringParts) g.dispose();
+
+    const doorParts = [];
+    const plate = new THREE.CylinderGeometry(1.14, 1.14, 0.22, 14);
+    plate.rotateX(Math.PI / 2);
+    doorParts.push(plate);
+    // the wheel: a rim and four spokes, and it is the part that turns
+    const wheel = new THREE.TorusGeometry(0.56, 0.09, 5, 14);
+    wheel.translate(0, 0, 0.24);
+    doorParts.push(wheel);
+    for (let i = 0; i < 4; i++) {
+      const sp = new THREE.BoxGeometry(1.06, 0.10, 0.10);
+      sp.rotateZ((i / 4) * Math.PI);
+      sp.translate(0, 0, 0.24);
+      doorParts.push(sp);
+    }
+    this._holdDoorGeo = Sky.mergeGeometries(doorParts);
+    this._holdDoorGeo.computeVertexNormals();
+    for (const g of doorParts) g.dispose();
+
+    this._holdMats = [
+      new THREE.MeshLambertMaterial({ color: '#5c6a72', flatShading: true }),
+      /* The door lights up as it loses. Emissive rather than a colour
+         change, because the one thing a diver forty metres down needs
+         to know about a hatch is how many more times they have to hit
+         it, and a thing getting hotter says that without a number. */
+      new THREE.MeshLambertMaterial({
+        color: '#7d6a63', flatShading: true,
+        emissive: this.C.holds.colour, emissiveIntensity: 0,
+      }),
+    ];
+  }
+
+  /* Where they are, which is decided by the reef rather than here: one
+     on the plating of every hull she left on the slope. The mission
+     only picks how much each is worth, and that is a function of how
+     deep the hull lies — a hatch at ten metres and a hatch at forty
+     are the same four kicks, so if they paid the same nobody would
+     ever swim past the shallow one. */
+  _buildHolds() {
+    this.holds = [];
+    const H = this.C.holds;
+    const wrecks = (this.reef && this.reef.wrecks) || [];
+    if (!wrecks.length) return;
+    this._buildHoldKit();
+
+    for (let i = 0; i < wrecks.length; i++) {
+      const at = wrecks[i].hold;
+      if (!at) continue;
+      const depth = Math.max(0, -at.y);
+      const face = Math.atan2(at.nx, at.nz);
+
+      const group = new THREE.Group();
+      group.position.set(at.x, at.y, at.z);
+      group.rotation.y = face;
+
+      group.add(new THREE.Mesh(this._holdRingGeo, this._holdMats[0]));
+      /* The hinge is on the rim, not on the middle, so when it goes it
+         goes *sideways* — a door swinging off a wreck, which is a much
+         better two hundred milliseconds than a plate fading out. */
+      const hinge = new THREE.Object3D();
+      hinge.position.set(-1.16, 0, 0.02);
+      const door = new THREE.Mesh(this._holdDoorGeo, this._holdMats[1]);
+      door.position.set(1.16, 0, 0);
+      hinge.add(door);
+      group.add(hinge);
+      this.scene.add(group);
+
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: this._glowTex, color: H.colour, transparent: true,
+        opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending,
+      }));
+      glow.scale.setScalar(6.0);
+      glow.position.set(at.x, at.y + 0.3, at.z);
+      glow.renderOrder = 5;
+      this.scene.add(glow);
+
+      /* And the marker that ignores fog, depth and rock, the same way
+         cave salvage does — for the same reason. A hold nobody can find
+         is a mechanic nobody plays. */
+      const far = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: this._glowTex, color: H.colour, transparent: true,
+        opacity: 0.5, depthWrite: false, depthTest: false, fog: false,
+        blending: THREE.AdditiveBlending,
+      }));
+      far.position.set(at.x, at.y + 1.6, at.z);
+      far.renderOrder = 38;
+      this.scene.add(far);
+
+      this.holds.push({
+        id: i, x: at.x, y: at.y, z: at.z, face, depth,
+        hp: H.hits, hpMax: H.hits, open: false, openT: 0,
+        value: Math.round(H.value * (1 + depth * H.deepGain)),
+        group, hinge, door, glow, far,
+        phase: this.rng() * U.TAU, hit: 0, spin: 0,
+      });
+    }
+  }
+
+  /* The beacons over the cave mouths.
+
+     The caves have always been the best decision in the mission and
+     for a long time almost nobody made one, and the reason turned out
+     to have nothing at all to do with the risk being badly priced: a
+     chamber seen from thirty metres out is a dark lump among sixty
+     other dark lumps, and a door you cannot find is a door nobody
+     opens. The rock now has a lit arch of anemones round its mouth for
+     the near view, and this is the far one — a violet smudge over
+     every doorway in the loch that fog and rock cannot hide, fading
+     out as you arrive so that what you are actually looking at when
+     you get there is the cave. */
+  _buildCaveMarks() {
+    this.caveMarks = [];
+    const list = (this.caves && this.caves.list) || [];
+    for (const cave of list) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: this._glowTex, color: this.C.cave.colour, transparent: true,
+        opacity: 0.4, depthWrite: false, depthTest: false, fog: false,
+        blending: THREE.AdditiveBlending,
+      }));
+      s.position.set(cave.mouth.x, cave.mouth.y + 3.0, cave.mouth.z);
+      s.renderOrder = 37;
+      this.scene.add(s);
+      this.caveMarks.push({ s, cave, phase: this.rng() * U.TAU });
+    }
+  }
+
+  /* Per frame: the pulse on everything unopened, the door swinging on
+     everything that has just gone, and the noise dying away. */
+  _tickHolds(dt) {
+    this._din = Math.max(0, this._din - dt * 1.7);
+    this._priseCool = Math.max(0, this._priseCool - dt);
+
+    for (const mk of (this.caveMarks || [])) {
+      mk.phase += dt * 1.3;
+      const d = this.camera.position.distanceTo(mk.s.position);
+      mk.s.scale.setScalar(U.clamp(1.6 + d * 0.045, 2.0, 11));
+      // gone by the time you are at the door: the arch takes over there
+      mk.s.material.opacity = (0.22 + 0.16 * (0.5 + 0.5 * Math.sin(mk.phase)))
+                            * U.clamp((d - 14) / 26, 0, 1);
+    }
+
+    for (const h of (this.holds || [])) {
+      h.phase += dt * (h.open ? 2.2 : 1.4);
+      const pulse = 0.5 + 0.5 * Math.sin(h.phase);
+      h.hit = Math.max(0, h.hit - dt * 3.2);
+
+      if (h.open) {
+        h.openT = Math.min(1, h.openT + dt * 2.4);
+        // out and back on its hinge, then hanging off the hull
+        h.hinge.rotation.y = -U.smoothstep(0, 1, h.openT) * 2.15;
+        h.glow.material.opacity = 0.10 + 0.10 * pulse;
+        h.glow.scale.setScalar(4.0);
+        h.far.material.opacity = 0;
+        h.far.visible = false;
+        this._holdMats[1].emissiveIntensity = 0;
+        continue;
+      }
+
+      /* Unopened: it breathes, and the door glows hotter the closer it
+         is to going. The emissive is on the shared material, so it is
+         driven off whichever hatch is being worked rather than off all
+         of them — nothing else is being hit, so nothing else moves. */
+      const worked = 1 - h.hp / h.hpMax;
+      /* The wheel comes round a quarter turn per blow. It is bolted to
+         a wreck, so nothing about the hatch drifts or bobs — the only
+         thing that moves before it goes is the lock, and that is the
+         point: you can see how far through it you are from behind. */
+      h.spin = U.damp(h.spin, worked * 2.4, 4, dt);
+      h.door.rotation.z = h.spin;
+      h.glow.scale.setScalar(5.4 + worked * 3.6 + pulse * 0.5);
+      h.glow.material.opacity = 0.34 + worked * 0.34 + 0.18 * pulse + h.hit * 0.5;
+
+      const fd = this.camera.position.distanceTo(h.far.position);
+      h.far.scale.setScalar(U.clamp(1.4 + fd * 0.040, 1.8, 10));
+      h.far.material.opacity = (0.26 + 0.26 * pulse) * U.clamp(fd / 16, 0.25, 1);
+    }
+
+    /* Told once, the first time a diver is close enough to a hatch for
+       it to be a question. The mission teaches everything else by
+       putting it in front of you and letting you find out — but a
+       sealed door is the one thing down here that does nothing at all
+       when you swim into it, and a mechanic whose entire tell is "keep
+       doing the thing that appeared not to work" needs one sentence. */
+    if (!this._toldHold && this.state === 'live' && !this.out) {
+      const sw = this.swimmer;
+      for (const h of (this.holds || [])) {
+        if (h.open) continue;
+        const dx = h.x - sw.pos.x, dy = h.y - sw.pos.y, dz = h.z - sw.pos.z;
+        if (dx * dx + dy * dy + dz * dz > 11 * 11) continue;
+        this._toldHold = true;
+        AudioBus.play('dv-cave');
+        this._banner('A SEALED HOLD', 'Swim at it and kick. Four should do it', 'good');
+        break;
+      }
+    }
+
+    /* One material, one number: whichever hatch was hit most recently
+       is the one that is hot. */
+    if (this._holdMats) {
+      let hot = 0;
+      for (const h of (this.holds || [])) {
+        if (h.open) continue;
+        hot = Math.max(hot, (1 - h.hp / h.hpMax) * 0.9 + h.hit * 0.8);
+      }
+      this._holdMats[1].emissiveIntensity = hot;
+    }
+  }
+
+  /* A kick that landed on steel instead of on water.
+
+     Called off the same stroke that fends a shark, because there is no
+     second button and there was never going to be one — you swim at
+     the hatch and you keep swimming at it. Which means the two verbs
+     collide by design: the animal is on the hatch, and every kick you
+     spend on the door is a kick you did not spend turning it away. */
+  _priseCheck() {
+    if (!this.holds || !this.holds.length) return;
+    if (this.state !== 'live' || this.out) return;
+    if (this._priseCool > 0) return;
+    const H = this.C.holds;
+    const sw = this.swimmer;
+    const face = this._facingVec();
+
+    let best = null, bestD = H.range * H.range;
+    for (const h of this.holds) {
+      if (h.open) continue;
+      const dx = h.x - sw.pos.x, dy = h.y - sw.pos.y, dz = h.z - sw.pos.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > bestD) continue;
+      // and you have to be swimming *at* it, the same test the shark gets
+      const d = Math.sqrt(d2) || 1;
+      if ((dx * face.x + dy * face.y + dz * face.z) / d < 0.15) continue;
+      best = h; bestD = d2;
+    }
+    if (best) this._prise(best);
+  }
+
+  _prise(h) {
+    const H = this.C.holds;
+    const sw = this.swimmer;
+    this._priseCool = H.cool;
+    h.hp--;
+    h.hit = 1;
+    this.stats.holdHits++;
+    sw.air = Math.max(0.02, sw.air - H.air);
+
+    /* The noise. This is the mechanic — a hatch being kicked is the
+       only sound in the loch that is not a diver swimming, it carries
+       to the far side of the reef, and it does not care whether you
+       are carrying anything. */
+    this._din = H.din;
+    if (this.sharks && this.sharks.alert) this.sharks.alert(h.x, h.z, H.wake);
+
+    this.camKick = Math.min(this.camKick + 1.1, 1.8);
+    this.shake = Math.min(1.0, this.shake + 0.35);
+    this.hitStop = Math.max(this.hitStop, 0.07);
+    AudioBus.play('dv-prise', { n: h.hpMax - h.hp });
+    Input.rumble(0.45, 160);
+    Input.haptic(24);
+
+    this._tmpV.set(h.x, h.y + 0.2, h.z);
+    this.fx.rings.fire(this._tmpV, this.camera.quaternion, 0.7, 5.4, 0.4, H.colour);
+    for (let i = 0; i < 18; i++) {
+      const a = Math.random() * U.TAU;
+      this.fx.sparks.emit(h.x, h.y + 0.2, h.z,
+        Math.cos(a) * 4.5, 1 + Math.random() * 3.5, Math.sin(a) * 4.5,
+        0.22 + Math.random() * 0.24, 0.45 + Math.random() * 0.4,
+        DiveMission._SPARK);
+    }
+
+    if (h.hp <= 0) { this._crackHold(h); return; }
+
+    this.fx.labels.add(h.hp + ' more', this._tmpV, { life: 0.9, rise: 4 });
+    if (!this._toldDin) {
+      this._toldDin = true;
+      this._banner('THE HOLD',
+                   'Keep kicking. Everything in the loch can hear you', 'bad');
+    }
+  }
+
+  /* And it goes. Three chests on the sand in front of a door hanging
+     off its hinge, which is the most money the mission ever puts in
+     one place — and the loudest possible advertisement that somebody
+     is about to be carrying it. */
+  _crackHold(h) {
+    const H = this.C.holds;
+    h.open = true;
+    h.openT = 0;
+    this.stats.holdsOpened++;
+    this.stats.deepestHold = Math.max(this.stats.deepestHold, Math.round(h.depth));
+
+    this.hitStop = 0.16;
+    this.shake = Math.min(1.0, this.shake + 0.9);
+    this.camKick = 1.8;
+    this.fovKick = Math.max(this.fovKick, 8);
+    AudioBus.play('dv-hold');
+    if (this.music) this.music.stinger('chain');
+    Input.rumble(0.9, 420);
+    this._flash(0.32, 'rgba(255,150,190,0.45)');
+
+    this._tmpV.set(h.x, h.y + 0.4, h.z);
+    this.fx.rings.fire(this._tmpV, this.camera.quaternion, 0.9, 12.0, 0.7, H.colour);
+    for (let i = 0; i < 46; i++) {
+      const a = Math.random() * U.TAU;
+      this.fx.sparks.emit(h.x, h.y + 0.4, h.z,
+        Math.cos(a) * 7, 2 + Math.random() * 5, Math.sin(a) * 7,
+        0.3 + Math.random() * 0.4, 0.7 + Math.random() * 0.6,
+        DiveMission._SPARK);
+    }
+
+    /* The spoils. They spill onto the sand in front of the hatch as
+       *dropped* chests, which is deliberate: the mission's one rule is
+       that anything lying lit on the floor belongs to whoever reaches
+       it, and a hold nobody has come back for yet is that rule with
+       three thousand pounds standing on it. */
+    const spilled = [];
+    for (let i = 0; i < H.chests; i++) {
+      const a = h.face + U.lerp(-1.1, 1.1, this.rng());
+      const r = 1.8 + this.rng() * 2.6;
+      const x = h.x + Math.sin(a) * r, z = h.z + Math.cos(a) * r;
+      const y = this.reef.heightAt(x, z) + 0.35;
+      const c = this._spawnChest(this.C.tiers.length - 1, { x, y, z },
+                                 { cave: true, hoard: true });
+      if (!c) continue;
+      c.value = h.value;
+      spilled.push(c);
+      if (this.party) {
+        MissionNet.event({ kind: 'drop', tier: c.tier, value: c.value,
+                           cave: 1, hoard: 1, x, y, z });
+      }
+    }
+    if (this.party) MissionNet.event({ kind: 'hold', id: h.id });
+
+    this.fx.labels.add(U.money(h.value * spilled.length), this._tmpV,
+                       { className: 'gold', life: 1.6, rise: 6 });
+    this._banner('THE HOLD IS OPEN',
+                 U.money(h.value * spilled.length) + ' on the sand — now get it home',
+                 'perfect');
+  }
+
+  /* A hold somebody else broke. Only the door and the light: the
+     chests arrive as `drop` events on their own, and the host's next
+     snapshot is what makes them real. */
+  _openHoldRemote(id) {
+    const h = (this.holds || []).find(x => x.id === id);
+    if (!h || h.open) return;
+    h.hp = 0;
+    h.open = true;
+    h.openT = 0;
+    AudioBus.play('dv-hold');
+  }
+
+  /* A retry bolts every door shut again. The hulls do not move — the
+     reef is a pure function of the seed and always was — so this is
+     the doors and nothing else. */
+  _resetHolds() {
+    for (const h of (this.holds || [])) {
+      h.hp = h.hpMax;
+      h.open = false;
+      h.openT = 0;
+      h.hit = 0;
+      h.spin = 0;
+      h.hinge.rotation.y = 0;
+      h.far.visible = true;
+      h.far.material.opacity = 0.5;
+      h.glow.material.opacity = 0.55;
+    }
+    if (this._holdMats) this._holdMats[1].emissiveIntensity = 0;
+  }
+
+  _disposeHolds() {
+    for (const h of (this.holds || [])) {
+      this.scene.remove(h.group);
+      this.scene.remove(h.glow);
+      this.scene.remove(h.far);
+      h.glow.material.dispose();
+      h.far.material.dispose();
+    }
+    this.holds = [];
+    for (const mk of (this.caveMarks || [])) {
+      this.scene.remove(mk.s);
+      mk.s.material.dispose();
+    }
+    this.caveMarks = [];
+    if (this._holdRingGeo) { this._holdRingGeo.dispose(); this._holdRingGeo = null; }
+    if (this._holdDoorGeo) { this._holdDoorGeo.dispose(); this._holdDoorGeo = null; }
+    if (this._holdMats) { for (const m of this._holdMats) m.dispose(); this._holdMats = null; }
+  }
   /* =================== the pile ===================
 
      The scoreboard, as an object in the world. Every chest that counts
@@ -1320,6 +1866,7 @@ class DiveMission {
       this._spawnChest(this.C.tiers.length - 1, null, { cave: true });
     }
     this._caveT2 = 0;
+    this._resetHolds();
     this._placeAshore();
     this.swimmer.airMax = 1;
     this.swimmer.air = 1;
@@ -1357,6 +1904,7 @@ class DiveMission {
     if (this.swimmer) this.swimmer.dispose();
     if (this.shoal) this.shoal.dispose();
     if (this.sharks) { this.sharks.dispose(); this.sharks = null; }
+    this._disposeHolds();
     if (this.reef) this.reef.dispose();
     if (this.fx) this.fx.dispose();
     for (const c of this.chests.slice()) this._removeChest(c);
@@ -1448,6 +1996,7 @@ class DiveMission {
     this.swimmer.update(dt, this._ctl, this.world);
     this._afterSwim(dt);
     this._tickCave(dt);
+    this._tickHolds(dt);
     this._tickSharks(dt);
     this._tickChests(dt);
     this._updateCamera(dt);
@@ -1537,7 +2086,7 @@ class DiveMission {
          front of you. There is no second button and there was never
          going to be one: the answer to a shark is the verb you already
          have, aimed. See rule three in predators.js. */
-      if (!sw.up) this._fend = true;
+      if (!sw.up) { this._fend = true; this._priseCheck(); }
       // the hint has done its job the moment anybody kicks
       if (this.hud.hint) this.hud.hint.classList.remove('show');
       AudioBus.play('dv-stroke', { power: 0.5 + sw.flow * 0.5 });
@@ -1762,7 +2311,13 @@ class DiveMission {
     const noise = 1
                 + this.carry.length * 0.26
                 + sw.effort * 0.42
-                + this._caveT * 0.55;
+                + this._caveT * 0.55
+                /* ...and steel. This is the only term that is not about
+                   how well the dive is going: a hatch rings whether you
+                   are carrying anything or not, which is what makes
+                   breaking one a *decision* rather than a bonus on top
+                   of a good run. */
+                + this._din;
 
     /* ...and what makes you not worth the swim. A head out of the
        water, feet on the sand, or the first couple of metres under it:
@@ -2028,7 +2583,10 @@ class DiveMission {
     const C = this.C;
     const have = C.tiers.map(() => 0);
     let caved = 0;
-    for (const c of this.chests) { if (c.cave) caved++; else have[c.tier]++; }
+    for (const c of this.chests) {
+      if (c.hoard) continue;                       // a hold's spoils are nobody's population
+      if (c.cave) caved++; else have[c.tier]++;
+    }
     for (let t = 0; t < C.tiers.length; t++) {
       if (have[t] >= C.tiers[t].chests) { this._tierT[t] = 0; continue; }
       this._tierT[t] += dt;
@@ -2087,7 +2645,17 @@ class DiveMission {
       this._banner('HANDS FULL', 'None of it counts until you are stood in the light', 'good');
     }
     if (c.dropped) st.recovered += Math.round(c.value * this.payout);
-    if (c.cave) {
+    if (c.hoard) {
+      /* Out of a hold rather than out of a chamber, so the line is not
+         about the roof: there is no door to find, there is just three
+         of these on the sand, a shark that heard every blow, and the
+         longest swim home in the mission. */
+      st.hoardChests++;
+      this._banner('OUT OF THE HOLD',
+                   U.money(Math.round(c.value * c.mult * this.payout))
+                   + ' — and everything down here knows', 'perfect');
+      this.hitStop = Math.max(this.hitStop, 0.09);
+    } else if (c.cave) {
       st.caveChests++;
       this._banner('CAVE SALVAGE',
                    U.money(Math.round(c.value * c.mult * this.payout))
@@ -2179,9 +2747,13 @@ class DiveMission {
     paying.forEach((c, i) => {
       const cash = Math.round(c.value * c.mult * mult * this.payout * this.C.moneyScale);
       total += cash;
-      // cave salvage is a trench chest everywhere except on the card,
-      // where it is the one column that says somebody went under a roof
-      const id = c.cave ? 'cave' : this.C.tiers[c.tier].id;
+      /* Cave salvage and hold spoils are trench chests everywhere
+         except on the card, where they are the two columns that say
+         where somebody actually went: under a roof, or through a
+         door. Kept apart because they are opposite kinds of alibi —
+         a cave is a quiet decision and a hold is one the whole loch
+         watched somebody make. */
+      const id = c.hoard ? 'hold' : c.cave ? 'cave' : this.C.tiers[c.tier].id;
       this.stats.tierBanked[id] = (this.stats.tierBanked[id] || 0) + cash;
       this._throwOnPile(c, i, cash);
     });
@@ -2277,10 +2849,14 @@ class DiveMission {
       AudioBus.play('dv-bank', { step: f.step, haul: this.haul });
       this._gain(f.cash);
       this._tmpV.set(f.x1, f.y1 + 0.5, f.z1);
-      this.fx.rings.fire(this._tmpV, DiveMission._FLAT, 0.3, 3.4 + f.step * 1.1,
-                         0.45, this.C.tiers[f.chest.tier].colour);
-      this.fx.labels.add('+' + U.money(f.cash), this._tmpV,
-                         { className: f.chest.tier === 2 ? 'gold' : '', life: 1.0, rise: 4 });
+      const cc = f.chest.hoard ? this.C.holds.colour
+               : f.chest.cave ? this.C.cave.colour
+               : this.C.tiers[f.chest.tier].colour;
+      this.fx.rings.fire(this._tmpV, DiveMission._FLAT, 0.3, 3.4 + f.step * 1.1, 0.45, cc);
+      this.fx.labels.add('+' + U.money(f.cash), this._tmpV, {
+        className: (f.chest.cave || f.chest.hoard || f.chest.tier === 2) ? 'gold' : '',
+        life: 1.0, rise: 4,
+      });
       for (let s = 0; s < 18; s++) {
         const a = Math.random() * U.TAU;
         this.fx.sparks.emit(f.x1, f.y1 + 0.3, f.z1,
@@ -2775,7 +3351,7 @@ class DiveMission {
   }
 
   _paintCarry() {
-    this._showCarried(this._pack, this.carry.map(c => c.tier));
+    this._showCarried(this._pack, this.carry.map(c => DiveMission._packIndex(c)));
     if (!this._pips) return;
     for (let i = 0; i < this._pips.length; i++) {
       const c = this.carry[i];
@@ -2911,6 +3487,7 @@ class DiveMission {
         MissionNet.event({ kind: 'reef', state: this.state, chests: this.chests.map(c => ({
           i: c.id, t: c.tier, x: U.r3(c.x), y: U.r3(c.y), z: U.r3(c.z),
           d: c.dropped ? 1 : 0, v: c.value, c: c.cave ? 1 : 0,
+          h: c.hoard ? 1 : 0,
         })) });
       }
     }
@@ -2988,22 +3565,32 @@ class DiveMission {
        already carries the numbers — it is purely the heap growing on
        the beach where everyone can see whose run is going well. */
     if (d.kind === 'landed') {
-      // slot three is cave salvage: see `_packIndex`
+      // slot three is cave salvage and slot four is a hold's: see `_packIndex`
+      const last = this.C.tiers.length - 1;
       const tiers = Array.isArray(d.tiers) ? d.tiers : [];
       this._addToPile(tiers
-        .filter(t => t >= 0 && t <= this.C.tiers.length)
-        .map(t => (t >= this.C.tiers.length
-                   ? { tier: this.C.tiers.length - 1, cave: true } : { tier: t })));
+        .filter(t => t >= 0 && t <= this.C.tiers.length + 1)
+        .map(t => (t > this.C.tiers.length ? { tier: last, cave: true, hoard: true }
+                 : t === this.C.tiers.length ? { tier: last, cave: true }
+                 : { tier: t })));
       return;
     }
 
     if (d.kind === 'drop') {
       // a pile somebody else lost. The host will confirm it on the next
       // snapshot; showing it now is what makes a blackout legible.
-      const c = this._spawnChest(d.tier, { x: d.x, y: d.y, z: d.z }, { cave: !!d.cave });
-      if (c) { c.value = d.value; c.cave = !!d.cave; }
+      const c = this._spawnChest(d.tier, { x: d.x, y: d.y, z: d.z },
+                                 { cave: !!d.cave, hoard: !!d.hoard });
+      if (c) { c.value = d.value; c.cave = !!d.cave; c.hoard = !!d.hoard; }
       return;
     }
+
+    /* Somebody put a boot through a hatch on the far side of the reef.
+       The door swings on every screen, because a hold that is open is
+       the single most useful thing anybody can know about the loch —
+       there is money on the sand over there and somebody is standing
+       over it. */
+    if (d.kind === 'hold') { this._openHoldRemote(d.id | 0); return; }
 
     if (d.kind === 'claimResult') {
       const mine = this._claims.get(d.chestId);
@@ -3043,11 +3630,13 @@ class DiveMission {
       keep.add(st.i);
       let c = this.chests.find(x => x.id === st.i);
       if (!c) {
-        c = this._spawnChest(st.t, { x: st.x, y: st.y, z: st.z }, { cave: !!st.c });
+        c = this._spawnChest(st.t, { x: st.x, y: st.y, z: st.z },
+                             { cave: !!st.c, hoard: !!st.h });
         if (!c) continue;
         c.id = st.i;
         c.value = st.v;
         c.cave = !!st.c;
+        c.hoard = !!st.h;
         c.dropped = !!st.d;
         // never hand out an id the host has already used
         if (st.i >= this._nextChestId) this._nextChestId = st.i + 1;
@@ -3149,6 +3738,9 @@ class DiveMission {
       tierBanked: st.tierBanked,
       caveTrips: st.caveTrips,
       caveChests: st.caveChests,
+      holdsOpened: st.holdsOpened,
+      holdHits: st.holdHits,
+      deepestHold: st.deepestHold,
       bites: st.bites,
       fended: st.fended,
       biteLost: st.biteLost,
@@ -3457,6 +4049,78 @@ AudioBus.define('dv-fend', (c, dest) => {
   });
 });
 
+/* A boot landing on a hatch. The loudest thing in the mission and the
+   only one that is not made of water: a low clang with a long metal
+   tail on it, tuned a step higher each time so four blows are a phrase
+   that is obviously going somewhere. `n` is which blow this is.
+
+   It is deliberately ugly next to everything else down here. The whole
+   argument of a hold is that you cannot do it discreetly, and a sound
+   that fits the mix would be a sound that lets you. */
+AudioBus.define('dv-prise', (c, dest, o = {}) => {
+  const t = c.currentTime;
+  const n = U.clamp((o.n | 0), 0, 5);
+  const base = 116 * Math.pow(2, n / 12);
+
+  // the blow: a filtered noise burst, short and hard
+  const ns = AudioBus.noiseSource();
+  if (ns) {
+    const f = c.createBiquadFilter(), g = c.createGain();
+    f.type = 'bandpass';
+    f.frequency.setValueAtTime(1500, t);
+    f.frequency.exponentialRampToValueAtTime(300, t + 0.12);
+    f.Q.value = 0.8;
+    ns.connect(f); f.connect(g); g.connect(dest);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.30, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    ns.start(t); ns.stop(t + 0.26);
+  }
+  // ...and the plate ringing after it, which is the part that carries
+  [1, 2.76, 5.4].forEach((mult, i) => {
+    const os = c.createOscillator(), g = c.createGain();
+    os.type = i ? 'sine' : 'triangle';
+    os.frequency.setValueAtTime(base * mult, t);
+    os.frequency.exponentialRampToValueAtTime(base * mult * 0.97, t + 0.7);
+    os.connect(g); g.connect(dest);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.20 / (i + 1.4), t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.62 - i * 0.14);
+    os.start(t); os.stop(t + 0.75);
+  });
+});
+
+/* And the hatch going. The clang resolved: the same plate, an octave
+   up, opening into the only major chord in the mission — because this
+   is the one moment down here that is unambiguously good news, and it
+   is immediately the worst position anybody has been in all run. */
+AudioBus.define('dv-hold', (c, dest) => {
+  const t = c.currentTime;
+  const ns = AudioBus.noiseSource();
+  if (ns) {
+    const f = c.createBiquadFilter(), g = c.createGain();
+    f.type = 'bandpass';
+    f.frequency.setValueAtTime(2400, t);
+    f.frequency.exponentialRampToValueAtTime(220, t + 0.5);
+    f.Q.value = 0.7;
+    ns.connect(f); f.connect(g); g.connect(dest);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.34, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.62);
+    ns.start(t); ns.stop(t + 0.7);
+  }
+  [174.61, 261.63, 349.23, 523.25].forEach((f, i) => {
+    const os = c.createOscillator(), g = c.createGain();
+    os.type = i > 1 ? 'triangle' : 'sine';
+    os.frequency.setValueAtTime(f, t + i * 0.045);
+    os.connect(g); g.connect(dest);
+    g.gain.setValueAtTime(0.0001, t + i * 0.045);
+    g.gain.exponentialRampToValueAtTime(0.16, t + i * 0.045 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.045 + 1.0);
+    os.start(t + i * 0.045); os.stop(t + i * 0.045 + 1.1);
+  });
+});
+
 /* Crossing under the lip of a cave. A room tone: the same note the
    trench arrives on, an octave down, with the top taken off it —
    which is what a ceiling does to sound and what this mission has
@@ -3564,6 +4228,16 @@ Missions.register({
       + 'it is under a rock lid: you cannot float out, you have to swim out of the mouth '
       + 'you came in by. Black out in there and your body washes out on its own — slowly, '
       + 'in front of everybody.',
+    '<b>Look for the violet lights.</b> Every cave mouth in the loch has one hanging over '
+      + 'it and every sealed hold has one on it, and neither of them cares about fog, '
+      + 'depth or rock. If you are wondering where the money is, it is under a light.',
+    '<b>Break into the holds.</b> Each wreck on the slope has a hatch bolted to her side. '
+      + 'It does not open because you swam to it — you kick it in, four times, and each '
+      + 'blow costs air and rings across the whole loch. Three chests come out at once, '
+      + 'and there is always something living on the hatch.',
+    '<b>You cannot rob a wreck quietly.</b> Kicking steel makes you the loudest thing in '
+      + 'the water whether your hands are full or empty, and every animal that can hear '
+      + 'it turns round. A hold is a plan, not an opportunity.',
     '<b>Sharks hear what you are winning.</b> Thrashing and a full carry get you noticed '
       + 'from twice as far, and they will follow you out of a cave. They will not follow '
       + 'you into the shallows.',
@@ -3625,7 +4299,13 @@ Missions.register({
       ['Trench', U.money(tb.trench || 0)]);
     // the caves and the animals only appear on a card that earned them
     if (tb.cave) rows.push(['Caves', U.money(tb.cave)]);
+    if (tb.hold) rows.push(['Holds', U.money(tb.hold)]);
     if (r.caveTrips) rows.push(['Went under a roof', String(r.caveTrips) + '×']);
+    if (r.holdsOpened) rows.push(['Broke into a hold', String(r.holdsOpened) + '×'
+                                  + (r.deepestHold ? ' · deepest ' + r.deepestHold + 'm' : '')]);
+    else if (r.holdHits) rows.push(['Kicked a hatch and walked away',
+                                    String(r.holdHits) + ' blow'
+                                    + (r.holdHits === 1 ? '' : 's')]);
     if (r.landed) rows.push(['Landed on the pile', String(r.landed) + ' chest'
                              + (r.landed === 1 ? '' : 's')]);
     if (r.blackouts) rows.push(['Blacked out', String(r.blackouts) + '×']);

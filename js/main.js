@@ -158,6 +158,17 @@ const Game = (() => {
     document.getElementById('setup-name').textContent = p.name;
     document.getElementById('setup-cond').innerHTML =
       `<span>${p.conditionText}</span>` + (p.opts.daily ? '<b class="tag-today">TODAY</b>' : '');
+    /* One optional line of the mission's own, under the conditions. The
+       descent uses it for the running order of the mountain — which is
+       the single most useful thing a briefing can show, because the
+       difference between two mountains is not the weather, it is
+       whether the glades come before or after the cliffs. Any mission
+       that has nothing to add simply does not set it. */
+    const shape = document.getElementById('setup-shape');
+    if (shape) {
+      shape.innerHTML = p.shape || '';
+      shape.classList.toggle('show', !!p.shape);
+    }
     const seedInput = document.getElementById('setup-seed');
     if (document.activeElement !== seedInput) seedInput.value = String(p.opts.seed);
     document.getElementById('setup-daily').classList.toggle('on', p.opts.daily);
@@ -561,7 +572,12 @@ const Game = (() => {
         MissionNet.report(reportFor(def, r)).then(once);
         setTimeout(() => once(null), MissionNet.BOARD_WAIT);
       } else {
-        arm(null);
+        /* A rehearsal night has nobody else in the mission, so nothing
+           publishes a board — but the round table it is walking towards
+           is an argument about one. `Bots` draws the other two rows
+           around your own so the room it opens has something in it. */
+        arm(typeof Bots !== 'undefined' && Bots.running
+            ? Bots.board(reportFor(def, r)) : null);
       }
     }
 
@@ -896,6 +912,11 @@ const Game = (() => {
        It is read here rather than earlier so the mission registry is
        already full and the screen can say the mission's name. */
     MissionParty.openFromLink();
+    /* And the door nothing on any screen mentions: `?bots=…` seats you
+       with two of them and plays whichever parts of the night you named.
+       Read after the registry is full, because the run plan draws its
+       two missions out of it. */
+    Bots.openFromLink();
     Engine.start();
 
     document.getElementById('boot').classList.add('gone');

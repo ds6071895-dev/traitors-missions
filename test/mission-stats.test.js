@@ -28,8 +28,11 @@ const stubs = {
   THREE: new Proxy({ Vector3: V3 }, {
     get: (t, k) => (k in t ? t[k] : function () { return {}; }),
   }),
-  AudioBus: { play: noop, define: noop, stop: noop },
-  Music: { boss: () => null },
+  AudioBus: { play: noop, define: noop, stop: noop, wind: () => ({ set: noop, stop: noop }),
+              noiseSource: () => null, bus: () => null, ready: false, ctx: null },
+  Music: { boss: () => null, descent: () => null, SKI_GEARS: [0, 1, 2, 3, 4] },
+  Look: { resolve: () => ({ accent: '#fff', trim: '#f00', coat: '#123' }), get: () => null },
+  Figure: { build: () => ({ userData: {} }), dispose: noop, paletteFor: () => 'a' },
   Input: { held: () => false, pressed: () => false, rumble: noop, haptic: noop },
   RoomUI: { showAgenda: noop, showField: noop, hideField: noop },
   MissionNet: { event: noop, pose: noop, on: () => noop, at: () => null,
@@ -42,21 +45,26 @@ const stubs = {
            sampleHeight: () => 0, build: noop, update: noop, follow: noop },
   Sky: { setPreset: noop, resetPreset: noop, PALETTE: { fog: '#fff' },
          mergeGeometries: () => ({}), glowTexture: () => ({}) },
-  Conditions: { TIMES: [{ id: 'noon', name: 'Midday', sky: {}, payout: 1 }],
-                lights: () => ({}) },
+  // The real thing rather than a one-hour stub: `SkiTwists` names hours
+  // by id, and a stub that only knows about midday cannot tell a typo
+  // from a card that works.
   Engine: { disposeObject: noop, isPaused: () => false, setPaused: noop },
   Screens: { show: noop },
   Party: { hostId: 'h', selfId: () => 'me', isHost: true },
 };
 
-const ctx = H.load(['js/core/util.js', 'js/core/missions.js',
+const ctx = H.load(['js/core/util.js', 'js/core/missions.js', 'js/world/conditions.js',
                     'js/missions/agendas.js', 'js/missions/shootout-rounds.js',
                     'js/world/forest.js', 'js/world/reef.js', 'js/entities/swimmer.js',
                     'js/missions/boat-race.js', 'js/missions/shootout.js',
-                    'js/missions/dive-twists.js', 'js/missions/dive.js'], stubs);
+                    'js/missions/dive-twists.js', 'js/missions/dive.js',
+                    'js/world/mountain.js', 'js/entities/skier.js',
+                    'js/missions/ski-twists.js', 'js/missions/ski.js'], stubs);
 const BR = ctx.BoatRaceMission;
 const SH = ctx.ShootoutMission;
 const DV = ctx.DiveMission;
+const SK = ctx.SkiMission;
+const MK = ctx.MountainKit;
 const U = ctx.U;
 
 /* The switch itself is still worth a test even with nothing currently
@@ -64,6 +72,13 @@ const U = ctx.U;
    will hang on, and the failure it prevents — a half-finished mission
    reachable from a stale invitation link — is silent. */
 section('mission registry — the feature switch, and the dive back through it');
+
+test('the descent is available through every route', () => {
+  ok(SK, 'the ski implementation is loaded');
+  ok(ctx.Missions.get('ski'), 'a direct lookup finds it');
+  ok(ctx.Missions.all().some(m => m.id === 'ski'),
+     'the menu and full-game planner offer it');
+});
 
 test('the dive is available through every route again', () => {
   ok(DV, 'the dive implementation is loaded');
@@ -889,5 +904,326 @@ test('every twist is a bag of overrides and nothing else', () => {
     }
   }
 });
+
+/* ==================================================================
+   The Descent — the counters the deck reads, and the mountain itself.
+
+   The mission half is the same trick as the dive's: the trackers are
+   honest functions over the state they are handed, so they can be run
+   directly against a mission built with `Object.create` — real
+   prototype, real getters, no scene.
+
+   The mountain half is different and is the more important of the two.
+   `mountain.js` generates terrain from a seed, and the two ways that
+   goes wrong are both silent: a hill with an uphill in it strands a
+   skier where the run simply stops, and a hill with no shortcuts on it
+   is missing half the mission. Neither shows up as an exception. Both
+   are checked here across a spread of seeds, because "it looked fine
+   on the seed I was testing" is exactly how both of them shipped.
+   ================================================================== */
+
+section('the descent — the counters the deck reads');
+
+/* A run, with nothing in it the trackers do not touch. Built on the
+   real prototype so `_mult` and the rest of the getters are the real
+   ones rather than a second copy of the rule. */
+function skier(o = {}) {
+  const v = { x: 0, y: 0, z: 0,
+    copy(p) { this.x = p.x; this.y = p.y; this.z = p.z; return this; },
+    set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; },
+    setY(y) { this.y = y; return this; } };
+  return Object.assign(Object.create(SK.prototype), {
+    C: SK.CONFIG,
+    stats: SK.freshStats(),
+    flags: {},
+    mode: 'prize',
+    payout: 1,
+    state: 'running',
+    money: 0, descentMoney: 0, hoopMoney: 0, trickMoney: 0,
+    grazeMoney: 0, chuteMoney: 0,
+    flow: 0, flowLevel: 1, peakFlow: 1,
+    hoopsHit: 0, perfects: 0, golds: 0, tricks: 0, stomps: 0, crashes: 0,
+    chutesDone: 0, chutes: [],
+    vertical: 0, topSpeed: 0, airTotal: 0, biggestAir: 0,
+    elapsed: 0, time: 96, deduct: 0,
+    hitStop: 0, shake: 0, fovKick: 0, camDip: 0, camPush: 0,
+    timeScaleTarget: 1, _inFinal: false, _grazing: false,
+    _grazeT: 0, _slowT: 0, _straightT: 0, _atTopT: 0, _atOneT: 0, _stuckT: 0,
+    _curChute: null, _tmpV: v, _prevPos: { x: 0, y: 0, z: 0 },
+    world: { colliders: [] },
+    hud: {},                    // every writer checks its element first
+    fx: { labels: { add: noop }, rings: { fire: noop }, spray: { emit: noop },
+          wake: { clear: noop } },
+    camera: { quaternion: {} },
+    score: null,
+    skier: { crashed: false, airborne: false, speed: 30, carve: 0, tuck: 0,
+             slip: 0, pos: { x: 0, y: 100, z: 0 }, airHeight: 0 },
+  }, o);
+}
+
+test('the ladder climbs on carving and air, and not on standing still', () => {
+  const m = skier();
+  m.skier.carve = 1; m.skier.speed = 40;
+  for (let i = 0; i < 60; i++) m._updateFlow(1 / 60);
+  ok(m.flow > 0.1, 'a second of clean carving moves the bar: ' + m.flow.toFixed(3));
+
+  const air = skier();
+  air.skier.airborne = true;
+  for (let i = 0; i < 60; i++) air._updateFlow(1 / 60);
+  ok(air.flow > m.flow, 'air pays the bar faster than carving does');
+
+  const idle = skier({ flow: 0.5 });
+  idle.skier.speed = 2;                     // below the floor
+  for (let i = 0; i < 60; i++) idle._updateFlow(1 / 60);
+  ok(idle.flow < 0.5, 'crawling drains it: ' + idle.flow.toFixed(3));
+});
+
+test('a rung is a rung: the bar carries over, and six is the ceiling', () => {
+  const m = skier({ flow: 0.9 });
+  m.skier.airborne = true;
+  for (let i = 0; i < 30; i++) m._updateFlow(1 / 60);
+  eq(m.flowLevel, 2, 'filling the bar climbs exactly one rung');
+  ok(m.flow > 0 && m.flow < 1, 'and the overflow carries into the next one');
+
+  const top = skier({ flow: 0.99, flowLevel: SK.CONFIG.flowLevels });
+  top.skier.airborne = true;
+  for (let i = 0; i < 600; i++) top._updateFlow(1 / 60);
+  eq(top.flowLevel, SK.CONFIG.flowLevels, 'the ladder has a top');
+  ok(top.flow <= 1, 'and the bar does not run past it');
+  ok(top._atTopT > 9, 'time spent at the top is counted for the deck');
+});
+
+test('the meter multiplies the descent, which is the whole economy', () => {
+  const one = skier({ flowLevel: 1 });
+  const six = skier({ flowLevel: 6 });
+  for (let i = 0; i < 60; i++) { one._earnDescent(1 / 60); six._earnDescent(1 / 60); }
+  ok(one.money > 0, 'moving at speed pays');
+  const ratio = six.money / one.money;
+  ok(Math.abs(ratio - 6) < 0.01, 'six rungs is six times the money, got ×' + ratio.toFixed(2));
+
+  const slow = skier({ flowLevel: 6 });
+  slow.skier.speed = SK.CONFIG.speedFloor - 1;
+  for (let i = 0; i < 60; i++) slow._earnDescent(1 / 60);
+  eq(slow.money, 0, 'and below the floor the mountain pays nothing at all');
+});
+
+test('a crash costs three rungs and seconds, and never more than the ladder has', () => {
+  const m = skier({ flowLevel: 6, flow: 0.8, time: 60 });
+  m._onCrash('TREE');
+  eq(m.flowLevel, 3, 'six rungs becomes three');
+  eq(m.flow, 0, 'and the bar with it');
+  eq(m.crashes, 1, 'the deck can count it');
+  eq(m.stats.crashes, 1, '...and so can the board');
+  ok(m.time < 60, 'it costs clock too');
+
+  const low = skier({ flowLevel: 2 });
+  low._onCrash('ROCK');
+  eq(low.flowLevel, 1, 'and it can never take you below the bottom rung');
+});
+
+test('the shortcut pays for coming out of the bottom and not for bailing', () => {
+  const c = { name: 'The Snare', z0: 100, z1: 500, hard: 0.5, half: 18, depth: 5,
+              taken: false, entered: true };
+  const done = skier({ _curChute: c, chutes: [c] });
+  done.skier.pos.z = 500;
+  done._leaveChute();
+  ok(done.chuteMoney > 0, 'getting out of the far end pays');
+  eq(done.stats.chutesTaken, ['The Snare'], 'and the board says which one');
+  eq(done.chutesDone, 1, 'and it counts');
+
+  const bail = skier({ _curChute: Object.assign({}, c, { taken: false }), flow: 0.9 });
+  bail.skier.pos.z = 300;                   // out of the side, halfway down
+  bail._leaveChute();
+  eq(bail.chuteMoney, 0, 'coming out of the side pays nothing');
+  eq(bail.stats.chutesBailed, 1, 'and the deck can see that you did');
+  ok(bail.flow < 0.9, 'and it costs meter');
+});
+
+test('the wood pays while you hold it, and only while you are quick', () => {
+  const m = skier({ world: { colliders: [{ x: 1, y: 0, z: 0, r: 0.8, kind: 'tree' }] } });
+  m.skier.speed = 30;
+  for (let i = 0; i < 120; i++) m._checkGraze(1 / 60);
+  ok(m.grazeMoney > 0, 'two seconds inside a tree pays');
+  ok(m.stats.trees >= 2, 'and the board counts the payments: ' + m.stats.trees);
+
+  const slow = skier({ world: { colliders: [{ x: 1, y: 0, z: 0, r: 0.8, kind: 'tree' }] } });
+  slow.skier.speed = 3;
+  for (let i = 0; i < 120; i++) slow._checkGraze(1 / 60);
+  eq(slow.grazeMoney, 0, 'drifting past one at walking pace does not');
+});
+
+test('the two counters nothing else in the mission would have kept', () => {
+  const m = skier();
+  // stopped: the one the "stall for five seconds" card is judged on
+  m.skier.speed = 4;
+  for (let i = 0; i < 360; i++) { m._prevPos = { x: 0, y: 100, z: 0 }; m._trackFlags(1 / 60); }
+  ok(m.stats.slowestStretch >= 5.9,
+     'the longest stop is timed: ' + m.stats.slowestStretch.toFixed(1) + 's');
+
+  // straight-lining: quick, and doing nothing at all with it
+  const st = skier();
+  st.skier.speed = 34; st.skier.carve = 0;
+  for (let i = 0; i < 180; i++) { st._prevPos = { x: 0, y: 100, z: 0 }; st._trackFlags(1 / 60); }
+  ok(st.stats.straightLined >= 2.9,
+     'and so is a long straight line: ' + st.stats.straightLined.toFixed(1) + 's');
+});
+
+test('a landing is graded, and the grades are ordered', () => {
+  const S = ctx.Skier;
+  eq(S.gradeOf(1.0).id, 'stomped', 'a perfect landing is stomped');
+  eq(S.gradeOf(0.5).id, 'clean', 'a good one is clean');
+  eq(S.gradeOf(0.3).id, 'sketchy', 'a poor one is a wobble');
+  eq(S.gradeOf(0).id, 'crash', 'and a bad one is a crash');
+  let prevKeep = -1;
+  for (const g of S.LANDINGS) {
+    ok(g.keep >= prevKeep, 'a better landing never keeps less speed: ' + g.id);
+    prevKeep = g.keep;
+  }
+});
+
+section('the descent — the mountain the seed draws');
+
+/* Ten mountains, and the two invariants that are silent when broken. */
+const FACES = [];
+for (let i = 0; i < 10; i++) {
+  const seed = (1 + i * 104729) >>> 0;
+  const f = MK.makeFace(ctx.U.makeRng((seed ^ 0x51a3f7) >>> 0),
+                        { top: SK.CONFIG.top, sections: SK.CONFIG.sections });
+  const chutes = MK.findChutes(f, ctx.U.makeRng(seed + 31), { count: SK.CONFIG.chutes });
+  f.seal();
+  FACES.push({ seed, f, chutes });
+}
+
+/* A body with momentum, reading nothing but `heightAt`. Not a skier —
+   no edges, no steering, no jumping — deliberately, because the thing
+   being tested is the *mountain*: if the dumbest possible object that
+   obeys gravity and drag can get from the top to the bottom of a face,
+   then no shape in that face is a trap, and if it cannot then no amount
+   of skiing was going to help.
+
+   Momentum is the whole point of using one. A pure downhill walk stops
+   on the first roller crest, which is a feature rather than a fault;
+   only a closed basin stops something that is already moving. */
+function marble(f, lat0, cap = 600) {
+  let x = f.cxAt(0) + lat0, z = 0, vx = 0, vz = 8;
+  const dt = 1 / 40;
+  for (let i = 0; i < cap / dt; i++) {
+    const hx = (f.heightAt(x + 1, z) - f.heightAt(x - 1, z)) / 2;
+    const hz = (f.heightAt(x, z + 1) - f.heightAt(x, z - 1)) / 2;
+    const m2 = hx * hx + hz * hz;
+    const k = 19.5 / (1 + m2);
+    vx += -k * hx * dt;
+    vz += -k * hz * dt;
+    const v = Math.hypot(vx, vz);
+    const drag = (0.05 * v + 0.006 * v * v) * dt;
+    if (v > 1e-6) { vx -= (vx / v) * drag; vz -= (vz / v) * drag; }
+    x += vx * dt; z += vz * dt;
+    if (z >= f.total) return { got: z, stuck: false, t: i * dt };
+  }
+  return { got: z, stuck: true, t: cap };
+}
+
+test('nothing on any mountain can trap something that is already moving', () => {
+  for (const { seed, f } of FACES) {
+    for (const lat of [0, -0.5, 0.5]) {
+      const r = marble(f, lat * f.halfAt(0));
+      ok(!r.stuck, 'seed ' + seed + ' at lat ' + lat + ' stopped '
+         + Math.round(r.got) + 'm down a ' + Math.round(f.total) + 'm face');
+    }
+  }
+});
+
+test('no mountain has a broad uphill in the middle of the run', () => {
+  /* Measured over sixty metres, which is longer than any roller or
+     kicker on the hill and shorter than any section of it — so a crest
+     you are meant to launch off averages out and a basin does not.
+
+     The bug this exists for: terrain noise contributes gradient of its
+     own, and where that exceeded the pitch it sat on, flat sections had
+     genuine uphills in them. A skier coasted into one, stopped, and the
+     run was over with the clock still running. */
+  let worst = 0, where = null;
+  for (const { seed, f } of FACES) {
+    for (let z = 70; z < f.total - 80; z += 10) {
+      const half = f.halfAt(z), cx = f.cxAt(z);
+      for (const k of [-0.4, 0, 0.4]) {
+        const x = cx + k * half;
+        const g = (f.heightAt(x, z + 30) - f.heightAt(x, z - 30)) / 60;
+        if (g > worst) { worst = g; where = { seed, z: Math.round(z), k }; }
+      }
+    }
+  }
+  /* Five per cent is not "flat" — it is "gentle enough that the run
+     never argues with you". The long wavelength of the fold is allowed
+     to roll the ground a metre or two over sixty on the flattest
+     sections and that reads as terrain rather than as a fault; the
+     guarantee that nothing *stops* you is the marble above, which is
+     the test that would actually fail if this went wrong again. */
+  ok(worst <= 0.05, 'worst sixty-metre gradient ' + worst.toFixed(4)
+     + (where ? ' at ' + JSON.stringify(where) : ''));
+});
+
+test('every mountain has shortcuts on it, and they save real metres', () => {
+  for (const { seed, f, chutes } of FACES) {
+    ok(chutes.length >= 2, 'seed ' + seed + ' drew ' + chutes.length + ' shortcuts');
+    for (const c of chutes) {
+      ok(c.gain > 15, 'a shortcut that saves nothing is not one: ' + c.gain.toFixed(0) + 'm');
+      ok(c.z1 > c.z0, 'and it runs down the hill');
+      ok(c.z1 <= f.total, 'and finishes on the mountain');
+    }
+    // no two of them overlap: a fork inside a fork cannot be read at speed
+    const sorted = chutes.slice().sort((a, b) => a.z0 - b.z0);
+    for (let i = 1; i < sorted.length; i++) {
+      ok(sorted[i].z0 >= sorted[i - 1].z1, 'shortcuts on seed ' + seed + ' overlap');
+    }
+  }
+});
+
+test('a cliff has a landing under it, not a wall', () => {
+  /* The other silent one. A `drop` used to snap from its full depth
+     back to the mountain at the end of its tail, which is a vertical
+     step across the landing of every cliff on the hill. */
+  const f = FACES[0].f;
+  const r = { kind: 'drop', x: 0, z: 0, ax: 0, len: 12, wide: 40, h: 8, tail: 3,
+              c: 1, s: 0 };
+  const at = (u) => f.rampY(r, 0, u * r.len);
+  ok(at(0.6) < -3, 'the floor does leave: ' + at(0.6).toFixed(1));
+  ok(Math.abs(at(2.95)) < 0.6, 'and it comes back smoothly: ' + at(2.95).toFixed(2));
+  let worstStep = 0;
+  for (let u = -0.3; u < 3.3; u += 0.01) {
+    worstStep = Math.max(worstStep, Math.abs(at(u + 0.01) - at(u)));
+  }
+  ok(worstStep < 0.9, 'and there is no step in it: worst ' + worstStep.toFixed(2) + 'm');
+});
+
+section('the descent — the twists');
+
+test('every card names something that exists', () => {
+  for (const t of ctx.SkiTwists.DECK) {
+    ok(t.id && t.name && t.blurb, 'a card needs all three: ' + t.id);
+    ok(t.payout >= 1 || t.flags, t.id + ' has to be worth taking');
+    for (const k in (t.tune || {})) {
+      ok(k in ctx.Skier.TUNE, t.id + ' tunes a dial the skier has not got: ' + k);
+    }
+    for (const k in (t.config || {})) {
+      ok(k in SK.CONFIG, t.id + ' overrides a config key that does not exist: ' + k);
+    }
+    if (t.cond && t.cond.snow) {
+      ok(ctx.SkiConditions.byId(t.cond.snow), t.id + ' names snow that does not exist');
+    }
+    if (t.cond && t.cond.time) {
+      ok(ctx.Conditions.TIMES.some(x => x.id === t.cond.time),
+         t.id + ' names an hour that does not exist');
+    }
+  }
+});
+
+test('the hand is three distinct cards and the seed owns it', () => {
+  const a = SK.hand(4242), b = SK.hand(4242), c = SK.hand(99);
+  eq(a.map(x => x.id), b.map(x => x.id), 'the same seed deals the same hand');
+  eq(new Set(a.map(x => x.id)).size, 3, 'three distinct cards');
+  ok(a.map(x => x.id).join() !== c.map(x => x.id).join(), 'a different seed deals differently');
+});
+
 
 if (require.main === module) H.report();

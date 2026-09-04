@@ -550,6 +550,130 @@ the moment your head is out of the water, it is over when you are stood on the s
 
 ---
 
+## Playing The Descent
+
+One face of a highland mountain, top to bottom, in about two minutes. It is the only
+mission in the game with no throttle in it: the boat has an engine and the diver has a
+kick, and here the hill is the engine. Every decision you make is about how much of what
+gravity gave you you are prepared to hand back.
+
+```
+A/D      carve
+W        tuck — less drag, more speed, almost no steering
+S        check — turns hard, scrubs hard
+Space    on the snow: hold to crouch, let go to pop
+         in the air: hold to spin and flip, let go to land
+```
+
+### One meter runs the whole thing
+
+`flow` is a ladder of six rungs and it is the multiplier on every pound the mountain
+pays — hoops, tricks, trees, shortcuts and every metre of the descent itself. It climbs
+on carving cleanly, on air, on threading a hoop and on skiing close enough to a tree to
+hear it. It falls on going slowly, and a crash costs three rungs.
+
+So the mission reduces to one sentence a player works out in about nine seconds:
+
+> Go down fast and never stop doing things.
+
+Everything else feeds that. The hoops buy clock. The kickers buy rungs. The shortcuts
+buy both, and cost nerve.
+
+### Turning is what costs you, and skidding is what costs you most
+
+`slip` is how much of your velocity is not pointing where your skis are, in metres a
+second. It is the single input to the spray, the hiss, the trench in the snow and the
+speed the snow takes back — one number, four channels, so none of them can disagree with
+you about how hard you are working.
+
+A long clean arc holds the edge and keeps nearly all of it. A panic turn breaks the edge
+and the snow charges you for the difference. A check breaks it deliberately, which is how
+you survive a corner you came into too hot. That is the entire cornering game, and the
+snow you drew changes it: ice is the fastest surface on the mountain and will not hold a
+single turn you ask of it.
+
+### The pop is the deepest thing in it, and nothing tells you
+
+Hold <kbd>Space</kbd> and you crouch, storing it. Let go and you spend it, right then,
+off whatever you are stood on — an ollie off flat snow, and off the last metre of a
+kicker's lip, a jump about twice the size. Nothing in the game explains that. It just
+pays, every time, and players find it.
+
+In the air the same key spins and flips, and letting go of it snaps the rotation to the
+nearest whole turn. That snap *is* the landing: it is the only reason a 720 is survivable,
+and it is lifted directly from the boat race's roll, for the same reason.
+
+A landing is graded on three things that are deliberately independent — how square you are
+to the snow, whether the rotation came round to a whole number, and how sideways the skis
+are to the way you are actually travelling. Two out of three is a wobble. One is a yard
+sale.
+
+### The shortcuts are an argument with the run
+
+The groomed piste traverses. The line straight down the fall line does not, and the chord
+across a bend is shorter than the groomed way round it — so a shortcut is not a decoration
+on the mountain, it is a genuinely faster line that happens to go through the trees.
+
+They are not placed. `MountainKit.findChutes` walks the traverse looking for bends worth
+cutting, measures each one against the piste's own arc length, and cuts the best three or
+four. The number on the gate — *saves 43m* — is that measurement, and the clock keeps the
+promise. Every hoop inside one is gold, and getting out of the bottom of one pays again.
+
+Bailing out of the side of one does not.
+
+### A gate belongs to a route, and an air hoop belongs to a lip
+
+The piste's gates do not count against you while you are in a shortcut, and the shortcut's
+do not count while you are on the piste — which is what makes taking one a trade rather
+than a free lunch.
+
+Air hoops are hung in space off the end of a kicker and they are *opportunities*, not
+gates: sailing past one on the snow because you did not take that jump is a line choice,
+not a fumble. They are not placed by eye either. Each kicker is asked what it would throw
+a skier of ordinary speed — the speed where drag balances gravity on that pitch — and the
+hoop goes on the arc that produces. So a twist that makes every lip half again as big
+moves every hoop with it, for free.
+
+### The mountain is a pure function of (x, z)
+
+The face descends along +Z. That is not a simplification, it is what makes the rest cheap:
+progress is `z`, the fall line is `−dy/dz`, there is no nearest-point search anywhere in
+the mission, and no point on the mountain could belong to two parts of the run.
+
+Height is a sum and every term is somebody's job — the descent profile, the folds, the
+rolls, how groomed it is, the berm along each edge, the chutes, every kicker and cliff,
+and the valley sides. Nothing is a separate collision object: a kicker is not a mesh
+sitting on snow, it is snow. So what you see, what you ski, what the camera avoids
+clipping and what three separate clients each build from the seed are all the same eleven
+lines of maths.
+
+Two things about that are only true because they were measured, and both were silent when
+they were wrong:
+
+- **Terrain roughness scales with the local gradient.** Noise contributes gradient of its
+  own, and where it exceeded the pitch it sat on, flat sections had real uphills in them.
+  A skier coasted into one, stopped, and the run was over with the clock still running.
+  `mission-stats.test.js` now rolls a body with momentum down ten mountains and asserts it
+  reaches the bottom of every one.
+- **A cliff has a bench under it.** A `drop` used to snap from its full depth back to the
+  mountain at the end of its tail, which is a vertical wall across the landing of every
+  cliff on the hill. You fell in and could not get out.
+
+### Where a run is won
+
+| line | typical |
+| --- | --- |
+| straight-lining it, tucked, taking nothing | the meter never leaves ×2 |
+| the groomed run, most gates, no shortcuts | around par |
+| shortcuts taken, meter held at ×5 or ×6 | comfortably over |
+| all of that, and arriving with clock in hand | the time bonus, which is the difference |
+
+The runout at the bottom is nearly flat and pays double. Whatever speed you are carrying
+when you reach it is all you are getting, which is why the last thirty seconds of a good
+run were decided ninety seconds earlier.
+
+---
+
 ## Architecture
 
 The engine knows nothing about gameplay, and missions know nothing about each other.
@@ -772,7 +896,50 @@ rides the same two wind uniforms the wood's trees do, so one weather moves every
 The loch is the sea kit, calmed right down. The hill is *raised* forty metres rather than
 the water being sunk, because `Water` draws at y=0 and its shells, its sampling and its
 fog all assume so — and raising the land gets a real shoreline for free wherever the
-shoulders drop back through zero.
+shoulders drop back through zero. The shoreline lands about 260 metres out from a summit
+that stands 95 metres over it, which is what makes everything past the rim water.
+
+### The castle is the thing you are looking at
+
+The hill is a place you look *out* from, and for a long time what it looked out at was
+weather. `CastleKit` is what it looks at now: a tower house on a rock four hundred metres
+out in the loch, with a curtain wall round it, a broken causeway reaching back towards the
+shore, and — after dark — windows.
+
+It is unreachable and unenterable, and both on purpose. The stage clamps first person to
+ten metres of summit, the island sits a hundred and forty metres past the near shore, and
+the last two spans of its bridge are in the water. There is no interior and the gate arch
+is a shadowed recess rather than an opening, which from anywhere you can ever stand reads
+as a way in that is shut. A castle you can enter is a level; this is a horizon.
+
+Everything about how it is built follows from the distance. At 400 metres a metre is about
+three pixels, so merlons are a metre and a half and nothing finer than that exists. The
+whole castle — five-sided ward, five towers, keep with corner bartizans, hall, gatehouse,
+portcullis and causeway — is *one* merged flat-shaded vertex-coloured mesh, plus the crag
+it stands on, two banners, one emissive quad soup for the windows, and, on a night build,
+a single point light at the gate. Six draw calls and about three and a half thousand
+triangles, which is one per cent of what the grass costs.
+
+The windows are not lights. They are unlit, unfogged quads whose opacity is the hour:
+barely there in the afternoon, half up at the round table, everything burning at the fire.
+That one dial is most of what makes three dressings of one hill read as one evening
+passing.
+
+`stage.js` gains a shot for it — `loch`, a 28mm-equivalent from the west side of the
+summit, aimed fourteen metres over the keep so the island sits in the lower third with
+the far hills above it. It is deliberately the one framing in the show with nobody in it,
+and all three scenes open on it: the welcome rises out of the grass into it, the round
+table cuts to it with the lamps just lit, and the fire holds on it for three seconds
+before Claudia says anything.
+
+The rest of the dressing exists to give the middle distance something in it, because a
+hillside with a castle on the horizon and nothing between is a matte painting. Glacial
+erratics for scale, dry-stone dykes wandering over the shoulders and out of sight, copses
+of Scots pine sharing the grass's wind at a fraction of its gain, a roofless broch on the
+near shoulder for the castle to rhyme with, and a stone circle that now has stones of
+wildly different heights, one fallen, and a trilithon with its lintel still on. All of it
+is merged per kind — five extra draw calls and about twenty thousand triangles, seven per
+cent on top of the grass.
 
 ### Claudia
 
@@ -821,6 +988,59 @@ exactly once and it is always on the shot that mattered.
   your own scoreboard and press Continue. Dispatching it the instant the mission ended
   would change phase, and the phase change would tear the results screen down while you
   were still reading it.
+
+### Rehearsing a night on your own
+
+The show needs three people and a room, which makes every part of it that is not a
+mission expensive to look at: to see the fire you need two more browsers, four letters
+read down a phone, and a boat race and a shootout first. `bots.js` is the door round
+that, and it is a development tool rather than a game mode — there is no button, nothing
+in the menus mentions it, and it exists only in the address bar.
+
+```
+?bots=1                     the whole night, hand dealt from the seed
+?bots=finale                the fire and nothing else
+?bots=intro,table,finale    no missions, all the talking
+?bots=m1,finale             one mission, then the fire
+?bots=all&traitor=you       you are the Traitor
+?bots=all&traitor=2         the second bot is
+?bots=all&traitor=none      nobody is, which is a real outcome
+?bots=finale&decide=end     they vote to end it at once instead of banishing first
+?bots=finale&target=you     and they both name you when they do not
+```
+
+Parts are `intro`, `m1`, `table`, `m2`, `finale`, with the obvious aliases (`hill`,
+`fire`, `discussion`, `mission1`, `missions`, `all`) and in any order — they are played
+in the running order whatever order you type them in. `seed`, `names`, `pace`
+(`fast`/`normal`/`slow`) and `chat=off` are optional. A `#bots=…` works as well as a
+`?bots=…`, because a hash is what survives being typed into a phone.
+
+Three pieces make it work and none of them is a special case in a scene:
+
+- **The running order is data.** `Session` holds it as a five-entry list and
+  `state.parts` says which entries are being played. Walking off the end of a part is
+  `goToStep(i)`, which skips forward to the next thing that is switched on — and a
+  mission it steps over is *marked done*, paid at roughly what a decent run pays, and
+  given a board with all three names on it. Nothing downstream can tell a skipped
+  mission from a badly played one, which is why the round table still has something to
+  argue about and the fire still has a pot to divide.
+- **`SoloTransport`.** The loopback, plus the two things a party would have supplied:
+  every action is stamped `authority` (there is nobody else to be it), and `readyResult`
+  is stamped with the local player id. Deliberately nothing else is stamped — half the
+  actions the fire sends are the *ceremony* rather than a contestant, and a `playerId` on
+  those means "whose pouch am I opening".
+- **The bots are a policy, not a mind.** They talk during the discussion (reading the old
+  written table script, which has been sitting unused in `claudia-lines.js` since the
+  round table became three live microphones), take their turn at the fire, and vote what
+  `decide` and `target` say they vote. The default walks you through the whole ceremony
+  in one run: one banishment, and then they end it.
+
+Both rehearsal levers — choosing the Traitor and skipping parts — are refused unless the
+call that started the night declared itself a rehearsal, and `Bots` is the only thing in
+the codebase that ever does. A night started from the lobby deals its own hand and plays
+its whole running order, and there is no string it can be handed that changes that.
+`test/bots.test.js` asserts exactly that, and then drives a whole bot-voted fire through
+the real reducer and the real transport to a verdict.
 
 ### The water is the load-bearing part
 
@@ -1051,7 +1271,7 @@ come for free. Call `Missions.complete({ earned, completed, ... })` when the run
 the rest happens on its own.
 
 It also joins the PLAY rotation on its own. A night draws two missions from whatever is
-registered and unlocked — three are, so a night is now a different pair of them — takes
+registered and unlocked — four are, so a night is a different pair of them — takes
 the first of your `modes` as its money mode, and deals one card from your own
 `preview().hand` as the night's twist. A mission gets announced by Claudia, twisted and
 scored inside a night without knowing that any of that exists.
@@ -1083,6 +1303,22 @@ is.
 Only implemented missions are registered and shown in the mission series.
 
 ### Reusing the world
+
+Three world kits, and they are three different shapes rather than three skins:
+`CourseKit` builds a corridor you travel *down*, `ForestKit` builds a place you stand in
+and look *around*, and `MountainKit` builds a face you fall *down*.
+
+```js
+const face   = MountainKit.makeFace(rng, { top: 1180, sections: 5 });
+const chutes = MountainKit.findChutes(face, rng, { count: 5 });   // measured, not placed
+MountainKit.buildRamps(face, rng, { spacing: 96 });
+scene.add(MountainKit.buildTerrain(face, rng));
+```
+
+`face.heightAt(x, z)` is the whole mountain — profile, folds, groom, berms, chutes and
+every kicker on it — as one pure function, and `face.frame(x, z)` answers where you are in
+the run's own language with no search in it. Anything that wants to put an object on this
+mountain asks those two and nothing else.
 
 `CourseKit` is deliberately generic:
 

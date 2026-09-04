@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
 <title>The Traitors — Missions</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a1119'/%3E%3Cpath d='M5 21h22l-3 5H8z' fill='%23d81e40'/%3E%3Cpath d='M11 20V9l11 11z' fill='%23f2c14e'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -456,6 +456,9 @@
           <div class="setup-head" id="setup-course-head">Channel</div>
           <div class="channel-name" id="setup-name">—</div>
           <div class="channel-cond" id="setup-cond">—</div>
+          <!-- what shape the course the seed drew is, if the mission
+               has anything to say about it -->
+          <div class="channel-shape" id="setup-shape"></div>
           <div class="channel-seed">
             <input id="setup-seed" type="text" inputmode="numeric" spellcheck="false"
                    aria-label="Course seed">
@@ -542,12 +545,17 @@
       <path class="slash" d="M4 20L20 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     </svg>
   </button>
-
-  <div id="touch-controls">
-    <div class="stick-zone"><div class="stick-ring"></div><div class="stick-knob"></div></div>
-    <div class="boost-btn">BOOST</div>
-  </div>
 </section>
+
+<!-- The driving pad lives outside every HUD, like the shooter's and the
+     diver's do. It used to sit inside the boat race's section, which is
+     `display:none` while any other HUD is up — so the moment a second
+     mission wanted the same controls, touch players got a screen with
+     nothing on it. -->
+<div id="touch-controls">
+  <div class="stick-zone"><div class="stick-ring"></div><div class="stick-knob"></div></div>
+  <div class="boost-btn">BOOST</div>
+</div>
 
 <!-- ============ HUD — SHOOTOUT ============ -->
 <section class="screen hud sh-hud" data-screen="hud-shoot">
@@ -732,6 +740,92 @@
   <div class="kick-pad">KICK</div>
 </div>
 
+<!-- ============ HUD — THE DESCENT ============ -->
+<section class="screen hud sk-hud" data-screen="hud-ski">
+
+  <!-- the wall of snow, when a card dealt one. Across the top of the
+       screen because that is where it is: behind and above you. -->
+  <div class="sk-avalanche" id="sk-avalanche">
+    <b>AVALANCHE</b>
+    <div class="sk-av-track"><div class="sk-av-bar" id="sk-avalanche-bar"></div></div>
+  </div>
+
+  <div class="sk-top">
+    <div class="sk-purse">
+      <div class="hud-label">Pot earnings</div>
+      <div class="sk-money" id="sk-money">£0</div>
+      <div class="sk-gain" id="sk-gain"></div>
+
+      <!-- the ladder. One meter runs the whole mission, so it gets the
+           most real estate on the screen: six rungs you can count
+           without reading, a multiplier you can read without counting,
+           and a bar towards the next one. -->
+      <div class="sk-flow-wrap" id="sk-flow-wrap">
+        <div class="sk-pips" id="sk-pips"></div>
+        <span class="sk-flow" id="sk-flow">×1</span>
+        <span class="sk-flow-lbl">flow</span>
+        <div class="sk-flow-track"><div class="sk-flow-bar" id="sk-flow-bar"></div></div>
+      </div>
+    </div>
+
+    <div class="sk-clock">
+      <div class="hud-label" id="sk-time-label">Time</div>
+      <div class="sk-time" id="sk-time">96</div>
+      <div class="sk-ghost" id="sk-ghost">—</div>
+    </div>
+
+    <div class="sk-route">
+      <div class="hud-label">Hoops</div>
+      <div class="sk-hoops" id="sk-hoops">0</div>
+      <div class="sk-section" id="sk-section">The Cornice</div>
+      <div class="sk-progress"><div class="sk-progress-fill" id="sk-progress-fill"></div></div>
+      <div class="sk-vert" id="sk-vert">0m</div>
+    </div>
+  </div>
+
+  <!-- the shortcut card. The only decision on this mountain you make
+       with your eyes, so it arrives early, says the one number that
+       matters, and points. -->
+  <div class="sk-chute" id="sk-chute">
+    <span class="sk-chute-arrow" id="sk-chute-arrow">◀</span>
+    <span class="sk-chute-body">
+      <b id="sk-chute-name">Keeper’s Cut</b>
+      <i id="sk-chute-gain">saves 60m</i>
+    </span>
+  </div>
+
+  <!-- and the air panel, which answers the only question anybody has
+       while they are off the ground: how far round am I, and is that a
+       whole number yet. -->
+  <div class="sk-air" id="sk-air">
+    <b class="sk-air-rot" id="sk-air-rot">360°</b>
+    <i class="sk-air-h" id="sk-air-h">0.0m</i>
+    <span class="sk-air-cue">let go to land</span>
+  </div>
+
+  <div class="sk-bottom">
+    <div class="sk-speedo">
+      <div class="sk-speed" id="sk-speed">0</div>
+      <div class="sk-speed-unit">km/h</div>
+      <div class="sk-speed-track"><div class="sk-speed-bar" id="sk-speed-bar"></div></div>
+    </div>
+    <div class="sk-pop" id="sk-pop">
+      <div class="sk-pop-track"><div class="sk-pop-fill" id="sk-pop-fill"></div></div>
+      <div class="sk-pop-lbl">Pop <kbd>Space</kbd></div>
+    </div>
+  </div>
+
+  <div class="center-msg" id="sk-center"></div>
+  <div class="hud-setup" id="sk-setup"></div>
+
+  <!-- speed, as two overlays rather than a number: a vignette that
+       closes in and a set of lines that streak past. Both are outside
+       every panel, so nothing you are reading sits on top of them. -->
+  <div class="sk-vignette" id="sk-vignette"></div>
+  <div class="sk-lines" id="sk-lines"></div>
+  <div class="sk-flash" id="sk-flash"></div>
+</section>
+
 <!-- ============ PAUSE ============ -->
 <section class="screen pause" data-screen="pause">
   <div class="panel pause-panel">
@@ -874,6 +968,7 @@
   window.dispatchEvent(new Event('trystero:ready'));
 </script>
 <script src="js/core/util.js"></script>
+<script src="js/core/touchguard.js"></script>
 <script src="js/core/engine.js"></script>
 <script src="js/core/input.js"></script>
 <script src="js/core/audio.js"></script>
@@ -891,6 +986,7 @@
 <script src="js/core/voicechat.js"></script>
 <script src="js/core/mission-net.js"></script>
 <script src="js/core/lobby.js"></script>
+<script src="js/core/bots.js"></script>
 <script src="js/core/mission-party.js"></script>
 <script src="js/core/roomui.js"></script>
 <script src="js/core/scenes.js"></script>
@@ -899,11 +995,14 @@
 <script src="js/world/conditions.js"></script>
 <script src="js/world/course.js"></script>
 <script src="js/world/forest.js"></script>
+<script src="js/world/castle.js"></script>
 <script src="js/world/highland.js"></script>
 <script src="js/world/reef.js"></script>
+<script src="js/world/mountain.js"></script>
 <script src="js/entities/boat.js"></script>
 <script src="js/entities/figure.js"></script>
 <script src="js/entities/swimmer.js"></script>
+<script src="js/entities/skier.js"></script>
 <script src="js/fx/fx.js"></script>
 <script src="js/entities/bow.js"></script>
 <script src="js/entities/flyers.js"></script>
@@ -916,6 +1015,8 @@
 <script src="js/missions/shootout.js"></script>
 <script src="js/missions/dive-twists.js"></script>
 <script src="js/missions/dive.js"></script>
+<script src="js/missions/ski-twists.js"></script>
+<script src="js/missions/ski.js"></script>
 <script src="js/scenes/claudia-lines.js"></script>
 <script src="js/scenes/stage.js"></script>
 <script src="js/scenes/dressing.js"></script>

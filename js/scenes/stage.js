@@ -51,6 +51,11 @@ const Stage = (() => {
 
     const land = HighlandKit.build(scene, U.makeRng(o.seed + 31), {
       moteColor: hour.moteColour,
+      /* The castle over the water lights its windows at the same hour
+         the hill puts its fire out, which is the one thing that makes
+         three dressings of one place read as one evening passing. */
+      night: o.hour === 'night',
+      evening: o.hour === 'dusk',
     });
     /* Order matters twice here. `Water.build` inside the highland kit
        resets the sea to its defaults, so the hour's palette has to be
@@ -190,6 +195,29 @@ const Stage = (() => {
       // the wide one: the whole hill and the hills beyond it
       wide: () => ({ pos: V(9.5, summitY + 4.2, 12.5),
                      look: V(0, summitY + 1.2, -2.0), fov: 54, speed: 0.36 }),
+      /* Out over the rim at the castle, with nobody in the frame. It is
+         the one shot in the show that is about the place rather than
+         the people in it, so it is long, slow and empty — and it is
+         aimed at whatever the hill says its landmark is rather than at
+         a hand-written point, so moving the castle does not silently
+         re-aim the establishing shot at open water. */
+      loch: () => {
+        const mark = land.landmark || V(-132, 54, -378);
+        /* Off to the west of the summit, so the line out to the castle
+           passes nowhere near where Claudia is standing: this is the
+           empty shot, and a presenter in the corner of it would make it
+           a shot of a presenter. Aimed a little over the keep so the
+           castle sits under the middle of the frame with sky above it. */
+        const px = -9.0, pz = 2.0;
+        /* A long lens, because it is four hundred metres away: at the
+           46mm the rest of the show is shot on it is a smudge on the
+           waterline, and at 28 it is a castle. Aimed fourteen metres
+           over the keep, which puts the island in the lower third with
+           the far hills and the sky above it. */
+        return { pos: V(px, land.heightAt(px, pz) + 2.6, pz),
+                 look: V(mark.x, mark.y + 14, mark.z),
+                 fov: 28, speed: 0.75 };
+      },
       /* Her, close, the way the show shoots her — but off to one side,
          so the sightline goes *past* the table or the fire rather than
          through it. Straight down the middle put a candle, or a metre
@@ -398,7 +426,7 @@ const Stage = (() => {
       }
       if (mySeat) mySeat.pos.copy(firstPerson.pos);
 
-      land.update(dt, camera.position);
+      land.update(dt, camera.position, t);
       Water.update(dt);
       Water.follow(camera.position.x, camera.position.z);
       Sky.update(dt, camera.position, t);

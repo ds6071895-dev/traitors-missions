@@ -72,6 +72,28 @@ const Music = (() => {
       [3, 10, 14],           // Fsus2
     ],
 
+    /* The descent. The only loop in the game that is *going* somewhere,
+       because the mission it belongs to is the only one where standing
+       still is not an option the player has.
+
+       It is built to fall forwards. There is no third in the tonic —
+       an open fifth, so the mountain never says whether this is going
+       well — and bars three to eight are a plain Bb–C–Gm–C turn, which
+       is the oldest driving loop there is and works for exactly the
+       reason it always has: the C at the end of bar eight is the one
+       chord that cannot sit still, so the loop point stops being a
+       seam and starts being a shove. */
+    descent: [
+      [0,  7, 12],      // D5        — open, no third: the drop-in
+      [0,  7, 12],
+      [8, 12, 15],      // VI    Bb
+      [10, 14, 17],     // VII   C
+      [5,  8, 12],      // iv    Gm
+      [10, 14, 17],     // VII   C
+      [8, 12, 15],      // VI    Bb
+      [10, 14, 19],     // VII   Cadd9 — never lands, so eight falls into one
+    ],
+
     /* The fire. Two chords, held, a semitone apart at the top — the
        oldest trick there is for "something is about to be decided". */
     verdict: [
@@ -135,6 +157,23 @@ const Music = (() => {
     { bpm: 96, kick: .5,  tom: .25, hat: .2,  bass: .85, pad: .8, theme: .5,  choir: .45, double: false },
     { bpm: 96, kick: .75, tom: .5,  hat: .4,  bass: 1,   pad: .7, theme: .8,  choir: .6,  double: false },
     { bpm: 96, kick: .9,  tom: .7,  hat: .55, bass: 1,   pad: .6, theme: 1,   choir: .9,  double: true  },
+  ];
+
+  /* The descent's five gears, and the one thing that makes them
+     different from the dive's: **the tempo is meant to move.** Nothing
+     in the skiing is locked to a beat, so the gearbox is free to be
+     what a gearbox is for — the band speeds up as the flow ladder
+     climbs, and a player at five times money is listening to a
+     different, faster piece of music than the one they dropped in to.
+
+     There are five rather than four because the ladder has six rungs
+     and a gear change every rung would be a rev limiter. */
+  const SKI_GEARS = [
+    { bpm: 92,  kick: 0,   tom: 0,   hat: .20, bass: .50, pad: .95, theme: 0,   choir: .35, double: false },
+    { bpm: 104, kick: .50, tom: .20, hat: .35, bass: .80, pad: .88, theme: .35, choir: .35, double: false },
+    { bpm: 118, kick: .80, tom: .45, hat: .50, bass: 1,   pad: .74, theme: .70, choir: .45, double: false },
+    { bpm: 132, kick: .95, tom: .65, hat: .60, bass: 1,   pad: .62, theme: .95, choir: .68, double: true  },
+    { bpm: 148, kick: 1,   tom: .85, hat: .72, bass: 1,   pad: .55, theme: 1,   choir: .95, double: true  },
   ];
 
   class Score {
@@ -646,6 +685,29 @@ const Music = (() => {
     }));
   }
 
+  /* The descent. Wide, fast, and built to be interrupted: the mission
+     ducks it for the length of every jump, so the band drops away when
+     the snow does and slams back in on the landing. That is not a
+     flourish — air is the only quiet moment a ski run has, and a score
+     that carried on through it would have thrown away the best beat in
+     the mission.
+
+     The plate is small. A mountain is not a cave, and reverb on a loop
+     this quick is mud. */
+  function descent() {
+    if (!AudioBus.ready) return SILENT;
+    return begin(new Score({
+      level: 0.66,
+      theme: 0.70,
+      choir: 0.62,
+      pad: 0.92,
+      percussion: 0.92,
+      reverb: 0.20,
+      progression: 'descent',
+      gears: SKI_GEARS,
+    }));
+  }
+
   /* The fire. Everything, and it climbs. */
   function verdict() {
     if (!AudioBus.ready) return SILENT;
@@ -660,6 +722,6 @@ const Music = (() => {
     }));
   }
 
-  return { boss, stage, ceremony, verdict, dive, duckAll, stopAll, pauseAll,
-           Score, GEARS, DIVE_GEARS, PROGRESSIONS };
+  return { boss, stage, ceremony, verdict, dive, descent, duckAll, stopAll, pauseAll,
+           Score, GEARS, DIVE_GEARS, SKI_GEARS, PROGRESSIONS };
 })();

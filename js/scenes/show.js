@@ -24,6 +24,7 @@ const Show = (() => {
 
   let running = false;
   let isHost = true;
+  let solo = false;                 // a rehearsal night: you and two bots
   let offNet = null, restorePot = null;
 
   /* ---------------- starting and stopping ---------------- */
@@ -39,10 +40,19 @@ const Show = (() => {
   function beginParty(opts = {}) {
     if (running) end();
     isHost = !!opts.host;
+    /* `opts.solo` is `Bots` and only `Bots`: one machine, two of the
+       three contestants driven from `bots.js`, and the two rehearsal
+       levers — a chosen Traitor and a partial running order — which
+       `Session` refuses to honour without it. Nothing on any screen can
+       set it. */
+    solo = !!opts.solo;
     Session.startParty({
       seed: opts.seed,
       players: opts.players || [],
       mode: isHost ? 'host' : 'guest',
+      rehearsal: solo,
+      parts: opts.parts,
+      traitorSeat: opts.traitorSeat,
     });
     if (opts.jumpTo && isHost) Session.jumpTo(opts.jumpTo);
     attach();
@@ -53,7 +63,8 @@ const Show = (() => {
     running = true;
     /* The one line that decides what kind of client this is. Above it
        nothing knows, and nothing needs to. */
-    Net.connect(isHost ? Transports.HostTransport : Transports.GuestTransport);
+    Net.connect(solo ? Transports.SoloTransport
+                     : (isHost ? Transports.HostTransport : Transports.GuestTransport));
     VoiceChat.init();
     VoiceChat.listen();
     /* The night's takings are the night's. `Session` adds them to its
@@ -68,6 +79,9 @@ const Show = (() => {
   function end(opts = {}) {
     if (!running) return;
     running = false;
+    // a rehearsal's two bots have nothing left to act in
+    if (solo && typeof Bots !== 'undefined') Bots.stop();
+    solo = false;
     if (offNet) { offNet(); offNet = null; }
     if (restorePot) { restorePot(); restorePot = null; }
     MissionNet.detach();
@@ -128,7 +142,12 @@ const Show = (() => {
        seed, which is why three machines can build the same water. */
     Missions.launch(m.id, {
       seed: m.seed, mode: m.mode, modId: m.modId, tod: 'auto', ghost: false,
-      party: true,
+      /* Three people inside one mission needs three people. A
+         rehearsal night has one, so its missions are launched as the
+         solo runs they actually are — `MissionNet` would refuse to go
+         live anyway, and half the party paths would then be waiting on
+         a room that is not there. */
+      party: !solo && typeof Party !== 'undefined' && Party.connected,
       host: isHost,
       players: Session.state.players.map(p => ({ id: p.id, name: p.name,
                                                  look: p.look, local: !!p.local,
@@ -151,7 +170,6 @@ const Show = (() => {
   function resultsAction(result, board) {
     if (!running || !result) return null;
     const s = Session.state;
-    const last = s.missionAt >= s.missions.length - 1;
     const earned = board
       ? Math.max(0, Math.round(board.earned || 0))
       : Math.max(0, Math.round(result.earned || 0));
@@ -159,13 +177,32 @@ const Show = (() => {
     const players = board ? (board.players || []) : [];
     let sent = false;
     return {
-      label: last ? 'To the fire' : 'To the round table',
+      label: nextRoomLabel(),
       go() {
         if (sent) return;
         sent = true;
         Net.send({ type: 'readyResult', earned, completed, players });
       },
     };
+  }
+
+  /* What the Continue button says. It used to be "table or fire" off
+     the mission index, which is right for every night that plays its
+     whole running order and wrong for a rehearsal that has switched
+     parts of it off — the button would offer a round table nobody was
+     going to sit at. `Session.state.parts` is the authority on what is
+     actually still to come. */
+  function nextRoomLabel() {
+    const s = Session.state;
+    const parts = (s && s.parts) || [];
+    const rest = s && s.missionAt === 0 ? ['table', 'm2', 'finale'] : ['finale'];
+    for (const p of rest) {
+      if (parts.indexOf(p) < 0) continue;
+      if (p === 'table') return 'To the round table';
+      if (p === 'm2') return 'To the second mission';
+      return 'To the fire';
+    }
+    return 'To the verdict';
   }
 
   /* ---------------- the verdict ---------------- */
@@ -220,5 +257,6 @@ const Show = (() => {
 
   return { beginParty, end, showVerdict, resultsAction,
            get running() { return running; },
+           get solo() { return solo; },
            get isHost() { return isHost; } };
 })();
