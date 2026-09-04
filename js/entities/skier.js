@@ -110,10 +110,24 @@ class Skier {
        proposition: the only thing on the mountain that makes speed on
        the flat. The cooldown is what stops the end of a rail from
        immediately re-mounting the rail you just left. */
-    railBoost:    11.0,   // m/s² along it, on top of whatever it drops
+    /* Six and a half rather than eleven. A rail used to be forty metres
+       and this was the number that made those forty metres worth the
+       line; a chain is a quarter of a kilometre, and eleven over that
+       distance simply parks you on the boost ceiling and holds you
+       there. Steel still beats snow everywhere and still makes speed on
+       the flat, which is the whole claim — it just no longer wins the
+       run on its own. */
+    railBoost:    6.5,    // m/s² along it, on top of whatever it drops
     railDrag:     0.010,
     railPop:      6.2,    // straight up, off the end of one
-    railGrab:     2.0,    // how near you have to be to catch it
+    railGrab:     2.2,    // how near you have to be to catch it
+    railMin:      12,     // ...and how much steel has to be left in front
+    /* Steel does not scrub, so the brake barely bites on it. This is
+       not a kindness, it is the fiction being consistent — but it is
+       also what stops a touch player who is resting a thumb on the back
+       of the stick from stalling out halfway down a long one. */
+    railBrake:    0.30,
+    railRide:     110,    // metres of grind that count as a full ride
     grindCd:      0.34,
 
     // --- the air ---
@@ -685,9 +699,15 @@ class Skier {
        button would have made rails a thing players miss. */
     if (!this.crashed && this.grindCd <= 0 && this.speed > 5.5 && face && face.railNear) {
       const hit = face.railNear(this.pos.x, this.pos.z, this.pos.y, T.railGrab);
-      // catching one three quarters of the way along is not a grind, it
-      // is a trip: there has to be enough rail left to be worth locking to
-      if (hit && hit.u < 0.72) this._mount(hit);
+      /* Catching one at the far end is not a grind, it is a trip: there
+         has to be real steel left to be worth locking to. Measured over
+         the whole chain rather than the link, because arriving late on
+         the second of five links still has three hundred metres of ride
+         in front of it. */
+      if (hit) {
+        const left = (1 - hit.u) * hit.rail.len + (hit.rail.after || 0);
+        if (left > T.railMin) this._mount(hit);
+      }
     }
 
     // ---- attitude ----
@@ -1012,7 +1032,7 @@ class Skier {
 
   _grindStep(dt, ctl, world) {
     const T = this.tune;
-    const r = this._rail;
+    let r = this._rail;
     const trick = !!ctl.trick;
     const steer = U.clamp(ctl.steer ?? 0, -1, 1);
     const thr = U.clamp(ctl.throttle ?? 0, -1, 1);
@@ -1031,10 +1051,24 @@ class Skier {
     v += T.gravity * m / (1 + m * m) * dt;
     v += T.railBoost * dt * (1 - U.smoothstep(T.boostCeil * 0.72, T.boostCeil, v));
     v -= T.railDrag * v * v * dt;
-    v -= T.brakeScrub * v * this.braking * dt;
+    v -= T.brakeScrub * T.railBrake * v * this.braking * dt;
     v = Math.max(0, v);
 
+    /* ---- off the end of a link ----
+       If the chain continues, this is not an event. The next link
+       starts exactly where this one finished, in all three axes, so the
+       hand-over is a change of which line we are reading and nothing
+       else: no launch, no cooldown, no re-mount, no `GRIND` label
+       firing for the fourth time in three seconds. The metres carried
+       by `grindDist` run straight through it, which is what makes a
+       chain read as one two-hundred-metre ride. */
     this.railU += (v * dt) / r.len;
+    while (this.railU >= 1 && r.next) {
+      const over = (this.railU - 1) * r.len;
+      r = this._rail = r.next;
+      this.railU = over / r.len;
+    }
+
     const p = this._rp;
     if (face) face.railPoint(r, this.railU, p);
     else { p.x = this.pos.x; p.y = this.pos.y; p.z = this.pos.z; }
@@ -1096,8 +1130,21 @@ class Skier {
     /* The kick off the end goes in as `lift` rather than being added
        afterwards, because `_launch` sizes the trick off the hang time
        and a trick sized before the kick is a trick that finishes with
-       half a second to spare and looks like it gave up. */
-    this._launch(world, 0, false, T.railPop * (jumped ? 0.75 : 1));
+       half a second to spare and looks like it gave up.
+
+       Two things size it, and the ordering of them is the point. A
+       *chosen* exit beats being spat off the end, because the whole
+       reason to give a player a button is to let them decide when the
+       good bit happens. And a long ride beats a short one, because a
+       two-hundred-metre grind that ends in the same little hop as a
+       twenty-metre one teaches players that length was never worth
+       riding for. Together they are the payoff the rails are built
+       around: hold it all the way down, press at the bottom, and what
+       comes off the end has enough hang time in it for the trick
+       composer to reach for something enormous. */
+    const ride = U.clamp(this.grindDist / T.railRide, 0, 1);
+    const kick = T.railPop * (jumped ? 1.15 : 0.75) * (0.70 + 0.50 * ride);
+    this._launch(world, jumped ? 0.35 * (1 + ride) : 0, false, kick);
     this.grindDist = 0;
   }
 

@@ -93,8 +93,11 @@ const SkiTwists = (() => {
       id: 'ironworks', name: 'Ironworks', icon: '≡', payout: 1.40,
       blurb: 'Steel down the whole hill. Rails everywhere, no boost pads at all, '
            + 'and the only free speed on the mountain is the kind you grind for.',
+      // per metre, the same three-to-one cut every rail took when a
+      // rail stopped being forty metres long — per run this card still
+      // pays about what it always paid
       config: { railSpacing: 68, railScale: 1.6, padSpacing: 0, rampBoost: 0,
-                moneyPerGrindMetre: 46 },
+                moneyPerGrindMetre: 16 },
     },
     {
       id: 'groomed', name: 'Cat Track', icon: '▬', payout: 1.24,
