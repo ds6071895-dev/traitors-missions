@@ -231,6 +231,14 @@ losing loses it. Nothing is banked until the fire goes out.
 | Your microphone | `V`, the pad's **Y/triangle**, or the button in the corner. It is separate from game sound, and it is on every screen |
 | A room code | four `<select>`s, so left/right on a pad dials a letter, a phone gets its native picker, and a keyboard can type A–Z |
 
+On a phone or a tablet the browser's own gestures are the enemy of all of that, so
+`js/core/touchguard.js` refuses pinch, double-tap zoom, the long-press callout and the
+trackpad's ctrl-wheel pinch — but only while the page is at 1x. The moment anything *has*
+zoomed the page, the guard stands aside so a pinch out can undo it, asks Safari to lay the
+page back out at 1x by rewriting the viewport tag, and if that fails puts a pill on screen
+saying which way out is. Refusing a pinch you cannot then reverse is how an iPad ends up
+stuck at 2x, which is the one failure the guard used to have.
+
 Claudia's voice comes from whatever the operating system has installed, which varies
 enormously, so the front screen has a picker. If there is no synthesiser at all — or the
 game is muted — the subtitles hold for a readable time instead and the pacing is
@@ -364,6 +372,16 @@ Hand** card. It includes target motion, arrow drop and wind, but it is only info
 you still have to move the crosshair onto it and loose at the right time. A standard run
 provides no lead solution at all.
 
+On a touchscreen — and only on a touchscreen — the *drag* is helped, which is a different
+thing from the arrow being helped. A mouse resolves about a tenth of a degree and a thumb
+on glass resolves nearer a whole one, so within about four degrees of a bird your drag is
+scaled down (you still do all of the moving, you just move less per millimetre) and, while
+your thumb is actually travelling, up to a third of that travel is turned towards the
+bird. It aims at the bird and never at the intercept, so the lead, the drop and the wind
+are all still yours; it cannot move a thumb that is holding still, so sitting on a lead is
+never fought; and it ignores doves. `ShootoutMission.CONFIG.assist` is the whole of it,
+and `test/aim-assist.test.js` holds it to those limits.
+
 The reticle tells you when it has locked on, and names what it locked on to. If that name
 comes up red and says **DOVE — HOLD**, do not loose: a dove costs £400, two seconds and
 your whole chain. Doves also carry a red no-entry sign in the world, visible long before
@@ -385,7 +403,8 @@ The boss is four fights in one bird, and each is a different question:
    seconds. That is the window. Then it loses patience and comes at you, and while it is
    coming there is nothing to hit: get out of the way.
 3. **The talons** — it crosses the clearing in fast attack runs. The talons are vulnerable
-   only on the approach, so you have to turn, track and lead it without aim assist.
+   only on the approach, so you have to turn, track and lead it yourself — nothing solves
+   the interception for you on any device.
 4. **The heart** — no more running. It circles close, every wingbeat is a gust that shoves
    you back a step, bats pour past, and you put five arrows through the pale chest.
 
@@ -1459,6 +1478,12 @@ useful message if anything reaches for it.
 | `transport.test.js` | A host and a guest in one process on a fake wire, including a guest that connects late and a guest that tries to vote as somebody else |
 | `swim.test.js` | The Dive's feel as arithmetic: the shaped impulse, the chain against `topSpeed`/`flowTop`, frame-rate independence at 20 fps and 120, the dive profile that tuned every air constant, and the shore — a diver at rest floating, ground above the tideline being standable, the leap off the bank, and the body being pitched the way it is travelling |
 | `look.test.js` | That nothing you can put in localStorage produces a figure with no coat on |
+| `aim-assist.test.js` | The whole licence of the touch aim assist: it never turns a still thumb, never turns more than a third as far as the thumb did, never aims at the intercept, and never helps you onto a dove |
+| `touchguard.test.js` | The zoom guard both ways round — a pinch refused at 1x, and the same pinch *allowed* once the page has zoomed, which is the only way back from an iPad stuck at 2x |
+
+The two newest suites are the exceptions to "no DOM": `touchguard.test.js` builds a
+document out of listener tables, because the thing under test is which events get a
+`preventDefault` and that needs no layout, no paint and no Safari.
 
 The whole thing takes about four seconds. Five of these have already earned their keep:
 `agendas.test.js` found two cards that could be passed by doing nothing at all,

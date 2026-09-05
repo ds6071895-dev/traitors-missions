@@ -52,7 +52,7 @@ class ShootoutMission {
     focusTime: 0.58,          // how far time slows while focusing
     baseFov: 64,
 
-    /* Aim assist: removed.
+    /* Aim assist: removed from the shot, kept for the thumb.
 
        It used to solve the whole interception for you inside a six
        degree cone. Every version of it was too much — the cones came
@@ -60,10 +60,35 @@ class ShootoutMission {
        inside out — and a playtester still said the bow was doing the
        shooting, which it was. So the lead is yours. An arrow leaves
        where you pointed it, and nothing bends it but gravity and the
-       weather.
+       weather. There is no hidden cone, snap, magnetic target, or
+       interception correction left in the shot path, and there is not
+       one on any platform.
 
-       There is no hidden cone, snap, magnetic target, or interception
-       correction left in the shot path. */
+       What `assist` below does is a different thing in a different
+       place: it is a *sensitivity curve on the drag*, on touch only,
+       and it never runs on the arrow. A mouse resolves about a tenth of
+       a degree; a thumb dragging on glass resolves nearer a whole one,
+       which is roughly the width of a pigeon at forty metres. So near a
+       bird the drag is scaled down — the thumb still does all the
+       moving, it just moves less per millimetre — and while the thumb
+       is actually travelling a small share of that travel is turned
+       towards the bird. Three things keep it from becoming the old
+       assist: it aims at the *bird*, never at the intercept, so the
+       lead, the drop and the wind are all still yours to hold; it is
+       capped as a fraction of your own movement, so a still thumb is
+       never moved for you and holding a lead is never fought; and it
+       ignores doves, because being pulled onto the one bird that costs
+       you money is not help. */
+    assist: {
+      touchOnly: true,
+      cone: 0.075,            // ≈ 4.3° — the crosshair is nearly on it already
+      slow: 0.42,             // at dead centre a drag counts for 58% of itself
+      pull: 0.55,             // rad/s ceiling on the turn towards the bird
+      share: 0.35,            // and never more than a third of your own turn
+      idle: 0.06,             // rad/s of your own input below which nothing pulls
+      minRange: 6,            // point blank needs no help
+      maxRange: 170,
+    },
 
     /* What is left is *information*. The
        reticle still names what it is pointed at and still shouts about a
@@ -225,6 +250,12 @@ class ShootoutMission {
 
     this._tmpV = new THREE.Vector3();
     this._tmpV2 = new THREE.Vector3();
+    this._assistTo = new THREE.Vector3();
+    /* Decided once, here, rather than read per frame: a run does not
+       change input device halfway through, and a mouse must never pay
+       for the scan. */
+    this._assistOn = !!this.C.assist
+                     && (!this.C.assist.touchOnly || Input.isTouch);
     this._fwd = new THREE.Vector3();
     this._right = new THREE.Vector3();
     this._q = new THREE.Quaternion();
@@ -686,14 +717,86 @@ class ShootoutMission {
     const d = Input.aimDelta();
     const s = Input.aimStick();
     const rate = (this.focusing ? 1.5 : 2.3) * dt;
-    this.yaw -= d.x * sens + s.x * rate;
-    this.pitch -= d.y * sens + s.y * rate;
+    let dYaw = -(d.x * sens + s.x * rate);
+    let dPitch = -(d.y * sens + s.y * rate);
+
+    if (this._assistOn) {
+      const a = this._aimAssist(dt, dYaw, dPitch);
+      dYaw = a.yaw; dPitch = a.pitch;
+    }
+
+    this.yaw += dYaw;
+    this.pitch += dPitch;
     this.pitch = U.clamp(this.pitch, -0.55, 1.15);
 
     // the bow's own wander rides on top of where you are pointing
     const sw = this.bow ? this.bow.sway : { x: 0, y: 0 };
     this.aimYaw = this.yaw + sw.x;
     this.aimPitch = this.pitch + sw.y - this.recoil;
+  }
+
+  /* -------- the thumb's half of the aim --------
+
+     Two effects, both of them acting on the drag you just made and
+     neither of them on the arrow you are about to loose.
+
+     `slow` is stickiness: inside the cone your drag is scaled down,
+     hardest at dead centre, back to full at the rim. It moves the
+     crosshair nowhere on its own — it only stops a thumb overshooting
+     a bird it had already found.
+
+     `pull` is a magnet, and it is deliberately a weak one. It turns
+     towards the bird itself, so every metre of lead is still yours to
+     judge; it is capped at a share of the movement you are making, so
+     a thumb held still is never turned, and a thumb held still *ahead*
+     of a bird — which is what taking a lead looks like — is left
+     completely alone; and it skips doves, which you are supposed to be
+     deciding about rather than tracking.
+
+     Touch only, by `assist.touchOnly`: a mouse does not need it and a
+     party where one player is on glass is exactly where it earns its
+     keep. */
+  _aimAssist(dt, dYaw, dPitch) {
+    const out = { yaw: dYaw, pitch: dPitch };
+    const A = this.C.assist;
+    if (!A || this.state !== 'live' || this.flags.noAssist) return out;
+    if (!this.flock || !this.flock.list) return out;
+
+    // where you are pointing, before the bow's own sway is added: the
+    // sway is what you are fighting, not something to aim the help at
+    const eye = this.camera.position;
+    const dir = this._dirFrom(this.yaw, this.pitch);
+    let best = null, bestAng = A.cone;
+    for (const f of this.flock.list) {
+      if (f.dying || !f.alive || f.guard) continue;
+      if (f.type.boss && !f.weakName) continue;
+      const anchor = f.type.boss ? f.aimPoint(this._tmpV2) : f.pos;
+      const to = this._tmpV.copy(anchor).sub(eye);
+      const dist = to.length();
+      if (dist < A.minRange || dist > A.maxRange) continue;
+      const ang = Math.acos(U.clamp(to.divideScalar(dist).dot(dir), -1, 1));
+      if (ang < bestAng) { bestAng = ang; best = this._assistTo.copy(to); }
+    }
+    if (!best) return out;
+
+    const near = 1 - bestAng / A.cone;           // 1 on the bird, 0 at the rim
+    out.yaw *= 1 - A.slow * near;
+    out.pitch *= 1 - A.slow * near;
+
+    /* Yaw is measured on a circle that shrinks as you look up, so both
+       errors are put into real angles before they are compared, and the
+       answer is put back into yaw at the end. */
+    const cp = Math.max(0.2, Math.cos(this.pitch));
+    const ey = U.wrapAngle(Math.atan2(-best.x, -best.z) - this.yaw) * cp;
+    const ep = Math.asin(U.clamp(best.y, -1, 1)) - this.pitch;
+    const err = Math.hypot(ey, ep);
+    const own = Math.hypot(dYaw * cp, dPitch);
+    if (err < 1e-5 || own < A.idle * dt) return out;
+
+    const step = Math.min(A.pull * dt * near, own * A.share, err);
+    out.yaw += (ey / err) * step / cp;
+    out.pitch += (ep / err) * step;
+    return out;
   }
 
   /* -------- walking --------

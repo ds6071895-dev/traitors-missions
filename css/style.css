@@ -62,6 +62,23 @@ input, textarea, [contenteditable]{
 }
 canvas#gl{position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none}
 
+/* The way out of a zoom that stuck. touchguard.js makes this element
+   and only shows it once it has tried and failed to put the page back
+   to 1x itself, so on a healthy device it never exists at all. */
+#zoom-hint{
+  position:fixed; left:50%; transform:translate(-50%,-140%);
+  top:calc(env(safe-area-inset-top, 0px) + 10px); z-index:9000;
+  padding:9px 16px; border-radius:999px; pointer-events:none;
+  background:rgba(10,17,25,.92); border:1px solid rgba(242,193,78,.55);
+  color:var(--paper); font-family:var(--body); font-size:13px; font-weight:700;
+  letter-spacing:.02em; white-space:nowrap; box-shadow:0 6px 22px rgba(0,0,0,.5);
+  opacity:0; transition:transform .22s ease, opacity .22s ease;
+}
+/* Nothing to tap until there is something to say: parked, it must not
+   sit invisibly over the top of the screen swallowing taps. */
+#zoom-hint.show{transform:translate(-50%,0); opacity:1; pointer-events:auto}
+
+
 kbd{
   font-family:var(--body); font-size:.68em; font-weight:700; letter-spacing:.02em;
   background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22);
