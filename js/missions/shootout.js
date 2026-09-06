@@ -505,7 +505,8 @@ class ShootoutMission {
     if (this.party) {
       MissionNet.attach('shootout');
       this._offEvents = MissionNet.on('event', (d, from) => this._onNetEvent(d, from));
-      RoomUI.showAgenda(this._agendaProgress());
+      this._agendaCheckpoint();
+      RoomUI.showAgenda();
     }
     this.state = this.party ? 'waiting' : 'countdown';
     this.countdown = 3.999;
@@ -565,7 +566,8 @@ class ShootoutMission {
       if (peer.bow) Engine.disposeObject(peer.bow);
     }
     this.peers.clear();
-    if (this.party) { RoomUI.hideField(); RoomUI.hideAgenda(); }
+    RoomUI.hideAgenda();
+    if (this.party) RoomUI.hideField();
     if (this.music) { this.music.stop(0.4); this.music = null; }
     if (this.windSnd) this.windSnd.stop();
     if (this._unlockWatch) this._unlockWatch();
@@ -2220,11 +2222,22 @@ class ShootoutMission {
   }
 
   _updateField(dt) {
-    if (!this.party) return;
+    /* Marking the task is a keypress and a pad button, and both of
+       those are edges that only exist inside a frame. The strip below
+       is throttled to a few times a second, which is fine for a
+       scoreboard and would drop most of a button press, so the poll
+       goes above the throttle and the drawing stays below it. */
+    if (this.agenda) RoomUI.pollMark();
     this._fieldT -= dt;
     if (this._fieldT > 0) return;
     this._fieldT = 0.25;
-    if (this.agenda) RoomUI.showAgenda(this._agendaProgress());
+    /* The task chip is not part of the strip and does not need three
+       people to be worth drawing — a rehearsal deals a card too, and a
+       Traitor who cannot see how their own task is going is playing a
+       different game from the one the verdict is about to judge. */
+    if (this.agenda) this._agendaCheckpoint();
+ RoomUI.showAgenda();
+    if (!this.party) return;
 
     const mine = Math.round(this._net());
     const rows = [{ playerId: this.meId, name: 'You', m: mine }];
@@ -2245,11 +2258,17 @@ class ShootoutMission {
   /* The task, how far along it is, and whether the alibi is standing
      up right now — read from the same stats the host will judge on, so
      the chip can never promise something the verdict disagrees with. */
-  _agendaProgress() {
+  /* The deck is voice, so there is nothing in `this.stats` left for
+     the chip to read. This is still called every time the chip is
+     drawn for one reason: it tells the deck when the run has stopped,
+     and that is the deadline on marking the card. A task you did not
+     mark while the microphone was still open is a task you did not do,
+     and this is the line that shuts the window. */
+  _agendaCheckpoint() {
     const card = this.agenda;
-    if (!card) return '';
-    if (typeof Agendas === 'undefined') return card.hud || '';
-    return Agendas.state(card.id, this.stats) || card.hud || '';
+    if (!card || typeof Agendas === 'undefined') return;
+    const over = this.state === 'finished' || this.state === 'failed';
+    Agendas.state(card.id, null, over);
   }
 
   /* Paying back a dove. The clock runs from the shot and stops the

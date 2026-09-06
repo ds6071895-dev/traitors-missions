@@ -72,8 +72,56 @@ const Exposed = (() => {
 
       ...speak('exposeAfter', { name }, ['claudia', null, 'players']),
       { then: () => Scenes.barrier('exposure-ceremony-complete') },
-      { then: () => { if (Session.isHost) Net.send({ type: 'exposeDone' }); } },
+
+      /* And then the night is over, here, in this room.
+
+         `exposeDone` is what ends it: the host's session pays the pot
+         out and moves everybody to the verdict phase. Nothing used to
+         open the verdict panel on the far side of that, though. The
+         director only opens it for a client that arrives in the phase
+         cold — a reconnect — because on an ordinary night the fire has
+         a last line to say and owns the moment it goes up. An exposure
+         ends the night from inside a scene that has no ballot in it and
+         never reaches that code, so all three browsers sat looking at a
+         table nobody could leave, with the game technically finished
+         behind them.
+
+         So this ceremony opens it, exactly as the fire opens its own.
+         The wait is for the outcome to exist: on the host it is already
+         there by the time `exposeDone` returns, and a guest is waiting
+         on the snapshot that carries it. */
+      {
+        then: async () => {
+          if (Session.isHost) Net.send({ type: 'exposeDone' });
+          const out = await outcome(8000);
+          if (out && typeof Show !== 'undefined') Show.showVerdict(out);
+        },
+      },
     ];
+  }
+
+  /* The night's result, once it exists. Every client reaches this from
+     a different direction — the host has already written it, a guest is
+     waiting on a packet — so this asks the state, listens for anything
+     at all to arrive, and gives up after `ms` with whatever is there.
+     Answering with nothing is still better than never answering: the
+     scene ends either way and `show.js` has its own backstop. */
+  function outcome(ms) {
+    const now = () => (Session.state && Session.state.outcome) || null;
+    const have = now();
+    if (have) return Promise.resolve(have);
+    return new Promise((resolve) => {
+      let done = false, off = null, timer = null;
+      const finish = (o) => {
+        if (done) return;
+        done = true;
+        if (off) off();
+        clearTimeout(timer);
+        resolve(o);
+      };
+      off = Net.on(() => { const o = now(); if (o) finish(o); });
+      timer = setTimeout(() => finish(now()), Math.max(0, ms || 0));
+    });
   }
 
   /* Whether this room owes a ceremony. Host-only, and not what decides
@@ -94,5 +142,5 @@ const Exposed = (() => {
     return true;
   }
 
-  return { beats, owed, request };
+  return { beats, owed, request, outcome };
 })();

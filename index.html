@@ -554,7 +554,14 @@
      nothing on it. -->
 <div id="touch-controls">
   <div class="stick-zone"><div class="stick-ring"></div><div class="stick-knob"></div></div>
-  <div class="boost-btn">BOOST</div>
+  <!-- The right-hand column. Most missions want one button; the
+       mountain wants two, because a skier holds a tuck for most of the
+       run and a stick that has to be pushed forward to hold it is a
+       stick that has stopped steering. -->
+  <div class="drive-btns">
+    <div class="aux-btn" hidden>TUCK</div>
+    <div class="boost-btn">BOOST</div>
+  </div>
 </div>
 
 <!-- ============ HUD — SHOOTOUT ============ -->
@@ -851,6 +858,13 @@
 
     <div class="result-rows" id="result-rows"></div>
 
+    <!-- The Traitor's card, marked. Only ever rendered for the one
+         player who was dealt it, and the only place in the game that
+         says out loud whether the task counted — the chip over the
+         mission says it live, and this says it once the numbers have
+         stopped moving. -->
+    <div class="result-task" id="result-task" hidden></div>
+
     <!-- everybody's numbers, in a party run. It is the same board the
          round table argues over, and it accuses nobody. -->
     <div class="result-board" id="result-board" hidden></div>
@@ -895,6 +909,12 @@
     <p class="verdict-line" id="verdict-line"></p>
 
     <div class="verdict-cast" id="verdict-cast"></div>
+
+    <!-- The reckoning. The Traitor's card was spoken into a microphone
+         and nothing in this game could hear it, so this is where the
+         two people who *were* listening find out what it was and
+         whether it was claimed. Printed, never spoken. -->
+    <div class="verdict-task" id="verdict-task" hidden></div>
 
     <div class="verdict-money">
       <div class="vm-row"><span>The pot</span><b id="verdict-pot">£0</b></div>
@@ -947,10 +967,17 @@
   <div class="board-grid" id="board-grid"></div>
 </div>
 
+<!-- The Traitor's task, and the only panel in the game written for
+     one pair of eyes. What you have to say, the button that says you
+     said it, and whether it counted. Nothing on this machine can hear
+     a microphone, so the button is the whole verdict — which is why it
+     asks twice and why it dies the moment the run does. -->
 <div id="agenda-chip" hidden>
   <div class="ac-kicker">Your task · nobody else can see this</div>
   <div class="ac-text" id="agenda-text"></div>
   <div class="ac-prog" id="agenda-prog"></div>
+  <button class="ac-mark" id="agenda-mark" type="button">I said it</button>
+  <div class="ac-state" id="agenda-state"></div>
 </div>
 
 <div id="boot"><div class="boot-inner"><div class="boot-spin"></div><span>Loading the loch…</span></div></div>
@@ -1022,7 +1049,6 @@
 <script src="js/scenes/dressing.js"></script>
 <script src="js/scenes/reveal.js"></script>
 <script src="js/scenes/hill.js"></script>
-<script src="js/scenes/roundtable.js"></script>
 <script src="js/scenes/fireplace.js"></script>
 <script src="js/scenes/exposed.js"></script>
 <script src="js/scenes/show.js"></script>

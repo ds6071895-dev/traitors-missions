@@ -243,6 +243,13 @@ const Voice = (() => {
   }
 
   return { init, unlock, say, stop, clear, show, list, setVoice, setMuted, refresh,
+           /* Whether a line is still running its clock. Not "is the
+              synthesiser making a noise" — a muted player and a machine
+              with no speech in it still hold the beat for the reading
+              time, and that is the thing anybody outside here wants to
+              know. Used as a liveness signal: a room that is still
+              talking is a room whose ceremony has not stalled. */
+           get speaking() { return !!live; },
            get supported() { return supported; },
            get muted() { return muted; },
            get current() { const v = best(); return v ? { uri: v.voiceURI, name: v.name, lang: v.lang } : null; } };

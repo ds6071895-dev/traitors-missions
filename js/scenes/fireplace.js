@@ -1,10 +1,15 @@
 /* ------------------------------------------------------------------
    fireplace.js — the endgame.
 
-   Night, the crest, a fire, and the two questions the whole show is
-   built to arrive at: end it, or banish one more. Everything that has
-   happened up to here has been earning money; this is the only part
-   where anything is at stake.
+   Night, the crest, a fire, and the one question the whole show is
+   built to arrive at: which of the three of you is it. Everything that
+   has happened up to here has been earning money; this is the only
+   part where anything is at stake.
+
+   There used to be a Fire of Truth in front of that — end the game, or
+   banish again, unanimous to stop — and it went when the last night
+   with no Traitor in it did. "Shall we bother" is not a question worth
+   asking twice a round when the answer is always yes.
 
    The scene is a loop rather than a script, because the number of
    rounds depends on what burns, so it is written as an async driver
@@ -13,10 +18,8 @@
    caught up — which is also what will make it correct when the votes
    are arriving over a wire instead of from `bots.js` next door.
 
-   The pouch is the one piece of real theatre, and it carries two kinds
-   of answer. First Claudia burns every decision pouch, end-game choices
-   first, to reveal the ballot person by person. A banishment later
-   opens the role pouch of whoever was named. Ending the game opens
+   The pouch is the one piece of real theatre. The banishment opens the
+   role pouch of whoever was named; reaching the final two then opens
    *every* remaining role pouch — one at a time, yours last — before
    anyone is told who won.
 
@@ -411,9 +414,7 @@ class FinaleScene {
     let guard = 0;
     while (this._alive && Session.state.phase === 'finale' && guard++ < 32) {
       const stage = Session.state.finale.stage;
-      if (stage === 'decide') await this._decide();
-      else if (stage === 'decisions') await this._decisions();
-      else if (stage === 'name') await this._name();
+      if (stage === 'name') await this._name();
       else if (stage === 'names') await this._names();
       else if (stage === 'reveal') await this._reveal();
       else if (stage === 'pouches') await this._pouches();
@@ -422,68 +423,28 @@ class FinaleScene {
     if (this._alive) await this._verdict();
   }
 
-  async _decide() {
-    if (this.music) this.music.setGear(Math.min(2, 1 + this._round()), 3);
-    const two = Session.alive().length <= 2;
-    await this._say(two ? 'voteDecideTwo' : 'voteDecide', {}, 'fire');
-    if (!this._alive || Session.state.finale.stage !== 'decide') return;
-
-    /* Talk first, vote second — and one at a time. The board from the
-       second mission is up while they do it. */
-    RoomUI.showBoard(Session.state.debrief);
-    await this._say('floorOpen', {}, 'players');
-    if (!this._alive) return;
-    await this._floorRound();
-    RoomUI.hideBoard();
-    if (!this._alive || Session.state.finale.stage !== 'decide') return;
-
-    this._tallyCount = 0;
-    this._openVote({
-      kicker: 'Round ' + (this._round() + 1),
-      title: 'End the game, or banish?',
-      note: 'Everyone must choose End Game. One Banish vote continues. '
-          + U.money(Session.state.pot) + ' on the table.',
-      options: [
-        { label: 'END THE GAME', sub: 'Split the pot with whoever is left',
-          tone: 'end', action: { type: 'vote', choice: 'end' } },
-        { label: 'BANISH', sub: 'Name one more, and open their pouch',
-          tone: 'banish', action: { type: 'vote', choice: 'banish' } },
-      ],
-    });
-
-    await this._waitFor(() => Session.state.finale.stage !== 'decide'
-                           || Session.state.phase !== 'finale');
-    this._closeVote();
-    await Scenes.wait(1.1);
-  }
-
-  /* Nobody's decision is shown until the whole ballot is in. Claudia
-     then takes every decision pouch herself, with END GAME pouches
-     first and BANISH AGAIN pouches after them. The authority owns that
-     ordering; this scene simply walks the queue it is given. */
-  async _decisions() {
-    await this._say('decisionPouches', {}, 'players');
-    if (!this._alive || Session.state.finale.stage !== 'decisions') return;
-
-    let guard = 0;
-    while (this._alive && guard++ < 8
-           && Session.state.phase === 'finale'
-           && Session.state.finale.stage === 'decisions') {
-      const f = Session.state.finale;
-      const playerId = f.decisionQueue[0];
-      const target = Session.playerById(playerId);
-      const choice = f.votes[playerId];
-      if (!target || (choice !== 'end' && choice !== 'banish')) break;
-      await this._decisionCeremony(target, choice, f.decisionsShown.length + 1);
-      if (!this._alive) return;
-      await Scenes.wait(0.45);
-    }
-  }
-
+  /* The one ballot of the night. There used to be a Fire of Truth in
+     front of it — end the game, or banish again — and the thirty
+     seconds each lived inside that. There is always a Traitor now, so
+     the only question left is who, and the floor moved here with it:
+     everyone talks, then everyone names. */
   async _name() {
+    if (this.music) this.music.setGear(Math.min(2, 1 + this._round()), 3);
     const revote = Session.state.finale.nameRound > 0;
     await this._say(revote ? 'voteNameTie' : 'voteName', {}, 'players');
     if (!this._alive || Session.state.finale.stage !== 'name') return;
+
+    /* Talk first, name second — and one at a time. The board from the
+       mission is up while they do it. A revote has already had its
+       floor and goes straight back to the ballot. */
+    if (!revote) {
+      RoomUI.showBoard(Session.state.debrief);
+      await this._say('floorOpen', {}, 'players');
+      if (!this._alive) return;
+      await this._floorRound();
+      RoomUI.hideBoard();
+      if (!this._alive || Session.state.finale.stage !== 'name') return;
+    }
 
     this._tallyCount = 0;
     const you = Session.state.players.find(p => p.local);
@@ -556,7 +517,7 @@ class FinaleScene {
     });
     if (!this._alive) return;
 
-    if (Session.state.phase === 'finale' && Session.state.finale.stage === 'decide') {
+    if (Session.state.phase === 'finale' && Session.state.finale.stage === 'name') {
       await this._say('againAfterFaithful', {}, 'players');
     }
   }
@@ -592,128 +553,6 @@ class FinaleScene {
     }
   }
 
-  /* A decision pouch carries no role. Its colour only says whether its
-     owner chose END GAME or BANISH AGAIN, so it gets a smaller reveal
-     than a role pouch and never leaks hidden role information. */
-  async _decisionCeremony(target, choice, salt) {
-    const claudia = this.stage.claudia;
-    const intro = this._setFor('decisionPouchIntro', target);
-
-    await this._say(intro, { name: target.name }, 'on:' + target.id, salt);
-    if (!this._alive) return;
-
-    this._spawnPouch(target);
-    this.stage.setShot('claudiaSide');
-    const seat = this.stage.seats.find(st => st.id === target.id);
-    this.stage.lookAt(seat ? seat.pos : null);
-    await Scenes.wait(1.25);
-    if (!this._alive) return this._abort();
-
-    Figure.setHolding(claudia, true);
-    if (this._pouch) this._pouch.state = 'held';
-    await this._say('decisionPouchThrow', { name: target.name }, 'claudiaTight', salt);
-    if (!this._alive) return this._abort();
-
-    await Scenes.barrier('decision-' + this._round() + '-' + target.id + '-throw');
-    if (!this._alive) return this._abort();
-
-    Voice.clear();
-    if (this.music) { this.music.duck(0.14, 1.5); }
-    this._heartOn = true;
-    this._riser = AudioBus.play('pouch-riser', { dur: 2.0 });
-    this.stage.setCinematic(true, 'fireTight', { speed: 0.45 });
-    await Scenes.wait(0.75);
-    if (!this._alive) return this._abort();
-
-    this.stage.lookAt(this.stage.fire ? this.stage.fire.position : null);
-    Figure.throwNow(claudia, 0.8);
-    if (this._pouch) this._pouch.state = 'wind';
-    await Scenes.wait(Figure.THROW_AT * 0.8);
-    if (!this._alive) return this._abort();
-
-    this._throwPouch();
-    AudioBus.play('pouch-toss');
-    Figure.setHolding(claudia, false);
-    this.stage.setShot('fireHero', { speed: 0.9 });
-    await Scenes.wait(0.78);
-
-    await this._burnDecision(target.id);
-    if (!this._alive) return this._abort();
-    await Scenes.wait(1.35);
-    Scenes.Cine.card(null);
-    this.stage.setCinematic(false);
-    await this._say(choice === 'end' ? 'decisionEnd' : 'decisionBanish',
-                    { name: target.name }, 'on:' + target.id, salt);
-    await Scenes.barrier('decision-' + this._round() + '-' + target.id + '-complete');
-    this.stage.lookAt(null);
-  }
-
-  _burnDecision(playerId) {
-    return new Promise((resolve) => {
-      let cancel = null;
-      let done = false;
-      const finish = (choice, e) => {
-        if (done) return;
-        done = true;
-        off();
-        if (cancel) this._waits.delete(cancel);
-        this._decisionFlare(choice, e || { playerId, choice });
-        resolve(choice);
-      };
-      const off = Net.on((e) => {
-        if (e.type === 'decision' && e.playerId === playerId) {
-          finish(e.choice, e);
-          return;
-        }
-        const recovered = (Session.state.finale.decisionsShown || [])
-          .find(x => x.playerId === playerId);
-        if (recovered) finish(recovered.choice, recovered);
-      });
-      cancel = () => {
-        if (done) return;
-        done = true;
-        off(); this._waits.delete(cancel); resolve('end');
-      };
-      this._waits.add(cancel);
-      const shown = (Session.state.finale.decisionsShown || [])
-        .find(x => x.playerId === playerId);
-      if (shown) { finish(shown.choice, shown); return; }
-      if (Session.isHost) Net.send({ type: 'decisionPouch', playerId });
-    });
-  }
-
-  _decisionFlare(choice, e) {
-    const ending = choice === 'end';
-    const col = ending ? '#45e58c' : '#ef294c';
-    const deep = ending ? '#178c55' : '#8c0a1c';
-    this._endHeldBeat();
-    AudioBus.play('fire-whoosh', { big: false });
-    AudioBus.play('vote-in', { index: (e && e.index) || 0 });
-    Input.rumble(0.42, 300);
-    Input.haptic(35);
-    if (this.music) this.music.duck(0.9, 0.16);
-
-    const fire = this.stage.fire;
-    if (fire) {
-      fire.userData.want = 3.2;
-      fire.userData.light.color.set(col);
-      fire.userData.light.distance = 62;
-      fire.userData.flames.forEach((fl, i) => {
-        fl.material.color.set(i < 2 ? col : deep);
-        fl.material.opacity = 1;
-      });
-      this._settle = { t: 0, from: new THREE.Color(col) };
-      this._burstEmbers(col, 0.42);
-    }
-    this.stage.shake(0.48);
-
-    const p = e && Session.playerById(e.playerId);
-    Scenes.Cine.card({
-      kicker: p ? p.name + ' chose' : 'The pouch says',
-      title: ending ? 'END GAME' : 'BANISH AGAIN',
-      tone: ending ? 'faithful' : 'traitor',
-    });
-  }
 
   /* ---------------- the ceremony ----------------
      One pouch, start to finish. Everything that differs between a

@@ -72,13 +72,6 @@ test('a whole ballot leaks nothing, including the tally', () => {
   ctx.Session.startParty({ seed: 77, players: PLAYERS, mode: 'host' });
   ctx.Session.dispatch({ type: 'advance' });
   ctx.Session.dispatch({ type: 'result', earned: 100, completed: true, players: [] });
-  ctx.Session.dispatch({ type: 'advance' });
-  ctx.Session.dispatch({ type: 'result', earned: 100, completed: true, players: [] });
-
-  for (const id of ['a', 'b', 'c']) ctx.Session.dispatch({ type: 'vote', playerId: id, choice: 'banish' });
-  ok(!leaks(ctx), 'leaked while the decision ballot was closed');
-  for (let i = 0; i < 3; i++) ctx.Session.dispatch({ type: 'decisionPouch' });
-  ok(!leaks(ctx), 'leaked as the decisions burned');
 
   ctx.Session.dispatch({ type: 'name', playerId: 'a', targetId: 'c' });
   ctx.Session.dispatch({ type: 'name', playerId: 'b', targetId: 'c' });
@@ -113,20 +106,26 @@ test('an unfinished task is not in the state either', () => {
 
 section('privacy — what may be disclosed, and when');
 
+/* The whole night, driven from outside: one mission, one naming, one
+   banishment, then the closing walk. It stops on `verdict`. */
+function toTheEnd(ctx) {
+  ctx.Session.dispatch({ type: 'advance' });
+  ctx.Session.dispatch({ type: 'result', earned: 1, completed: true, players: [] });
+  ctx.Session.dispatch({ type: 'name', playerId: 'a', targetId: 'c' });
+  ctx.Session.dispatch({ type: 'name', playerId: 'b', targetId: 'c' });
+  ctx.Session.dispatch({ type: 'name', playerId: 'c', targetId: 'a' });
+  for (let i = 0; i < 3; i++) ctx.Session.dispatch({ type: 'speakName' });
+  ctx.Session.dispatch({ type: 'reveal' });
+  for (let i = 0; i < 4; i++) ctx.Session.dispatch({ type: 'pouch' });
+}
+
 test('a role only leaves as an event, never as state', () => {
   const ctx = fresh();
   ctx.Session.startParty({ seed: 77, players: PLAYERS, mode: 'host' });
   const escaped = [];
   ctx.Session.on('reveal', (r) => escaped.push(r.role));
   ctx.Session.on('expose', (e) => e.playerId && escaped.push(e.role));
-  ctx.Session.dispatch({ type: 'advance' });
-  ctx.Session.dispatch({ type: 'result', earned: 1, completed: true, players: [] });
-  ctx.Session.dispatch({ type: 'advance' });
-  ctx.Session.dispatch({ type: 'result', earned: 1, completed: true, players: [] });
-  for (const id of ['a', 'b', 'c']) ctx.Session.dispatch({ type: 'vote', playerId: id, choice: 'end' });
-  for (let i = 0; i < 3; i++) ctx.Session.dispatch({ type: 'decisionPouch' });
-  // ending the game opens the pouches one at a time
-  for (let i = 0; i < 4; i++) ctx.Session.dispatch({ type: 'pouch' });
+  toTheEnd(ctx);
   ok(escaped.length >= 3, 'the pouches disclosed, as events');
   eq(ctx.Session.state.phase, 'verdict', 'and only then is the night over');
 });
@@ -134,13 +133,7 @@ test('a role only leaves as an event, never as state', () => {
 test('the verdict is the one place roles are meant to be face up', () => {
   const ctx = fresh();
   ctx.Session.startParty({ seed: 77, players: PLAYERS, mode: 'host' });
-  ctx.Session.dispatch({ type: 'advance' });
-  ctx.Session.dispatch({ type: 'result', earned: 1, completed: true, players: [] });
-  ctx.Session.dispatch({ type: 'advance' });
-  ctx.Session.dispatch({ type: 'result', earned: 1, completed: true, players: [] });
-  for (const id of ['a', 'b', 'c']) ctx.Session.dispatch({ type: 'vote', playerId: id, choice: 'end' });
-  for (let i = 0; i < 3; i++) ctx.Session.dispatch({ type: 'decisionPouch' });
-  for (let i = 0; i < 4; i++) ctx.Session.dispatch({ type: 'pouch' });
+  toTheEnd(ctx);
   ok(leaks(ctx), 'the verdict is allowed to say what everybody was');
   ok(ctx.Session.state.outcome.roles.length === 3, 'all three cards are up');
 });

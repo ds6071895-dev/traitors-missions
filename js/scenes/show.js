@@ -26,6 +26,7 @@ const Show = (() => {
   let isHost = true;
   let solo = false;                 // a rehearsal night: you and two bots
   let offNet = null, restorePot = null;
+  let verdictGuard = null;      // see `armVerdictGuard`
 
   /* ---------------- starting and stopping ---------------- */
 
@@ -46,6 +47,10 @@ const Show = (() => {
        `Session` refuses to honour without it. Nothing on any screen can
        set it. */
     solo = !!opts.solo;
+    /* A fresh night, a fresh card, and — this is the part that matters
+       — an unmarked one with its window open again. The deck holds
+       that mark on this machine and nothing else clears it. */
+    if (typeof Agendas !== 'undefined') Agendas.begin();
     Session.startParty({
       seed: opts.seed,
       players: opts.players || [],
@@ -79,6 +84,8 @@ const Show = (() => {
   function end(opts = {}) {
     if (!running) return;
     running = false;
+    clearTimeout(verdictGuard);
+    verdictGuard = null;
     // a rehearsal's two bots have nothing left to act in
     if (solo && typeof Bots !== 'undefined') Bots.stop();
     solo = false;
@@ -107,7 +114,8 @@ const Show = (() => {
       /* A live finale owns its last Claudia line before opening this
          panel. A reconnect has no ceremony left to resume, so its
          catch-up snapshot opens the already-personalised verdict now. */
-      if (first && Session.state.outcome) showVerdict(Session.state.outcome);
+      if (first && Session.state.outcome) { showVerdict(Session.state.outcome); return; }
+      armVerdictGuard();
       return;
     }
     const swap = () => {
@@ -116,7 +124,6 @@ const Show = (() => {
       Screens.hideAll();
       switch (phase) {
         case 'hill':    Scenes.play(new HillScene()); break;
-        case 'table':   Scenes.play(new RoundtableScene()); break;
         case 'finale':  Scenes.play(new FinaleScene()); break;
         case 'mission': launchMission(); break;
         default: break;
@@ -186,28 +193,65 @@ const Show = (() => {
     };
   }
 
-  /* What the Continue button says. It used to be "table or fire" off
-     the mission index, which is right for every night that plays its
-     whole running order and wrong for a rehearsal that has switched
-     parts of it off — the button would offer a round table nobody was
-     going to sit at. `Session.state.parts` is the authority on what is
-     actually still to come. */
+  /* What the Continue button says. There is one mission and one room
+     after it now, so this is nearly always "to the fire" — but a
+     rehearsal can switch the fire off, and a button offering a room
+     nobody is going to sit in is worse than a plain one.
+     `Session.state.parts` stays the authority on what is still to
+     come. */
   function nextRoomLabel() {
     const s = Session.state;
     const parts = (s && s.parts) || [];
-    const rest = s && s.missionAt === 0 ? ['table', 'm2', 'finale'] : ['finale'];
-    for (const p of rest) {
-      if (parts.indexOf(p) < 0) continue;
-      if (p === 'table') return 'To the round table';
-      if (p === 'm2') return 'To the second mission';
-      return 'To the fire';
-    }
-    return 'To the verdict';
+    return parts.indexOf('finale') >= 0 ? 'To the fire' : 'To the verdict';
   }
 
   /* ---------------- the verdict ---------------- */
 
+  /* The backstop, and only ever that.
+
+     Every ordinary ending has a ceremony that opens the panel itself,
+     because the room it happens in owns the last thing Claudia says and
+     a director that barged in over it would cut her off. What none of
+     them can promise is that the ceremony *finishes* — a scene torn
+     down mid-beat, a barrier that outlived its room, a browser that
+     came back from the dead half a second too late — and a night that
+     is over inside the session but has never put a panel on the screen
+     is a night nobody can leave.
+
+     So the phase arms a watcher instead of a panel, and what it watches
+     is whether the room is still talking. A ceremony finishing is a
+     ceremony saying something every few seconds; the longest silence
+     inside one is the held beat before a pouch answers, which is a
+     handful of them. A stalled one is silent for as long as you leave
+     it. Eighteen unbroken seconds of nothing, with the night already
+     over in the session and no panel on the screen, is not a pause.
+
+     Whoever gets there first wins: `showVerdict` cancels this, so on
+     every ordinary night it costs a few timers and does nothing. */
+  const GUARD_TICK = 3000, GUARD_QUIET = 6;
+
+  function armVerdictGuard() {
+    clearTimeout(verdictGuard);
+    let quiet = 0;
+    const tick = () => {
+      verdictGuard = setTimeout(() => {
+        if (!running) return;
+        const s = Session.state;
+        if (!s || s.phase !== 'verdict' || !s.outcome) return;
+        if (Screens.current === 'verdict') return;
+        const talking = typeof Voice !== 'undefined' && Voice.speaking;
+        quiet = talking ? 0 : quiet + 1;
+        if (quiet < GUARD_QUIET) { tick(); return; }
+        console.warn('verdict panel was never opened by a ceremony — opening it');
+        Voice.clear();
+        showVerdict(s.outcome);
+      }, GUARD_TICK);
+    };
+    tick();
+  }
+
   function showVerdict(o) {
+    clearTimeout(verdictGuard);
     const el = (id) => document.getElementById(id);
     const won = !!o.won;
     // the fire keeps burning behind this, but the letterbox has done its
@@ -246,6 +290,8 @@ const Show = (() => {
            + '</div>';
     }).join('');
 
+    paintReckoning(o);
+
     el('verdict-pot').textContent = U.money(o.pot);
     el('verdict-banked').textContent = won ? '+' + U.money(o.banked) : 'lost';
     el('verdict-banked').className = 'verdict-banked ' + (won ? 'win' : 'lose');
@@ -253,6 +299,53 @@ const Show = (() => {
 
     Screens.show('verdict');
     if (won) AudioBus.play('reveal-faithful');
+  }
+
+  /* ---------------- the reckoning ----------------
+     The one thing in this game that nothing in this game can check.
+
+     The Traitor's card was a thing to say out loud on a microphone.
+     Nothing on the host can hear a microphone, so the card was marked
+     by the only person who knew — and there has been no way, all
+     night, for anybody to find out whether that mark was honest.
+
+     This is that way. It is printed once, here, at the end, when every
+     role is already face up and there is nothing left to protect: the
+     card, word for word, and whether they claimed they said it. The
+     two people who were on that microphone with them read it and know
+     immediately. Claudia never says a word of this — she stopped
+     talking two beats ago, and a line read out by a presenter would
+     make it an accusation. Printed on a board after the money has been
+     paid, it is a fact, and what to do about it is theirs.
+
+     It is deliberately not scored. Nobody wins or loses anything on
+     it. It is the reason to have been honest, and that is all it needs
+     to be. */
+  function paintReckoning(o) {
+    const box = document.getElementById('verdict-task');
+    if (!box) return;
+    const a = o && o.agenda;
+    box.hidden = true;
+    box.innerHTML = '';
+    if (!a || !a.text) return;
+    const me = Session.state && Session.state.players.find(p => p.local);
+    const yours = !!(me && a.playerId === me.id);
+    const esc = (v) => String(v === undefined || v === null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const who = yours ? 'You were' : esc(a.name || 'The Traitor') + ' was';
+    box.className = 'verdict-task ' + (a.marked ? 'marked' : 'unmarked');
+    box.innerHTML =
+        '<div class="vt-head">The task</div>'
+      + '<div class="vt-who">' + who + ' asked to do this, out loud, '
+      + 'while all three of you were on the microphone.</div>'
+      + '<div class="vt-text">' + esc(a.text) + '</div>'
+      + '<div class="vt-mark">'
+      + (a.marked ? (yours ? 'You marked it done.'
+                           : 'They marked it done. You were there — decide for yourselves.')
+                  : (yours ? 'You never marked it.'
+                           : 'They never marked it.'))
+      + '</div>';
+    box.hidden = false;
   }
 
   return { beginParty, end, showVerdict, resultsAction,

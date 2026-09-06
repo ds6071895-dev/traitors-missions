@@ -21,9 +21,15 @@
      Everything else that wants that corner stacks off this one
      number rather than guessing, which is what they used to do. */
   --bl-foot:  clamp(96px, 13vh, 124px);
+
+  /* And the same number for the other corner, which is empty until a
+     thumb overlay puts buttons in it. */
+  --br-foot:  0px;
 }
-/* A thumbstick lives in that corner too, and it is 132px of it. */
-body.touch{ --bl-foot: calc(6vh + 146px); }
+/* A thumbstick lives in that corner too, and it is 132px of it; the
+   right-hand corner can be a 104px button with a 60px one stacked over
+   it, which is taller again. */
+body.touch{ --bl-foot: calc(6vh + 146px); --br-foot: calc(6vh + 192px); }
 
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -589,9 +595,19 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
   border:2px solid rgba(255,255,255,.22); background:rgba(8,18,30,.28)}
 .stick-knob{position:absolute; left:50%; top:50%; width:56px; height:56px; margin:-28px 0 0 -28px;
   border-radius:50%; background:rgba(242,193,78,.55); border:2px solid rgba(255,255,255,.5)}
+.drive-btns{display:flex; flex-direction:column; align-items:flex-end; gap:14px;
+  pointer-events:none}
 .boost-btn{width:104px; height:104px; border-radius:50%; pointer-events:all;
   display:grid; place-items:center; font-weight:800; letter-spacing:.1em; font-size:13px;
   background:rgba(63,224,255,.28); border:2px solid rgba(63,224,255,.7); color:#eaffff}
+/* The second button, when a mission asks for one. Deliberately a
+   different shape and colour from the round one above it: a thumb
+   finds it without looking, which is the only way it gets used at
+   forty metres a second. */
+.aux-btn{min-width:96px; height:60px; padding:0 16px; border-radius:30px; pointer-events:all;
+  display:grid; place-items:center; font-weight:800; letter-spacing:.14em; font-size:12px;
+  background:rgba(125,252,208,.22); border:2px solid rgba(125,252,208,.62); color:#ddfff2}
+.aux-btn[hidden]{display:none!important}
 
 /* ---------------- pause / results ---------------- */
 .screen.pause, .screen.results{align-items:center; justify-content:center;
@@ -1991,6 +2007,34 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .vc.out{opacity:.52}
 .vc.out .vc-name{text-decoration:line-through; text-decoration-thickness:1px}
 
+/* ---------------- the reckoning ----------------
+   Printed at the end and nowhere else: what the Traitor was told to
+   say out loud, and whether they claimed they said it. Deliberately
+   quieter than the cast row above it — this is evidence handed to the
+   room, not a verdict the game is delivering. */
+.verdict-task{
+  margin:0 auto 20px; max-width:520px; text-align:left;
+  padding:13px 15px 14px; border-radius:12px;
+  background:rgba(8,16,26,.72); border:1px solid rgba(255,255,255,.12);
+}
+.verdict-task[hidden]{display:none}
+.vt-head{
+  font-size:8px; letter-spacing:.20em; text-transform:uppercase; font-weight:800;
+  color:var(--gold); margin-bottom:7px;
+}
+.vt-who{font-size:11.5px; line-height:1.5; color:rgba(255,255,255,.62)}
+.vt-text{
+  margin-top:8px; font-size:14px; font-weight:700; line-height:1.45;
+  color:var(--paper);
+}
+.vt-mark{
+  margin-top:10px; padding-top:9px; border-top:1px solid rgba(255,255,255,.12);
+  font-size:10px; letter-spacing:.14em; text-transform:uppercase; font-weight:800;
+}
+.verdict-task.marked{border-color:rgba(96,222,168,.34)}
+.verdict-task.marked .vt-mark{color:var(--mint)}
+.verdict-task.unmarked{border-color:rgba(216,30,64,.42)}
+.verdict-task.unmarked .vt-mark{color:#ff8095}
 .verdict-money{
   border-top:1px solid rgba(255,255,255,.10); padding-top:14px; margin-bottom:20px;
   display:flex; flex-direction:column; gap:7px;
@@ -2034,6 +2078,8 @@ body.nav-mode .btn:focus{outline:none}
   .say-text{font-size:13px}
   .screen.say, .screen.vote{padding-bottom:calc(15vh + env(safe-area-inset-bottom))}
   .verdict-cast{gap:6px}
+  .verdict-task{padding:11px 12px 12px}
+  .vt-text{font-size:13px}
   .vc{flex:1 1 90px; padding:9px 5px}
   .vc-name{font-size:14px}
   /* thumbs need a target, not a link */
@@ -2334,6 +2380,26 @@ select.nav-on{outline-offset:2px}
 .bd-row.you{background:rgba(242,193,78,.13); border:1px solid rgba(242,193,78,.3)}
 .bd-row.out{opacity:.45; text-decoration:line-through}
 
+/* The Traitor's card, marked, at the foot of their own scoreboard.
+   Inside the panel rather than floating over it, so there is no screen
+   size on which it can land on something else. */
+.result-task{
+  margin:14px 0 4px; padding:11px 14px 12px; border-radius:12px; text-align:left;
+  background:rgba(26,8,14,.72); border:1px solid rgba(216,30,64,.45);
+}
+.result-task.done{border-color:rgba(126,224,168,.5); background:rgba(8,26,18,.6)}
+.result-task.failed{border-color:rgba(255,84,112,.72)}
+.rt-head{font-size:8.5px; letter-spacing:.2em; text-transform:uppercase; font-weight:800;
+  color:#ff8095; margin-bottom:5px}
+.result-task.done .rt-head{color:var(--mint)}
+.rt-text{font-size:12.5px; font-weight:700; line-height:1.45; color:var(--paper)}
+.rt-prog{margin-top:6px; font-size:10px; letter-spacing:.10em; text-transform:uppercase;
+  font-weight:800; color:var(--gold)}
+.rt-state{margin-top:8px; padding-top:7px; border-top:1px solid rgba(255,255,255,.14);
+  font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; font-weight:800;
+  color:#ff6d86}
+.result-task.done .rt-state{color:var(--mint)}
+
 .result-board{margin:14px 0 4px}
 .rb-head{
   font-size:10px; letter-spacing:.20em; text-transform:uppercase; font-weight:800;
@@ -2382,31 +2448,86 @@ select.nav-on{outline-offset:2px}
 #agenda-chip{
   position:fixed; left:max(14px, env(safe-area-inset-left));
   bottom:max(90px, calc(env(safe-area-inset-bottom) + 90px)); z-index:29;
-  width:min(280px, 62vw); opacity:0; pointer-events:none; transform:translateY(8px);
-  padding:11px 14px; border-radius:12px; background:rgba(26,8,14,.82);
+  width:min(300px, 62vw); opacity:0; pointer-events:none; transform:translateY(8px);
+  padding:11px 14px 12px; border-radius:12px; background:rgba(26,8,14,.88);
   border:1px solid rgba(216,30,64,.45); backdrop-filter:blur(8px);
   box-shadow:0 12px 34px rgba(120,10,30,.3);
   transition:opacity .35s ease, transform .35s ease;
 }
 #agenda-chip.on{opacity:1; transform:translateY(0)}
-/* Over the race HUD the corner is already two deep, so the chip
-   stands on top of both rather than in the middle of them. */
-body[data-screen="hud"] #agenda-chip{bottom:calc(var(--bl-foot) + 62px)}
+/* Every mission HUD keeps its own bottom-left corner, and all of them
+   already declare how deep it is: `--bl-foot` is the readout at the
+   bottom of the screen and `.hud-setup` is the name tag stacked on top
+   of that. The chip is the third tenant and stands on both, on every
+   HUD rather than only the boat's — the mountain, the wood and the
+   water used to drop it straight through their own panels. */
+body[data-screen^="hud"] #agenda-chip{bottom:calc(var(--bl-foot) + 62px)}
+/* And a panel is not a HUD. The chip belongs over the world and over
+   the mission HUDs; on a results or pause screen it would be lying on
+   top of buttons, and the scoreboard already says the same thing in
+   its own block down the panel. */
+body[data-screen]:not([data-screen=""]):not([data-screen^="hud"]) #agenda-chip{display:none}
 .ac-kicker{
   font-size:8px; letter-spacing:.18em; text-transform:uppercase; font-weight:800;
   color:#ff8095; margin-bottom:5px;
 }
-.ac-text{font-size:12px; font-weight:700; line-height:1.45; color:var(--paper)}
+.ac-text{font-size:12.5px; font-weight:700; line-height:1.45; color:var(--paper)}
 .ac-prog{
   margin-top:6px; font-size:10px; letter-spacing:.10em; text-transform:uppercase;
   font-weight:800; color:var(--gold);
 }
-/* The cover, said in a colour rather than a sentence: the border warms
-   the moment the run itself supports the story, which is the only
-   warning a Traitor gets that what they are about to say is true. */
-#agenda-chip.covered{border-color:rgba(242,193,78,.55);
-  box-shadow:0 12px 34px rgba(120,10,30,.3), 0 0 0 1px rgba(242,193,78,.18)}
+/* The button that is the entire verdict. The chip itself is inert so
+   it can never eat a drag meant for the mission underneath it, so the
+   one thing on it that is pressable has to say so itself.
+
+   It is a real <button> on purpose: that is what makes a phone able to
+   press it at all. A keyboard has T and a pad has the west face, and
+   neither of those exists on a touchscreen. Sized to the 44px the rest
+   of the game uses for a thumb. */
+.ac-mark{
+  pointer-events:auto; -webkit-appearance:none; appearance:none;
+  display:block; width:100%; margin-top:9px; min-height:38px; padding:9px 10px;
+  border-radius:9px; cursor:pointer; font:inherit;
+  font-size:10px; letter-spacing:.16em; text-transform:uppercase; font-weight:800;
+  color:#ffe9ee; background:rgba(216,30,64,.30);
+  border:1px solid rgba(216,30,64,.6);
+  transition:background .15s ease, border-color .15s ease, color .15s ease;
+}
+.ac-mark:hover{background:rgba(216,30,64,.44)}
+.ac-mark:focus-visible{outline:2px solid var(--gold); outline-offset:2px}
+/* Armed. It asks twice because the first press is the one you make by
+   accident and the second is the one you mean — and an accidental mark
+   is a lie you did not decide to tell. */
+.ac-mark.armed{
+  background:var(--gold); border-color:var(--gold); color:#241503;
+  animation:acPulse 1s ease-in-out infinite;
+}
+@keyframes acPulse{0%,100%{opacity:1}50%{opacity:.72}}
+.ac-mark:disabled{
+  cursor:default; opacity:.5; background:rgba(255,255,255,.06);
+  border-color:rgba(255,255,255,.16); color:rgba(255,255,255,.6);
+  animation:none;
+}
+#agenda-chip.done .ac-mark{
+  background:rgba(96,222,168,.18); border-color:rgba(96,222,168,.5);
+  color:var(--mint); opacity:1;
+}
+@media (pointer:coarse){ .ac-mark{min-height:44px; font-size:11px} }
+@media (prefers-reduced-motion:reduce){ .ac-mark.armed{animation:none} }
+/* Did it count. The one line on this panel that is an answer rather
+   than an instruction, so it is given a rule above it and a colour of
+   its own rather than sharing the progress line's. */
+.ac-state{
+  margin-top:8px; padding-top:7px; border-top:1px solid rgba(255,255,255,.14);
+  font-size:10px; letter-spacing:.16em; text-transform:uppercase; font-weight:800;
+  color:rgba(255,190,200,.92);
+}
+#agenda-chip.done .ac-state{color:var(--mint)}
+#agenda-chip.failed .ac-state{color:#ff6d86}
 #agenda-chip.done{border-color:rgba(126,224,168,.5)}
+#agenda-chip.failed{border-color:rgba(255,84,112,.75);
+  background:rgba(38,7,14,.9);
+  box-shadow:0 12px 34px rgba(140,10,34,.42), 0 0 0 1px rgba(255,84,112,.22)}
 
 /* ---------------- narrow and short ---------------- */
 
@@ -2416,11 +2537,15 @@ body[data-screen="hud"] #agenda-chip{bottom:calc(var(--bl-foot) + 62px)}
   .dress-inner{width:100%; margin:0}
   .dress-panel{padding:16px}
   .dress-row{grid-template-columns:60px 1fr auto}
-  #field{top:auto; bottom:calc(env(safe-area-inset-bottom) + 96px); min-width:0}
+  #field{top:auto; min-width:0;
+    bottom:max(calc(env(safe-area-inset-bottom) + 96px), calc(var(--br-foot) + 8px))}
   .fd-row{padding:5px 8px}
   #board{width:calc(100% - 20px)}
   .bd-row{min-width:360px}
-  #agenda-chip{width:min(230px,54vw); bottom:calc(env(safe-area-inset-bottom) + 150px)}
+  /* Width only. The bottom is a stack measured off `--bl-foot`, and a
+     flat number here used to drop the chip back through the HUD it had
+     just been lifted clear of. */
+  #agenda-chip{width:min(270px,74vw)}
   .lr-code{letter-spacing:.12em}
 }
 
@@ -2482,6 +2607,13 @@ body[data-screen="hud"] #agenda-chip{bottom:calc(var(--bl-foot) + 62px)}
 .sk-hud{flex-direction:column; justify-content:space-between}
 .sk-top{display:flex; justify-content:space-between; align-items:flex-start; gap:20px}
 .sk-bottom{display:flex; justify-content:space-between; align-items:flex-end; gap:20px}
+/* On a phone the whole bottom row moves up over the thumb overlay
+   rather than sitting behind it: the speedo is the number you steer by
+   and the pop bar is directly under the button that spends it, so both
+   of them being under a thumb is the mountain unplayable. Padding on
+   the flex parent moves the row without touching the absolutely
+   positioned name tag, which is already stacked off `--bl-foot`. */
+body.touch .sk-hud{padding-bottom:calc(var(--br-foot) + 12px)}
 
 .sk-purse{min-width:200px}
 .sk-money{font-family:var(--display); font-size:clamp(30px,4.4vw,50px); line-height:1;

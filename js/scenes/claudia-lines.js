@@ -44,16 +44,6 @@ const ClaudiaLines = (() => {
       [ "That is your thirty." ],
       [ "Enough." ]
     ],
-    "floorBoard": [
-      [
-        "The numbers from out there are in front of you.",
-        "They do not accuse anybody. You will have to do that yourselves."
-      ],
-      [
-        "Everything that happened on that mission is on the board.",
-        "Read it properly. It is all you are getting."
-      ]
-    ],
     "exposeOpen": [
       [
         "Before anybody sits down.",
@@ -70,18 +60,15 @@ const ClaudiaLines = (() => {
     ],
     "exposeTask": [
       [
-        "One of you was given something to do out there tonight.",
-        "Something small. Something nobody was meant to notice.",
-        "It was not done."
+        "One of you was given something to say out there tonight.",
+        "It was never said."
       ],
       [
-        "A Traitor is asked for one thing on a night like this.",
-        "One quiet piece of work, out where you could all see it.",
-        "It went unfinished."
+        "A Traitor gets one job on a night like this.",
+        "This one went undone."
       ],
       [
-        "There was a task tonight. A private one.",
-        "It needed doing before you walked back in here.",
+        "There was a task tonight. A quiet one.",
         "It was left."
       ]
     ],
@@ -93,20 +80,11 @@ const ClaudiaLines = (() => {
     "exposeAfter": [
       [
         "{name} was a Traitor.",
-        "And a Traitor who cannot do the work is no use to anybody.",
-        "The Faithfuls have it. The pot is theirs."
+        "The pot is yours."
       ],
       [
-        "There it is.",
-        "{name} was the Traitor, and {name} has just handed you the money.",
-        "The night is over."
-      ]
-    ],
-    "exposeNone": [
-      [
-        "Nothing.",
-        "Whatever was asked for tonight, it was done properly.",
-        "Sit down."
+        "{name} was the Traitor, and has just handed you the money.",
+        "That is the night."
       ]
     ],
     "welcome": [
@@ -127,7 +105,7 @@ const ClaudiaLines = (() => {
     ],
     "roleIntro": [
       [
-        "Among the three of you there may (or may not) be a Traitor."
+        "One of the three of you is a Traitor."
       ]
     ],
     "roleFaithful": [
@@ -140,9 +118,41 @@ const ClaudiaLines = (() => {
         "You are a Traitor."
       ]
     ],
+    /* The task, spoken.
+
+       It used to be a card and nothing else, on the grounds that two
+       other people are standing right there. They are not: Claudia is
+       heard on the browser she is talking to and on no other, exactly
+       as the role line above is, and a Traitor who has to read their
+       one instruction off a card in five seconds while the camera moves
+       is a Traitor who arrives at the mission still guessing at it.
+       So she says it, and `{task}` is the card itself, word for word.
+
+       The alibi is deliberately not in here. It is the harder way to do
+       the one task, not a second instruction, and a player handed it in
+       words plays the sentence instead of the mission. */
+    "taskGiven": [
+      [
+        "One thing you have to say out loud tonight, with both of them listening.",
+        "{task}",
+        "Say it, then mark your card. Unmarked and I tell them."
+      ],
+      [
+        "Something quiet, before you go.",
+        "{task}",
+        "Out loud, while they can hear you. Then mark it."
+      ],
+      [
+        "Only you are hearing this.",
+        "{task}",
+        "Say it, mark the card. Everything else you can lie about."
+      ]
+    ],
+    /* The second card, at the table. She is shorter about it: they have
+       done this once already and know exactly what it is. */
     "firstMission": [
       [
-        "Your first mission is {mission}."
+        "Your mission is {mission}."
       ]
     ],
     "twist": [
@@ -160,56 +170,9 @@ const ClaudiaLines = (() => {
         "Off you go."
       ]
     ],
-    "tableOpen": [
-      [
-        "Sit down."
-      ]
-    ],
-    "tablePrompt": [
-      [
-        "So. Talk to each other.",
-        "Somebody at this table might be lying to you, and you have no way at all of knowing."
-      ],
-      [
-        "Look at the two faces opposite you.",
-        "One of them may have spent all afternoon deciding how to say nothing."
-      ]
-    ],
     /* The open table. She says out loud that there are no turns,
        because a room that has spent the whole night being told to wait
        its turn will otherwise wait for one. */
-    "tableTalk": [
-      [
-        "Nobody has a turn here.",
-        "Talk. All three of you. Over each other if you have to."
-      ],
-      [
-        "No order. No thirty seconds. No waiting to be asked.",
-        "If somebody says a thing you do not believe, say so while they are still saying it."
-      ],
-      [
-        "The table is open and it stays open.",
-        "Interrupt each other. I am not refereeing this."
-      ]
-    ],
-    "tableYourTurn": [
-      [
-        "And you. What do you make of them?"
-      ],
-      [
-        "Your turn."
-      ]
-    ],
-    "tableNoBanish": [
-      [
-        "Discussion is over. It is now time for the second mission"
-      ]
-    ],
-    "secondMission": [
-      [
-        "The second mission is {mission}."
-      ]
-    ],
     "fireOpen": [
       [
         "The pot is at {pot}. This is where you find out who it belongs to."
@@ -221,83 +184,24 @@ const ClaudiaLines = (() => {
     ],
     "fireRules": [
       [
-        "You have two options, and only two.",
-        "If every pouch says End Game, the game stops.",
-        "If even one pouch says Banish Again, all of you must vote someone out."
+        "One of you is a Traitor.",
+        "You name somebody. The fire says what they were."
       ]
     ],
     "fireWarn": [
       [
-        "Be careful. If you end this game with a Traitor still sitting here, they take all of it.",
-        "And if there was never a Traitor at all — you will have burnt each other for nothing."
+        "One name. Get it wrong and they leave with all of it."
       ],
       [
-        "One warning. Ending it with a Traitor in the circle means they leave with everything.",
-        "Ending it too late means there is nobody left to share it with."
-      ]
-    ],
-    "voteDecide": [
-      [
-        "Decide. End it, or banish."
-      ]
-    ],
-    "voteDecideTwo": [
-      [
-        "Two left.",
-        "End it and share, or banish again."
-      ]
-    ],
-    "decisionPouches": [
-      [
-        "The decisions are in."
-      ]
-    ],
-    "decisionPouchIntro": [
-      [
-        "{name}. Your decision pouch, please."
-      ],
-      [
-        "First, {name}. Hand me your decision."
-      ],
-      [
-        "{name}. Let us see what you chose."
-      ]
-    ],
-    "decisionPouchIntroYou": [
-      [
-        "And yours. Hand it over."
-      ]
-    ],
-    "decisionPouchThrow": [
-      [
-        "Into the fire."
-      ],
-      [
-        "Here we go."
-      ]
-    ],
-    "decisionEnd": [
-      [
-        "{name} chose to end the game."
-      ],
-      [
-        "End game. That was {name}."
-      ]
-    ],
-    "decisionBanish": [
-      [
-        "{name} chose to banish again."
-      ],
-      [
-        "Banish again. That was {name}."
+        "You get one. Choose badly and you watch them take the pot."
       ]
     ],
     "voteName": [
       [
-        "Banish it is."
+        "One name each. Somebody is going."
       ],
       [
-        "Then somebody has to go."
+        "Name somebody. There is a Traitor sitting here."
       ]
     ],
     "voteNameTie": [
@@ -435,28 +339,24 @@ const ClaudiaLines = (() => {
     ],
     "wonFaithful": [
       [
-        "It is over.",
-        "There is no Traitor left by this fire.",
-        "The pot is yours. {pot}."
+        "No Traitor left by this fire.",
+        "{pot}. Yours."
       ]
     ],
     "wonFaithfulClean": [
       [
-        "It is over.",
         "There was never a Traitor here at all.",
         "{pot} is yours."
       ]
     ],
     "wonTraitor": [
       [
-        "It is over.",
-        "And you have all been extremely kind to a Traitor.",
+        "You have all been very kind to a Traitor.",
         "{pot}. Not shared. Yours."
       ]
     ],
     "lostFaithful": [
       [
-        "It is over.",
         "You ended the night with a Traitor at your side.",
         "They take the pot. You take the drive home."
       ]

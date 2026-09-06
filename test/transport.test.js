@@ -145,7 +145,7 @@ await atest('mission results advance only when everybody leaves the board', asyn
   eq(host.Session.state.phase, 'mission', 'guests can be ready but cannot author the result');
   host.Net.send({ type: 'readyResult', earned: 1234, completed: true, players: [] });
   await flush(); await flush();
-  eq(host.Session.state.phase, 'table', 'the last ready player releases the room');
+  eq(host.Session.state.phase, 'finale', 'the last ready player releases the room');
   eq(g1.Session.state.pot, 1234, 'only the host-authored board reaches the pot');
 });
 
@@ -165,22 +165,19 @@ await atest('a whole ballot converges on all three machines', async () => {
   const { host, g1, g2 } = await party(103);
   host.Net.send({ type: 'advance' });
   await flush(); await flush();
-  host.Net.send({ type: 'result', earned: 2000, completed: true, players: [] });
-  await flush(); await flush();
-  host.Net.send({ type: 'advance' });
-  await flush(); await flush();
-  host.Net.send({ type: 'result', earned: 3000, completed: true, players: [] });
+  host.Net.send({ type: 'result', earned: 5000, completed: true, players: [] });
   await flush(); await flush();
   eq(host.Session.state.phase, 'finale', 'the fire is lit');
+  eq(host.Session.state.finale.stage, 'name', 'on the one ballot there is');
 
-  host.Net.send({ type: 'vote', playerId: 'host', choice: 'end' });
-  g1.Net.send({ type: 'vote', choice: 'end' });
-  g2.Net.send({ type: 'vote', choice: 'end' });
+  host.Net.send({ type: 'name', playerId: 'host', targetId: 'gst1' });
+  g1.Net.send({ type: 'name', targetId: 'gst2' });
+  g2.Net.send({ type: 'name', targetId: 'gst1' });
   await flush(); await flush(); await flush();
 
-  eq(host.Session.state.finale.stage, 'decisions', 'the ballot closed on the host');
-  eq(g1.Session.state.finale.stage, 'decisions', 'and on both guests');
-  eq(g2.Session.state.finale.stage, 'decisions', '');
+  eq(host.Session.state.finale.stage, 'names', 'the ballot closed on the host');
+  eq(g1.Session.state.finale.stage, 'names', 'and on both guests');
+  eq(g2.Session.state.finale.stage, 'names', '');
   eq(g1.Session.state.pot, 5000, 'the pot agrees too');
 });
 
@@ -216,7 +213,7 @@ await atest('a guest joining mid-run lands on the phase in progress', async () =
   await flush(); await flush();
   host.Net.send({ type: 'result', earned: 1200, completed: true, players: [] });
   await flush(); await flush();
-  eq(host.Session.state.phase, 'table', 'the host has moved on');
+  eq(host.Session.state.phase, 'finale', 'the host has moved on');
 
   const g2 = makeClient('gst2', false, bus);
   g2.Session.startParty({ seed: 0, players: seat(g2, 'gst2'), mode: 'guest' });
@@ -225,9 +222,9 @@ await atest('a guest joining mid-run lands on the phase in progress', async () =
   g2.Net.connect(g2.Transports.GuestTransport);
   await flush(); await flush(); await flush();
 
-  eq(g2.Session.state.phase, 'table', 'and the guest arrives where it actually is');
+  eq(g2.Session.state.phase, 'finale', 'and the guest arrives where it actually is');
   eq(g2.Session.state.pot, 1200, 'with the pot as it stands');
-  eq(caughtPhase, 'table', 'and its director is explicitly reconciled');
+  eq(caughtPhase, 'finale', 'and its director is explicitly reconciled');
 });
 
 section('transport — what a client may claim');
@@ -238,17 +235,38 @@ await atest('a guest can only ever act as itself', async () => {
   await flush(); await flush();
   host.Net.send({ type: 'result', earned: 1, completed: true, players: [] });
   await flush(); await flush();
+
+  // gst1 tries to cast gst2's name
+  g1.Net.send({ type: 'name', playerId: 'gst2', targetId: 'host' });
+  await flush(); await flush();
+  const names = host.Session.state.finale.names;
+  eq(names.gst2, undefined, 'the impersonation did not land');
+  eq(names.gst1, 'host', 'it was recorded as the sender, as it should be');
+});
+
+/* The same rule, on the one action that is worth impersonating: the
+   mark is the Traitor asserting something about themselves that
+   nothing can check, so a guest that could send it for somebody else
+   could hand a Faithful an exposure. */
+await atest('a guest cannot mark somebody else\'s task', async () => {
+  const { host, g1 } = await party(106);
+  const truth = host.Session.privateRoles();
+  const traitorId = truth.find(r => r.role === 'traitor').playerId;
   host.Net.send({ type: 'advance' });
   await flush(); await flush();
-  host.Net.send({ type: 'result', earned: 1, completed: true, players: [] });
+
+  // gst1 marks the task on behalf of whoever the traitor actually is
+  g1.Net.send({ type: 'taskDone', playerId: traitorId });
+  await flush(); await flush();
+  host.Net.send({ type: 'result', earned: 1, completed: true,
+                  players: [{ playerId: traitorId, stats: {} }] });
   await flush(); await flush();
 
-  // gst1 tries to cast gst2's vote
-  g1.Net.send({ type: 'vote', playerId: 'gst2', choice: 'banish' });
-  await flush(); await flush();
-  const votes = host.Session.state.finale.votes;
-  eq(votes.gst2, undefined, 'the impersonation did not land');
-  eq(votes.gst1, 'banish', 'it was recorded as the sender, as it should be');
+  if (traitorId === 'gst1') {
+    eq(host.Session.hasExposure(), false, 'a guest marking its own card counts');
+  } else {
+    eq(host.Session.hasExposure(), true, 'and marking anybody else\'s does not');
+  }
 });
 
 section('transport — the secret');
@@ -292,13 +310,13 @@ await atest('only a traitor is ever sent a card', async () => {
     for (const ctx of [g1, g2]) {
       if (ctx.Session.myRole() === 'traitor') {
         sawTraitor++;
-        ok(ctx.Session.myAgenda(0), 'a traitor guest was sent no card');
-        ok(ctx.Session.myAgenda(0).text, 'and the card is readable');
-        ok(ctx.Session.myAgenda(0).check === undefined,
-           'the check function must never cross the wire');
+        ok(ctx.Session.myAgenda(), 'a traitor guest was sent no card');
+        ok(ctx.Session.myAgenda().text, 'and the card is readable');
+        eq(ctx.Session.myAgenda().line, undefined,
+           'and only the readable half of it crossed');
       } else {
         sawFaithful++;
-        eq(ctx.Session.myAgenda(0), null, 'a faithful guest was sent a card');
+        eq(ctx.Session.myAgenda(), null, 'a faithful guest was sent a card');
       }
     }
   }
@@ -310,25 +328,31 @@ section('transport — the exposure');
 
 await atest('a clean night answers "nobody", promptly', async () => {
   /* The bug this covers: if the host only asked when it had something
-     to reveal, a clean night would send nothing — and a guest cannot
-     tell "nobody" from "still in flight", so all three would sit
-     through a timeout before every round table. */
-  for (let seed = 600; seed < 640; seed++) {
-    const { host, g1, g2 } = await party(seed);
-    if (host.Session._peek().has) continue;
+     to reveal, a night with nothing to say would send nothing — and a
+     guest cannot tell "nobody" from "still in flight", so all three
+     would sit through a timeout before the fire. Every night has a
+     Traitor now, so a clean one is a Traitor who marked their card. */
+  const { host, g1, g2 } = await party(601);
+  const traitorId = host.Session.privateRoles()
+    .find(r => r.role === 'traitor').playerId;
+  host.Net.send({ type: 'advance' });
+  await flush(); await flush();
+  const of = { host, gst1: g1, gst2: g2 };
+  of[traitorId].Net.send({ type: 'taskDone' });
+  await flush(); await flush();
+  host.Net.send({ type: 'result', earned: 1, completed: true, players: [] });
+  await flush(); await flush();
+  eq(host.Session.hasExposure(), false, 'the card was marked in time');
 
-    const heard = { g1: 'unset', g2: 'unset' };
-    g1.Net.on((e) => { if (e.type === 'expose') heard.g1 = e; });
-    g2.Net.on((e) => { if (e.type === 'expose') heard.g2 = e; });
+  const heard = { g1: 'unset', g2: 'unset' };
+  g1.Net.on((e) => { if (e.type === 'expose') heard.g1 = e; });
+  g2.Net.on((e) => { if (e.type === 'expose') heard.g2 = e; });
 
-    host.Net.send({ type: 'expose' });
-    await flush(); await flush();
+  host.Net.send({ type: 'expose' });
+  await flush(); await flush();
 
-    eq(heard.g1, { type: 'expose', playerId: null }, 'guest one got a definite answer');
-    eq(heard.g2, { type: 'expose', playerId: null }, 'guest two got a definite answer');
-    return;
-  }
-  throw new Error('no clean night in the sweep');
+  eq(heard.g1, { type: 'expose', playerId: null }, 'guest one got a definite answer');
+  eq(heard.g2, { type: 'expose', playerId: null }, 'guest two got a definite answer');
 });
 
 await atest('an exposure reaches both guests as an event', async () => {

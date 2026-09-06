@@ -4,9 +4,15 @@ A low-poly, vibrant browser game for **three real people**, with voice chat, pla
 a browser with no account and no install. Three ways in:
 
 - **PLAY / CREATE ROOM / JOIN ROOM** runs a whole night for three — a welcome on a
-  Highland hill, a mission, a round table, a second mission, and a finale at the fire
-  where the pot is won or lost on one throw. You type a name, somebody reads out four
-  letters, and that is the entire sign-up.
+  Highland hill, one mission played with every microphone open, and a finale at the fire
+  where one name is said and the pot is won or lost on it. You type a name, somebody
+  reads out four letters, and that is the entire sign-up.
+
+  There is always exactly one Traitor, and their secret task is a thing they have to
+  *say out loud* while the other two are listening. Nothing in the game can hear a
+  microphone, so the Traitor marks the card themselves during the mission — leave it
+  unmarked and Claudia exposes you at the fire; mark one you never said and the verdict
+  screen prints the card in front of the two people who were on the call with you.
 - **MISSIONS** is solo practice on the missions themselves. Three are built: **Boat
   Race**, **Shootout** and **The Dive**.
 - **DRESSING ROOM** is where you decide who you are. Saved on your own machine; the
@@ -101,87 +107,104 @@ ignored by git.
 | **The hill** | Claudia welcomes you and tells you what you are. Nobody else is told. A Traitor is also handed a task. |
 | **Mission** | One of the missions, drawn from the seed, played by all three of you at once. Everything anybody earns goes into the night's pot. |
 | **The board** | Everybody's numbers from that mission, side by side. It accuses nobody. |
-| **The round table** | An open floor: every microphone live at once, no turns, talk over each other. **Nobody is banished here.** |
-| **Mission** | The second one, with its own twist. The last chance to add to the pot. |
-| **The fire** | Back to one voice at a time — thirty seconds each — then: end the game, or banish one more, and open their pouch. |
+| **The fire** | One voice at a time — thirty seconds each — then one ballot: everybody names somebody, and that person's pouch goes into the fire. |
+
+The night is short on purpose. It used to be two missions with a round table between
+them, which is the shape of the television programme and the wrong shape for three
+people on a voice call: most of an evening went on missions and the discussion spent
+itself re-litigating a scoreboard. What is worth playing here is the microphone, so
+everything that is not traitoring has been taken out.
 
 ### The roles
 
-Roles are drawn once, from the run's seed:
+Roles are drawn once, from the run's seed. **There is always exactly one Traitor**,
+uniform over all three players — which makes any one of you, yourself included, the
+Traitor on a third of all nights. There used to be a quarter of nights with nobody in
+them, and a night whose answer turns out to be "there was never anyone here" is an
+evening three people spent for no reason.
 
-- **a quarter of all nights contain no Traitor at all**;
-- the other three quarters have exactly one, uniform over all three players — which
-  makes any one of you, yourself included, the Traitor on a quarter of all nights.
-
-You are told your own role on the hill. Nobody is ever told whether a Traitor exists.
-That is the whole game: a table where everyone may be honest and nobody can prove it.
+You are told your own role on the hill, and nobody else's. Everybody knows there is a
+Traitor; nobody can prove which. That is the whole game.
 
 ### The Traitor's task
 
-A Traitor is handed one small piece of work per mission, on the hill, on a card only
-they see. Not hard: the deck is written so that anybody who reads their card and pays
-attention will manage it. Complete it and nothing happens — nobody is told, and the
-night carries on exactly as it would have.
+A Traitor is handed one piece of work on the hill, on a card only they see. It is not a
+thing to *do*. It is a thing to **say out loud**, on the open microphone, while the other
+two are listening.
 
-Leave it undone and Claudia stops the room at the next gathering, before anybody has sat
-down, and the Faithfuls win on the spot.
+The deck used to be telemetry — burn the boost meter before halfway, decline three gold
+rings, come to a dead stop in open water — checked on the host against numbers the
+mission reported. That made it unfakeable and made it, in the end, a game about driving
+a boat slightly wrong. The channel is the thing all three of you are guaranteed to be
+paying attention to, so that is where the task lives now.
 
-The Traitor is **not told they failed**. They walk into that room believing they got
-away with it.
+**Every task has a public tell, and every task has a way out.** That pair is still the
+whole design. A task nobody can hear being performed is not a risk — it makes the fire
+unwinnable for the Faithfuls. One nobody can survive performing is not a game either. So
+every card in `js/missions/agendas.js` carries both: a `tell`, naming what the other two
+actually hear, and an `alibi` — a harder, better performance that leaves the same words
+in the room attached to a reason nobody can argue with.
 
-**Every task has a public tell, and every task has a way out.** That pair is the whole
-design. A sabotage nobody can observe being performed is not a risk — it makes the round
-table unwinnable for the Faithfuls. A sabotage nobody can survive performing is not a
-game either — it makes the night unwinnable for the Traitor. So every card in
-`js/missions/agendas.js` carries both: a `tell`, naming the thing the other two can
-physically see or hear happen, and an `alibi` — a second, far harder run of play that
-leaves the same number somewhere nobody can argue with.
+On the best cards the alibi is not damage control at all. It is a chance to say the
+wisest thing anybody says all night, and have it be true.
 
-Any Traitor can complete these. Only a very good one completes them and walks into the
-round table with the board arguing on their side. The gap between those two is the
-evening.
-
-| Task | What the others see | The way out |
+| Family | The task | The way out |
 | --- | --- | --- |
-| Cross the line last | Last is the first column on the board | Lead the field for half the race and lose it by under 1.5s. Nobody suspects the boat that was winning |
-| Spend the whole boost meter before halfway, and arrive dry | The shared strip carries everybody's meter: yours flatlines early and never comes back | Win it anyway. A dry meter and a hull in front is the best drive anyone at that table will see |
-| Three times, line up a gold ring and take the safe one instead | Gold is most of the money, and you come back short of two people who ran the same water | Thread everything else dead centre: eight perfect passes and nothing dropped pays the gold back |
-| Stop dead in open water for a full second | Your marker stops on the strip while two boats keep going | Take the second back — finish inside two seconds of the boat ahead and it is a story about the recovery |
-| Let five birds leave the clearing past you | Every escape is called out to all three of you, where it happened | Finish top of the strip anyway. Nobody counts the escapes of whoever took the most |
-| Put an arrow through a dove | The fine comes off your total in front of everyone — the one number out there that can go backwards | Shoot it into the middle of a flock and be above your old total within eight seconds |
-| Put ten arrows into empty air | A hole in the board, and ten whistles the other two can hear | Hold a chain of twelve while you do it. Ten misses in a hail of arrows is a style |
-| Spend a whole round away from the shooting line | Your figure is missing from the line and your row stops climbing | Walk back in and clear the *next* round without a single miss |
+| **Aphorism** | Say a whole invented line of wisdom, word for word — *"Nobody drowns in the middle. They drown at the edge, reaching for it."* | Do not say it. Wait for it to be **true** — for somebody to overreach for something they nearly had — and it stops being a line you were carrying and becomes the best thing said all night |
+| **Word** | Work one loaded word from a different evening into a sentence — *gallows*, *inheritance*, *perjury*, *eulogy* | Give it somewhere to live. Deliver a short eulogy for your own attempt, warmly, and nobody replays the word |
+| **Claim** | Say something specific, personal and checkable — *"I can hear my own heartbeat."* | Say it at the tensest moment there is, when it is true for all three of you |
+| **Formal** | Say something in the wrong register for three people shouting at a mission — *"I should like it noted that I said so."* | Be right about something first. A formal sentence from somebody who has just been right is a joke everybody is in on |
+| **Number** | Say a number nobody asked for — *seventy-three* | Make it count something real and be right. The person keeping numbers nobody asked them to keep is the person paying most attention |
+| **Question** | Ask one of them something out loud — *"What would you do with the money if the other one was not here?"* | Ask it as an obvious joke, to their face, while they are winning |
+| **Move** | Not a phrase: a way of talking held for a whole mission — never say "I", go a full minute in silence, never once agree | Commit completely. A run spent talking about nobody but the other two is generosity — until one of them notices you never said what *you* were doing |
 
-Neither field is a comment. `test/agendas.test.js` asserts every card has a tell and an
-alibi, that no card can be passed by doing nothing, and that no *alibi* can be earned by
-doing nothing either. `test/mission-stats.test.js` then drives the missions' own trackers
-and asserts they produce the numbers the cards read — a counter that sits in a stats
-object and is never written is a card that can only ever fail, which is a bug this deck
-has already had once.
+There are **224 cards**, built from a corpus rather than typed out one at a time, and
+that is deliberate. Three people play this more than once. A deck of nine is a deck two
+of them have memorised by the third night, and a memorised deck is not a secret task —
+it is a quiz the Faithfuls already have the answers to. Two hundred phrases means the
+other two can know exactly how the deck works and still have no idea what you are
+carrying.
 
-A card is also never dealt into a run that has made it impossible: the twist's flags
-travel with the mission plan, and Cold Engine will not hand anybody "spend your whole
-boost meter". Hard is the point; impossible is a sentence.
+#### Nothing checks it, and that is the mechanic
 
-After every mission all three players see the same **board**, and its columns are chosen
-so that each card's tell *and* its alibi are both on it — place beside time spent in
-front, misses beside best chain, doves beside money. It never accuses anybody. It is on
-screen for the whole round table, and it is what turns "I think it was you" into an
-argument with something behind it — and, on a very good night, what turns it into an
-argument the Traitor wins.
+No part of this game can hear a microphone. Judging one of these on the host would mean
+speech recognition on three live WebRTC streams to catch a whisper — and the cards worth
+playing (silence, brevity, refusing a name, never agreeing) are invisible to it anyway.
+
+So the task is marked by the only person who knows: the Traitor, on their own HUD,
+**during the run**. Three things hold that up.
+
+- **The window is the mission.** The mark button dies the moment the numbers stop. You
+  cannot settle up on a card once you have seen how the night is going, and having to
+  commit while you still have something to lose is the whole weight of an honour system.
+- **Not marking it is an exposure.** Bottle the card and Claudia stops the room before
+  anybody sits down at the fire, names you, and the Faithfuls take the pot on the spot.
+  So the choice is between paying for it and lying about it.
+- **Lying about it is answered at the end.** The verdict panel prints the card, word for
+  word, and whether it was marked — next to every role, after the money is paid. The two
+  people who were on that microphone with you read it and know immediately. Nobody needs
+  code to check that. They were there.
+
+The mark is deliberately silent on the wire: nothing goes into the shared state and no
+event is emitted, because a packet leaving your machine at the exact moment you say the
+thing you were told to say is a tell the other two could watch for.
+
+`test/agendas.test.js` asserts every one of the 224 cards has a task, a tell and a way
+out, that every generated card actually contains the phrase it is asking for, that no
+family falls back to a shared alibi, that the seeded draw can reach all of it, and that
+the marking window latches shut and never reopens.
 
 ### Voice, and the floor
 
-The microphone is open in the lobby, the dressing room, the missions and the round
-table. The table is deliberately a free-for-all: all three microphones live at once for
-the length of the discussion, no turns, no order, cut in whenever you like. Nobody is
-banished there, so there is nothing that needs protecting from an argument — and an
-argument answered two turns later has stopped being one. A clock runs on the discussion
-as a whole, and any of you may press **I've said enough**; when everybody has, the table
-moves on early.
+The microphone is open in the lobby, the dressing room and the mission. The mission is
+deliberately a free-for-all: all three microphones live at once, no turns, no order, cut
+in whenever you like. That channel is where the Traitor's card has to be performed, and
+it is the reason the night has one long mission rather than two short ones and an
+argument about a scoreboard.
 
 At the fire it is not open. There the floor goes round the seats, thirty seconds each,
-and only the person holding it can be heard — that is the room where names get said.
+and only the person holding it can be heard — that is the room where the name gets said.
+Any of you may press **I've said enough** to hand it back early.
 
 That muting happens on the **sending** side — `track.enabled = false` at the microphone
 — so holding the floor is a fact about the room rather than a request the other two
@@ -199,15 +222,19 @@ land in the same place: the game says so once and the night carries on in text.
 
 ### The endgame
 
-Everyone still sitting votes **end it** or **banish**. Ending must be unanimous: one
-**banish again** choice forces another banishment. Once every decision is locked,
-Claudia burns the decision pouches one person at a time, revealing all **end game**
-choices first and then every **banish again** choice. Everyone then names somebody and
-those names are spoken aloud one by one before the tally. A tied tally is voted again;
-it is never broken randomly. The named player's role pouch then goes into the fire.
-The cycle repeats unless only two contestants remain, when the game ends automatically.
+There is one ballot. Everybody names somebody, the whole ballot is collected before any
+of it is revealed, and the names are then spoken aloud one at a time before the tally —
+so the result can never jump straight from a button press to an answer. A tied tally is
+voted again; it is never broken randomly. The named player's role pouch goes into the
+fire, which at three contestants leaves two, and the night stops itself there.
 
-When the night stops — by a unanimous vote or by reaching the final two — nobody is told
+There used to be a **Fire of Truth** in front of it — end the game, or banish again,
+unanimous to stop. That is the right ballot for a table that cannot be sure anybody is
+lying to them. There is always a Traitor here, so "shall we bother" was never a real
+question, and asking it twice a round only gave three people a way to end the night
+without playing it.
+
+When the night stops — by reaching the final two — nobody is told
 who won until every identity still in the circle is revealed. Faithfuls reveal first;
 any surviving Traitor is held until last. The verdict panel comes up after that, not
 before. Banished contestants receive nothing. Surviving Faithfuls split the pot only if
@@ -222,13 +249,14 @@ losing loses it. Nothing is banked until the fire goes out.
 | | |
 | --- | --- |
 | Menus | mouse, touch, **arrow keys / d-pad / left stick**, `Enter` or **A** to choose, `Esc` or **B** to go back |
-| Hill, discussion and fire | first person: **WASD / left stick** to move, **mouse / right stick / arrows** to look; click once to capture the mouse |
+| Hill and fire | first person: **WASD / left stick** to move, **mouse / right stick / arrows** to look; click once to capture the mouse |
 | Dialogue | Voiceover cannot be skipped; clicks capture the pointer without cutting a line short |
 | Pouch reveal | The camera unlocks only for the short cinematic as the pouch is thrown into the fire |
 | The fire | the vote is a panel of buttons; the same four inputs drive it |
 | Missions | as documented below, and gamepad and touch both work |
 | The Dive | one button: `Space` (or `LMB`) kicks, the mouse steers, `WASD` sculls |
 | Your microphone | `V`, the pad's **Y/triangle**, or the button in the corner. It is separate from game sound, and it is on every screen |
+| Marking your task | `T`, the pad's **X/square**, or tapping the button on the task card. It asks twice — an accidental mark is a lie you did not decide to tell — and it dies when the run does. Traitors only; nobody else has a card |
 | A room code | four `<select>`s, so left/right on a pad dials a letter, a phone gets its native picker, and a keyboard can type A–Z |
 
 On a phone or a tablet the browser's own gestures are the enemy of all of that, so
@@ -802,7 +830,7 @@ Three rules make it work, and all three are load-bearing:
 
    Two details in `transports.js` are not decoration. Every outbound event carries the
    snapshot that goes with it, because a guest that received `phase:'finale'` before the
-   state that made it true would render the finale from the round table's data — and
+   state that made it true would render the finale from the mission's data — and
    that bug only ever appears on somebody else's machine. And an inbound action is
    re-stamped with the peer it actually arrived from, so a client may only ever act as
    itself.
@@ -940,7 +968,7 @@ a single point light at the gate. Six draw calls and about three and a half thou
 triangles, which is one per cent of what the grass costs.
 
 The windows are not lights. They are unlit, unfogged quads whose opacity is the hour:
-barely there in the afternoon, half up at the round table, everything burning at the fire.
+barely there in the afternoon, half up as the mission ends, everything burning at the fire.
 That one dial is most of what makes three dressings of one hill read as one evening
 passing.
 
@@ -1019,17 +1047,17 @@ in the menus mentions it, and it exists only in the address bar.
 ```
 ?bots=1                     the whole night, hand dealt from the seed
 ?bots=finale                the fire and nothing else
-?bots=intro,table,finale    no missions, all the talking
-?bots=m1,finale             one mission, then the fire
+?bots=intro,finale          no mission, all the talking
+?bots=m1,finale             the mission, then the fire
 ?bots=all&traitor=you       you are the Traitor
 ?bots=all&traitor=2         the second bot is
-?bots=all&traitor=none      nobody is, which is a real outcome
-?bots=finale&decide=end     they vote to end it at once instead of banishing first
-?bots=finale&target=you     and they both name you when they do not
+?bots=all&traitor=none      nobody is — the rehearsal door is the only way to a
+                            night with no Traitor in it now
+?bots=finale&target=you     and they both name you
 ```
 
-Parts are `intro`, `m1`, `table`, `m2`, `finale`, with the obvious aliases (`hill`,
-`fire`, `discussion`, `mission1`, `missions`, `all`) and in any order — they are played
+Parts are `intro`, `m1`, `finale`, with the obvious aliases (`hill`, `fire`,
+`mission`, `mission1`, `all`) and in any order — they are played
 in the running order whatever order you type them in. `seed`, `names`, `pace`
 (`fast`/`normal`/`slow`) and `chat=off` are optional. A `#bots=…` works as well as a
 `?bots=…`, because a hash is what survives being typed into a phone.
@@ -1041,18 +1069,16 @@ Three pieces make it work and none of them is a special case in a scene:
   `goToStep(i)`, which skips forward to the next thing that is switched on — and a
   mission it steps over is *marked done*, paid at roughly what a decent run pays, and
   given a board with all three names on it. Nothing downstream can tell a skipped
-  mission from a badly played one, which is why the round table still has something to
-  argue about and the fire still has a pot to divide.
+  mission from a badly played one, which is why the fire still has a board to put up and
+  a pot to divide.
 - **`SoloTransport`.** The loopback, plus the two things a party would have supplied:
   every action is stamped `authority` (there is nobody else to be it), and `readyResult`
   is stamped with the local player id. Deliberately nothing else is stamped — half the
   actions the fire sends are the *ceremony* rather than a contestant, and a `playerId` on
   those means "whose pouch am I opening".
-- **The bots are a policy, not a mind.** They talk during the discussion (reading the old
-  written table script, which has been sitting unused in `claudia-lines.js` since the
-  round table became three live microphones), take their turn at the fire, and vote what
-  `decide` and `target` say they vote. The default walks you through the whole ceremony
-  in one run: one banishment, and then they end it.
+- **The bots are a policy, not a mind.** They take their turn at the fire and name
+  somebody, and who they name is what `target` says. The point of them is to make the
+  ceremony reproducible in one run, not to be beaten.
 
 Both rehearsal levers — choosing the Traitor and skipping parts — are refused unless the
 call that started the night declared itself a rehearsal, and `Bots` is the only thing in
@@ -1289,8 +1315,8 @@ The mission list, briefing, pause, results, prize-pot banking and best-score tra
 come for free. Call `Missions.complete({ earned, completed, ... })` when the run ends and
 the rest happens on its own.
 
-It also joins the PLAY rotation on its own. A night draws two missions from whatever is
-registered and unlocked — four are, so a night is a different pair of them — takes
+It also joins the PLAY rotation on its own. A night draws one mission from whatever is
+registered and unlocked — four are, so a night is a different one of them — takes
 the first of your `modes` as its money mode, and deals one card from your own
 `preview().hand` as the night's twist. A mission gets announced by Claudia, twisted and
 scored inside a night without knowing that any of that exists.
@@ -1421,9 +1447,9 @@ recital of the first and a shared seed is still a shared night.
 `{name}`, `{mission}`, `{twist}` and `{pot}` are filled by the caller.
 
 The `TABLE` and `YOU` lists in that file are no longer read by the game. They were the
-bots' script, and then briefly a menu of things you could say at the round table; a list
-of pre-written opinions is what you build for players who cannot talk to each other, and
-there are three microphones on that table now. They are kept only because
+bots' script, and then briefly a menu of things you could say to each other; a list of
+pre-written opinions is what you build for players who cannot talk to each other, and
+there are three live microphones here. They are kept only because
 `dialogue-editor.html` loads this file and edits them. If a written-dialogue mode never
 comes back, delete both.
 

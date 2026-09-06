@@ -17,22 +17,21 @@
 
      ?bots=1                       the whole night, hand dealt from the seed
      ?bots=finale                  the fire and nothing else
-     ?bots=intro,table,finale      no missions, all the talking
-     ?bots=m1,finale               one mission, then the fire
+     ?bots=intro,finale            no mission, all the talking
+     ?bots=m1,finale               the mission, then the fire
      ?bots=all&traitor=you         you are the Traitor
      ?bots=all&traitor=2           the second bot is
-     ?bots=all&traitor=none        nobody is, which is a real outcome
-     ?bots=finale&decide=end       the bots vote to end it at once
-     ?bots=finale&target=you       and they both name you when they do not
+     ?bots=all&traitor=none        nobody is — a rehearsal-only hand
+     ?bots=finale&target=you       and they both name you
 
    Everything else is optional: `seed`, `names`, `pace`. A `#bots=…`
    works as well as a `?bots=…`, because a hash is what survives being
    typed into a phone.
 
-   The bots are not players and are not pretending to be. They talk
-   during the discussion, take their turn at the fire, and vote — and
-   what they vote is a stated policy rather than a mind, because the
-   point of them is to make the ceremony reproducible, not to be beaten.
+   The bots are not players and are not pretending to be. They take
+   their turn at the fire and they name somebody — and who they name is
+   a stated policy rather than a mind, because the point of them is to
+   make the ceremony reproducible, not to be beaten.
 ------------------------------------------------------------------ */
 const Bots = (() => {
 
@@ -44,10 +43,8 @@ const Bots = (() => {
     all: null,                                   // expands to everything
     intro: 'intro', hill: 'intro', welcome: 'intro', opening: 'intro',
     m1: 'm1', mission1: 'm1', 'mission-1': 'm1', first: 'm1',
-    table: 'table', discussion: 'table', roundtable: 'table', talk: 'table',
-    m2: 'm2', mission2: 'm2', 'mission-2': 'm2', second: 'm2',
+    mission: 'm1', missions: 'm1',
     finale: 'finale', fire: 'finale', fireplace: 'finale', end: 'finale',
-    missions: 'missions',                        // expands to m1 + m2
   };
 
   const PACE = {
@@ -97,7 +94,6 @@ const Bots = (() => {
       }
       const id = PART_ALIAS[w];
       if (id === null) { every.forEach(add); continue; }
-      if (id === 'missions') { add('m1'); add('m2'); continue; }
       if (id) add(id);
     }
     // an argument that named nothing recognisable still wanted a night
@@ -136,9 +132,7 @@ const Bots = (() => {
       seed: Number.isFinite(seedRaw) && seedRaw > 0 ? (seedRaw >>> 0) : U.randomSeed(),
       names,
       pace: PACE[String(q.get('pace') || '').toLowerCase()] || PACE.normal,
-      // how the two of them vote at the fire, and who they name
-      decide: ['end', 'banish', 'mix'].indexOf(String(q.get('decide') || '')) >= 0
-        ? String(q.get('decide')) : 'mix',
+      // who they name at the fire
       target: ['you', 'bots', 'random'].indexOf(String(q.get('target') || '')) >= 0
         ? String(q.get('target')) : 'random',
       quiet: q.get('chat') === 'off',
@@ -322,27 +316,13 @@ const Bots = (() => {
     }
   }
 
-  /* The fire. Both ballots, and both of them are a stated policy rather
-     than a judgement — a bot that guessed would make the ceremony
-     different every time it was looked at, which is the opposite of
-     what this file is for. The default walks you through the whole
-     thing: one banishment, and then they end it. */
+  /* The fire, and there is one ballot at it now. Who they name is a
+     stated policy rather than a judgement — a bot that guessed would
+     make the ceremony different every time it was looked at, which is
+     the opposite of what this file is for. */
   function finaleActs(s) {
     const f = s.finale;
     if (!f) return;
-
-    if (f.stage === 'decide') {
-      const choice = cfg.decide === 'mix'
-        ? (f.round === 0 && Session.alive().length > 2 ? 'banish' : 'end')
-        : cfg.decide;
-      for (const id of botIds()) {
-        const p = Session.playerById(id);
-        if (!p || !p.alive || f.votes[id]) continue;
-        after('vote-' + f.round + '-' + id, cfg.pace.vote,
-              () => Net.send({ type: 'vote', playerId: id, choice }));
-      }
-      return;
-    }
 
     if (f.stage === 'name') {
       for (const id of botIds()) {

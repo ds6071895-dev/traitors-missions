@@ -105,19 +105,33 @@ class HillScene {
       ...speak(role === 'traitor' ? 'roleTraitor' : 'roleFaithful'),
       { card: null, wait: 0.5 },
 
-      /* The task, for the one person who has one. It is a card rather
-         than a line because Claudia never says it out loud — two other
-         people are standing right there. */
-      ...(role === 'traitor' && Session.myAgenda(0) ? [
+      /* The task, for the one person who has one — said as well as
+         shown. Claudia is heard on the Traitor's browser and on no
+         other, the same way the role line above is, so there was never
+         anybody in the room to overhear it; and a card read in five
+         seconds while the camera moves is not an instruction anybody
+         carries into a mission. The card stays up for the whole of it,
+         because hearing a sentence once is not the same as having it in
+         front of you. */
+      ...(role === 'traitor' && Session.myAgenda() ? [
         { shot: 'claudiaTight',
           card: () => ({
             kicker: 'And one more thing, quietly',
             title: 'YOUR TASK',
-            sub: Session.myAgenda(0).text
-               + '<br><span style="opacity:.7">Finish it, or the fire will not need a vote.</span>',
+            /* The second line is not flavour. Nothing in this game can
+               hear a microphone, so the only record that the task
+               happened is the button on the chip — and a Traitor who
+               performs the card beautifully and never marks it is
+               exposed for it. That has to be said in words, once, here,
+               before anybody is out on the water. */
+            sub: Session.myAgenda().text
+               + '<br><span style="opacity:.7">Say it out loud during the mission, then mark it '
+               + 'on your task card before the run ends. Nobody can hear you but them.</span>',
             tone: 'traitor',
           }),
-          wait: 5.5 },
+          wait: 1.2 },
+        ...speak('taskGiven', { task: Session.myAgenda().text },
+                 ['claudiaTight', 'claudiaTight', 'claudiaTight', 'claudiaTight', 'claudia']),
         { card: null, wait: 0.4 },
         { then: () => RoomUI.showAgenda() },
       ] : []),

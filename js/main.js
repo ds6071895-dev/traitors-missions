@@ -391,6 +391,43 @@ const Game = (() => {
     catch (e) { console.warn('mission report failed:', e); return base; }
   }
 
+  /* The task, marked, at the bottom of the mission's own scoreboard.
+
+     Nobody but the Traitor ever has a card, so nobody but the Traitor
+     ever sees this block — `Session.myAgenda()` is null for everybody
+     else.
+
+     The deck is voice: there is no check here, and there is none on the
+     host either. What this does is close the book. Reading the card's
+     state with `final` latches the marking window shut for good, so
+     this panel is also the moment the decision stops being available —
+     and it prints, in words, which of the two things you chose. A
+     Traitor who marked it walks into the fire; a Traitor who did not
+     walks into an exposure and does not know it yet. */
+  function paintTask(def, r) {
+    const box = document.getElementById('result-task');
+    if (!box) return;
+    box.hidden = true;
+    box.innerHTML = '';
+    if (typeof Session === 'undefined' || !Session.myAgenda
+        || typeof Agendas === 'undefined') return;
+    const card = Session.myAgenda();
+    if (!card) return;
+    const st = Agendas.state(card.id, null, true);
+    if (!st) return;
+    const esc = (v) => String(v === undefined || v === null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    box.className = 'result-task ' + (st.done ? 'done' : 'failed');
+    box.innerHTML =
+        '<div class="rt-head">Your task</div>'
+      + '<div class="rt-text">' + esc(card.text || st.task) + '</div>'
+      + '<div class="rt-state">'
+      + (st.done ? 'MARKED — you said you said it'
+                 : 'NOT MARKED — you left it undone')
+      + '</div>';
+    box.hidden = false;
+  }
+
   function showResults({ def, opts, result, isBest }) {
     const r = result;
     // the scoreboard is the mission's own language — gates and knots mean
@@ -429,6 +466,8 @@ const Game = (() => {
     // "best" here means best on this exact channel, which is the only
     // comparison that means anything now that channels differ
     document.getElementById('result-best').classList.toggle('show', !!r.courseBest);
+
+    paintTask(def, r);
 
     /* In a run there is nowhere to go but onward, so the three practice
        buttons collapse to one. The mission engine does not know the

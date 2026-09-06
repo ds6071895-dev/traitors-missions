@@ -1,11 +1,13 @@
 /* ------------------------------------------------------------------
-   mission-stats.test.js — the other half of the agenda deck.
+   mission-stats.test.js — what the missions actually count.
 
-   `agendas.test.js` proves the cards judge a hand correctly. This file
-   proves the missions produce the hand. Between them there used to be a
-   gap wide enough to lose a whole card down: a counter can sit in a
-   stats object, be read by a check, and never once be written by the
-   code that plays the game.
+   This file was written as the other half of the agenda deck, back
+   when a card was arithmetic over a stats object and the two halves
+   could drift apart without either one looking wrong. The deck is
+   voice now and judges nothing, so the cards are gone from here — but
+   the counting is not. Every mission still keeps its own telemetry for
+   its own scoreboard and its own live strip, and a tracker that
+   silently stops writing a field is exactly as wrong as it ever was.
 
    Nothing here draws anything. The trackers are called directly with a
    hand-built `this` — which is only possible because they are honest
@@ -141,9 +143,6 @@ test('a meter refilled off the waves is not a meter you arrived dry with', () =>
   tick(r, 0.5, { s: 100, boost: 0.2 });
   tick(r, 0.5, { s: 400, boost: 0.9 });      // air time paid it back
   eq(Math.round(r.stats.boostSpentEarly * 100), 80, 'refills do not undo the spend');
-  const card = ctx.Agendas.byId('br-burn-early');
-  ok(!card.check(Object.assign({}, r.stats, { finished: true, boostAtFinish: 0.9 })),
-     'but the card still says no, because you did not arrive dry');
 });
 
 test('lead time is time in front of everybody, and solo is nobody', () => {
@@ -162,7 +161,7 @@ test('lead time is time in front of everybody, and solo is nobody', () => {
   eq(solo.stats.of, 1, 'and there is no field');
 });
 
-test('the stall the card wants is one stall, not six little ones', () => {
+test('the longest stop is one stop, not six little ones', () => {
   const r = racer();
   tick(r, 1.2, { s: 0, speed: 1 });
   eq(r.stats.longestStop, 0, 'waiting on the start line is not open water');
@@ -170,11 +169,8 @@ test('the stall the card wants is one stall, not six little ones', () => {
   tick(r, 0.6, { s: 110, speed: 20 });        // moving again
   tick(r, 0.6, { s: 200, speed: 1 });
   eq(Math.round(r.stats.longestStop * 10), 6, 'two sixths of a stop is not a stop');
-  const card = ctx.Agendas.byId('br-dead-stop');
-  ok(!card.check(r.stats), 'and the card is not fooled by the total');
   tick(r, 0.6, { speed: 1 });
   eq(Math.round(r.stats.longestStop * 10), 12, 'holding it is');
-  ok(card.check(r.stats), 'and now the card says yes');
 });
 
 test('the last split is taken once, with whatever was in the meter', () => {
@@ -188,14 +184,6 @@ test('the last split is taken once, with whatever was in the meter', () => {
   eq(Math.round(r.stats.boostAtSplit * 10), 8, 'and it is not taken twice');
 });
 
-test('the run reports what the deck asks for', () => {
-  const s = BR.freshStats();
-  for (const c of ctx.Agendas.DECKS['boat-race']) {
-    // every card must be judgeable against a freshly started race
-    ok(typeof c.check(s) === 'boolean', c.id + ' cannot judge a fresh run');
-    ok(!c.check(s), c.id + ' passes a race nobody has driven');
-  }
-});
 
 test('every generated channel offers at least three optional gold lines', () => {
   const generate = (seed, half = 64) => {
@@ -347,13 +335,12 @@ test('the alibi is the very next round, cleared without a miss', () => {
   ok(!before.stats.cleanRoundAfterWalk, 'and a clean round before a walk answers nothing');
 });
 
-test('sitting one out and coming back clean is the whole card', () => {
+test('sitting one out and coming back clean is both facts, kept', () => {
   const s = shooter();
   endRound(s, { roundT: 30, offLineT: 28 });
   endRound(s, { shots: 6, misses: 0 });
-  const card = ctx.Agendas.byId('sh-long-walk');
-  ok(card.check(s.stats), 'the task is done');
-  ok(card.cover(s.stats), 'and the alibi is standing up');
+  ok(s.stats.roundsOffLine >= 1, 'the walk was counted');
+  ok(s.stats.cleanRoundAfterWalk, 'and so was the round that answered it');
 });
 
 test('a guest finalizes their own walk telemetry from host round results', () => {
@@ -679,94 +666,6 @@ test('what the other two are doing is read off their poses, not guessed', () => 
   eq(d.stats.maxOtherBanked, 14000, 'the richest of them');
   eq(d.stats.maxOtherPeakCarry, 6200, 'and the biggest carry out there');
   eq(d.stats.otherTrips, 18, 'their trips are pooled, because the card compares to the field');
-});
-
-section('the dive — the deck, driven end to end');
-
-/* Each card, performed and then covered, against the real check and
-   the real cover. This is the pattern that catches a card whose alibi
-   nothing in the mission can actually produce. */
-function card(id) { return ctx.Agendas.byId(id); }
-
-test('the empty trench trip, with and without its alibi', () => {
-  const c = card('dv-empty-trench');
-  const d = diver();
-  trip(d, 44, 0);
-  d.peers.set('a', { deepest: 30, money: 8000, value: 100, trips: 4 });
-  d.money = 12000;
-  DV.prototype._trackAgenda.call(d, 0.1);
-  ok(c.check(d.stats), 'an empty trench trip is the task');
-  ok(c.cover(d.stats), 'deepest and top of the strip is the alibi');
-
-  const shallowRich = diver();
-  trip(shallowRich, 44, 0);
-  shallowRich.peers.set('a', { deepest: 52, money: 3000, value: 0, trips: 2 });
-  shallowRich.money = 9000;
-  DV.prototype._trackAgenda.call(shallowRich, 0.1);
-  ok(c.check(shallowRich.stats), 'still the task');
-  ok(!c.cover(shallowRich.stats), 'but somebody went deeper — no alibi');
-});
-
-test('two blackouts, covered only by having been the richest hands in the water', () => {
-  const c = card('dv-two-blackouts');
-  const d = diver();
-  d.stats.blackouts = 2;
-  d.stats.peakCarryValue = 15000;
-  d.peers.set('a', { deepest: 0, money: 0, value: 9000, trips: 0 });
-  DV.prototype._trackAgenda.call(d, 0.1);
-  ok(c.check(d.stats), 'two is the task');
-  ok(c.cover(d.stats), 'and the biggest carry of the three is the alibi');
-  d.stats.peakCarryValue = 800;
-  ok(!c.cover(d.stats), 'drowning cheap has no alibi');
-  d.stats.blackouts = 1;
-  ok(!c.check(d.stats), 'one is not two');
-});
-
-test('the quiet bell, covered by coming up on it holding the night', () => {
-  const c = card('dv-quiet-bell');
-  const d = diver({ elapsed: 180 });
-  d.stats.finished = true;
-  d.stats.lastMinuteBanked = 0;
-  d.stats.finalCarryValue = 9000;
-  d.stats.maxOtherPeakCarry = 5000;
-  ok(c.check(d.stats), 'nothing banked late is the task');
-  ok(c.cover(d.stats), 'and a huge final carry is the alibi');
-  d.stats.lastMinuteBanked = 400;
-  ok(!c.check(d.stats), 'banking anything at all fails it');
-});
-
-test('never going deep, covered by out-working the field', () => {
-  const c = card('dv-never-deep');
-  const d = diver();
-  d.stats.finished = true;
-  d.stats.deepest = 21;
-  d.stats.trips = 14;
-  d.stats.otherTrips = 18;
-  d.stats.banked = 12000;
-  d.stats.maxOtherBanked = 14000;
-  ok(c.check(d.stats), 'staying above the trench is the task');
-  ok(c.cover(d.stats), 'more trips and close on money is the alibi');
-  d.stats.deepest = 40;
-  ok(!c.check(d.stats), 'going down there fails it');
-});
-
-test('the pile you swam past, covered by having your hands full', () => {
-  const c = card('dv-passed-drop');
-  const d = diver();
-  d.stats.passedDrops = 1;
-  d.stats.peakCarry = 4;
-  ok(c.check(d.stats), 'leaving a pile is the task');
-  ok(c.cover(d.stats), 'being full when you did is the alibi');
-  d.stats.peakCarry = 2;
-  ok(!c.cover(d.stats), 'half-empty hands have no excuse');
-});
-
-test('a twist that rules a card out takes it out of the deck', () => {
-  const pool = ctx.Agendas.DECKS.dive.filter(
-    c => typeof c.needs !== 'function' || c.needs({ deepestOnly: true }));
-  ok(pool.length > 0, 'Salvage Rights must not empty the deck');
-  ok(!pool.some(c => c.id === 'dv-never-deep'),
-     'staying shallow under Salvage Rights is a forfeit, not a task');
 });
 
 section('the dive — the reef the seed draws');

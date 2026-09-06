@@ -42,17 +42,20 @@ function seedWhere(ctx, want) {
 
 section('session — setup');
 
-test('the dive can be drawn into a full night', () => {
+test('the dive can be drawn into a night', () => {
   const ctx = fresh();
   let found = null;
-  for (let seed = 1; seed <= 100; seed++) {
+  const seen = new Set();
+  for (let seed = 1; seed <= 200; seed++) {
     ctx.Session.startParty({ seed, players: PLAYERS, mode: 'host' });
     const ids = ctx.Session.state.missions.map(m => m.id);
-    if (ids.includes('dive')) { found = { seed, ids }; break; }
+    eq(ids.length, 1, 'a night plans exactly one mission');
+    ids.forEach(id => seen.add(id));
+    if (!found && ids.includes('dive')) found = { seed, ids };
   }
-  ok(found, 'the dive appeared in the two-mission plan');
-  eq(new Set(found.ids).size, 2,
-     'the full game draws two different missions while three are available');
+  ok(found, 'the dive appeared in the plan');
+  ok(seen.size >= 3, 'and the seed reaches every mission across nights: '
+                     + [...seen].join(', '));
 });
 
 test('a party of three is seated in order, with looks and no bots', () => {
@@ -65,7 +68,11 @@ test('a party of three is seated in order, with looks and no bots', () => {
   eq(st.phase, 'hill', 'starts on the hill');
 });
 
-test('a quarter of all nights have no traitor at all', () => {
+/* There used to be a quarter of nights with nobody in them, and a
+   night whose answer is "there was never anyone here" is an evening
+   three people spent for no reason. The seed still picks the chair. It
+   no longer picks whether there is a game. */
+test('every night has exactly one traitor, and any of the three may be it', () => {
   const ctx = fresh();
   let withTraitor = 0;
   const N = 600;
@@ -75,14 +82,10 @@ test('a quarter of all nights have no traitor at all', () => {
     const peek = ctx.Session._peek();
     if (peek.has) { withTraitor++; seats[peek.seat]++; }
   }
-  const frac = withTraitor / N;
-  ok(frac > 0.70 && frac < 0.80, 'traitor fraction was ' + frac.toFixed(3));
-  /* And the other three quarters are split evenly, which is the half
-     of the draw a player can actually feel: any one of the three of
-     you, you included, is the Traitor on a quarter of all nights. */
+  eq(withTraitor, N, 'every single night had a traitor in it');
   for (let i = 0; i < 3; i++) {
     const f = seats[i] / N;
-    ok(f > 0.18 && f < 0.32, 'seat ' + i + ' was the traitor on ' + f.toFixed(3));
+    ok(f > 0.27 && f < 0.40, 'seat ' + i + ' was the traitor on ' + f.toFixed(3));
   }
 });
 
@@ -93,7 +96,7 @@ test('a guest never draws roles and is told nothing until it is told', () => {
   eq(ctx.Session.myRole(), null, 'and no role of its own yet');
   ctx.Session.setMyRole('traitor', [{ id: 'x', text: 'do a thing' }]);
   eq(ctx.Session.myRole(), 'traitor', 'until the host says so');
-  eq(ctx.Session.myAgenda(0).id, 'x', 'and the card comes with it');
+  eq(ctx.Session.myAgenda().id, 'x', 'and the card comes with it');
 });
 
 test('a guest cannot move the game on its own', () => {
@@ -106,40 +109,38 @@ test('a guest cannot move the game on its own', () => {
 
 section('session — the run');
 
+/* The whole night, and it is short on purpose: a welcome, one mission
+   with everybody on an open microphone, and the fire. The round table
+   and the second mission are gone — what is worth playing is the
+   channel, and most of an evening used to go on everything else. */
 function toFinale(ctx, seed) {
   ctx.Session.startParty({ seed, players: PLAYERS, mode: 'host' });
-  ctx.Session.dispatch({ type: 'advance' });                 // hill -> mission 0
-  ctx.Session.dispatch({ type: 'result', earned: 4000, completed: true, players: [] });
-  eq(ctx.Session.state.phase, 'table', 'mission 0 leads to the table');
-  ctx.Session.dispatch({ type: 'advance' });                 // table -> mission 1
-  ctx.Session.dispatch({ type: 'result', earned: 6000, completed: true, players: [] });
-  eq(ctx.Session.state.phase, 'finale', 'mission 1 leads to the fire');
-  eq(ctx.Session.state.pot, 10000, 'both missions banked');
+  ctx.Session.dispatch({ type: 'advance' });                 // hill -> mission
+  ctx.Session.dispatch({ type: 'result', earned: 10000, completed: true, players: [] });
+  eq(ctx.Session.state.phase, 'finale', 'the mission leads straight to the fire');
+  eq(ctx.Session.state.pot, 10000, 'the mission banked');
 }
 
-test('the run walks hill -> mission -> table -> mission -> finale', () => {
+test('the run walks hill -> mission -> finale, and nothing else', () => {
   const ctx = fresh();
   toFinale(ctx, 21);
+  eq(ctx.Session.PARTS, ['intro', 'm1', 'finale'], 'three parts, in order');
 });
 
-test('one banish vote beats two end votes — the fire is unanimous', () => {
+/* There is always a Traitor, so "shall we bother" was never a real
+   question. The fire opens on the only one left. */
+test('the fire opens straight onto the naming, with no decision ballot', () => {
   const ctx = fresh();
   toFinale(ctx, 21);
-  ctx.Session.dispatch({ type: 'vote', playerId: 'a', choice: 'end' });
-  ctx.Session.dispatch({ type: 'vote', playerId: 'b', choice: 'end' });
-  ctx.Session.dispatch({ type: 'vote', playerId: 'c', choice: 'banish' });
-  eq(ctx.Session.state.finale.stage, 'decisions', 'the ballot closed');
-  for (let i = 0; i < 3; i++) ctx.Session.dispatch({ type: 'decisionPouch' });
-  eq(ctx.Session.state.finale.stage, 'name', 'and it went to a naming');
+  eq(ctx.Session.state.finale.stage, 'name', 'no decide stage in front of it');
+  eq(ctx.Session.dispatch({ type: 'vote', playerId: 'a', choice: 'end' }),
+     null, 'a decision vote is not an action any more');
+  eq(ctx.Session.state.finale.stage, 'name', 'and it moved nothing');
 });
 
 test('a tied naming is voted again, never broken at random', () => {
   const ctx = fresh();
   toFinale(ctx, 21);
-  ctx.Session.dispatch({ type: 'vote', playerId: 'a', choice: 'banish' });
-  ctx.Session.dispatch({ type: 'vote', playerId: 'b', choice: 'banish' });
-  ctx.Session.dispatch({ type: 'vote', playerId: 'c', choice: 'banish' });
-  for (let i = 0; i < 3; i++) ctx.Session.dispatch({ type: 'decisionPouch' });
 
   // a three-way split: everybody names somebody different
   ctx.Session.dispatch({ type: 'name', playerId: 'a', targetId: 'b' });
@@ -155,10 +156,6 @@ test('a tied naming is voted again, never broken at random', () => {
 test('banishing the third player stops the game at two', () => {
   const ctx = fresh();
   toFinale(ctx, 21);
-  ctx.Session.dispatch({ type: 'vote', playerId: 'a', choice: 'banish' });
-  ctx.Session.dispatch({ type: 'vote', playerId: 'b', choice: 'banish' });
-  ctx.Session.dispatch({ type: 'vote', playerId: 'c', choice: 'banish' });
-  for (let i = 0; i < 3; i++) ctx.Session.dispatch({ type: 'decisionPouch' });
   ctx.Session.dispatch({ type: 'name', playerId: 'a', targetId: 'c' });
   ctx.Session.dispatch({ type: 'name', playerId: 'b', targetId: 'c' });
   ctx.Session.dispatch({ type: 'name', playerId: 'c', targetId: 'a' });
@@ -267,51 +264,42 @@ test('changing phase closes any floor that was open', () => {
 
 section('session — the agenda');
 
-/* The whole mechanic, both ways round. A completed task is silent and
-   the night continues; a failed one ends it at the next gathering with
-   the Faithfuls holding the pot. */
+/* The whole mechanic, both ways round.
 
-function runWithTraitor(ctx, agendaPasses) {
+   Nothing on the host can hear a microphone, so nothing on the host
+   judges the card. The Traitor marks it themselves, during the run,
+   and that mark is what arrives here. A marked task is silent and the
+   night continues; an unmarked one ends it at the fire with the
+   Faithfuls holding the pot.
+
+   Which means the reducer's whole job is the deadline and the sender,
+   and that is what these cover. */
+
+function runWithTraitor(ctx, marks) {
   const { seed } = seedWhere(ctx, (p) => p.has);
   ctx.Session.startParty({ seed, players: PLAYERS, mode: 'host' });
-  const traitorSeat = ctx.Session._peek().seat;
-  const traitor = ctx.Session.state.players[traitorSeat];
-  const card = ctx.Session.myAgenda
-    ? (ctx.Session.privateRoles().find(r => r.role === 'traitor') || {}).agendas
-    : null;
-  ok(card && card[0], 'a traitor was dealt a card for mission 0');
+  const traitor = ctx.Session.state.players[ctx.Session._peek().seat];
+  const dealt = (ctx.Session.privateRoles().find(r => r.role === 'traitor') || {}).agendas;
+  ok(dealt && dealt[0], 'a traitor was dealt a card');
+  ok(dealt.length === 1, 'exactly one card for the whole night');
 
   ctx.Session.dispatch({ type: 'advance' });
+  if (marks) ctx.Session.dispatch({ type: 'taskDone', playerId: traitor.id });
   const reports = ctx.Session.state.players.map(p => ({
-    playerId: p.id, name: p.name, earned: 1000, columns: ['A'], cells: ['x'],
-    /* A hand that satisfies every card in the deck, and one that
-       satisfies none of them — which card the seed happened to deal is
-       not this file's business. */
-    stats: p.id === traitor.id
-      ? (agendaPasses ? { finished: true, place: 3, of: 3, finishGap: 1,
-                          elapsed: 100, leadTime: 60, longestStop: 1.4,
-                          boostSpentEarly: 1, boostAtFinish: 0, goldDeclined: 3,
-                          escapedNearMe: 5, missed: 10, doves: 1,
-                          roundsOffLine: 1 }
-                      : { finished: true, place: 1, of: 3, finishGap: 40,
-                          elapsed: 100, leadTime: 0, longestStop: 0,
-                          boostSpentEarly: 0, boostAtFinish: 1, goldDeclined: 0,
-                          escapedNearMe: 0, missed: 0, doves: 0,
-                          roundsOffLine: 0 })
-      : {},
+    playerId: p.id, name: p.name, earned: 1000, columns: ['A'], cells: ['x'], stats: {},
   }));
   ctx.Session.dispatch({ type: 'result', earned: 3000, completed: true, players: reports });
-  return { traitor, seed };
+  return { traitor, seed, card: dealt[0] };
 }
 
-test('a completed task is silent — nothing is owed at the table', () => {
+test('a marked task is silent — nothing is owed at the fire', () => {
   const ctx = fresh();
   runWithTraitor(ctx, true);
-  eq(ctx.Session.state.phase, 'table', 'the night carries on');
+  eq(ctx.Session.state.phase, 'finale', 'the night carries on');
   eq(ctx.Session.hasExposure(), false, 'and nobody is owed a ceremony');
 });
 
-test('a failed task is owed, but the traitor is told nothing', () => {
+test('an unmarked task is owed, but the traitor is told nothing', () => {
   const ctx = fresh();
   const { traitor } = runWithTraitor(ctx, false);
   eq(ctx.Session.hasExposure(), true, 'the host knows');
@@ -320,22 +308,47 @@ test('a failed task is owed, but the traitor is told nothing', () => {
   ok(ctx.Session.playerById(traitor.id).alive, 'they are still standing');
 });
 
-/* A dropped packet is not a confession. Every card in the deck reads
-   an empty stat sheet as a task nobody attempted, so a board published
-   without the Traitor's row on it used to convict them of a network
-   fault — at the round table, in front of everyone, ending the night. */
-test('a report that never arrived is not a failed task', () => {
+/* The mark is the only thing in the game a player asserts about
+   themselves with nothing to check it, so the two things that keep it
+   honest are who may send it and when. Neither is security — three
+   people in a voice call can cheat this game in a dozen easier ways —
+   but a mark that could arrive from the fire is a card you settle up
+   on after you have seen how the night is going, and the whole weight
+   of an honour system is having to commit while you still have
+   something to lose. */
+test('only the traitor can mark the task, and only during the mission', () => {
+  const ctx = fresh();
+  const { seed } = seedWhere(ctx, (p) => p.has);
+  ctx.Session.startParty({ seed, players: PLAYERS, mode: 'host' });
+  const traitor = ctx.Session.state.players[ctx.Session._peek().seat];
+  const faithful = ctx.Session.state.players.find(p => p.id !== traitor.id);
+
+  ctx.Session.dispatch({ type: 'taskDone', playerId: traitor.id });
+  ctx.Session.dispatch({ type: 'advance' });
+  ctx.Session.dispatch({ type: 'taskDone', playerId: faithful.id });
+  const reports = ctx.Session.state.players.map(p => ({
+    playerId: p.id, name: p.name, earned: 1000, stats: {} }));
+  ctx.Session.dispatch({ type: 'result', earned: 1, completed: true, players: reports });
+
+  eq(ctx.Session.hasExposure(), true,
+     'a mark from the hill and a mark from a faithful are both nothing');
+});
+
+test('marking is silent on the wire', () => {
   const ctx = fresh();
   const { seed } = seedWhere(ctx, (p) => p.has);
   ctx.Session.startParty({ seed, players: PLAYERS, mode: 'host' });
   const traitor = ctx.Session.state.players[ctx.Session._peek().seat];
   ctx.Session.dispatch({ type: 'advance' });
-  const reports = ctx.Session.state.players
-    .filter(p => p.id !== traitor.id)
-    .map(p => ({ playerId: p.id, name: p.name, earned: 1000, stats: {} }));
-  ctx.Session.dispatch({ type: 'result', earned: 2000, completed: true, players: reports });
-  eq(ctx.Session.state.phase, 'table', 'the night carries on');
-  eq(ctx.Session.hasExposure(), false, 'and nobody is owed a ceremony');
+
+  let changes = 0;
+  ctx.Session.on('change', () => { changes++; });
+  ctx.Session.dispatch({ type: 'taskDone', playerId: traitor.id });
+  /* A snapshot going out at the exact moment somebody says the thing
+     they were told to say is a tell the other two could watch for. */
+  eq(changes, 0, 'nothing was broadcast');
+  eq(JSON.stringify(ctx.Session.snapshot()).indexOf('taskDone'), -1,
+     'and nothing about it is in the shared state');
 });
 
 test('the exposure ends the night with the faithfuls holding the pot', () => {
@@ -361,19 +374,31 @@ test('the exposure ends the night with the faithfuls holding the pot', () => {
   eq(o.roles.find(r => r.id === traitor.id).payout, 0, 'the traitor gets nothing');
 });
 
-test('a clean night is never owed an exposure', () => {
+/* The reckoning. Nothing could check the card all night, so the
+   verdict panel prints it — the card and the mark — for the two people
+   who were on the microphone and can check it themselves. */
+test('the verdict prints the card and the mark, once, at the end', () => {
   const ctx = fresh();
-  const { seed } = seedWhere(ctx, (p) => !p.has);
-  ctx.Session.startParty({ seed, players: PLAYERS, mode: 'host' });
-  ctx.Session.dispatch({ type: 'advance' });
-  ctx.Session.dispatch({ type: 'result', earned: 1, completed: true,
-                         players: PLAYERS.map(p => ({ playerId: p.id, stats: {} })) });
-  eq(ctx.Session.hasExposure(), false, 'nothing to expose');
+  const { traitor, card } = runWithTraitor(ctx, true);
 
-  let told = 'unset';
-  ctx.Session.on('expose', (e) => { told = e; });
-  ctx.Session.dispatch({ type: 'expose' });
-  eq(told, { playerId: null }, 'and the room is still given a definite answer');
+  const mid = JSON.stringify(ctx.Session.snapshot());
+  ok(mid.indexOf(card.text) < 0, 'the card is nowhere in the state before the end');
+
+  ctx.Session.dispatch({ type: 'name', playerId: 'a', targetId: 'c' });
+  ctx.Session.dispatch({ type: 'name', playerId: 'b', targetId: 'c' });
+  ctx.Session.dispatch({ type: 'name', playerId: 'c', targetId: 'a' });
+  for (let i = 0; i < 3; i++) ctx.Session.dispatch({ type: 'speakName' });
+  ctx.Session.dispatch({ type: 'reveal' });
+  let guard = 0;
+  while (ctx.Session.state.phase === 'finale' && guard++ < 8) {
+    ctx.Session.dispatch({ type: 'pouch' });
+  }
+
+  const a = ctx.Session.state.outcome.agenda;
+  ok(a, 'the outcome carries the reckoning');
+  eq(a.text, card.text, 'the card, word for word');
+  eq(a.marked, true, 'and whether they claimed they said it');
+  eq(a.playerId, traitor.id, 'attached to the person who was carrying it');
 });
 
 section('session — the board');

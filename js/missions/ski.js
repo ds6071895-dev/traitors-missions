@@ -529,8 +529,13 @@ class SkiMission {
        than inherited: the hill, the table and the fire all switch the
        pad to walking, and only their own dispose puts it back. */
     Input.setTouchMode('drive');
-    const pad = document.querySelector('#touch-controls .boost-btn');
-    if (pad) { this._padWas = pad.textContent; pad.textContent = 'POP'; }
+    /* Two buttons on the mountain rather than the boat's one. A skier
+       holds the tuck for most of a run and steers the whole time, and
+       a single stick cannot do both — pushing it forward to stay folded
+       up costs you half the steering lock exactly when you are going
+       fast enough to need it. So the tuck comes off the stick and
+       becomes a button your thumb can sit on. */
+    Input.setDrivePad({ main: 'POP', aux: 'TUCK' });
 
     this._camPos.copy(this.skier.pos).add(new THREE.Vector3(0, 8, -14));
     this._camLook.copy(this.skier.pos);
@@ -900,11 +905,22 @@ class SkiMission {
      number going somewhere it should not, and this is the only reason
      anybody could ever catch one. */
   _updateField(dt) {
-    if (!this.party) return;
+    /* Marking the task is a keypress and a pad button, and both of
+       those are edges that only exist inside a frame. The strip below
+       is throttled to a few times a second, which is fine for a
+       scoreboard and would drop most of a button press, so the poll
+       goes above the throttle and the drawing stays below it. */
+    if (this.agenda) RoomUI.pollMark();
     this._fieldT -= dt;
     if (this._fieldT > 0) return;
     this._fieldT = 0.2;
-    if (this.agenda) RoomUI.showAgenda(this._agendaProgress());
+    /* The task chip is not part of the strip and does not need three
+       people to be worth drawing — a rehearsal deals a card too, and a
+       Traitor who cannot see how their own task is going is playing a
+       different game from the one the verdict is about to judge. */
+    if (this.agenda) this._agendaCheckpoint();
+ RoomUI.showAgenda();
+    if (!this.party) return;
     const rows = [{ playerId: this.meId, name: 'You', z: this.skier.pos.z,
                     flow: this.flowLevel, done: this.state !== 'running' }];
     for (const [id, peer] of this.peers) {
@@ -1097,7 +1113,8 @@ class SkiMission {
     if (this.party) {
       MissionNet.attach('ski');
       this._offEvents = MissionNet.on('event', (d, from) => this._onPeerEvent(d, from));
-      RoomUI.showAgenda(this._agendaProgress());
+      this._agendaCheckpoint();
+      RoomUI.showAgenda();
       this._setCenter('READY', 'Waiting for everybody…', 'count');
       MissionNet.waitForStart().then(() => {
         if (this.state === 'waiting') { this.state = 'countdown'; this._setCenter('', ''); }
@@ -2024,11 +2041,17 @@ class SkiMission {
     Screens.show('pause');
   }
 
-  _agendaProgress() {
+  /* The deck is voice, so there is nothing in `this.stats` left for
+     the chip to read. This is still called every time the chip is
+     drawn for one reason: it tells the deck when the run has stopped,
+     and that is the deadline on marking the card. A task you did not
+     mark while the microphone was still open is a task you did not do,
+     and this is the line that shuts the window. */
+  _agendaCheckpoint() {
     const card = this.agenda;
-    if (!card) return '';
-    if (typeof Agendas === 'undefined') return card.hud || '';
-    return Agendas.state(card.id, this.stats) || card.hud || '';
+    if (!card || typeof Agendas === 'undefined') return;
+    const over = this.state === 'finished' || this.state === 'failed';
+    Agendas.state(card.id, null, over);
   }
 
   /* =================== the feel ===================
@@ -2302,7 +2325,8 @@ class SkiMission {
     clearTimeout(this._slowmoT);
     clearTimeout(this._stuckMsgT);
     if (this._offEvents) { this._offEvents(); this._offEvents = null; }
-    if (this.party) { RoomUI.hideField(); RoomUI.hideAgenda(); }
+    RoomUI.hideAgenda();
+    if (this.party) RoomUI.hideField();
     if (this.windSnd) this.windSnd.stop();
     if (this.carveSnd) this.carveSnd.stop();
     if (this.score && this.score.stop) this.score.stop(1.2);
@@ -2338,8 +2362,7 @@ class SkiMission {
     Sky.resetPreset();
     this.scene = null;
 
-    const pad = document.querySelector('#touch-controls .boost-btn');
-    if (pad && this._padWas) pad.textContent = this._padWas;
+    Input.setDrivePad(null);
 
     // these live outside the screens, so nothing else hides them on the
     // way out: leave them lit and the next mission inherits a speed

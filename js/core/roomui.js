@@ -212,36 +212,131 @@ const RoomUI = (() => {
   /* ---------------- your task ----------------
      Only ever drawn from `Session.myAgenda()`, which returns null for
      everybody who is not a Traitor — so there is no branch here that
-     could accidentally render somebody else's card. */
+     could accidentally render somebody else's card.
 
-  /* `progress` is either a plain line or, from a mission that tracks
-     the deck properly, `{ prog, done, covered }`.
+     The deck is voice now. Nothing on this machine, or on the host, or
+     anywhere else in this game, can hear a microphone, so this panel
+     is not reporting a check somebody else is running — it *is* the
+     check. Four lines, and a Traitor reading them at speed is asking
+     four questions:
+
+       task    the card, in full. Longer than it used to be: half the
+               deck is a whole sentence you have to say word for word.
+       prog    the short form, for glancing at.
+       mark    the button. This is the one that matters.
+       state   whether it counted, said in words rather than left to a
+               colour: NOT SAID YET while the run is still going, SAID
+               once you have marked it, and NOT SAID once the run is
+               over and you never did — which is the state that decides
+               the rest of the night.
+
+     Two things about the button, both of them deliberate:
+
+     - It asks twice. The first press arms it and the second commits,
+       and an armed button disarms itself after a few seconds. An
+       accidental mark is a lie you did not decide to tell, and the
+       whole of this deck rests on the difference.
+     - It dies with the run. `Agendas` latches its window shut the
+       moment the numbers stop, so the last thing this panel does is go
+       grey — you cannot settle up on a card once you have seen how the
+       mission went.
 
      The card still carries its alibi and this deliberately does not
-     draw it. Spelled out on the HUD it read as a second instruction —
-     do this, then do that — when it is nothing of the kind: it is the
+     draw it. Spelled out on the HUD it reads as a second instruction —
+     say this, then do that — when it is nothing of the kind: it is the
      harder way to do the one task, and a Traitor who is handed it in
-     words plays the sentence instead of the mission. So the chip
-     carries the task and how far along it is, and nothing else.
+     words plays the sentence instead of the room. */
 
-     The cover is still tracked and still says so, in the border going
-     gold the moment the run itself supports the story. Which story
-     that is, is the game. */
-  function showAgenda(progress) {
+  const ARM_MS = 4000;
+  let armedUntil = 0;
+  let markWired = false;
+
+  /* Every input path the game has, aimed at one button. A phone taps
+     it, a keyboard presses T, a pad presses the west face. The pad and
+     the key are polled rather than bound, because a mission owns the
+     frame and `pressedThisFrame` only exists inside one. */
+  function wireMark() {
+    if (markWired) return;
+    const b = el('agenda-mark');
+    if (!b) return;
+    markWired = true;
+    b.addEventListener('click', (ev) => { ev.preventDefault(); pressMark(); });
+  }
+
+  function pressMark() {
+    const card = Session.myAgenda ? Session.myAgenda() : null;
+    if (!card || typeof Agendas === 'undefined') return;
+    if (Agendas.isClosed() || Agendas.isMarked(card.id)) return;
+    const now = Date.now();
+    if (now > armedUntil) {          // first press: arm it, commit nothing
+      armedUntil = now + ARM_MS;
+      AudioBus.play('ui-hover');
+      showAgenda();
+      return;
+    }
+    armedUntil = 0;
+    if (!Agendas.mark(card.id)) { showAgenda(); return; }
+    AudioBus.play('ui-click');
+    /* The host is told separately and answers nothing. It does not go
+       into the shared state and it emits no event, because a packet
+       leaving this machine at the exact moment somebody says the thing
+       they were told to say is a tell the other two could watch for. */
+    Net.send({ type: 'taskDone' });
+    showAgenda();
+  }
+
+  /* Called from inside the mission's own frame, where `pressedThisFrame`
+     is meaningful. Everything else about this panel is event-driven;
+     this one poll is what gives it a keyboard and a pad. */
+  function pollMark() {
+    if (typeof Input === 'undefined' || !Input.pressed('task')) return;
+    pressMark();
+  }
+
+  function showAgenda() {
     const chip = el('agenda-chip');
     if (!chip) return;
     const card = Session.myAgenda ? Session.myAgenda() : null;
     if (!card) { hideAgenda(); return; }
-    const st = (progress && typeof progress === 'object') ? progress : null;
-    const line = st ? st.prog : progress;
+    wireMark();
+
+    const A = typeof Agendas !== 'undefined' ? Agendas : null;
+    const done = !!(A && A.isMarked(card.id));
+    const closed = !!(A && A.isClosed());
+    const failed = closed && !done;
+    const armed = !done && !closed && Date.now() < armedUntil;
+
     el('agenda-text').textContent = card.text || '';
     const prog = el('agenda-prog');
     if (prog) {
-      prog.textContent = line || card.hud || '';
+      prog.textContent = card.hud || '';
       prog.hidden = !prog.textContent;
     }
-    chip.classList.toggle('covered', !!(st && st.covered));
-    chip.classList.toggle('done', !!(st && st.done));
+
+    const b = el('agenda-mark');
+    if (b) {
+      b.disabled = done || closed;
+      b.classList.toggle('armed', armed);
+      b.textContent = done   ? 'Marked — it counted'
+                    : closed ? 'Too late'
+                    : armed  ? 'Press again to confirm'
+                             : 'I said it';
+    }
+
+    const state = el('agenda-state');
+    if (state) {
+      /* No microphone is its own answer, and it is worth saying out
+         loud rather than letting somebody press a button they had no
+         way of earning. */
+      const noMic = typeof VoiceChat !== 'undefined' && !VoiceChat.available;
+      state.textContent = failed ? 'NOT SAID — you left it undone'
+                        : done   ? 'SAID — and only you know'
+                        : noMic  ? 'NO MICROPHONE — nobody can hear you say it'
+                                 : 'NOT SAID YET';
+    }
+
+    chip.classList.toggle('done', done);
+    chip.classList.toggle('failed', failed);
     chip.hidden = false;
     chip.classList.add('on');
   }
@@ -295,6 +390,7 @@ const RoomUI = (() => {
 
   return { init, toggleMic, paintMic,
            showFloor, hideFloor, showBoard, hideBoard, showAgenda, hideAgenda,
+           pollMark,
            hideAll, paintTick, boardHTML, boardCols, showField, hideField,
            get floorWho() { return floorWho; },
            get floorOpen() { return floorOpen; } };

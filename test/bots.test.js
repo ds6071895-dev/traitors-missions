@@ -68,7 +68,7 @@ function fresh() {
 const SNAP = { turn: [0.005, 0.01], open: [0.005, 0.01],
                vote: [0.005, 0.01], line: [0.005, 0.01] };
 const RIG = { seed: 31, parts: ['finale'], names: ['Morag', 'Struan'], pace: SNAP,
-              decide: 'mix', target: 'random', quiet: true };
+              target: 'random', quiet: true };
 
 const PLAYERS = [
   { id: 'you', name: 'You', local: true },
@@ -96,10 +96,9 @@ test('parts are named, aliased, and come back in running order', () => {
   eq(ctx.Bots.parseParts('finale,intro'), ['intro', 'finale'],
      'typed backwards, played forwards');
   eq(ctx.Bots.parseParts('fire'), ['finale'], 'fire is the finale');
-  eq(ctx.Bots.parseParts('discussion'), ['table'], 'discussion is the table');
   eq(ctx.Bots.parseParts('m1,finale'), ['m1', 'finale']);
-  eq(ctx.Bots.parseParts('missions'), ['m1', 'm2'], 'missions is both of them');
-  eq(ctx.Bots.parseParts('intro table finale'), ['intro', 'table', 'finale'],
+  eq(ctx.Bots.parseParts('mission'), ['m1'], 'there is one of them now');
+  eq(ctx.Bots.parseParts('intro m1 finale'), ['intro', 'm1', 'finale'],
      'spaces separate as well as commas');
 });
 
@@ -189,12 +188,12 @@ section('bots — a night with parts switched off');
 test('only the fire opens straight into the fire', () => {
   const ctx = fresh();
   const s = startRehearsal(ctx, { parts: ['finale'] });
-  eq(s.phase, 'finale', 'no hill, no missions, no table');
-  ok(s.missions.every(m => m.done), 'both missions counted as played');
+  eq(s.phase, 'finale', 'no hill and no mission');
+  ok(s.missions.every(m => m.done), 'the mission counted as played');
   ok(s.pot > 0, 'and paid into the pot: ' + s.pot);
   ok(!!s.debrief && s.debrief.rows.length === 3,
      'with a board the fire can put up');
-  eq(s.finale.stage, 'decide', 'and a ballot ready to open');
+  eq(s.finale.stage, 'name', 'and the one ballot ready to open');
 });
 
 test('a skipped mission is indistinguishable from a played one', () => {
@@ -204,7 +203,7 @@ test('a skipped mission is indistinguishable from a played one', () => {
     ok(m.done && m.earned > 0, m.id + ' was marked done with money on it');
   }
   eq(s.pot, s.missions.reduce((n, m) => n + m.earned, 0),
-     'the pot is exactly what the two of them paid');
+     'the pot is exactly what it paid');
 });
 
 test('the welcome then the fire skips everything between', () => {
@@ -215,25 +214,24 @@ test('the welcome then the fire skips everything between', () => {
   eq(ctx.Session.state.phase, 'finale', 'the hill hands straight to the fire');
 });
 
-test('no table means mission one hands straight to mission two', () => {
+test('the mission hands straight to the fire', () => {
   const ctx = fresh();
-  const s = startRehearsal(ctx, { parts: ['m1', 'm2', 'finale'] });
+  const s = startRehearsal(ctx, { parts: ['m1', 'finale'] });
   eq(s.phase, 'mission');
   eq(s.missionAt, 0);
   ctx.Session.dispatch({ type: 'result', earned: 1000, completed: true, players: [] });
-  eq(ctx.Session.state.phase, 'mission', 'still a mission');
-  eq(ctx.Session.state.missionAt, 1, 'but the second one');
-  ok(ctx.Session.state.scene.phase === 'mission' && !ctx.Session.state.scene.started,
+  eq(ctx.Session.state.phase, 'finale', 'and there is nothing between them');
+  ok(ctx.Session.state.scene.phase === 'finale' && !ctx.Session.state.scene.started,
      'and the scene handshake was reset rather than inherited');
 });
 
-test('the intro and the table, and then the night is simply over', () => {
+/* The rehearsal door is the only thing left that can deal a night with
+   nobody in it. A real night always has a Traitor. */
+test('the welcome alone, and then the night is simply over', () => {
   const ctx = fresh();
-  const s = startRehearsal(ctx, { parts: ['intro', 'table'], traitorSeat: -1 });
+  const s = startRehearsal(ctx, { parts: ['intro'], traitorSeat: -1 });
   eq(s.phase, 'hill');
-  ctx.Session.dispatch({ type: 'advance' });          // hill -> table (m1 skipped)
-  eq(ctx.Session.state.phase, 'table');
-  ctx.Session.dispatch({ type: 'advance' });          // table -> nothing left
+  ctx.Session.dispatch({ type: 'advance' });          // hill -> nothing left
   eq(ctx.Session.state.phase, 'verdict');
   const o = ctx.Session.state.outcome;
   ok(o && o.won, 'a Faithful still sitting there with no Traitor in the game won');
@@ -244,11 +242,7 @@ test('a rehearsal fire still plays a whole finale', () => {
   const ctx = fresh();
   startRehearsal(ctx, { parts: ['finale'], traitorSeat: 1 });
   const S = ctx.Session;
-  const vote = (id, choice) => S.dispatch({ type: 'vote', playerId: id, choice });
-  ['you', 'bot1', 'bot2'].forEach(id => vote(id, 'banish'));
-  eq(S.state.finale.stage, 'decisions');
-  for (let i = 0; i < 3; i++) S.dispatch({ type: 'decisionPouch' });
-  eq(S.state.finale.stage, 'name');
+  eq(S.state.finale.stage, 'name', 'straight onto the naming');
   S.dispatch({ type: 'name', playerId: 'you', targetId: 'bot1' });
   S.dispatch({ type: 'name', playerId: 'bot1', targetId: 'you' });
   S.dispatch({ type: 'name', playerId: 'bot2', targetId: 'bot1' });
@@ -298,17 +292,14 @@ section('bots — driving a fire');
    so the test plays that part. Everything a *contestant* does — both
    ballots, from both bots — is the real driver reacting to the real
    session over the real transport. */
-async function ceremony(ctx, myVote, myName) {
+async function ceremony(ctx, myName) {
   const S = ctx.Session;
   const send = (a) => ctx.Net.send(a);
   await H.flush();
-  send({ type: 'vote', playerId: 'you', choice: myVote });
-  await settle(ctx, () => S.state.finale.stage !== 'decide');
   let guard = 0;
   while (S.state.phase === 'finale' && guard++ < 24) {
     const f = S.state.finale;
-    if (f.stage === 'decisions') send({ type: 'decisionPouch' });
-    else if (f.stage === 'name') {
+    if (f.stage === 'name') {
       if (!f.names.you) send({ type: 'name', playerId: 'you', targetId: myName(ctx) });
       await settle(ctx, () => S.state.finale.stage !== 'name');
       continue;
@@ -330,16 +321,16 @@ async function settle(ctx, done, tries = 200) {
   throw new Error('the bots never answered');
 }
 
-const A1 = () => H.atest('an open table talks itself out without anybody chairing it', async () => {
+const A1 = () => H.atest('an open floor talks itself out without anybody chairing it', async () => {
   const ctx = fresh();
-  ctx.Bots.start(Object.assign({}, RIG, { parts: ['table', 'finale'] }));
+  ctx.Bots.start(Object.assign({}, RIG, { parts: ['finale'] }));
   const S = ctx.Session;
-  eq(S.state.phase, 'table');
+  eq(S.state.phase, 'finale');
   ctx.Net.send({ type: 'openFloor', all: true });
   await settle(ctx, () => (S.state.floor && S.state.floor.ready.length) >= 2);
   eq(S.state.floor.ready.slice().sort(), ['bot1', 'bot2'],
      'both of them said they had said enough');
-  ok(!S.state.floor.done, 'and the table waits for you before it moves on');
+  ok(!S.state.floor.done, 'and the floor waits for you before it moves on');
   ctx.Net.send({ type: 'yieldFloor', playerId: 'you' });
   await settle(ctx, () => S.state.floor.done);
   ctx.Bots.stop();
@@ -358,15 +349,15 @@ const A2 = () => H.atest('a turn floor at the fire goes round on its own after y
   ctx.Bots.stop();
 });
 
-const A3 = () => H.atest('both bots vote, and the fire reaches a verdict', async () => {
+const A3 = () => H.atest('both bots name somebody, and the fire reaches a verdict', async () => {
   const ctx = fresh();
   ctx.Bots.start(Object.assign({}, RIG, { traitorSeat: 1 }));
   const S = ctx.Session;
   eq(S.state.phase, 'finale', 'straight to the fire');
-  await settle(ctx, () => Object.keys(S.state.finale.votes).length >= 2);
-  eq(Object.keys(S.state.finale.votes).sort(), ['bot1', 'bot2'],
+  await settle(ctx, () => Object.keys(S.state.finale.names).length >= 2);
+  eq(Object.keys(S.state.finale.names).sort(), ['bot1', 'bot2'],
      'both of them answered without being asked');
-  const st = await ceremony(ctx, 'banish', () => 'bot1');
+  const st = await ceremony(ctx, () => 'bot1');
   ctx.Bots.stop();
   eq(st.phase, 'verdict');
   ok(st.outcome, 'and it produced one');

@@ -29,17 +29,18 @@
    they read `state`, they call `Net.send`, and that is all they ever
    did.
 
-   The roles, drawn once from the seed:
-     25% the run has no traitor at all;
-     the other 75% has exactly one, uniform over all three players —
-     which is a quarter of all nights each, you included.
-   You are told your own role. Nobody is ever told whether a traitor
-   exists.
+   The roles, drawn once from the seed: there is always exactly one
+   Traitor, uniform over all three players, which is a third of all
+   nights each, you included. There used to be a quarter of nights with
+   nobody in them at all, and a night where the answer is "there was
+   never anyone here" is a night three people spent an evening on for
+   no reason. You are told your own role and nobody else's.
 ------------------------------------------------------------------ */
 const Session = (() => {
 
   const V = 3;
   const SEATS = 3;                 // exactly three, and the show is written for it
+  const MISSION_COUNT = 1;         // one mission, and the rest of it is talking
   const FLOOR_SECONDS = 30;        // one turn, when the floor goes round
   const TABLE_SECONDS = 150;       // the whole open discussion, when it does not
 
@@ -53,7 +54,8 @@ const Session = (() => {
 
   /* The one thing that must never be serialised. `seat` is which chair
      the traitor is in, or -1 for a run that simply has no traitor. */
-  let secret = { has: false, seat: -1, agendas: null, exposed: null };
+  let secret = { has: false, seat: -1, agendas: null, exposed: null,
+                 taskDone: false };
 
   const listeners = {
     change: new Set(),   // (state) — anything at all moved
@@ -111,9 +113,10 @@ const Session = (() => {
       return seat < 0 || seat >= SEATS ? { has: false, seat: -1 }
                                        : { has: true, seat };
     }
+    /* Always one. The seed still chooses the chair, so a night is still
+       replayable, but it no longer chooses whether there is a night. */
     const r = rngFor(SALT.roles, seed);
-    const has = r() < 0.75;                     // a quarter of all runs are clean
-    return { has, seat: has ? r.int(0, SEATS - 1) : -1 };
+    return { has: true, seat: r.int(0, SEATS - 1) };
   }
 
   const roleOfSeat = (seat) => (secret.seat === seat ? 'traitor' : 'faithful');
@@ -135,11 +138,17 @@ const Session = (() => {
      Real nights pass no `parts` at all and get `ALL_PARTS`, which is
      every entry, which is the behaviour this file has always had. */
 
+  /* The night is short on purpose. It used to be two missions with a
+     round table between them, which is the shape of the television
+     programme and the wrong shape for three people on a voice call:
+     most of an evening went on missions, and the round table spent
+     itself re-litigating a scoreboard. The deck is voice now, and the
+     thing worth playing is the microphone, so the running order is a
+     welcome, one mission with everybody talking through it, and the
+     fire. Everything that is not traitoring has been taken out. */
   const RUN = [
     { part: 'intro',  phase: 'hill' },
     { part: 'm1',     phase: 'mission', at: 0 },
-    { part: 'table',  phase: 'table' },
-    { part: 'm2',     phase: 'mission', at: 1 },
     { part: 'finale', phase: 'finale' },
   ];
   const ALL_PARTS = RUN.map(s => s.part);
@@ -215,8 +224,8 @@ const Session = (() => {
     const bag = pool.slice();
     const out = [];
 
-    for (let i = 0; i < 2; i++) {
-      if (!bag.length) bag.push(...pool);       // fewer than two exist: repeat
+    for (let i = 0; i < MISSION_COUNT; i++) {
+      if (!bag.length) bag.push(...pool);       // fewer than that exist: repeat
       if (!bag.length) break;
       const def = bag.splice(Math.floor(r() * bag.length), 1)[0];
       const missionSeed = r.int(1, 0x7ffffff) >>> 0;
@@ -246,16 +255,22 @@ const Session = (() => {
     return out;
   }
 
-  /* ---------------- the traitor's tasks ----------------
-     One card per mission, drawn from the same seed as everything else
-     so a night can be replayed. Only a traitor is ever dealt one, and
-     it never touches `state` — it goes to that one client as a private
-     message, exactly like the role it belongs to. */
+  /* ---------------- the traitor's task ----------------
+     One card for the night, drawn from the same seed as everything
+     else so a night can be replayed. Only a traitor is ever dealt one,
+     and it never touches `state` — it goes to that one client as a
+     private message, exactly like the role it belongs to.
 
-  function drawAgendas(seed, missions) {
+     It is still carried as a list because that is what the wire and
+     the guest's mirror have always spoken, and a one-entry list is a
+     much smaller change than a new private message. Nothing indexes
+     into it any more: `myAgenda()` answers with the card whatever it
+     is asked, because there is one. */
+
+  function drawAgendas(seed) {
     if (typeof Agendas === 'undefined') return null;
-    const r = rngFor(SALT.agendas, seed);
-    return (missions || []).map(m => Agendas.draw(m.id, r, m.modFlags));
+    const card = Agendas.draw(rngFor(SALT.agendas, seed));
+    return card ? [card] : null;
   }
 
   /* ---------------- lifecycle ---------------- */
@@ -298,8 +313,7 @@ const Session = (() => {
      person at a time. Once the game stops, `pouches` walks the surviving
      role pouches in turn; `reason` holds the verdict until the last one
      has burned. */
-  const newFinale = () => ({ round: 0, stage: 'decide', votes: {}, names: {},
-                             decisionQueue: [], decisionsShown: [],
+  const newFinale = () => ({ round: 0, stage: 'name', names: {},
                              nameQueue: [], namesShown: [], nameRound: 0,
                              pending: null, burned: [], lastTally: null,
                              queue: [], opened: [], reason: null });
@@ -324,10 +338,11 @@ const Session = (() => {
     rehearsal = !!opts.rehearsal;
     const forcedSeat = rehearsal ? opts.traitorSeat : undefined;
     secret = mode === 'host'
-      ? Object.assign(drawRoles(seed, forcedSeat), { agendas: null, exposed: null })
-      : { has: false, seat: -1, agendas: null, exposed: null };
+      ? Object.assign(drawRoles(seed, forcedSeat),
+                      { agendas: null, exposed: null, taskDone: false })
+      : { has: false, seat: -1, agendas: null, exposed: null, taskDone: false };
     state = fresh(seed, opts.players || [], rehearsal ? opts.parts : null);
-    if (mode === 'host') secret.agendas = drawAgendas(seed, state.missions);
+    if (mode === 'host') secret.agendas = drawAgendas(seed);
     /* A night that is not playing its welcome starts wherever it does
        start. This runs before anybody is listening — `Show` reads the
        phase off the state rather than waiting to be told about it — so
@@ -398,7 +413,7 @@ const Session = (() => {
   // keep the long-standing save model in step, so the recap log reads right
   function syncGameState() {
     if (!state) return;
-    const map = { hill: 'lobby', mission: 'mission', table: 'roundtable',
+    const map = { hill: 'lobby', mission: 'mission',
                   finale: 'endgame', verdict: 'endgame' };
     GameState.data.phase = map[state.phase] || 'lobby';
     GameState.data.round = state.missionAt + 1;
@@ -415,14 +430,14 @@ const Session = (() => {
     return me ? roleOfSeat(me.seat) : null;
   }
 
-  /* The card in your own pocket for the mission about to start, or
-     null — which is what a Faithful always gets, and what everybody
-     gets on the quarter of all nights that have no Traitor in them. */
-  function myAgenda(at) {
-    const i = at === undefined ? (state ? state.missionAt : 0) : at;
-    if (mode === 'guest') return (toldAgendas && toldAgendas[i]) || null;
+  /* The card in your own pocket, or null — which is what a Faithful
+     always gets. There is one card for the whole night, so the index
+     callers still pass is accepted and ignored rather than made into a
+     way of asking for a card that does not exist. */
+  function myAgenda() {
+    if (mode === 'guest') return (toldAgendas && toldAgendas[0]) || null;
     if (myRole() !== 'traitor') return null;
-    return (secret.agendas && secret.agendas[i]) || null;
+    return (secret.agendas && secret.agendas[0]) || null;
   }
 
   const alive = () => (state ? state.players.filter(p => p.alive) : []);
@@ -444,8 +459,7 @@ const Session = (() => {
       case 'advance': moved = doAdvance(); break;
       case 'result':  moved = doResult(action); break;
       case 'readyResult': moved = doReadyResult(action); break;
-      case 'vote':    moved = doVote(action); break;
-      case 'decisionPouch': moved = doDecisionPouch(action); break;
+      case 'taskDone': moved = doTaskDone(action); break;
       case 'name':    moved = doName(action); break;
       case 'speakName': moved = doSpeakName(action); break;
       case 'reveal':  moved = doReveal(); break;
@@ -634,10 +648,9 @@ const Session = (() => {
     return true;
   }
 
-  // the scenes that are pure theatre end by asking for the next phase
+  // the scene that is pure theatre ends by asking for the next phase
   function doAdvance() {
     if (state.phase === 'hill') return goToStep(stepIndexOf('intro') + 1);
-    if (state.phase === 'table') return goToStep(stepIndexOf('table') + 1);
     return false;
   }
 
@@ -654,9 +667,9 @@ const Session = (() => {
     m.done = true;
     state.pot = Math.max(0, state.pot + m.earned);
     state.debrief = buildDebrief(m, reports);
-    judgeAgenda(reports);
+    judgeAgenda();
     GameState.logEvent('mission', `${m.name}: ${U.money(m.earned)} into the pot`, { id: m.id });
-    goToStep(stepIndexOf(state.missionAt === 0 ? 'm1' : 'm2') + 1);
+    goToStep(stepIndexOf('m1') + 1);
     return true;
   }
 
@@ -711,33 +724,54 @@ const Session = (() => {
   }
 
   /* ---------------- the task, marked ----------------
-     Marked here, and told to nobody. The Traitor walks into the next
-     room believing they got away with it, which is the only version of
-     this worth watching. */
+     Nothing on this machine can hear a microphone, so nothing on this
+     machine judges the card. The one person who knows marks it, on
+     their own HUD, while the mission is still running — and that mark
+     is what arrives here.
 
-  function judgeAgenda(reports) {
+     Only the Traitor may send it, and only while the run it belongs to
+     is still going. Both of those are the deadline rather than
+     security theatre: a mark that could be sent from the fire is a
+     card you get to settle up on after you have seen how the night is
+     going, and the entire weight of an honour system is that you have
+     to commit while you still have something to lose. */
+
+  function doTaskDone(a) {
+    if (mode !== 'host') return false;
+    if (state.phase !== 'mission') return false;
+    if (!secret.has || secret.taskDone) return false;
+    const p = a && a.playerId ? playerById(a.playerId) : localPlayer();
+    if (!p || !p.alive || p.seat !== secret.seat) return false;
+    if (!(secret.agendas || [])[0]) return false;
+    secret.taskDone = true;
+    /* Deliberately silent, and this is why it answers "nothing moved"
+       having just moved something. Nothing went into `state`, so there
+       is nothing to broadcast — and a snapshot going out at the exact
+       moment somebody says the thing they were told to say is a tell
+       on the wire that the other two can watch for. The Traitor's own
+       chip has already answered locally; the host needed only to
+       remember. */
+    return false;
+  }
+
+  /* Marked here, and told to nobody. The Traitor walks into the fire
+     believing they got away with it, which is the only version of this
+     worth watching.
+
+     An unmarked card is an exposure. That is the honest half of the
+     bargain: a Traitor who bottled it and did not lie about it is the
+     one the Faithfuls catch for free, and a Traitor who marked a card
+     they never performed has to sit through the verdict panel printing
+     the card, the mark, and their name, in front of the two people who
+     were on the microphone with them. */
+
+  function judgeAgenda() {
     if (mode !== 'host' || !secret.has) return;
-    const card = (secret.agendas || [])[state.missionAt];
-    if (!card || typeof card.check !== 'function') return;
+    const card = (secret.agendas || [])[0];
+    if (!card) return;
     const traitor = state.players.find(p => p.seat === secret.seat);
     if (!traitor || !traitor.alive) return;
-    const report = reports.find(r => r.playerId === traitor.id);
-    /* No row on the board is not the same as an unfinished task. It is
-       a report that never arrived — a peer that dropped on the last
-       lap, a board the host had to publish without them — and every
-       card in the deck reads an absent report as a task nobody
-       attempted. Burning somebody at the round table for a packet that
-       went missing is the worst possible way to end a night, so an
-       unjudgeable card is not judged. The check itself already fails
-       open when it throws, for exactly the same reason. */
-    if (!report || !report.stats) {
-      console.warn('agenda unjudged: no report from the traitor');
-      return;
-    }
-    let done = false;
-    try { done = !!card.check(report.stats); }
-    catch (e) { console.warn('agenda check failed open:', e); done = true; }
-    if (!done) secret.exposed = { playerId: traitor.id, card };
+    if (!secret.taskDone) secret.exposed = { playerId: traitor.id, card };
   }
 
   /* ---------------- exposure ----------------
@@ -785,70 +819,18 @@ const Session = (() => {
   }
 
   /* ---------------- the finale ----------------
-     Two ballots per round: whether to banish at all, and then who. The
-     authority collects a whole ballot before revealing it. Decision
-     pouches burn one by one (all end-game pouches first), and names are
-     then spoken one by one, so neither result can jump straight from a
-     button press to a tally. */
+     One ballot: who. There used to be a Fire of Truth in front of it —
+     end the game or banish again, unanimous to stop — which is the
+     right ballot for a show where the table cannot be sure anybody is
+     lying to them. There is always a Traitor here, so "shall we bother"
+     was never a real question, and asking it twice a round only gave
+     three people a way to end the night without playing it.
 
-  function doVote(a) {
-    const f = state.finale;
-    if (state.phase !== 'finale' || f.stage !== 'decide') return false;
-    const p = playerById(a.playerId);
-    if (!p || !p.alive) return false;
-    if (a.choice !== 'end' && a.choice !== 'banish') return false;
-    if (f.votes[p.id] === a.choice) return false;
-    f.votes[p.id] = a.choice;
-    emit('vote', { playerId: p.id, stage: 'decide', choice: a.choice });
-    if (alive().every(q => f.votes[q.id])) beginDecisionReveal();
-    return true;
-  }
-
-  function beginDecisionReveal() {
-    const f = state.finale;
-    const living = alive().slice().sort((a, b) => {
-      const ac = f.votes[a.id] === 'end' ? 0 : 1;
-      const bc = f.votes[b.id] === 'end' ? 0 : 1;
-      return ac - bc || a.seat - b.seat;
-    });
-    f.stage = 'decisions';
-    f.decisionQueue = living.map(p => p.id);
-    f.decisionsShown = [];
-  }
-
-  function doDecisionPouch(a) {
-    const f = state.finale;
-    if (state.phase !== 'finale' || f.stage !== 'decisions' || !f.decisionQueue.length) return false;
-    const playerId = f.decisionQueue[0];
-    if (a.playerId && a.playerId !== playerId) return false;
-    const p = playerById(playerId);
-    if (!p || !p.alive) return false;
-    const choice = f.votes[playerId];
-    if (choice !== 'end' && choice !== 'banish') return false;
-    f.decisionQueue.shift();
-    f.decisionsShown.push({ playerId, choice });
-    emit('decision', { playerId, choice, last: f.decisionQueue.length === 0 });
-    if (!f.decisionQueue.length) resolveDecide();
-    return true;
-  }
-
-  function resolveDecide() {
-    const f = state.finale;
-    const living = alive();
-    let end = 0, banish = 0;
-    for (const p of living) (f.votes[p.id] === 'end' ? end++ : banish++);
-    // a tie is only reachable at two players; Claudia breaks it, seeded
-    // The Fire of Truth is unanimous: one red pouch is enough to force
-    // another banishment. This is not a majority ballot.
-    const result = end === living.length ? 'end' : 'banish';
-    f.lastTally = { stage: 'decide', result, counts: { end, banish }, tied: false };
-    emit('tally', f.lastTally);
-    if (result === 'end') openPouches('ended-by-vote');
-    else {
-      f.stage = 'name'; f.names = {}; f.nameQueue = []; f.namesShown = [];
-      f.nameRound = 0;
-    }
-  }
+     So: everybody names somebody, the authority collects the whole
+     ballot before revealing any of it, and the names are then spoken
+     one at a time, so the result can never jump straight from a button
+     press to a tally. Three contestants and one banishment leaves two,
+     which is the closing walk. */
 
   function doName(a) {
     const f = state.finale;
@@ -981,8 +963,12 @@ const Session = (() => {
     GameState.logEvent('banish', `${p.name} was a ${role}`, { id: p.id, role });
     emit('reveal', { playerId: p.id, name: p.name, role });
 
-    /* The End Game stops automatically at two contestants. Finding a
-       Traitor does not otherwise stop it, and a banished local player
+    /* Three contestants and one banishment leaves two, so on every
+       real night this is the branch that runs and the closing walk
+       starts here. The round below is kept for the seat count this
+       file does not have yet: it costs four lines and it is the
+       difference between "more seats one day" and "more seats and a
+       finale that ends after the first name". A banished local player
        still watches the final pair reveal before the verdict. */
     if (alive().length <= 2) {
       /* Whose pouch this is is client-local. Store the shared reason and
@@ -992,11 +978,8 @@ const Session = (() => {
     }
 
     f.round++;
-    f.stage = 'decide';
-    f.votes = {};
+    f.stage = 'name';
     f.names = {};
-    f.decisionQueue = [];
-    f.decisionsShown = [];
     f.nameQueue = [];
     f.namesShown = [];
     f.nameRound = 0;
@@ -1020,6 +1003,22 @@ const Session = (() => {
       won: !!card.winner,
       banked: Math.max(0, Math.round(card.payout || 0)),
     });
+  }
+
+  /* Host-only, and only ever read into an outcome that is already
+     disclosing every role in the game. A night with nobody in it —
+     which now only a rehearsal can deal — has nothing to print. */
+  function agendaReckoning() {
+    const card = (secret.agendas || [])[0];
+    if (!secret.has || !card) return null;
+    const traitor = state.players.find(p => p.seat === secret.seat);
+    return {
+      playerId: traitor ? traitor.id : null,
+      name: traitor ? traitor.name : null,
+      text: card.text || '',
+      tell: card.tell || '',
+      marked: !!secret.taskDone,
+    };
   }
 
   function endGame(reason) {
@@ -1054,6 +1053,13 @@ const Session = (() => {
       hadTraitor: secret.has,
       pot: state.pot,
       banked,
+      /* The reckoning. Nothing on this machine could judge a card that
+         was performed on a microphone, so the verdict panel prints it
+         instead: what the Traitor was told to say, and whether they
+         claimed they said it. The two people who were on that
+         microphone are the check, and this is the first and only
+         moment they are handed what to check against. */
+      agenda: agendaReckoning(),
       // the game is over: everyone's cards go face up
       roles: state.players.map(p => ({ id: p.id, name: p.name, seat: p.seat,
                                        role: roleOfSeat(p.seat), alive: p.alive,

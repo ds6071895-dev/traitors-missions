@@ -1827,7 +1827,8 @@ class DiveMission {
     if (this.party) {
       MissionNet.attach('dive');
       this._offEvents = MissionNet.on('event', (d, from) => this._onNetEvent(d, from));
-      RoomUI.showAgenda(this._agendaProgress());
+      this._agendaCheckpoint();
+      RoomUI.showAgenda();
     }
     this.state = this.party ? 'waiting' : 'countdown';
     this.countdown = 3.999;
@@ -1896,7 +1897,8 @@ class DiveMission {
     if (this._offEvents) { this._offEvents(); this._offEvents = null; }
     for (const peer of this.peers.values()) peer.sw.dispose();
     this.peers.clear();
-    if (this.party) { RoomUI.hideField(); RoomUI.hideAgenda(); }
+    RoomUI.hideAgenda();
+    if (this.party) RoomUI.hideField();
     if (this.music) { this.music.stop(0.4); this.music = null; }
     if (this._unlockWatch) this._unlockWatch();
     Input.setMouseAim(false);
@@ -3452,11 +3454,17 @@ class DiveMission {
     st.otherTrips = trips;
   }
 
-  _agendaProgress() {
+  /* The deck is voice, so there is nothing in `this.stats` left for
+     the chip to read. This is still called every time the chip is
+     drawn for one reason: it tells the deck when the run has stopped,
+     and that is the deadline on marking the card. A task you did not
+     mark while the microphone was still open is a task you did not do,
+     and this is the line that shuts the window. */
+  _agendaCheckpoint() {
     const card = this.agenda;
-    if (!card) return '';
-    if (typeof Agendas === 'undefined') return card.hud || '';
-    return Agendas.state(card.id, this.stats) || card.hud || '';
+    if (!card || typeof Agendas === 'undefined') return;
+    const over = this.state === 'finished' || this.state === 'failed';
+    Agendas.state(card.id, null, over);
   }
 
   /* =================== three divers =================== */
@@ -3476,7 +3484,11 @@ class DiveMission {
   }
 
   _netTick(dt) {
-    if (!this.party) return;
+    /* The strip needs a party; the task chip does not. A rehearsal
+       deals a card too, and a Traitor who cannot see how their own task
+       is going is playing a different game from the one the verdict is
+       about to judge. */
+    if (!this.party) { this._field(dt); return; }
     MissionNet.pose(dt, () => this._sendPose());
     if (this.isHost) {
       this._netAcc += dt;
@@ -3530,10 +3542,18 @@ class DiveMission {
      diver into a real tactic and makes every one of this deck's alibis
      something the other two watched rather than read afterwards. */
   _field(dt) {
+    /* Marking the task is a keypress and a pad button, and both of
+       those are edges that only exist inside a frame. The strip below
+       is throttled to a few times a second, which is fine for a
+       scoreboard and would drop most of a button press, so the poll
+       goes above the throttle and the drawing stays below it. */
+    if (this.agenda) RoomUI.pollMark();
     this._fieldT -= dt;
     if (this._fieldT > 0) return;
     this._fieldT = 0.25;
-    if (this.agenda) RoomUI.showAgenda(this._agendaProgress());
+    if (this.agenda) this._agendaCheckpoint();
+ RoomUI.showAgenda();
+    if (!this.party) return;
 
     const mine = Math.round(this.money);
     const rows = [{ playerId: this.meId, name: 'You', m: mine,

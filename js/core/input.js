@@ -9,7 +9,7 @@ const Input = (() => {
 
   // action -> list of KeyboardEvent.code values
   const BINDINGS = {
-    throttle:  ['KeyW', 'ArrowUp'],
+    throttle:  ['KeyW', 'ArrowUp', 'Touch5'],
     brake:     ['KeyS', 'ArrowDown'],
     left:      ['KeyA', 'ArrowLeft'],
     right:     ['KeyD', 'ArrowRight'],
@@ -31,6 +31,11 @@ const Input = (() => {
     mute:      ['KeyM'],
     // your own microphone, which is a different thing from game sound
     mic:       ['KeyV', 'Touch4'],
+    /* Marking the Traitor's task done, mid-mission, without letting go
+       of anything. Nobody who is not carrying a card can do anything
+       with this, so it costs a key and a face button and nothing else.
+       The chip is also a real button, which is how a phone presses it. */
+    task:      ['KeyT'],
   };
 
   const down = new Set();          // codes currently held
@@ -180,6 +185,16 @@ const Input = (() => {
     bBtn.addEventListener('pointerup', () => { touch.boost = false; });
     bBtn.addEventListener('pointercancel', () => { touch.boost = false; });
 
+    /* The optional second button, hidden until a mission asks for it.
+       It is bound like any other key rather than to a field on `touch`,
+       so `Input.throttle()` reads it without knowing it exists. */
+    const aBtn = pad.querySelector('.aux-btn');
+    if (aBtn) {
+      aBtn.addEventListener('pointerdown', e => { e.preventDefault(); pressCode('Touch5', true); });
+      aBtn.addEventListener('pointerup', () => pressCode('Touch5', false));
+      aBtn.addEventListener('pointercancel', () => pressCode('Touch5', false));
+    }
+
     initTouchAim('touch-shoot', {
       pads: [['.draw-pad', 'Touch0'], ['.focus-pad', 'Touch2'], ['.sprint-pad', 'Touch3']],
       stick: '.move-zone', knob: '.move-knob',
@@ -202,7 +217,7 @@ const Input = (() => {
      Everything else is a panel with buttons on it, and a transparent
      full-screen sheet over one of those is the reason a tablet could
      watch a scoreboard it was unable to dismiss. */
-  const THUMBS_OK = ['hud', 'hud-shoot', 'hud-dive', 'vote'];
+  const THUMBS_OK = ['hud', 'hud-ski', 'hud-shoot', 'hud-dive', 'vote'];
 
   function watchScreens() {
     if (typeof Screens === 'undefined') return;
@@ -299,6 +314,29 @@ const Input = (() => {
       shoot.classList.toggle('walk-only', touchMode === 'walk');
     }
     if (swim) swim.classList.toggle('visible', isTouch && touchMode === 'swim');
+    /* A button that goes off screen never gets its pointerup, so leaving
+       the driving pad has to let go of everything it was holding. */
+    if (touchMode !== 'drive') { touch.boost = false; pressCode('Touch5', false); }
+  }
+
+  /* What the driving pad's buttons say, and whether it has two of them.
+     A mission calls this in `build()` and clears it in `dispose()`;
+     passing nothing puts the pad back to the boat's BOOST and one
+     button, which is what every screen that is not a mission expects
+     to find there. */
+  function setDrivePad(spec) {
+    const pad = document.getElementById('touch-controls');
+    if (!pad) return;
+    const main = pad.querySelector('.boost-btn');
+    const aux = pad.querySelector('.aux-btn');
+    if (main) main.textContent = (spec && spec.main) || 'BOOST';
+    if (aux) {
+      const label = spec && spec.aux;
+      aux.textContent = label || 'TUCK';
+      aux.hidden = !label;
+      // a hidden button must not leave its action held down
+      if (!label) pressCode('Touch5', false);
+    }
   }
 
   function gamepad() {
@@ -319,6 +357,7 @@ const Input = (() => {
     4:  ['focus'],
     6:  ['focus'],
     7:  ['fire', 'boost'],
+    2:  ['task'],
     3:  ['mic'],
     9:  ['pause'],
     10: ['sprint'],
@@ -477,7 +516,8 @@ const Input = (() => {
   function rebind(action, codes) { BINDINGS[action] = codes.slice(); }
 
   return { init, held, pressed, released, steer, throttle, endFrame,
-           aimDelta, aimStick, moveAxes, setMouseAim, setTouchMode, requestLock, onLockChange,
+           aimDelta, aimStick, moveAxes, setMouseAim, setTouchMode, setDrivePad,
+           requestLock, onLockChange,
            rumble, haptic, setEnabled, rebind, BINDINGS, isTouch,
            navAxis, padPresent,
            get pointerLocked() { return locked; } };

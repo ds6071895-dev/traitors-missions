@@ -100,7 +100,13 @@ const Transports = (() => {
 
     send(action) {
       const own = Object.assign({}, action, { authority: true });
-      if (own.type === 'readyResult') own.playerId = Party.selfId();
+      /* Both of these are the host speaking about itself rather than
+         about the night, and the reducer checks who sent them. A guest
+         gets stamped with the peer the packet arrived from; the host
+         has to stamp itself. */
+      if (own.type === 'readyResult' || own.type === 'taskDone') {
+        own.playerId = Party.selfId();
+      }
       Session.dispatch(own);
     },
 
@@ -121,13 +127,10 @@ const Transports = (() => {
         const r = roles.find(x => x.playerId === p.id);
         if (!r) continue;
         this._sentRoles.add(p.id);
-        /* Only the readable half of a card crosses the wire. The check
-           itself stays on the host, because the host is the only client
-           allowed to decide whether it was done. */
-        const agendas = (r.agendas || []).map(c => (c
-          ? { id: c.id, text: c.text, tell: c.tell, alibi: c.alibi || null,
-              hud: c.hud || null }
-          : null));
+        /* Only the readable half of a card crosses the wire, and the
+           deck itself decides what that half is — a card is generated
+           from a corpus now and has more on it than a guest needs. */
+        const agendas = (r.agendas || []).map(c => Agendas.wire(c));
         Party.post('wire', { ev: { type: 'role', role: r.role,
                                    agendas: r.agendas ? agendas : null } }, p.id);
       }
@@ -150,7 +153,7 @@ const Transports = (() => {
 
      Nothing else is stamped, and that is load-bearing rather than
      conservative. Half the actions the fire sends are the *ceremony*
-     rather than a contestant — `decisionPouch`, `speakName`, `reveal`,
+     rather than a contestant — `speakName`, `reveal`,
      `pouch` — and the reducer reads a `playerId` on those as "this is
      whose pouch I am opening". Stamping them with whoever is holding
      the mouse pointed every one of them at you, and a queue whose head
@@ -176,7 +179,7 @@ const Transports = (() => {
     send(action) {
       if (!action) return;
       const own = Object.assign({}, action, { authority: true });
-      if (own.type === 'readyResult' && !own.playerId) {
+      if ((own.type === 'readyResult' || own.type === 'taskDone') && !own.playerId) {
         const me = Session.state && Session.state.players.find(p => p.local);
         own.playerId = me ? me.id : null;
       }

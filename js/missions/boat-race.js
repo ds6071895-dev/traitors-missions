@@ -742,11 +742,22 @@ class BoatRaceMission {
      the agenda cards is "burn the whole meter before halfway", and this is
      the only reason anybody could ever catch it. */
   _updateField(dt) {
-    if (!this.party) return;
+    /* Marking the task is a keypress and a pad button, and both of
+       those are edges that only exist inside a frame. The strip below
+       is throttled to a few times a second, which is fine for a
+       scoreboard and would drop most of a button press, so the poll
+       goes above the throttle and the drawing stays below it. */
+    if (this.agenda) RoomUI.pollMark();
     this._fieldT -= dt;
     if (this._fieldT > 0) return;
     this._fieldT = 0.2;
-    if (this.agenda) RoomUI.showAgenda(this._agendaProgress());
+    /* The task chip is not part of the strip and does not need three
+       people to be worth drawing — a rehearsal deals a card too, and a
+       Traitor who cannot see how their own task is going is playing a
+       different game from the one the verdict is about to judge. */
+    if (this.agenda) this._agendaCheckpoint();
+ RoomUI.showAgenda();
+    if (!this.party) return;
 
     const f = this.world.lastFrame;
     const rows = [{ playerId: this.meId, name: 'You', s: f ? f.s : 0,
@@ -925,7 +936,8 @@ class BoatRaceMission {
     if (this.party) {
       MissionNet.attach('boat-race');
       this._offEvents = MissionNet.on('event', (d, from) => this._onPeerEvent(d, from));
-      RoomUI.showAgenda(this._agendaProgress());
+      this._agendaCheckpoint();
+      RoomUI.showAgenda();
       this._setCenter('READY', 'Waiting for everybody…', 'count');
       MissionNet.waitForStart().then(() => {
         if (!this.scene || this.state !== 'waiting') return;
@@ -1013,17 +1025,24 @@ class BoatRaceMission {
      alibi is still standing. Nobody else has this element, let alone
      this text: `Session.myAgenda()` is null for everybody who is not a
      Traitor. */
-  _agendaProgress() {
+  /* The deck is voice, so there is nothing in `this.stats` left for
+     the chip to read. This is still called every time the chip is
+     drawn for one reason: it tells the deck when the run has stopped,
+     and that is the deadline on marking the card. A task you did not
+     mark while the microphone was still open is a task you did not do,
+     and this is the line that shuts the window. */
+  _agendaCheckpoint() {
     const card = this.agenda;
-    if (!card) return '';
-    if (typeof Agendas === 'undefined') return card.hud || '';
-    return Agendas.state(card.id, this.stats) || card.hud || '';
+    if (!card || typeof Agendas === 'undefined') return;
+    const over = this.state === 'finished' || this.state === 'failed';
+    Agendas.state(card.id, null, over);
   }
 
   dispose() {
     clearTimeout(this._reportT);
     if (this._offEvents) { this._offEvents(); this._offEvents = null; }
-    if (this.party) { RoomUI.hideField(); RoomUI.hideAgenda(); }
+    RoomUI.hideAgenda();
+    if (this.party) RoomUI.hideField();
     clearTimeout(this._flashT);
     clearTimeout(this._stretchT);
     if (this.engineSnd) this.engineSnd.stop();
