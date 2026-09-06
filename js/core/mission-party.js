@@ -46,6 +46,9 @@ const MissionParty = (() => {
   let started = false;   // one launch per press
   let asked   = false;   // a guest has asked the host what it is playing
   let msgTimer = null;
+  let restorePot = null; // the permanent pot, put back where it was
+  let banked = null;     // what this run paid, once, on this machine
+  let owed = 0;          // your own row, if the board never turns up
 
   /* ---------------- messages ---------------- */
 
@@ -408,6 +411,7 @@ const MissionParty = (() => {
     running = false;
     started = false;
     asked = false;
+    releasePot();
     MissionNet.detach();
     Party.leave();
     VoiceChat.stop();
@@ -440,6 +444,23 @@ const MissionParty = (() => {
     def = d;
     armed = true;
     running = true;
+    /* -------- whose money that is --------
+
+       A room is three people playing one mission, and what they made
+       is what the three of them made. It used to be banked by
+       `Missions.complete` the instant your own scoreboard appeared,
+       which meant each machine paid itself its own row and the three
+       of you left the same run holding three different numbers — the
+       host's pot up by their score, the guests' up by theirs, and
+       nobody's up by what the room actually won.
+
+       So the sink is a hole for the length of a party mission, exactly
+       as a night's is, and the money goes in once the board is in: one
+       figure, everybody's rows added together, identical on all three
+       machines. `bank` below is the only thing that pays it. */
+    banked = null;
+    owed = 0;
+    holdPot();
     const mine = Party.selfId();
     const players = (msg.players || []).map(q => Object.assign({}, q, {
       local: q.id === mine, alive: true,
@@ -458,12 +479,51 @@ const MissionParty = (() => {
     }, 420);
   }
 
+  /* Practice banks straight into the permanent pot and so does the
+     room — the difference is only *when*, and how much. Between a
+     launch and the way out of the scoreboard the mission's own sink is
+     held shut so `bank` can pay the room's total instead. */
+  function holdPot() {
+    releasePot();
+    restorePot = Missions.setPotSink(() => {});
+  }
+
+  function releasePot() {
+    if (!restorePot) return;
+    if (banked === null && owed > 0) bank(null, owed);
+    try { restorePot(); } catch (e) { console.warn(e); }
+    restorePot = null;
+  }
+
+  /* What the room won, paid once. The board is everybody's rows, so
+     its total is the same number on every machine in it; a board that
+     never arrived — a host that walked out mid-mission — falls back to
+     the only row this machine can be sure of, which is its own. */
+  function bank(board, own) {
+    if (banked !== null) return banked;
+    banked = board ? Math.max(0, Math.round(board.earned || 0))
+                   : Math.max(0, Math.round(own || 0));
+    owed = 0;
+    if (banked > 0) GameState.addToPot(banked);
+    return banked;
+  }
+
+  /* What you would be owed if the room stopped answering. The board is
+     worth waiting minutes for and somebody who shuts the tab in the
+     middle of that wait should still be paid for the run they played,
+     so the scoreboard hands its own row over the moment it opens and
+     `releasePot` pays it if nothing better ever arrives. */
+  function owe(own) {
+    if (banked === null) owed = Math.max(0, Math.round(own || 0));
+  }
+
   /* The scoreboard's way out. The room is still open and the same two
      or three people are still in it, so this goes back to it rather
      than to the front door. */
   function backToRoom() {
     running = false;
     started = false;
+    releasePot();
     MissionNet.detach();
     Screens.transition(() => {
       Missions.end();
@@ -593,7 +653,7 @@ const MissionParty = (() => {
     return true;
   }
 
-  return { init, openFor, joinCode, leave, start, backToRoom, paint, say,
+  return { init, openFor, joinCode, leave, start, backToRoom, paint, say, bank, owe,
            peerLeft, openFromLink, fromLocation, linkFor, optsFor, MIN,
            /* `choose` is what every control on the right-hand panel
               does: change one thing, tell the room, repaint. It is out

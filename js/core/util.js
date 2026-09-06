@@ -115,8 +115,13 @@ const U = (() => {
      to seventeen significant figures is sixteen of them nobody can
      see, several times a second, per axis. */
   const r3 = (v) => Math.round((Number(v) || 0) * 1000) / 1000;
+  /* Centimetres, for the things sent *often*. A wood full of birds at
+     fifteen snapshots a second is the one place in this game where the
+     difference between three decimals and two is a third of the
+     bandwidth, and nobody has ever seen a raven move a centimetre. */
+  const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 
   return { makeRng, clamp, lerp, smoothstep, damp, angLerp, noise1, fbm1,
            money, clockTime, wrapAngle, TAU, dailySeed, randomSeed,
-           courseName, forestName, r3 };
+           courseName, forestName, r3, r2 };
 })();

@@ -504,7 +504,14 @@ const Game = (() => {
     const earnedEl = document.getElementById('result-earned');
     const potEl = document.getElementById('result-pot');
     const sessionPot = inRun && Session.state ? Session.state.pot : 0;
-    const potBefore = inRun ? sessionPot : GameState.prizePot - r.earned;
+    /* Three pots, not two. Practice has already banked your winnings
+       by the time this runs, so "before" is what is there now less what
+       you just made. A night banks nothing here at all. And a mission
+       party holds its sink shut until the board lands and then pays the
+       room's total, so nothing has gone in yet and the pot on screen is
+       simply the pot. */
+    const potBefore = inRun ? sessionPot
+                    : (inParty ? GameState.prizePot : GameState.prizePot - r.earned);
     const countMoney = (target) => {
       let shown = 0, i = 0;
       clearInterval(showResults._t);
@@ -531,7 +538,18 @@ const Game = (() => {
     boardEl.hidden = true;
 
     if (inParty) {
+      /* Handed over before anything is waited on, so a tab closed in
+         the middle of the wait still pays for the run it played. */
+      MissionParty.owe(r.earned);
       const arm = (board) => {
+        /* The room's money, banked once, here — and the same figure on
+           all three machines, because it is the board's total rather
+           than whichever row happens to be yours. The counter started
+           on your own score a moment ago because that is all this
+           machine knew; now that the room has reported, it counts the
+           room. */
+        const total = MissionParty.bank(board, r.earned);
+        if (total !== Math.max(0, Math.round(r.earned || 0))) countMoney(total);
         if (board) {
           boardEl.style.setProperty('--bd-cols', String(RoomUI.boardCols(board)));
           boardEl.innerHTML = '<div class="rb-head">Everybody\'s run</div>'

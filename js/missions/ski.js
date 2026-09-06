@@ -858,7 +858,14 @@ class SkiMission {
       });
       sk.group.visible = false;
       scene.add(sk.group);
-      this.peers.set(p.id, { skier: sk, name: p.name, z: 0, flow: 1, speed: 0,
+      /* Half a mountain of open snow with two other people somewhere on
+         it. The name is the only thing that says which of the two dots
+         below the ridge is the one you are racing. */
+      const look = p.look ? Look.resolve(p.look) : null;
+      const tag = Nametag.make(p.name,
+        { accent: look ? look.accent : '#f2c14e', near: 140, far: 700 });
+      scene.add(tag);
+      this.peers.set(p.id, { skier: sk, tag, name: p.name, z: 0, flow: 1, speed: 0,
                              seen: false, air: false });
     }
   }
@@ -878,12 +885,13 @@ class SkiMission {
     MissionNet.update(dt);
     for (const [id, peer] of this.peers) {
       const iv = MissionNet.at(id);
-      if (!iv) { peer.skier.group.visible = false; continue; }
+      if (!iv) { peer.skier.group.visible = false; Nametag.hide(peer.tag); continue; }
       const a = iv.a, b = iv.b, k = iv.k;
       const sk = peer.skier;
       peer.seen = true;
       sk.group.visible = true;
       sk.pos.set(U.lerp(a.x, b.x, k), U.lerp(a.y, b.y, k), U.lerp(a.z, b.z, k));
+      Nametag.show(peer.tag, sk.pos.x, sk.pos.y + 2.3, sk.pos.z, this.camera);
       sk.heading = U.angLerp(a.h, b.h, k);
       sk.pitch = U.lerp(a.p, b.p, k);
       sk.roll = U.lerp(a.r, b.r, k);

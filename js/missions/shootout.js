@@ -154,6 +154,14 @@ class ShootoutMission {
     { id: 4, name: 'Author', color: '#39e6ff' },
   ];
 
+  /* How often the host tells the other two where things are. The
+     quarry rate is what a bird crossing a clearing needs; the wood's
+     own rate is what a deer needs, which is far less. Both are blended
+     between on the receiving end, so these are how often the *truth*
+     arrives rather than how smoothly anything moves. */
+  static QUARRY_HZ = 15;
+  static HOME_HZ = 3;
+
   /* =================== a run's setup =================== */
 
   static normalise(opts = {}) {
@@ -243,6 +251,7 @@ class ShootoutMission {
     this._claims = new Map();
     this._nearest = new Map();    // netId -> the closest anybody got to it
     this._netAcc = 0;
+    this._homeAcc = 0;
     this._fieldT = 0;
 
     this.state = 'idle';        // idle | countdown | live | between | finished | failed
@@ -1856,7 +1865,15 @@ class ShootoutMission {
       const bow = Bow.buildWorld();
       bow.visible = false;
       scene.add(bow);
-      this.peers.set(p.id, { fig, bow, name: p.name, seen: false,
+      /* Two figures in a wood at dusk, both drawing bows. Which of them
+         is which is the question every one of this deck's alibis is
+         about — "I was standing next to them when it got away" is not a
+         claim anybody can check without a name over a head. */
+      const look = p.look ? Look.resolve(p.look) : null;
+      const tag = Nametag.make(p.name,
+        { accent: look ? look.accent : '#f2c14e', near: 45, far: 190 });
+      scene.add(tag);
+      this.peers.set(p.id, { fig, bow, tag, name: p.name, seen: false,
                              pos: new THREE.Vector3(), yaw: 0, draw: 0, speed: 0 });
       this.scores.set(p.id, 0);
     }
@@ -1889,7 +1906,11 @@ class ShootoutMission {
     MissionNet.update(dt);
     for (const [id, peer] of this.peers) {
       const iv = MissionNet.at(id);
-      if (!iv) { peer.fig.visible = false; peer.bow.visible = false; continue; }
+      if (!iv) {
+        peer.fig.visible = false; peer.bow.visible = false;
+        Nametag.hide(peer.tag);
+        continue;
+      }
       const a = iv.a, b = iv.b, k = iv.k;
       peer.seen = true;
       peer.fig.visible = true;
@@ -1924,6 +1945,7 @@ class ShootoutMission {
       Bow.poseWorld(peer.bow, this._tmpV.x, this._tmpV.y, this._tmpV.z,
                     yaw, pitch, draw);
       peer.pos.set(x, peer.fig.position.y, z);
+      Nametag.show(peer.tag, x, peer.fig.position.y + 2.05, z, this.camera);
       this.scores.set(id, b.m || 0);
     }
   }
@@ -1958,47 +1980,111 @@ class ShootoutMission {
   }
 
   /* -------- the flock, over the wire --------
-     A full snapshot rather than deltas. Twenty birds twenty times a
-     second is a few kilobytes, and a snapshot means a dropped packet
-     costs one frame of smoothness instead of leaving a guest with a
-     bird nobody can see. */
+     A full snapshot rather than deltas: a snapshot means a dropped
+     packet costs one blend instead of leaving a guest with a bird
+     nobody can see.
 
-  _broadcastFlock(dt) {
-    if (!this.party || !this.isHost) return;
-    this._netAcc += dt;
-    if (this._netAcc < 0.05) return;
-    this._netAcc = 0;
-    const a = [];
-    for (const f of this.flock.list) {
-      const st = f.netState();
-      st.t = f.typeId;
-      st.s = f.scale;
-      /* A boss's open weak point is gameplay state, not decoration. A
-         guest cannot infer it from the transform snapshot because only
-         the host advances the boss brain. */
-      if (f.type.boss) st.w = f.weakName || null;
-      a.push(st);
-    }
+     What it is not is one snapshot of everything at one rate. A wood
+     has about fifty things in it and only a dozen of them are in play;
+     the rest are deer grazing at walking pace and bottles on stumps
+     that have not moved since the run began. Sending all fifty at full
+     precision fifteen times a second came to a hundred and forty
+     kilobytes a second per guest, which is not a slow connection, it
+     is a *backed-up* one — and the whole mission shares that channel,
+     so every claim, every kill and every phase of the owl queued up
+     behind a stream of stationary bottles and arrived seconds late.
+     That is what "the birds and the owl are desynced" actually was.
+
+     So there are two cadences. The quarry — what is being shot at, the
+     owl, and whatever it called down — goes at `QUARRY_HZ`. The wood's
+     own residents go at `HOME_HZ`, because a deer covers a metre and a
+     half between those and the guest interpolates it anyway. Together
+     with two decimal places instead of seventeen it comes to about a
+     fifth of what it was. */
+
+  _flockState(f) {
+    const st = f.netState();
+    st.t = f.typeId;
+    if (f.scale !== 1) st.s = f.scale;
+    /* What a bird *is* cannot be read off its transform, and a guest
+       that does not know gets it wrong in ways you can see: a resident
+       counted as quarry, an owl's raven that walks through you without
+       a strike. One integer, three facts. */
+    const flags = (f.resident ? 1 : 0) | (f.isAdd ? 2 : 0) | (f.bossMinion ? 4 : 0);
+    if (flags) st.f = flags;
+    /* A boss's open weak point is gameplay state, not decoration. A
+       guest cannot infer it from the transform snapshot because only
+       the host advances the boss brain. */
+    if (f.type.boss) st.w = f.weakName || null;
+    return st;
+  }
+
+  _worldState() {
     const R = this.round;
-    MissionNet.event({ kind: 'flock', a, world: {
+    const B = this.boss;
+    return {
       state: this.state,
       roundIndex: this.roundIndex,
       betweenT: this.betweenT || 0,
       round: R ? { time: R.time, killed: R.killed, spawned: R.spawned,
                    escaped: R.escaped, doves: R.doves } : null,
       lastRound: this._lastRound,
-      boss: this.boss ? { phase: this.boss.phase, hits: this.boss.hits,
-                          open: this.boss.open, down: this.boss.down,
-                          staggerT: this.boss.staggerT } : null,
-    } });
+      /* `diving` was the one field of the owl's state that never
+         travelled, which meant a guest could not be run down by it:
+         the pass that costs you your chain is gated on it, and on a
+         guest it was permanently undefined. */
+      boss: B ? { phase: B.phase, hits: B.hits, open: B.open, down: B.down,
+                  staggerT: B.staggerT, diving: !!B.diving } : null,
+    };
+  }
+
+  _broadcastFlock(dt) {
+    if (!this.party || !this.isHost) return;
+    this._netAcc += dt;
+    this._homeAcc += dt;
+    const quarry = this._netAcc >= 1 / ShootoutMission.QUARRY_HZ;
+    /* A deer somebody has just shot is falling, and a fall drawn three
+       times a second is a fall that stutters — it tumbles fast enough
+       that the blend between two of those would take the short way
+       round the wrong way. So while anything in the wood is dying, the
+       wood goes out as often as the quarry does. */
+    const dying = this.flock.list.some(f => f.resident && f.dying);
+    const homeHz = dying ? ShootoutMission.QUARRY_HZ : ShootoutMission.HOME_HZ;
+    const home = this._homeAcc >= 1 / homeHz;
+    if (!quarry && !home) return;
+
+    const msg = { kind: 'flock', world: this._worldState() };
+    if (quarry) {
+      this._netAcc = 0;
+      msg.a = [];
+      for (const f of this.flock.list) if (!f.resident) msg.a.push(this._flockState(f));
+    }
+    if (home) {
+      this._homeAcc = 0;
+      msg.r = [];
+      for (const f of this.flock.list) if (f.resident) msg.r.push(this._flockState(f));
+    }
+    MissionNet.event(msg);
   }
 
   /* A guest spawns anything it has not seen before and drops anything
      that has stopped arriving. Spawn-on-sight rather than spawn events
      because it is self-healing: a guest that misses a spawn message
-     recovers on the next snapshot instead of missing a bird all round. */
-  _applyFlock(list, world) {
-    if (!this.party || this.isHost || !this.flock) return;
+     recovers on the next snapshot instead of missing a bird all round.
+
+     Reaping is per list, not per message. A quarry snapshot says
+     nothing about the deer and a resident snapshot says nothing about
+     the ravens, so each one may only drop its own kind — dropping
+     everything it did not mention would delete the entire wood fifteen
+     times a second. */
+  _applyFlock(msg) {
+    if (!this.party || this.isHost || !this.flock || !msg) return;
+    if (msg.a) this._applyFlockList(msg.a, false);
+    if (msg.r) this._applyFlockList(msg.r, true);
+    this._applyWorldState(msg.world);
+  }
+
+  _applyFlockList(list, residents) {
     const keep = new Set();
     for (const st of list) {
       keep.add(st.i);
@@ -2009,14 +2095,18 @@ class ShootoutMission {
         });
         if (!f) continue;
       }
-      f.netApply(st, 1 / 20);
+      const flags = st.f || 0;
+      f.resident = !!(flags & 1);
+      f.isAdd = !!(flags & 2);
+      f.bossMinion = !!(flags & 4);
+      f.netApply(st);
       if (f.type.boss) f.weakName = st.w || null;
     }
     for (let i = this.flock.list.length - 1; i >= 0; i--) {
       const f = this.flock.list[i];
+      if (!!f.resident !== !!residents) continue;
       if (!keep.has(f.netId)) this.flock.remove(f);
     }
-    this._applyWorldState(world);
   }
 
   _applyWorldState(world) {
@@ -2113,7 +2203,7 @@ class ShootoutMission {
       || d.kind === 'escaped' || d.kind === 'claimResult';
     if (authoritative && this.isHost) return;
     if (authoritative && !this.isHost && Party.hostId && from !== Party.hostId) return;
-    if (d.kind === 'flock') { this._applyFlock(d.a || [], d.world); return; }
+    if (d.kind === 'flock') { this._applyFlock(d); return; }
 
     /* A bird got away, and the host has already worked out whose it
        was. It used to be broadcast as a position for each client to
@@ -2126,6 +2216,15 @@ class ShootoutMission {
     }
 
     if (d.kind === 'shot') { this._remoteShot(d); return; }
+
+    /* A wasp or a raven reached somebody. It cost them, on their own
+       machine, and it costs the wood the bird — which only the host
+       can do, because only the host is simulating it. */
+    if (d.kind === 'spent' && this.isHost) {
+      const f = this.flock.byNetId(d.i);
+      if (f && f.alive && !f.dying) f.kill();
+      return;
+    }
 
     if (d.kind === 'kill') return; // the sender's net score arrives in its 20 Hz pose
 
@@ -2155,10 +2254,20 @@ class ShootoutMission {
       } else if (f.type.boss) {
         const B = this.boss;
         const a = d.a || [], b = d.b || [];
-        const fromV = new THREE.Vector3(+a[0] || 0, +a[1] || 0, +a[2] || 0);
-        const seg = new THREE.Vector3((+b[0] || 0) - fromV.x,
-                                     (+b[1] || 0) - fromV.y,
-                                     (+b[2] || 0) - fromV.z);
+        let fromV, seg;
+        if (Array.isArray(d.la) && Array.isArray(d.lb)) {
+          /* Sent in the owl's frame, so it is measured against this
+             owl wherever this owl now is. */
+          fromV = f.mesh.localToWorld(
+            new THREE.Vector3(+d.la[0] || 0, +d.la[1] || 0, +d.la[2] || 0));
+          seg = f.mesh.localToWorld(
+            new THREE.Vector3(+d.lb[0] || 0, +d.lb[1] || 0, +d.lb[2] || 0)).sub(fromV);
+        } else {
+          fromV = new THREE.Vector3(+a[0] || 0, +a[1] || 0, +a[2] || 0);
+          seg = new THREE.Vector3((+b[0] || 0) - fromV.x,
+                                  (+b[1] || 0) - fromV.y,
+                                  (+b[2] || 0) - fromV.z);
+        }
         const len = seg.length();
         const open = B && B.open && B.staggerT <= 0 && f.weakName;
         if (!open || !f.weakSegHit(fromV, seg, Math.max(len, 1e-4))) effect = 'reject';
@@ -2190,11 +2299,30 @@ class ShootoutMission {
       arrow: { perfect: !!arrow.perfect, power: arrow.power || 1, hits: arrow.hits || 1 },
       info: { point: info.point.clone ? info.point.clone() : new THREE.Vector3(info.point.x, info.point.y, info.point.z) },
     });
-    MissionNet.event({ kind: 'claim', i: target.netId,
-                       perfect: !!arrow.perfect, power: arrow.power || 1,
-                       bite: this.buffs.ember > 0 ? 2 : 1,
-                       a: [arrow.prev.x, arrow.prev.y, arrow.prev.z],
-                       b: [arrow.pos.x, arrow.pos.y, arrow.pos.z] }, Party.hostId);
+    const claim = { kind: 'claim', i: target.netId,
+                    perfect: !!arrow.perfect, power: arrow.power || 1,
+                    bite: this.buffs.ember > 0 ? 2 : 1,
+                    a: [arrow.prev.x, arrow.prev.y, arrow.prev.z],
+                    b: [arrow.pos.x, arrow.pos.y, arrow.pos.z] };
+    /* The owl is the one target where *where* you hit it decides
+       whether it counts, and it is also the fastest thing in the wood
+       — so by the time a claim reaches the host, the host's owl has
+       moved on from the one the guest was aiming at, and a shot
+       straight through the open eye is thrown out as a miss. That is
+       the whole of "the owl does not work in multiplayer".
+
+       So the arrow is sent in the owl's *own* frame as well. The host
+       puts those two points back into the world through its own owl,
+       which rotates the shot with the bird: a line through the eye
+       stays a line through the eye however far the fight has flown
+       between the two machines. */
+    if (target.type.boss && target.mesh) {
+      const la = target.mesh.worldToLocal(this._tmpV.copy(arrow.prev));
+      claim.la = [U.r3(la.x), U.r3(la.y), U.r3(la.z)];
+      const lb = target.mesh.worldToLocal(this._tmpV2.copy(arrow.pos));
+      claim.lb = [U.r3(lb.x), U.r3(lb.y), U.r3(lb.z)];
+    }
+    MissionNet.event(claim, Party.hostId);
     this._hitMark('');
     return true;
   }
@@ -2382,7 +2510,7 @@ class ShootoutMission {
     // wasps that get to you, and an owl that runs you down
     if (this.state !== 'live') return;
     for (const f of this.flock.list) {
-      if (f.dying || !f.alive) continue;
+      if (f.dying || !f.alive || f._spent) continue;
       const d = f.pos.distanceTo(this.camera.position);
       if (f.type.stings && d < 4.5) { this._sting(f); }
       else if (f.bossMinion && d < 4.8) this._bossMinionPass(f);
@@ -2392,8 +2520,24 @@ class ShootoutMission {
     }
   }
 
+  /* A wasp that reaches you, or a raven the owl sent, spends itself on
+     you — and it has to be spent on *everybody's* copy of it, not just
+     the one in front of the person it reached. The host owns the
+     flock, so a guest takes the hit locally, which is what the moment
+     has to feel like, and asks the host to take the bird out of the
+     air. The bird then dies once, on all three machines, instead of
+     dying on one of them and flying on for the other two. */
+  _spend(f) {
+    /* Locally it is over either way: the guest must not ask twice
+       while the answer is in flight, and the host has already killed
+       it. */
+    f._spent = true;
+    if (!this.party || this.isHost) { f.kill(); return; }
+    MissionNet.event({ kind: 'spent', i: f.netId }, Party.hostId);
+  }
+
   _sting(f) {
-    f.kill();
+    this._spend(f);
     this.stings++;
     this.penalty += this.C.stingCost;
     if (this.round) this.round.time = Math.max(0, this.round.time - 1.2);
@@ -2411,7 +2555,7 @@ class ShootoutMission {
      summon creates a real target-priority decision without turning every
      add into a second life system. */
   _bossMinionPass(f) {
-    f.kill();
+    this._spend(f);
     this.chain = Math.max(0, this.chain - 2);
     this.chainT = this.C.chainWindow;
     if (this.round) this.round.time = Math.max(0, this.round.time - 0.75);
@@ -2529,8 +2673,12 @@ class ShootoutMission {
       this.music.stinger(d.kind === 'bonus' ? 'bonus-round' : 'round');
     }
 
-    // "a gilded raven in every round" is a card, not a round
-    if (this.flags.gildedEveryRound && d.kind === 'normal') {
+    /* "a gilded raven in every round" is a card, not a round — and it
+       is a *spawn*, so only the host may do it. A guest that spawned
+       its own had a bird with a name nobody else's wood knew, which
+       the next snapshot then deleted. */
+    if (this.flags.gildedEveryRound && d.kind === 'normal'
+        && (!this.party || this.isHost)) {
       this._spawnOne('gilded', 'circle', {
         mode: 'orbit', dist: 55, height: 26, ang: sched.facing + 1.2, life: d.duration,
       });

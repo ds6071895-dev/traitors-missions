@@ -1755,8 +1755,17 @@ class DiveMission {
       });
       sw.group.visible = false;
       scene.add(sw.group);
+      /* Down here everybody is a silhouette in a wetsuit and the water
+         eats colour before it eats shape, so the name is the only way
+         to tell whose torch that is. It fades fast: the reef has thirty
+         metres of visibility and a label hanging in the dark beyond
+         that would be sonar rather than eyesight. */
+      const look = p.look ? Look.resolve(p.look) : null;
+      const tag = Nametag.make(p.name,
+        { accent: look ? look.accent : '#7dfcd0', near: 14, far: 46 });
+      scene.add(tag);
       this.peers.set(p.id, {
-        sw, name: p.name, seen: false, pos: new THREE.Vector3(),
+        sw, tag, name: p.name, seen: false, pos: new THREE.Vector3(),
         air: 1, carried: 0, value: 0, deepest: 0, money: 0, trips: 0,
         pack: this._carryPack(sw),
       });
@@ -3511,11 +3520,16 @@ class DiveMission {
     MissionNet.update(dt);
     for (const [id, peer] of this.peers) {
       const iv = MissionNet.at(id);
-      if (!iv) { peer.sw.group.visible = false; peer.seen = false; continue; }
+      if (!iv) {
+        peer.sw.group.visible = false; peer.seen = false;
+        Nametag.hide(peer.tag);
+        continue;
+      }
       const a = iv.a, b = iv.b, k = iv.k;
       peer.seen = true;
       peer.sw.group.visible = true;
       const x = U.lerp(a.x, b.x, k), y = U.lerp(a.y, b.y, k), z = U.lerp(a.z, b.z, k);
+      Nametag.show(peer.tag, x, y + 1.4, z, this.camera);
       peer.sw.pos.set(x, y, z);
       peer.sw.yaw = U.angLerp(a.h, b.h, k);
       peer.sw.pitch = U.lerp(a.p || 0, b.p || 0, k);

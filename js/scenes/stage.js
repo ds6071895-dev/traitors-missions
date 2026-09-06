@@ -111,6 +111,18 @@ const Stage = (() => {
       fig.rotation.y = Math.atan2(cPos.x - x, cPos.z - z);
       fig.userData.playerId = p.id;
       scene.add(fig);
+      /* Two other people, arranged in an arc, in the coats they chose
+         in a dressing room half an hour ago. The whole of the round
+         table is an argument about which of them did something, and it
+         is not worth having if you cannot tell them apart — so the
+         name goes over the head here as well as out in the missions.
+         Close range, because nobody in this scene is more than five
+         metres away and a label at forty would be a label on the loch. */
+      const look = p.look ? Look.resolve(p.look) : null;
+      const tag = Nametag.make(p.name || 'Player',
+        { accent: look ? look.accent : '#f2c14e', near: 14, far: 40 });
+      scene.add(tag);
+      fig.userData.tag = tag;
       figures.push(fig);
     }
 
@@ -441,6 +453,16 @@ const Stage = (() => {
         const player = typeof Session !== 'undefined'
           ? Session.playerById(f.userData.playerId) : null;
         f.visible = !player || player.alive;
+        /* Not over a scripted shot. The pouch going into the fire is
+           the one minute of this game that is direction rather than
+           play, and a floating label in the middle of it would be a
+           caption over a close-up. */
+        if (f.visible && !scripted.active) {
+          const h = f.userData.h || 1.74;
+          const drop = (f.userData.seated || 0) * (f.userData.seatDrop || 0);
+          Nametag.show(f.userData.tag, f.position.x,
+                       f.position.y + h + 0.30 - drop, f.position.z, camera);
+        } else Nametag.hide(f.userData.tag);
         if (!f.visible) continue;
         Figure.update(f, dt, t);
         Figure.lookAt(f, speakingId === 'claudia' || !speakingId

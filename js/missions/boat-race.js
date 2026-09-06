@@ -703,7 +703,14 @@ class BoatRaceMission {
       group.add(mesh);
       group.visible = false;
       scene.add(group);
-      this.peers.set(p.id, { group, name: p.name, s: 0, boost: 1, speed: 0,
+      /* Two boats in the same channel in the same evening light are two
+         boats, and the strip only tells you which of them is winning.
+         The name goes over the cabin, where you read it off the boat
+         you are actually behind. A channel is long, so it fades a long
+         way out rather than at the length of a clearing. */
+      const tag = Nametag.make(p.name, { accent, near: 220, far: 900 });
+      scene.add(tag);
+      this.peers.set(p.id, { group, tag, name: p.name, s: 0, boost: 1, speed: 0,
                              seen: false });
     }
   }
@@ -723,12 +730,14 @@ class BoatRaceMission {
     MissionNet.update(dt);
     for (const [id, peer] of this.peers) {
       const iv = MissionNet.at(id);
-      if (!iv) { peer.group.visible = false; continue; }
+      if (!iv) { peer.group.visible = false; Nametag.hide(peer.tag); continue; }
       const a = iv.a, b = iv.b, k = iv.k;
       peer.seen = true;
       peer.group.visible = true;
       peer.group.position.set(U.lerp(a.x, b.x, k), U.lerp(a.y, b.y, k),
                               U.lerp(a.z, b.z, k));
+      Nametag.show(peer.tag, peer.group.position.x, peer.group.position.y + 2.9,
+                   peer.group.position.z, this.camera);
       peer.group.rotation.set(U.lerp(a.p, b.p, k), U.angLerp(a.h, b.h, k),
                               U.lerp(a.r, b.r, k), 'YXZ');
       peer.s = b.s || 0;

@@ -174,6 +174,7 @@ const DEFS = {
 function stubs(seedOf) {
   const launched = [];
   const menu = [];
+  let pot = 0;
   const el = () => new Proxy({}, {
     get: (t, k) => (k === 'addEventListener' || k === 'select' || k === 'focus'
                      ? () => {}
@@ -184,14 +185,21 @@ function stubs(seedOf) {
   return {
     launched,
     menu,
+    get pot() { return pot; },
     globals: {
       document: { getElementById: el, activeElement: null },
       location: { href: 'https://example.test/index.html', hash: '' },
       history: { replaceState: () => {} },
       navigator: {},
+      /* A party mission holds the permanent pot shut while it runs and
+         pays the room's total once the board lands, so the stub has to
+         have a sink to hold and a pot to pay into. */
       Missions: { get: (id) => DEFS[id] || null,
                   launch: (id, opts) => launched.push({ id, opts }),
-                  end: () => {} },
+                  end: () => {},
+                  setPotSink: () => () => {} },
+      GameState: { addToPot: (n) => { pot += n; return pot; },
+                   get prizePot() { return pot; } },
       Screens: { current: 'nowhere', show: () => {}, register: () => {},
                  transition: (fn) => fn() },
       AudioBus: { resume: () => {}, play: () => {} },
@@ -215,7 +223,7 @@ function machine(swarm, id, seedOf) {
     ['js/core/party.js', 'js/core/mission-party.js'], s.globals);
   ctx.MissionParty.init();
   return { ctx, MP: ctx.MissionParty, Party: ctx.Party,
-           launched: s.launched, menu: s.menu };
+           launched: s.launched, menu: s.menu, get pot() { return s.pot; } };
 }
 
 async function party() {
@@ -415,6 +423,65 @@ async function party() {
                          opts: { seed: 1 }, players: [] });
     await settle();
     eq(g.launched.length, 0, 'and it did not');
+  });
+
+  /* ==================================================================
+     The money.
+
+     Three people played one mission. What they made is one number and
+     it has to be the same number on all three machines — it used to be
+     each machine paying itself its own row, which is how the same run
+     left the host up nine thousand and a guest up fifteen hundred.
+     ================================================================== */
+  section('mission party — one room, one number');
+
+  async function room(name) {
+    const sw = makeSwarm();
+    const h = machine(sw, name + 'H', 60);
+    const g1 = machine(sw, name + '1', 61);
+    const g2 = machine(sw, name + '2', 62);
+    await h.MP.openFor('shootout');
+    await settle();
+    await g1.MP.joinCode(h.Party.code, 'shootout');
+    await g2.MP.joinCode(h.Party.code, 'shootout');
+    await settle();
+    h.MP.start();
+    await settle();
+    return [h, g1, g2];
+  }
+
+  await atest('nothing is banked while the mission is still being played', async () => {
+    const all = await room('potA');
+    eq(all.map(m => m.pot), [0, 0, 0], 'the sink is a hole for the length of the run');
+  });
+
+  await atest('everybody banks what the room won, not what they won', async () => {
+    const all = await room('potB');
+    /* What each of them would have paid itself before: its own row. */
+    const mine = [4200, 9100, 1500];
+    const board = { earned: mine.reduce((a, b) => a + b, 0), completed: true,
+                    players: mine.map((earned, i) => ({ playerId: 'p' + i, earned })) };
+    all.forEach((m, i) => m.MP.bank(board, mine[i]));
+    eq(all.map(m => m.pot), [14800, 14800, 14800],
+       'one figure, and it is the room\'s');
+  });
+
+  await atest('paying twice for one run is not on offer', async () => {
+    const all = await room('potC');
+    const board = { earned: 5000, players: [] };
+    all[0].MP.bank(board, 1000);
+    all[0].MP.bank(board, 1000);
+    all[0].MP.bank(null, 1000);
+    eq(all[0].pot, 5000, 'the room paid once');
+  });
+
+  await atest('a board that never arrives still pays you for your own run', async () => {
+    const all = await room('potD');
+    const g = all[1];
+    g.MP.owe(2600);              // the scoreboard opened and then the tab shut
+    g.MP.leave();
+    await settle();
+    eq(g.pot, 2600, 'your own row, rather than nothing at all');
   });
 
   await atest('losing the authority ends a shared run instead of freezing it', async () => {

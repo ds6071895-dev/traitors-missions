@@ -1149,27 +1149,91 @@ const FlyerKit = (() => {
 
     /* ---- puppetry ----
        What a bird looks like on a client that is not deciding where it
-       goes. `netState` is what the host sends; `netApply` is a guest
-       putting it where it was told. Interpolation is deliberately not
-       done here — the mission holds the two most recent states and
-       blends them, because only the mission knows its own frame rate. */
+       goes. `netState` is what the host sends, `netApply` is a guest
+       being told where it should be, and `netBlend` is the frame in
+       between — which is most of them.
+
+       Three things this has to get right, all of which it used to get
+       wrong:
+
+       - It has to be small. A snapshot is sent for every flyer in the
+         wood many times a second, and a wood has fifty things in it.
+         Seventeen significant figures per axis was three quarters of
+         the bandwidth of the whole mission, and past a certain point a
+         data channel does not get slower — it gets *behind*, and every
+         claim and every kill queued behind it goes with it.
+       - It has to be blended. The comment here used to say the mission
+         held two states and interpolated them. It did not: `netApply`
+         wrote the position straight into the mesh, so a guest saw
+         every bird teleport fifteen times a second and any late packet
+         as a stutter.
+       - It has to keep the dove's mark on the dove. Only `update` moved
+         it, and a puppet never runs `update`, so the one bird in the
+         mission you must not shoot was the one bird with no warning on
+         it if you were not the host. */
 
     netState() {
-      return { i: this.netId,
-               x: this.pos.x, y: this.pos.y, z: this.pos.z,
-               a: this.mesh.rotation.x, b: this.mesh.rotation.y, c: this.mesh.rotation.z,
-               h: this.hp, d: this.dying ? 1 : 0 };
+      const r = this.mesh.rotation;
+      const st = { i: this.netId,
+                   x: U.r2(this.pos.x), y: U.r2(this.pos.y), z: U.r2(this.pos.z),
+                   b: U.r2(r.y) };
+      /* Pitch and roll are zero for everything with feet and for most
+         of what has wings, and an omitted key is a key that costs
+         nothing. The reader defaults them back to zero. */
+      if (r.x) st.a = U.r2(r.x);
+      if (r.z) st.c = U.r2(r.z);
+      if (this.dying) st.d = 1;
+      return st;
     }
 
-    netApply(st, dt) {
+    /* Where it has been told to be. What it is doing between here and
+       there is `netBlend`'s problem, and how long it has to get there
+       is measured rather than assumed — the host sends the quarry far
+       more often than it sends the deer. */
+    netApply(st) {
       if (!st) return;
-      this.pos.set(st.x, st.y, st.z);
-      this.mesh.position.copy(this.pos);
-      this.mesh.rotation.set(st.a, st.b, st.c);
-      this.hp = st.h;
+      const from = this._netFrom
+        || (this._netFrom = { x: 0, y: 0, z: 0, a: 0, b: 0, c: 0 });
+      const r = this.mesh.rotation;
+      from.x = this.pos.x; from.y = this.pos.y; from.z = this.pos.z;
+      from.a = r.x; from.b = r.y; from.c = r.z;
+      this._netTo = { x: st.x, y: st.y, z: st.z,
+                      a: st.a || 0, b: st.b || 0, c: st.c || 0 };
+      this._netSpan = U.clamp(this._netSince || 0.07, 0.03, 0.9);
+      this._netSince = 0;
+      this._netT = 0;
+      /* Velocity is not sent — it is the slope of the two snapshots,
+         and it has to exist on a guest because the lead marker is
+         worked out from it. Without this every bird read as hovering,
+         and the dot that tells you where to hold sat on top of a bird
+         that had already left. */
+      const to = this._netTo, sp = this._netSpan;
+      this.vel.set((to.x - from.x) / sp, (to.y - from.y) / sp, (to.z - from.z) / sp);
+      if (st.h !== undefined) this.hp = st.h;
       if (st.d && !this.dying) { this.dying = true; this.mark && (this.mark.visible = false); }
-      this.age += dt || 0;
-      this.animateParts(dt || 0);
+    }
+
+    /* One frame of being somebody else's bird. Overrun to 1.35 of a
+       span so a snapshot that is a little late carries on flying
+       instead of stopping dead in the air waiting for it. */
+    netBlend(dt) {
+      this._netSince = (this._netSince || 0) + dt;
+      this.age += dt;
+      const to = this._netTo;
+      if (to) {
+        this._netT = (this._netT || 0) + dt;
+        const k = U.clamp(this._netT / (this._netSpan || 0.07), 0, 1.35);
+        const f = this._netFrom;
+        this.pos.set(U.lerp(f.x, to.x, k), U.lerp(f.y, to.y, k), U.lerp(f.z, to.z, k));
+        this.mesh.position.copy(this.pos);
+        this.mesh.rotation.set(U.angLerp(f.a, to.a, k), U.angLerp(f.b, to.b, k),
+                               U.angLerp(f.c, to.c, k));
+      }
+      if (this.mark) {
+        this.mark.position.copy(this.pos);
+        this.mark.position.y += this.type.radius * this.scale * 1.5 + 1.2;
+      }
+      this.animateParts(dt);
     }
 
     hit(power) {
@@ -1341,11 +1405,11 @@ const FlyerKit = (() => {
     // ctx: { heightAt, player, wind, bounds, onGone(flyer) }
     update(dt, ctx) {
       /* A guest does not simulate the flock at all. It is told where
-         every bird is twenty times a second and its only job is to
-         keep the wings moving between those messages — which is why
-         `animateParts` had to come out of `update`. */
+         every bird is a few times a second and its only job is to fly
+         them between those messages — which is why `animateParts` had
+         to come out of `update`. */
       if (this.puppet) {
-        for (const f of this.list) f.animateParts(dt);
+        for (const f of this.list) f.netBlend(dt);
         return;
       }
       ctx.tmp = this._tmp;
