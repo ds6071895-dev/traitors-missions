@@ -42,8 +42,18 @@ const Transports = (() => {
     ['expose',     (x)       => ({ type: 'expose',     ...x })],
     ['outcome',    (o)       => ({ type: 'outcome',    outcome: o })],
   ];
+  /* What a guest is allowed to say. Anything not on this list is
+     dropped on arrival, which is the right default — but a Traitor is
+     a guest two nights in three, and `taskDone` is the one thing only
+     they can say about themselves. Left off, their mark died on the
+     host's doormat while their own chip said it had landed, and they
+     walked into the fire already exposed for a card they had done.
+     Impersonation is not the reason to keep it off: the host stamps
+     every guest action with the peer it actually arrived from, so a
+     guest can only ever mark its own card. */
   const GUEST_ACTIONS = new Set([
     'vote', 'name', 'yieldFloor', 'sceneReady', 'syncReady', 'readyResult',
+    'taskDone',
   ]);
 
   /* ---------------- host ---------------- */

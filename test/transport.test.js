@@ -269,6 +269,34 @@ await atest('a guest cannot mark somebody else\'s task', async () => {
   }
 });
 
+/* The bug: `taskDone` was missing from the host's list of what a guest
+   may say, so it was dropped on arrival. The Traitor is a guest two
+   nights in three, their own chip marks the card locally and answers
+   instantly, and nothing on either machine says the mark never landed
+   — so a Traitor who did their card walked into the fire and was
+   exposed for leaving it undone. Swept rather than seeded, because the
+   one seed this used to be tested on happened to make the host the
+   Traitor. */
+await atest('a guest Traitor\'s mark reaches the host', async () => {
+  let guests = 0;
+  for (let seed = 100; seed < 130; seed++) {
+    const { host, g1, g2 } = await party(seed);
+    const traitorId = host.Session.privateRoles()
+      .find(r => r.role === 'traitor').playerId;
+    if (traitorId === 'host') continue;
+    guests++;
+    host.Net.send({ type: 'advance' });
+    await flush(); await flush();
+    ({ host, gst1: g1, gst2: g2 })[traitorId].Net.send({ type: 'taskDone' });
+    await flush(); await flush();
+    host.Net.send({ type: 'result', earned: 1, completed: true, players: [] });
+    await flush(); await flush();
+    ok(!host.Session.hasExposure(),
+       'seed ' + seed + ': ' + traitorId + ' marked in time and was not exposed');
+  }
+  ok(guests > 0, 'the sweep actually saw a guest Traitor (' + guests + ')');
+});
+
 section('transport — the secret');
 
 await atest('each client is told one role, and it is its own', async () => {
