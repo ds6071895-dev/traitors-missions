@@ -8,7 +8,7 @@
    room has no fire in it.
 
    So the mechanism moved out and the fire became optional. Everything
-   that does not need one — the two-stage flash, the rumble, the score
+   that does not need one — the two-stage flash, the buzz, the score
    change, the card — happens either way. The column of flame and the
    embers happen when there is something to burn.
 
@@ -23,11 +23,11 @@ const Reveal = (() => {
   const TONE = {
     traitor:  { col: '#ff1f3a', deep: '#8c0a1c', word: 'TRAITOR',
                 flashA: 'rgba(255,235,238,0.92)', flashB: 'rgba(255,20,50,0.5)',
-                column: 6.5, shake: 1.35, rumble: [1, 900], haptic: 110,
+                column: 6.5, shake: 1.35, haptic: 110,
                 progression: 'dread', embers: 1 },
     faithful: { col: '#5cffa0', deep: '#1f9c62', word: 'FAITHFUL',
                 flashA: 'rgba(238,255,246,0.85)', flashB: 'rgba(90,255,160,0.38)',
-                column: 4.8, shake: 0.95, rumble: [0.7, 480], haptic: 50,
+                column: 4.8, shake: 0.95, haptic: 50,
                 progression: 'hymn', embers: 0.72 },
   };
 
@@ -79,7 +79,6 @@ const Reveal = (() => {
 
     AudioBus.play('fire-whoosh', { big: true });
     AudioBus.play(role === 'traitor' ? 'reveal-traitor' : 'reveal-faithful');
-    Input.rumble(T.rumble[0], T.rumble[1]);
     Input.haptic(T.haptic);
 
     if (o.music) {

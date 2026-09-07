@@ -1167,7 +1167,6 @@ class DiveMission {
     this.shake = Math.min(1.0, this.shake + 0.35);
     this.hitStop = Math.max(this.hitStop, 0.07);
     AudioBus.play('dv-prise', { n: h.hpMax - h.hp });
-    Input.rumble(0.45, 160);
     Input.haptic(24);
 
     this._tmpV.set(h.x, h.y + 0.2, h.z);
@@ -1207,7 +1206,6 @@ class DiveMission {
     this.fovKick = Math.max(this.fovKick, 8);
     AudioBus.play('dv-hold');
     if (this.music) this.music.stinger('chain');
-    Input.rumble(0.9, 420);
     this._flash(0.32, 'rgba(255,150,190,0.45)');
 
     this._tmpV.set(h.x, h.y + 0.4, h.z);
@@ -1846,7 +1844,16 @@ class DiveMission {
     Screens.show('hud-dive');
     this._setCenter('', '');
     this._banner(this.reefName, DiveConditions.describe(this.cond));
-    if (this.hud.hint) this.hud.hint.classList.toggle('show', !Input.isTouch);
+    if (this.hud.hint) {
+      /* Everything after the first clause is the same on every machine;
+         the first clause is how you look around, and on a browser with
+         no pointer lock to take there is no click to tell anybody to
+         make. A thumb needs none of it — the pads say what they do. */
+      this.hud.hint.innerHTML =
+        (Input.aimReady ? 'Move the mouse to look' : 'Click to swim')
+        + ' · <kbd>Space</kbd> kicks and jumps · walk it up the beach into the light';
+      this.hud.hint.classList.toggle('show', !Input.isTouch);
+    }
     if (this.party) {
       this._setCenter('READY', 'Waiting for everybody…', 'count');
       MissionNet.waitForStart().then(() => {
@@ -2132,7 +2139,6 @@ class DiveMission {
     if (sw.bumped) {
       this.shake = Math.min(0.7, this.shake + 0.35);
       AudioBus.play('dv-bump');
-      Input.rumble(0.35, 90);
     }
 
     /* ---- the waterline, both ways.
@@ -2154,7 +2160,6 @@ class DiveMission {
       this.camKick = Math.min(this.camKick + p * 0.7, 1.8);
       AudioBus.play('dv-splash', { power: p });
       this._splash(sw.pos.x, sw.pos.z, p, '#eaffff');
-      Input.rumble(0.25 * p, 120);
     }
     // and the crunch of arriving on gravel
     if (sw.landed > 1.2) {
@@ -2381,7 +2386,6 @@ class DiveMission {
     if (kind === 'charge') {
       AudioBus.play('dv-shark', { close: 1 });
       if (this.music) this.music.stinger('hurt');
-      Input.rumble(0.35, 220);
       return;
     }
     if (kind === 'fend') {
@@ -2407,7 +2411,6 @@ class DiveMission {
     this._flash(0.4, 'rgba(255,120,120,0.6)');
     AudioBus.play('dv-bite');
     if (this.music) this.music.stinger('hurt');
-    Input.rumble(0.85, 380);
 
     // it knocks you off your line as well as out of your breath
     sw.vel.addScaledVector(this._tmpV.copy(sw.pos).sub(sh.pos).setY(0.6).normalize(), 5.5);
@@ -2773,7 +2776,6 @@ class DiveMission {
     this.bestHaul = Math.max(this.bestHaul, this.haul);
     this.stats.bestHaul = this.bestHaul;
     this.stats.landings = (this.stats.landings || 0) + 1;
-    Input.rumble(0.45, 200);
     /* Only while it is still moving. A banner on every landing for
        three minutes is wallpaper; five of them, each one saying a
        larger number, is a run going well. */
@@ -2957,7 +2959,6 @@ class DiveMission {
     this.haul = 0;
     AudioBus.play('dv-drown');
     if (this.music) this.music.stinger('hurt');
-    Input.rumble(0.9, 500);
     this._flash(0.55, 'rgba(200,240,255,0.9)');
     this._setCenter('BLACKED OUT', this.carry.length
       ? U.money(this._carryValue()) + ' on the floor' : '', 'bad');
@@ -3556,11 +3557,11 @@ class DiveMission {
      diver into a real tactic and makes every one of this deck's alibis
      something the other two watched rather than read afterwards. */
   _field(dt) {
-    /* Marking the task is a keypress and a pad button, and both of
-       those are edges that only exist inside a frame. The strip below
-       is throttled to a few times a second, which is fine for a
-       scoreboard and would drop most of a button press, so the poll
-       goes above the throttle and the drawing stays below it. */
+    /* Marking the task is a keypress, and a keypress is an edge that
+       only exists inside a frame. The strip below is throttled to a few
+       times a second, which is fine for a scoreboard and would drop
+       most of a button press, so the poll goes above the throttle and
+       the drawing stays below it. */
     if (this.agenda) RoomUI.pollMark();
     this._fieldT -= dt;
     if (this._fieldT > 0) return;
@@ -3707,7 +3708,6 @@ class DiveMission {
     const medal = this._medalFor(earned);
     AudioBus.play('finish');
     this._setCenter(reason || 'THE BELL', U.money(earned), 'go');
-    Input.rumble(0.8, 420);
     this._confetti();
     this.result = this._buildResult({ completed: true, earned, medal, reason });
     this._reportT = setTimeout(() => this._report(), 2000);

@@ -7,7 +7,7 @@
 
    The code goes in a text field, because somebody reads four letters
    down a phone at you and typing four letters is what a person does
-   next. It used to be four spinners — dialable on a gamepad, which was
+   next. It used to be four spinners — dialable with the arrow keys, which was
    the argument for them, and a small ordeal on every other input
    method there is. The field forgives what people actually type:
    lower case, spaces, and the I and O that are not in the alphabet but

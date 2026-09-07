@@ -89,9 +89,13 @@ function build(scale, opts = {}) {
 }
 
 /* An event that remembers whether it was refused. `pad` puts it on a
-   thumb overlay; `field` puts it in a text field. */
+   thumb overlay; `field` puts it in a text field; `button` puts it on a
+   real control. */
 function ev(o = {}) {
-  const hit = o.pad ? '#touch-shoot' : (o.field ? 'input' : null);
+  const hit = o.pad ? '#touch-shoot'
+            : o.field ? 'input'
+            : o.button ? 'button'
+            : null;
   const e = {
     cancelable: o.cancelable !== false,
     touches: o.touches || [],
@@ -223,6 +227,20 @@ test('a double tap in one spot is refused, two far apart are not', () => {
   eq(tap(100, 100).defaultPrevented, false, 'the first tap always lands');
   eq(tap(104, 102).defaultPrevented, true, 'the second, in the same place, does not');
   eq(tap(400, 400).defaultPrevented, false, 'a tap somewhere else is a first tap again');
+});
+
+/* The Traitor's task chip asks twice on purpose — one press arms it,
+   the next commits — and both presses land in the same spot inside a
+   second. The double-tap guard was refusing the second one, which
+   cancels the click Safari would have synthesised from it, so on a
+   phone the task was never actually marked. A control refuses the zoom
+   itself through `touch-action`; the guard is for everything else. */
+test('a control that is meant to be pressed twice keeps its second press', () => {
+  const w = build(1);
+  const tap = (x, y) => w.document.fire('touchend',
+    ev({ button: true, changedTouches: [{ clientX: x, clientY: y }] }));
+  eq(tap(100, 100).defaultPrevented, false, 'arm it');
+  eq(tap(101, 100).defaultPrevented, false, 'and the press that confirms it lands too');
 });
 
 test('the long-press callout and the context menu are refused off a field', () => {

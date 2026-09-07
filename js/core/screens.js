@@ -12,7 +12,7 @@ const Screens = (() => {
   function register(id, hook) { hooks[id] = hook || {}; }
 
   // Anything that wants to react to *every* screen change without owning
-  // one — the pad's focus ring, mostly — listens here instead of wrapping
+  // one — the menu focus ring, mostly — listens here instead of wrapping
   // `show`, which is what used to happen.
   function onShow(fn) { shown.add(fn); return () => shown.delete(fn); }
 

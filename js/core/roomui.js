@@ -252,9 +252,9 @@ const RoomUI = (() => {
   let markWired = false;
 
   /* Every input path the game has, aimed at one button. A phone taps
-     it, a keyboard presses T, a pad presses the west face. The pad and
-     the key are polled rather than bound, because a mission owns the
-     frame and `pressedThisFrame` only exists inside one. */
+     it and a keyboard presses T. The key is polled rather than bound,
+     because a mission owns the frame and `pressedThisFrame` only exists
+     inside one. */
   function wireMark() {
     if (markWired) return;
     const b = el('agenda-mark');

@@ -9,7 +9,7 @@
 
    Every control is a `<select>`. That is not laziness: `UINav` cycles
    a select with left and right, so the whole screen is dialable on a
-   gamepad, tappable on a phone and typeable on a keyboard without one
+   arrow keys, tappable on a phone and typeable on a keyboard without one
    line of input code in this file.
 ------------------------------------------------------------------ */
 const Dressing = (() => {

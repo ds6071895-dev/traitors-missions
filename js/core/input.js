@@ -2,8 +2,24 @@
    input.js — action-based input.
 
    Missions ask for named actions ("throttle", "steer", "boost"), never
-   for raw keys, so rebinding, gamepads and touch all stay in one place
-   and every future mission gets them for free.
+   for raw keys, so rebinding and touch stay in one place and every
+   future mission gets them for free.
+
+   Two devices, and only two: a keyboard with a mouse, and a
+   touchscreen. There was a third — a gamepad — and it is gone. It cost
+   a polled read in every query on this file, a second set of hint
+   strings in four missions and a menu walker nobody could test, and
+   the machines it was for are not the machines this is played on.
+
+   Which of the two you are on is not a fact about the browser, it is a
+   fact about the last thing you touched. An iPad with a keyboard case
+   is a touchscreen when a thumb is on it and a desktop when the
+   trackpad is, and a media query answers that question once, at load,
+   for a device that changes its mind. So `isTouch` is live: the query
+   is the opening guess and every pointer event afterwards is the
+   answer. That is the whole of the iPad fix — the sheet of thumb
+   controls a mission puts up is hidden by `isTouch`, so a wrong answer
+   there is a mission with no controls at all on it.
 ------------------------------------------------------------------ */
 const Input = (() => {
 
@@ -30,11 +46,11 @@ const Input = (() => {
     camera:    ['KeyC'],
     mute:      ['KeyM'],
     // your own microphone, which is a different thing from game sound
-    mic:       ['KeyV', 'Touch4'],
+    mic:       ['KeyV'],
     /* Marking the Traitor's task done, mid-mission, without letting go
        of anything. Nobody who is not carrying a card can do anything
-       with this, so it costs a key and a face button and nothing else.
-       The chip is also a real button, which is how a phone presses it. */
+       with this, so it costs one key and nothing else. The chip on the
+       HUD is a real button, which is how a phone presses it. */
     task:      ['KeyT'],
   };
 
@@ -52,7 +68,57 @@ const Input = (() => {
   let mouseAim = false, locked = false, touchMode = 'drive';
   const lockListeners = new Set();
   let enabled = true;
-  const isTouch = matchMedia('(hover: none) and (pointer: coarse)').matches;
+
+  /* -------- which machine is this --------
+
+     The opening guess, and it is only a guess. `(hover: none) and
+     (pointer: coarse)` describes a phone exactly and describes an iPad
+     only while nothing is plugged into it: attach a keyboard case and
+     Safari starts answering `hover: hover, pointer: fine`, the thumb
+     sheets stay `display:none`, and a mission whose only controls are
+     on one of those sheets has no controls at all. That is what the
+     Dive was on an iPad.
+
+     So the guess is the wider question — is there a finger on this
+     machine *at all* — and `sawPointer()` below narrows it from there
+     using the only evidence that cannot be wrong: what the player is
+     actually touching the screen with. */
+  const mq = (q) => { try { return matchMedia(q).matches; } catch (e) { return false; } };
+  const hasFine = () => mq('(any-pointer: fine)');
+  function guessTouch() {
+    if (mq('(hover: none) and (pointer: coarse)')) return true;    // a phone
+    // a tablet, with or without something plugged into it
+    return mq('(any-pointer: coarse)') && (navigator.maxTouchPoints || 0) > 0;
+  }
+  let isTouch = guessTouch();
+
+  /* Every pointer event says what made it, and that answer beats every
+     media query on the machine. A thumb turns the sheets on, a mouse or
+     a trackpad turns them off, and swapping hands mid-run swaps them
+     back — which is the behaviour an iPad in a keyboard case needs and
+     a laptop with a touchscreen needs just as much.
+
+     A mouse only ever wins on a machine that has a fine pointer to
+     begin with: some Android browsers label a genuine touch 'mouse',
+     and losing the controls to that is the bug this exists to fix. */
+  function sawPointer(type) {
+    const t = type === 'touch' || type === 'pen' ? true
+            : type === 'mouse' && hasFine() ? false
+            : null;
+    if (t === null || t === isTouch) return;
+    isTouch = t;
+    applyTouchKind();
+  }
+
+  /* Everything on screen that `isTouch` decides, in one place, so the
+     answer changing halfway through a mission is a repaint rather than
+     a reload. */
+  function applyTouchKind() {
+    /* The stylesheet stacks the bottom-left corner off one number, and
+       on a touchscreen a thumbstick is sitting in it. */
+    if (document.body) document.body.classList.toggle('touch', isTouch);
+    setTouchMode(touchMode);
+  }
 
   function actionsFor(code) {
     const out = [];
@@ -95,24 +161,61 @@ const Input = (() => {
     window.addEventListener('keydown', e => onKey(e, true));
     window.addEventListener('keyup', e => onKey(e, false));
     window.addEventListener('blur', clearAll);
+    /* Capture phase and the whole window, because this has to be true
+       before anything downstream reads `isTouch` off the same gesture —
+       a mission's first frame after a tap included. */
+    window.addEventListener('pointerdown', e => sawPointer(e.pointerType), true);
+    window.addEventListener('pointermove', e => sawPointer(e.pointerType), true);
     initMouse();
     initTouch();
   }
 
   /* -------- mouse look --------
      Only live while a mission asks for it, so nothing here can disturb a
-     mission that is driven entirely with the keyboard. */
+     mission that is driven entirely with the keyboard.
+
+     Two ways round, because one browser refuses the first. Pointer lock
+     is the good one: the cursor disappears, the deltas never run out
+     and you can turn for ever. Safari on iPadOS does not implement it
+     at all — so on an iPad driven by a trackpad the click that was
+     supposed to take the pointer took nothing, no mousemove was ever
+     read, and the Dive was a mission you could not look around in.
+
+     Where there is no lock to take, the pointer itself is the aim: the
+     cursor stays visible, moving it turns you, and clicks stay free for
+     firing. Running out of screen is answered the way it is on a
+     trackpad anyway — lift, put it down somewhere else — so a jump
+     bigger than a hand-sized move is read as exactly that and thrown
+     away rather than whipping the camera round. */
+
+  const REPLACE_PX = 80;          // a jump this big is a lift, not a look
+  let freeX = 0, freeY = 0, freeSeen = false;
+
+  const lockable = () => {
+    const canvas = document.getElementById('gl');
+    return !!(canvas && canvas.requestPointerLock);
+  };
 
   function initMouse() {
     const canvas = document.getElementById('gl');
     window.addEventListener('mousemove', (e) => {
-      if (!mouseAim || !locked) return;
-      look.dx += e.movementX || 0;
-      look.dy += e.movementY || 0;
+      if (!mouseAim) return;
+      if (locked) {
+        look.dx += e.movementX || 0;
+        look.dy += e.movementY || 0;
+        return;
+      }
+      if (lockable()) return;              // waiting on the click that takes it
+      const dx = e.clientX - freeX, dy = e.clientY - freeY;
+      freeX = e.clientX; freeY = e.clientY;
+      if (!freeSeen) { freeSeen = true; return; }
+      if (Math.abs(dx) > REPLACE_PX || Math.abs(dy) > REPLACE_PX) return;
+      look.dx += dx; look.dy += dy;
     });
     window.addEventListener('mousedown', (e) => {
       if (!mouseAim) return;
-      if (!locked) { requestLock(); return; }   // first click only takes the pointer
+      // first click only takes the pointer — where there is one to take
+      if (!locked && lockable()) { requestLock(); return; }
       e.preventDefault();
       pressCode('Mouse' + e.button, true);
     });
@@ -133,7 +236,7 @@ const Input = (() => {
 
   function requestLock() {
     const canvas = document.getElementById('gl');
-    if (!canvas || locked) return;
+    if (!canvas || locked || !canvas.requestPointerLock) return;
     try { canvas.requestPointerLock(); } catch (e) {}
   }
   function releaseLock() {
@@ -143,58 +246,32 @@ const Input = (() => {
   // a mission turns free-look on in build() and off in dispose()
   function setMouseAim(on) {
     mouseAim = !!on;
+    freeSeen = false;
     if (!on) { releaseLock(); look.dx = look.dy = 0; }
   }
   function onLockChange(fn) { lockListeners.add(fn); return () => lockListeners.delete(fn); }
 
+  /* Can this player look around right now? A thumb always can, a locked
+     pointer can, and a browser with no lock to offer can — it is only
+     the machine that *has* pointer lock and has not been given it yet
+     that cannot, which is the one case worth a "click to aim" on the
+     HUD. Missions ask this rather than `pointerLocked` so that the hint
+     is not left burning on a device that will never lock anything. */
+  function aimReady() { return isTouch || locked || !lockable(); }
+
   function initTouch() {
-    const pad = document.getElementById('touch-controls');
-    if (!pad) return;
-    if (isTouch) pad.classList.add('visible');
-    /* The stylesheet stacks the bottom-left corner off one number, and
-       on a touchscreen a thumbstick is sitting in it. */
-    document.body.classList.toggle('touch', isTouch);
+    /* `drive` is the startup mode, so putting the kind on now is the
+       same as showing that sheet — and re-doing it whenever the kind
+       changes is what makes a thumb on a keyboard-cased iPad bring the
+       controls back mid-mission. */
+    applyTouchKind();
 
-    const stick = pad.querySelector('.stick-zone');
-    const knob = pad.querySelector('.stick-knob');
-    let id = null, ox = 0, oy = 0;
-
-    const setKnob = (dx, dy) => { knob.style.transform = `translate(${dx}px, ${dy}px)`; };
-
-    stick.addEventListener('pointerdown', e => {
-      id = e.pointerId; ox = e.clientX; oy = e.clientY;
-      stick.setPointerCapture(id); touch.active = true;
-    });
-    stick.addEventListener('pointermove', e => {
-      if (e.pointerId !== id) return;
-      const dx = U.clamp(e.clientX - ox, -52, 52);
-      const dy = U.clamp(e.clientY - oy, -52, 52);
-      touch.steer = dx / 52;
-      touch.throttle = U.clamp(-dy / 52, -1, 1);
-      setKnob(dx, dy);
-    });
-    const end = e => {
-      if (e.pointerId !== id) return;
-      id = null; touch.steer = 0; touch.throttle = 0; touch.active = false; setKnob(0, 0);
-    };
-    stick.addEventListener('pointerup', end);
-    stick.addEventListener('pointercancel', end);
-
-    const bBtn = pad.querySelector('.boost-btn');
-    bBtn.addEventListener('pointerdown', e => { e.preventDefault(); touch.boost = true; });
-    bBtn.addEventListener('pointerup', () => { touch.boost = false; });
-    bBtn.addEventListener('pointercancel', () => { touch.boost = false; });
-
-    /* The optional second button, hidden until a mission asks for it.
-       It is bound like any other key rather than to a field on `touch`,
-       so `Input.throttle()` reads it without knowing it exists. */
-    const aBtn = pad.querySelector('.aux-btn');
-    if (aBtn) {
-      aBtn.addEventListener('pointerdown', e => { e.preventDefault(); pressCode('Touch5', true); });
-      aBtn.addEventListener('pointerup', () => pressCode('Touch5', false));
-      aBtn.addEventListener('pointercancel', () => pressCode('Touch5', false));
-    }
-
+    /* The three sheets are wired independently on purpose. This used to
+       give up on all of them if the driving pad was not in the page,
+       which makes one missing element in the markup look exactly like
+       the iPad bug: a mission with no controls and nothing on screen
+       saying why. */
+    initDrivePad();
     initTouchAim('touch-shoot', {
       pads: [['.draw-pad', 'Touch0'], ['.focus-pad', 'Touch2'], ['.sprint-pad', 'Touch3']],
       stick: '.move-zone', knob: '.move-knob',
@@ -206,13 +283,66 @@ const Input = (() => {
     watchScreens();
   }
 
+  /* The boat's and the mountain's: a stick you push, and one or two
+     buttons beside it. */
+  function initDrivePad() {
+    const pad = document.getElementById('touch-controls');
+    if (!pad) return;
+
+    // the stick and the buttons are wired separately for the same
+    // reason the three sheets are: one of them missing is not the
+    // others' problem
+    const stick = pad.querySelector('.stick-zone');
+    const knob = pad.querySelector('.stick-knob');
+    if (stick && knob) {
+      let id = null, ox = 0, oy = 0;
+      const setKnob = (dx, dy) => { knob.style.transform = `translate(${dx}px, ${dy}px)`; };
+
+      stick.addEventListener('pointerdown', e => {
+        id = e.pointerId; ox = e.clientX; oy = e.clientY;
+        stick.setPointerCapture(id); touch.active = true;
+      });
+      stick.addEventListener('pointermove', e => {
+        if (e.pointerId !== id) return;
+        const dx = U.clamp(e.clientX - ox, -52, 52);
+        const dy = U.clamp(e.clientY - oy, -52, 52);
+        touch.steer = dx / 52;
+        touch.throttle = U.clamp(-dy / 52, -1, 1);
+        setKnob(dx, dy);
+      });
+      const end = e => {
+        if (e.pointerId !== id) return;
+        id = null; touch.steer = 0; touch.throttle = 0; touch.active = false; setKnob(0, 0);
+      };
+      stick.addEventListener('pointerup', end);
+      stick.addEventListener('pointercancel', end);
+    }
+
+    const bBtn = pad.querySelector('.boost-btn');
+    if (bBtn) {
+      bBtn.addEventListener('pointerdown', e => { e.preventDefault(); touch.boost = true; });
+      bBtn.addEventListener('pointerup', () => { touch.boost = false; });
+      bBtn.addEventListener('pointercancel', () => { touch.boost = false; });
+    }
+
+    /* The optional second button, hidden until a mission asks for it.
+       It is bound like any other key rather than to a field on `touch`,
+       so `Input.throttle()` reads it without knowing it exists. */
+    const aBtn = pad.querySelector('.aux-btn');
+    if (aBtn) {
+      aBtn.addEventListener('pointerdown', e => { e.preventDefault(); pressCode('Touch5', true); });
+      aBtn.addEventListener('pointerup', () => pressCode('Touch5', false));
+      aBtn.addEventListener('pointercancel', () => pressCode('Touch5', false));
+    }
+  }
+
   /* Which screens the thumb overlay may sit under.
 
-     `hud`, `hud-shoot` and `hud-dive` are the missions; `null` is a
-     scene, and
-     a scene is played over the world with no screen up at all. `vote`
-     is the fire's ballot, whose own container deliberately passes taps
-     through so you can still look around while the pouches burn.
+     `hud`, `hud-ski`, `hud-shoot` and `hud-dive` are the four missions;
+     `null` is a scene, and a scene is played over the world with no
+     screen up at all. `vote` is the fire's ballot, whose own container
+     deliberately passes taps through so you can still look around
+     while the pouches burn.
 
      Everything else is a panel with buttons on it, and a transparent
      full-screen sheet over one of those is the reason a tablet could
@@ -236,9 +366,9 @@ const Input = (() => {
     paint(Screens.current);
   }
 
-  /* Aiming by thumb: drag anywhere on the sheet to look, hold a pad to
-     act. The shooter has three pads and a walking stick; the dive has
-     one pad and a sculling stick. Everything about the *drag* is
+  /* Aiming by thumb: drag anywhere on the sheet to look, hold a pad on
+     it to act. The shooter has three pads and a walking stick; the dive
+     has one pad and a sculling stick. Everything about the *drag* is
      identical, so it is one function with a table of buttons rather
      than two sheets that will quietly drift apart. */
   function initTouchAim(sheetId, buttons) {
@@ -339,48 +469,11 @@ const Input = (() => {
     }
   }
 
-  function gamepad() {
-    if (!navigator.getGamepads) return null;
-    const pads = navigator.getGamepads();
-    // the first *connected* pad, not the first slot: unplugging one and
-    // plugging in another leaves a hole at index 0 on some browsers
-    for (let i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) return pads[i];
-    return null;
-  }
-
-  /* One button can mean more than one thing — south is "shoot" in a
-     mission and "yes" in a menu, and only the reader knows which it is
-     standing in front of. */
-  const PAD = {
-    0:  ['fire', 'boost', 'confirm'],
-    1:  ['back'],
-    4:  ['focus'],
-    6:  ['focus'],
-    7:  ['fire', 'boost'],
-    2:  ['task'],
-    3:  ['mic'],
-    9:  ['pause'],
-    10: ['sprint'],
-    12: ['navUp'], 13: ['navDown'], 14: ['navLeft'], 15: ['navRight'],
-  };
-
-  const dz = (v, d = 0.16) => (Math.abs(v) < d ? 0 : (v - Math.sign(v) * d) / (1 - d));
-
   /* -------- public queries -------- */
 
   function held(action) {
     if (active.has(action)) return true;
     if (action === 'boost' && touch.boost) return true;
-    const gp = gamepad();
-    if (gp) {
-      if (action === 'boost' && (gp.buttons[0]?.pressed || gp.buttons[7]?.pressed)) return true;
-      if (action === 'fire' && (gp.buttons[7]?.pressed || gp.buttons[0]?.pressed)) return true;
-      if (action === 'focus' && (gp.buttons[6]?.pressed || gp.buttons[4]?.pressed)) return true;
-      if (action === 'sprint' && gp.buttons[10]?.pressed) return true;
-      if (action === 'pause' && gp.buttons[9]?.pressed) return true;
-      if (action === 'confirm' && gp.buttons[0]?.pressed) return true;
-      if (action === 'back' && gp.buttons[1]?.pressed) return true;
-    }
     return false;
   }
 
@@ -388,7 +481,7 @@ const Input = (() => {
      Two halves, because they are different animals: `aimDelta` is a
      *displacement* that has already happened (mouse, thumb) and must be
      consumed exactly once; `aimStick` is a *rate* that the caller
-     integrates over its own dt (pad stick, arrow keys). */
+     integrates over its own dt (the arrow keys). */
 
   function aimDelta() {
     const d = { x: look.dx, y: look.dy };
@@ -397,72 +490,23 @@ const Input = (() => {
   }
 
   function aimStick() {
-    const gp = gamepad();
-    let x = 0, y = 0;
-    if (gp) { x = dz(gp.axes[2] || 0); y = dz(gp.axes[3] || 0); }
-    if (x === 0 && y === 0) {
-      // keyboard-only players still have to be able to play
-      x = (held('lookRight') ? 1 : 0) - (held('lookLeft') ? 1 : 0);
-      y = (held('lookDown') ? 1 : 0) - (held('lookUp') ? 1 : 0);
-    }
-    return { x, y };
+    // the arrow keys, which are how a player with no mouse looks around
+    return {
+      x: (held('lookRight') ? 1 : 0) - (held('lookLeft') ? 1 : 0),
+      y: (held('lookDown') ? 1 : 0) - (held('lookUp') ? 1 : 0),
+    };
   }
 
-  /* Walking, as its own axis pair: WASD and the left stick only. It has to
-     stay clear of `throttle()`, which reads the triggers — and the right
-     trigger is the one you are drawing the bow with. */
+  /* Walking, as its own axis pair: WASD and the thumbstick only. It has
+     to stay clear of `throttle()`, which is the boat's forward-and-back
+     and means something else entirely. */
   function moveAxes() {
     let x = (down.has('KeyD') ? 1 : 0) - (down.has('KeyA') ? 1 : 0);
     let y = (down.has('KeyW') ? 1 : 0) - (down.has('KeyS') ? 1 : 0);
-    const gp = gamepad();
-    if (gp) {
-      if (x === 0) x = dz(gp.axes[0] || 0);
-      if (y === 0) y = -dz(gp.axes[1] || 0);
-    }
     if (touchMove.active) { x = touchMove.x; y = touchMove.y; }
     const len = Math.hypot(x, y);
     return len > 1 ? { x: x / len, y: y / len } : { x, y };
   }
-
-  // gamepad buttons have no keydown, so edges have to be found by diffing
-  const padPrev = new Set();
-  function scanPad() {
-    const gp = gamepad();
-    if (!gp) { padPrev.clear(); return; }
-    for (const key in PAD) {
-      const i = +key;
-      const on = !!gp.buttons[i]?.pressed;
-      const was = padPrev.has(i);
-      if (on === was) continue;
-      if (on) { padPrev.add(i); for (const a of PAD[i]) pressedThisFrame.add(a); }
-      else { padPrev.delete(i); for (const a of PAD[i]) releasedThisFrame.add(a); }
-    }
-  }
-
-  /* -------- menu navigation --------
-     A d-pad held down has to walk a list, not sprint through it, so this
-     is edge-plus-repeat rather than a raw read: one step immediately,
-     nothing for a third of a second, then a steady tick. Returns
-     {x, y} of -1/0/1, and zero on every frame in between. */
-
-  const nav = { x: 0, y: 0, next: 0 };
-  function navAxis() {
-    const gp = gamepad();
-    let x = 0, y = 0;
-    if (gp) {
-      if (gp.buttons[14]?.pressed) x = -1; else if (gp.buttons[15]?.pressed) x = 1;
-      if (gp.buttons[12]?.pressed) y = -1; else if (gp.buttons[13]?.pressed) y = 1;
-      if (!x) { const ax = gp.axes[0] || 0; if (Math.abs(ax) > 0.55) x = Math.sign(ax); }
-      if (!y) { const ay = gp.axes[1] || 0; if (Math.abs(ay) > 0.55) y = Math.sign(ay); }
-    }
-    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-    if (!x && !y) { nav.x = 0; nav.y = 0; nav.next = 0; return { x: 0, y: 0 }; }
-    if (x !== nav.x || y !== nav.y) { nav.x = x; nav.y = y; nav.next = now + 380; return { x, y }; }
-    if (now >= nav.next) { nav.next = now + 150; return { x, y }; }
-    return { x: 0, y: 0 };
-  }
-
-  const padPresent = () => !!gamepad();
 
   function pressed(action) { return pressedThisFrame.has(action); }
   function released(action) { return releasedThisFrame.has(action); }
@@ -471,8 +515,6 @@ const Input = (() => {
   function steer() {
     let v = (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
     if (v === 0 && touch.active) v = touch.steer;
-    const gp = gamepad();
-    if (v === 0 && gp) v = dz(gp.axes[0] || 0);
     return U.clamp(v, -1, 1);
   }
 
@@ -480,45 +522,27 @@ const Input = (() => {
   function throttle() {
     let v = (held('throttle') ? 1 : 0) - (held('brake') ? 1 : 0);
     if (v === 0 && touch.active) v = touch.throttle;
-    const gp = gamepad();
-    if (v === 0 && gp) {
-      const rt = gp.buttons[7]?.value || 0, lt = gp.buttons[6]?.value || 0;
-      v = rt - lt;
-      if (Math.abs(v) < 0.05) v = -dz(gp.axes[1] || 0);
-    }
     return U.clamp(v, -1, 1);
   }
 
-  // Force feedback, where the pad supports it. Silently a no-op everywhere
-  // else, so callers can just fire and forget.
-  function rumble(strength = 0.5, ms = 120, weak = null) {
-    const gp = gamepad();
-    const act = gp && (gp.vibrationActuator || (gp.hapticActuators && gp.hapticActuators[0]));
-    if (!act) return;
-    const s = U.clamp(strength, 0, 1);
-    try {
-      if (act.playEffect) {
-        act.playEffect('dual-rumble', {
-          startDelay: 0, duration: ms,
-          strongMagnitude: s, weakMagnitude: weak === null ? s * 0.7 : U.clamp(weak, 0, 1),
-        });
-      } else if (act.pulse) act.pulse(s, ms);
-    } catch (e) { /* pads lie about what they support; never let this throw */ }
-  }
-
-  // Touch players get the phone's vibrator instead.
+  /* The one piece of feedback the game can give a hand rather than an
+     eye. It used to have a bigger sibling that drove a pad's motors;
+     that went with the pad, and every hit, crash and near miss that
+     used to shake one now buzzes a phone instead. A machine with
+     nothing to buzz gets silence, so callers fire and forget. */
   function haptic(ms = 12) {
     if (navigator.vibrate && isTouch) { try { navigator.vibrate(ms); } catch (e) {} }
   }
 
-  function endFrame() { pressedThisFrame.clear(); releasedThisFrame.clear(); scanPad(); }
+  function endFrame() { pressedThisFrame.clear(); releasedThisFrame.clear(); }
   function setEnabled(v) { enabled = v; if (!v) clearAll(); }
   function rebind(action, codes) { BINDINGS[action] = codes.slice(); }
 
   return { init, held, pressed, released, steer, throttle, endFrame,
            aimDelta, aimStick, moveAxes, setMouseAim, setTouchMode, setDrivePad,
            requestLock, onLockChange,
-           rumble, haptic, setEnabled, rebind, BINDINGS, isTouch,
-           navAxis, padPresent,
+           haptic, setEnabled, rebind, BINDINGS,
+           get isTouch() { return isTouch; },
+           get aimReady() { return aimReady(); },
            get pointerLocked() { return locked; } };
 })();

@@ -153,12 +153,12 @@ const Stage = (() => {
     Input.setMouseAim(true);
     Input.setTouchMode('walk');
     const controlHint = document.getElementById('stage-hint');
-    const paintHint = (locked) => {
-      if (controlHint) controlHint.classList.toggle('on', firstPerson.controls
-        && !Input.isTouch && !locked);
+    const paintHint = () => {
+      if (controlHint) controlHint.classList.toggle('on',
+        firstPerson.controls && !Input.aimReady);
     };
     const offLock = Input.onLockChange(paintHint);
-    paintHint(Input.pointerLocked);
+    paintHint();
 
     /* Eye height, and how far out the props reach. At the table
        everybody is sitting down, so a camera at standing height is
@@ -347,7 +347,7 @@ const Stage = (() => {
       firstPerson.controls = !!on;
       Input.setMouseAim(!!on);
       Input.setTouchMode(on ? 'walk' : 'off');
-      paintHint(Input.pointerLocked);
+      paintHint();
       if (!on) firstPerson.vel.set(0, 0, 0);
     }
 

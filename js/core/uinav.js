@@ -1,10 +1,11 @@
 /* ------------------------------------------------------------------
-   uinav.js — every menu, on a pad and on a thumb.
+   uinav.js — every menu, from the keyboard.
 
-   The screens were built for a mouse. This walks them with a d-pad,
-   the left stick or the arrow keys, and it does it without the screens
-   knowing: it reads whatever buttons the active screen happens to
-   contain and moves a focus ring between them.
+   The screens were built for a mouse. This walks them with the arrow
+   keys and Tab, and it does it without the screens knowing: it reads
+   whatever buttons the active screen happens to contain and moves a
+   focus ring between them. It used to walk them from a d-pad as well;
+   that went when the pad did.
 
    Two decisions worth keeping:
 
@@ -17,19 +18,22 @@
      "nearest thing that way" is right in nearly all of them.
 
    Backing out is declarative: whatever the screen marks `data-back`
-   is what B and Escape press.
+   is what Escape presses.
 ------------------------------------------------------------------ */
 const UINav = (() => {
 
   const SEL = 'button:not([disabled]), input:not([disabled]):not([type=hidden]), '
             + 'select:not([disabled]), [data-nav]:not([disabled])';
 
-  // screens that are the game rather than a menu
-  const PLAYING = new Set(['hud', 'hud-shoot', 'hud-dive', 'cine']);
+  /* Screens that are the game rather than a menu. A HUD missing from
+     this list is a mission whose arrow keys are being eaten by a focus
+     ring — which is what `hud-ski` was, so every mission HUD in the
+     page is named here and a test says so. */
+  const PLAYING = new Set(['hud', 'hud-ski', 'hud-shoot', 'hud-dive', 'cine']);
 
   let items = [];
   let cur = -1;
-  let padMode = false;         // is the ring being driven by a pad/keys?
+  let padMode = false;         // is the ring being driven by the keys?
   let started = false;
 
   const visible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
@@ -74,7 +78,7 @@ const UINav = (() => {
      below always beats one that is slightly closer but off to the left. */
   /* A <select> is the one control where left and right mean "change
      this", not "go to the next thing" — otherwise the voice picker is
-     reachable on a pad and unusable on one. */
+     reachable from the keys and unusable from them. */
   function cycleSelect(el, dx) {
     const n = el.options.length;
     if (!n) return true;
@@ -120,17 +124,6 @@ const UINav = (() => {
     if (best >= 0) focusAt(best);
   }
 
-  function activate() {
-    const el = items[cur];
-    if (!el) return;
-    if (el.tagName === 'SELECT') { cycleSelect(el, 1); return; }
-    if (el.tagName === 'INPUT' && el.type !== 'checkbox' && el.type !== 'button') {
-      el.focus(); el.select && el.select();
-      return;
-    }
-    el.click();
-  }
-
   function back() {
     const root = activeScreen();
     const b = root && root.querySelector('[data-back]');
@@ -138,6 +131,9 @@ const UINav = (() => {
     return false;
   }
 
+  /* "Is the ring being driven by the keyboard?" — the name predates the
+     pad going and is kept because the class it writes is in the
+     stylesheet and in every screen that styles a focused control. */
   function setPadMode(on) {
     if (padMode === on) return;
     padMode = on;
@@ -184,17 +180,6 @@ const UINav = (() => {
          fade and a scene, say — and a pressed-flag that is never cleared
          reads as a button held down for ever. */
       if (!Engine.hasView) Input.endFrame();
-      if (!activeScreen()) return;
-      const gp = Input.padPresent();
-      if (!gp) return;
-      const a = Input.navAxis();
-      if (a.x || a.y) {
-        setPadMode(true);
-        if (!items.length) scan();
-        move(a.x, a.y);
-      }
-      if (Input.pressed('confirm')) { setPadMode(true); AudioBus.play('ui-click'); activate(); }
-      else if (Input.pressed('back')) { setPadMode(true); AudioBus.play('ui-click'); back(); }
     });
   }
 

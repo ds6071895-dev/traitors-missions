@@ -751,11 +751,11 @@ class BoatRaceMission {
      the agenda cards is "burn the whole meter before halfway", and this is
      the only reason anybody could ever catch it. */
   _updateField(dt) {
-    /* Marking the task is a keypress and a pad button, and both of
-       those are edges that only exist inside a frame. The strip below
-       is throttled to a few times a second, which is fine for a
-       scoreboard and would drop most of a button press, so the poll
-       goes above the throttle and the drawing stays below it. */
+    /* Marking the task is a keypress, and a keypress is an edge that
+       only exists inside a frame. The strip below is throttled to a few
+       times a second, which is fine for a scoreboard and would drop
+       most of a button press, so the poll goes above the throttle and
+       the drawing stays below it. */
     if (this.agenda) RoomUI.pollMark();
     this._fieldT -= dt;
     if (this._fieldT > 0) return;
@@ -800,7 +800,6 @@ class BoatRaceMission {
       this._buoyHit.add(i);
       this.stats.buoysClipped++;
       AudioBus.play('miss');
-      Input.rumble(0.25, 110);
       this.fx.labels.add('BUOY', new THREE.Vector3(it.x, this.boat.pos.y + 2, it.z),
         { className: 'bad', life: 1.0, rise: 6 });
       this.fx.sparks.emit(it.x, this.boat.pos.y + 1, it.z,
@@ -1228,7 +1227,6 @@ class BoatRaceMission {
         AudioBus.play('countdown', { go: true });
         this._setCenter('GO!', '', 'go');
         this.fovKick = 10;
-        Input.rumble(0.5, 200);
         setTimeout(() => this._setCenter('', ''), 700);
       }
     }
@@ -1255,7 +1253,6 @@ class BoatRaceMission {
     this._flash(0.28, '#b98cff');
     this.fovKick = Math.min(this.fovKick + 8, 16);
     AudioBus.play('perfect', { combo: 6 });
-    Input.rumble(0.5, 240);
     clearTimeout(this._stretchT);
     this._stretchT = setTimeout(() => {
       if (this.state === 'racing') this._setCenter('', '');
@@ -1427,7 +1424,6 @@ class BoatRaceMission {
     this._flash(perfect || h.risk ? 0.34 : 0.18, h.risk ? '#ffb020' : (perfect ? '#ffd166' : '#7dfcd0'));
     AudioBus.play(perfect || h.risk ? 'perfect' : 'hoop', { combo: this.combo });
     AudioBus.play('whoosh', { amount: 0.6 + this.boat.speed01 * 0.7 });
-    Input.rumble(perfect || h.risk ? 0.55 : 0.3, perfect ? 170 : 100);
     Input.haptic(perfect ? 24 : 12);
 
     // sparks through the ring
@@ -1474,7 +1470,6 @@ class BoatRaceMission {
         { className: 'bad', life: 1.3, rise: 8 });
       this._flash(0.2, '#ff5470');
       AudioBus.play('miss');
-      Input.rumble(0.35, 140);
     }
     this.combo = 0;
     this.comboT = 0;
@@ -1591,7 +1586,6 @@ class BoatRaceMission {
     // a long slow exhale over the line
     this.timeScaleTarget = 0.35;
     this.fovKick = 12;
-    Input.rumble(0.8, 420);
     this._confetti();
     this.result = this._buildResult({
       completed: true, earned, raw, timeBonus, finalTime, medal,
@@ -1784,7 +1778,6 @@ class BoatRaceMission {
     AudioBus.play('perfect', { combo: Math.min(this.combo + spins, 8) });
     this._flash(0.3, '#ffd166');
     this.fovKick = Math.min(this.fovKick + 6, 16);
-    Input.rumble(0.6, 220);
   }
 
   _spawnFx(dt) {
@@ -1801,7 +1794,6 @@ class BoatRaceMission {
       this.fovKick = Math.min(this.fovKick + 8, 16);
       this.camPush = 1;
       this.shake = Math.min(this.shake + 0.30, 1.2);
-      Input.rumble(0.7, 220);
       this.fx.rings.fire(
         this._tmpV.set(b.pos.x - fx * 5.4, b.pos.y + 0.4, b.pos.z - fz * 5.4),
         new THREE.Quaternion().setFromEuler(new THREE.Euler(0, b.heading, 0)),
@@ -1908,7 +1900,6 @@ class BoatRaceMission {
       this.shake = Math.min(this.shake + amt * 0.6, 1.4);
       this.camDip = Math.min(this.camDip + amt * 1.6, 2.4);
       if (amt > 0.45) this.hitStop = Math.max(this.hitStop, 0.03 * amt);
-      Input.rumble(U.clamp(amt, 0.2, 1), 140);
       Input.haptic(18);
       for (let i = 0; i < 22 + amt * 30; i++) {
         const a = Math.random() * Math.PI * 2, r = 2.2 + Math.random() * 3.2;
@@ -1944,7 +1935,6 @@ class BoatRaceMission {
       this.shake = Math.min(this.shake + b.impact * 1.2, 1.8);
       this.hitStop = Math.max(this.hitStop, 0.05 * b.impact);
       this._flash(b.impact * 0.35, '#ff5470');
-      Input.rumble(U.clamp(b.impact, 0.3, 1), 260);
       Input.haptic(30);
       if (this.combo >= 2) {
         this.fx.labels.add('COMBO LOST', this._tmpV.copy(b.pos).setY(b.pos.y + 3),

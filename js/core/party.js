@@ -9,7 +9,7 @@
 
    The room code is four letters. That is not a style choice: a code
    has to be readable down a phone, typeable on a handset with no
-   keyboard, and dialable on a gamepad with four spinners. I and O are
+   keyboard, and dialable from the arrow keys with four spinners. I and O are
    not in the alphabet because they are 1 and 0 to anyone reading it
    out.
 

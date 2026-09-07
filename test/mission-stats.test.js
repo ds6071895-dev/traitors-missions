@@ -35,7 +35,7 @@ const stubs = {
   Music: { boss: () => null, descent: () => null, SKI_GEARS: [0, 1, 2, 3, 4] },
   Look: { resolve: () => ({ accent: '#fff', trim: '#f00', coat: '#123' }), get: () => null },
   Figure: { build: () => ({ userData: {} }), dispose: noop, paletteFor: () => 'a' },
-  Input: { held: () => false, pressed: () => false, rumble: noop, haptic: noop },
+  Input: { held: () => false, pressed: () => false, haptic: noop },
   RoomUI: { showAgenda: noop, showField: noop, hideField: noop },
   MissionNet: { event: noop, pose: noop, on: () => noop, at: () => null,
                 attach: noop, update: noop },

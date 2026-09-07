@@ -929,7 +929,6 @@ class ShootoutMission {
     this.recoil = 0.028 + shot.power * 0.03;
     this.fovKick = 1.6 + shot.power * 2.4;
     this._looseRing(shot.perfect);
-    Input.rumble(0.25 + shot.power * 0.3, 90);
     Input.haptic(8);
 
     const spread = this.flags.twinShot ? [-0.012, 0.012] : [0];
@@ -1221,7 +1220,6 @@ class ShootoutMission {
     this._deathFx(target, info, arrow.perfect);
     this.hitStop = Math.max(this.hitStop, arrow.perfect ? 0.085 : 0.045);
     this.shake = Math.max(this.shake, arrow.perfect ? 2.4 : 1.2);
-    Input.rumble(arrow.perfect ? 0.6 : 0.35, 110);
     if (arrow.perfect) this._flash(0.16, 'rgba(255,209,102,0.55)');
     if (this._shotQueue && this._shotQueue.length) this._shotQueue[this._shotQueue.length - 1].hit = true;
 
@@ -1613,7 +1611,6 @@ class ShootoutMission {
     this._boonT2 = setTimeout(() => this._setCenter('', ''), 1400);
     this._flash(0.22, 'rgba(255,255,255,0.35)');
     this.hitStop = Math.max(this.hitStop, 0.07);
-    Input.rumble(0.6, 160);
     AudioBus.play('boon-take', {});
     if (this.music) this.music.stinger('boon');
     // a charm keeps the chain alive; it is a hit, and it took an arrow
@@ -1679,7 +1676,6 @@ class ShootoutMission {
     this.hitStop = Math.max(this.hitStop, 0.09);
     this.shake = Math.max(this.shake, 3.4);
     this._flash(0.2, 'rgba(255,209,102,0.5)');
-    Input.rumble(0.7, 160);
     AudioBus.play('boss-hurt', {});
     if (this.music) this.music.stinger('hurt');
 
@@ -1699,7 +1695,6 @@ class ShootoutMission {
     setTimeout(() => { if (this.state === 'live') this.timeScaleTarget = 1; }, 900);
     this.shake = Math.max(this.shake, 7);
     this._flash(0.4, 'rgba(255,209,102,0.6)');
-    Input.rumble(1, 420);
     AudioBus.play('owl-screech', { pitch: 0.8 });
     this._banner('STAGGERED', '', 'perfect');
     if (this.music) this.music.stinger('stagger');
@@ -1740,7 +1735,6 @@ class ShootoutMission {
     this.hitStop = Math.max(this.hitStop, 0.2);
     this.shake = Math.max(this.shake, 9);
     this._flash(0.55, 'rgba(255,209,102,0.7)');
-    Input.rumble(1, 700);
     AudioBus.play('owl-death', {});
     this._banner('THE GREAT OWL IS DOWN', '', 'perfect');
     this._burst(f.pos, 160, '#6b543a', 20);
@@ -1791,7 +1785,6 @@ class ShootoutMission {
     this._flash(0.5, 'rgba(229,19,63,0.75)');
     this.shake = Math.max(this.shake, 5);
     this.hitStop = Math.max(this.hitStop, 0.1);
-    Input.rumble(0.9, 320);
     AudioBus.play('dove', {});
     this._setCenter('THAT WAS A DOVE',
                     `−${U.money(Math.round(cost * this.payout))} · CHAIN LOST`, 'bad');
@@ -2350,11 +2343,11 @@ class ShootoutMission {
   }
 
   _updateField(dt) {
-    /* Marking the task is a keypress and a pad button, and both of
-       those are edges that only exist inside a frame. The strip below
-       is throttled to a few times a second, which is fine for a
-       scoreboard and would drop most of a button press, so the poll
-       goes above the throttle and the drawing stays below it. */
+    /* Marking the task is a keypress, and a keypress is an edge that
+       only exists inside a frame. The strip below is throttled to a few
+       times a second, which is fine for a scoreboard and would drop
+       most of a button press, so the poll goes above the throttle and
+       the drawing stays below it. */
     if (this.agenda) RoomUI.pollMark();
     this._fieldT -= dt;
     if (this._fieldT > 0) return;
@@ -2543,7 +2536,6 @@ class ShootoutMission {
     if (this.round) this.round.time = Math.max(0, this.round.time - 1.2);
     this._flash(0.32, 'rgba(242,193,78,0.55)');
     this.shake = Math.max(this.shake, 4);
-    Input.rumble(0.7, 200);
     AudioBus.play('flyer-hit', { pitch: 1.7 });
     this.fx.labels.add(`−${U.money(this.C.stingCost)}  STUNG`, f.pos,
                        { className: 'bad', life: 1.3, rise: 6 });
@@ -2566,7 +2558,6 @@ class ShootoutMission {
     this.vel.z += away.z * 2.5;
     this._flash(0.24, 'rgba(120,40,90,0.5)');
     this.shake = Math.max(this.shake, 2.8);
-    Input.rumble(0.55, 160);
     AudioBus.play('flyer-hit', { pitch: f.type.id === 'bat' ? 1.4 : 0.75 });
     this.fx.labels.add(`${f.type.name.toUpperCase()} STRIKE`, f.pos,
                        { className: 'bad', life: 1.0, rise: 5 });
@@ -2579,7 +2570,6 @@ class ShootoutMission {
     this._flash(0.42, 'rgba(20,10,0,0.8)');
     this.shake = Math.max(this.shake, 7);
     this.hitStop = Math.max(this.hitStop, 0.08);
-    Input.rumble(1, 420);
     AudioBus.play('crash', { amount: 0.8 });
     if (this.round) this.round.time = Math.max(0, this.round.time - 2);
     if (this.mode === 'gauntlet') this._loseLife('THE OWL GOT PAST YOU');
@@ -3147,7 +3137,6 @@ class ShootoutMission {
     AudioBus.play('finish');
     this._setCenter('THE WOOD IS QUIET', U.money(earned), 'go');
     this.timeScaleTarget = 0.4;
-    Input.rumble(0.8, 420);
     this._confetti();
     this.result = this._buildResult({ completed: true, earned, medal });
     this._reportT = setTimeout(() => this._report(), 2000);
@@ -3409,7 +3398,11 @@ class ShootoutMission {
     this._updateBoonHud();
 
     if (h.hint) {
-      const need = !Input.pointerLocked && !Input.isTouch && this.state !== 'finished';
+      /* "Click to aim" is only true where there is a pointer to take.
+         `aimReady` is false in exactly that case — never for a thumb,
+         and never on a browser with no pointer lock to offer, which
+         used to leave this burning on an iPad for the whole round. */
+      const need = !Input.aimReady && this.state !== 'finished';
       h.hint.classList.toggle('show', need);
     }
   }

@@ -248,16 +248,37 @@ losing loses it. Nothing is banked until the fire goes out.
 
 | | |
 | --- | --- |
-| Menus | mouse, touch, **arrow keys / d-pad / left stick**, `Enter` or **A** to choose, `Esc` or **B** to go back |
-| Hill and fire | first person: **WASD / left stick** to move, **mouse / right stick / arrows** to look; click once to capture the mouse |
+| Menus | mouse, touch, **arrow keys** and `Tab`, `Enter` to choose, `Esc` to go back |
+| Hill and fire | first person: **WASD** to move, **mouse or arrows** to look; click once to capture the mouse, on a browser that has a pointer to capture |
 | Dialogue | Voiceover cannot be skipped; clicks capture the pointer without cutting a line short |
 | Pouch reveal | The camera unlocks only for the short cinematic as the pouch is thrown into the fire |
-| The fire | the vote is a panel of buttons; the same four inputs drive it |
-| Missions | as documented below, and gamepad and touch both work |
+| The fire | the vote is a panel of buttons; mouse, thumb and keyboard all drive it |
+| Missions | as documented below; touch controls appear on any device with a finger on it |
 | The Dive | one button: `Space` (or `LMB`) kicks, the mouse steers, `WASD` sculls |
-| Your microphone | `V`, the pad's **Y/triangle**, or the button in the corner. It is separate from game sound, and it is on every screen |
-| Marking your task | `T`, the pad's **X/square**, or tapping the button on the task card. It asks twice — an accidental mark is a lie you did not decide to tell — and it dies when the run does. Traitors only; nobody else has a card |
-| A room code | four `<select>`s, so left/right on a pad dials a letter, a phone gets its native picker, and a keyboard can type A–Z |
+| Your microphone | `V`, or the button in the corner. It is separate from game sound, and it is on every screen |
+| Marking your task | `T`, or tapping the button on the task card. It asks twice — an accidental mark is a lie you did not decide to tell — and it dies when the run does. Traitors only; nobody else has a card |
+| A room code | four `<select>`s, so left/right dials a letter, a phone gets its native picker, and a keyboard can type A–Z |
+
+Which of those two sets of controls you get is decided live rather than once at load.
+The old test was a single media query — `(hover: none) and (pointer: coarse)` — which
+describes a phone exactly and describes an iPad only while nothing is plugged into it:
+attach a keyboard case and Safari starts answering `hover: hover, pointer: fine`, the
+thumb sheets stay `display:none`, and a mission whose only controls are on one of those
+sheets has no controls at all. That is what The Dive was on an iPad. So the query is now
+the opening guess — *is there a finger on this machine at all* — and every pointer event
+afterwards is the answer: a thumb brings the sheets up, a mouse or a trackpad takes them
+away, and swapping hands mid-run swaps them back. A machine with no fine pointer on it
+never believes a pointer event that claims to be a mouse, because some Android browsers
+label a real finger that way.
+
+Looking around has a second way round for the same reason. Pointer lock is the good one —
+the cursor disappears and you can turn for ever — and Safari on iPadOS does not implement
+it at all, so the click that was meant to capture the pointer captured nothing and the
+camera never moved. Where there is no lock to take, the pointer itself is the aim: moving
+it turns you, clicks stay free for firing, and a jump bigger than a hand-sized move is
+read as somebody lifting the mouse and putting it down rather than as a look. `Input.aimReady`
+is the one question a HUD asks before offering "click to aim", so that hint is never left
+burning on a device that will never lock anything.
 
 On a phone or a tablet the browser's own gestures are the enemy of all of that, so
 `js/core/touchguard.js` refuses pinch, double-tap zoom, the long-press callout and the
@@ -288,7 +309,7 @@ runs out to claim the finish bonus and a time bonus.
 | Restart run | `R` |
 | Mute | `M` |
 
-Gamepad and touch (on-screen stick + boost pad) both work.
+Touch works: an on-screen stick and a boost pad.
 
 ### Every run is a setup, not a course
 
@@ -375,7 +396,7 @@ moment with nothing to shoot at.
 | Pause | `Esc` / `P` |
 | Restart run | `R` |
 
-Gamepad and touch both work; touch gets a move stick plus draw, breath and sprint pads.
+Touch works: a move stick plus draw, breath and sprint pads.
 
 ### The draw is the whole game
 
@@ -480,7 +501,7 @@ for three seconds while they decide.
 | Scull | `W` `A` `S` `D` — a nudge, for lining a chest up |
 | Pause | `Esc` / `P` |
 
-Gamepad and touch both work; touch gets a sculling stick and one big KICK pad.
+Touch works: a sculling stick and one big KICK pad.
 
 ### The whole mission is one rule
 
@@ -738,7 +759,7 @@ js/
   core/
     util.js           seeded RNG, damping, easing, money formatting
     engine.js         renderer, main loop, the active view, GPU disposal
-    input.js          named actions (throttle/steer/boost/…), keyboard + pad + touch
+    input.js          named actions (throttle/steer/boost/…), keyboard + mouse + touch
     audio.js          procedural Web Audio; sounds are registered recipes
     music.js          the runtime score: a step sequencer and three profiles
     state.js          persistent save: prize pot, mission records, ghosts, settings
@@ -754,7 +775,7 @@ js/
     lobby.js          a name, four letters, three people
     roomui.js         the floor bar, the board, the field, your task, the mic button
     voice.js          Claudia out loud, and the subtitles that stand in for her
-    uinav.js          gamepad and keyboard navigation for every menu
+    uinav.js          keyboard navigation for every menu
     scenes.js         scene runner + the beat sequencer the scenes are written in
   world/
     sky.js            sky dome, sun, clouds, birds, stars, distant mountain rings
@@ -791,6 +812,7 @@ js/
   main.js             boot, the front screens, briefing, results, attract ocean
 test/
   harness.js          enough of a browser to run the logic layer in node
+  minidom.js          enough of a document to press a button in, built from index.html
   run.js              every suite; `node test/run.js`
   session.test.js     a whole night driven through `dispatch`
   privacy.test.js     the invariant everything else stands on
@@ -910,7 +932,7 @@ choosing is a person who moves and picking one from a mannequin is picking blind
 
 Every control on that screen is a `<select>`. That is reuse, not laziness: `UINav`
 already cycles a select with left and right, so the whole screen is dialable on a
-gamepad and tappable on a phone without one line of input code in `dressing.js`.
+keyboard-navigable and tappable on a phone without one line of input code in `dressing.js`.
 
 ### The hill is one shape with one guarantee
 
@@ -1505,13 +1527,18 @@ useful message if anything reaches for it.
 | `swim.test.js` | The Dive's feel as arithmetic: the shaped impulse, the chain against `topSpeed`/`flowTop`, frame-rate independence at 20 fps and 120, the dive profile that tuned every air constant, and the shore — a diver at rest floating, ground above the tideline being standable, the leap off the bank, and the body being pitched the way it is travelling |
 | `look.test.js` | That nothing you can put in localStorage produces a figure with no coat on |
 | `aim-assist.test.js` | The whole licence of the touch aim assist: it never turns a still thumb, never turns more than a third as far as the thumb did, never aims at the intercept, and never helps you onto a dove |
-| `touchguard.test.js` | The zoom guard both ways round — a pinch refused at 1x, and the same pinch *allowed* once the page has zoomed, which is the only way back from an iPad stuck at 2x |
+| `touchguard.test.js` | The zoom guard both ways round — a pinch refused at 1x, and the same pinch *allowed* once the page has zoomed, which is the only way back from an iPad stuck at 2x — plus the exemption that keeps a control's second press: the task chip asks twice, and the double-tap guard was eating the press that confirms it |
+| `touchpad.test.js` | The touch controls, pressed. It builds the overlays out of `index.html` itself and runs `input.js` against them on five machines — a phone, a bare iPad, an iPad in a keyboard case, a laptop with a touchscreen and a plain desktop — then taps KICK, drags to look, pushes the sticks and checks the aim works on a browser with no pointer lock. It also holds the two stacking facts nothing else can see: that every mission HUD is a screen the thumb sheets are allowed under, and that the Traitor's task button is *above* the full-screen sheet that used to swallow every tap on it |
 
-The two newest suites are the exceptions to "no DOM": `touchguard.test.js` builds a
-document out of listener tables, because the thing under test is which events get a
-`preventDefault` and that needs no layout, no paint and no Safari.
+Two suites are the exceptions to "no DOM", and both for the same reason: what they test
+*is* the browser boundary. `touchguard.test.js` builds a document out of listener tables,
+because the thing under test is which events get a `preventDefault`. `touchpad.test.js`
+goes further and reads the real markup — `test/minidom.js` parses the overlay blocks
+straight out of `index.html` — because a test that writes its own copy of the markup goes
+on passing for ever after somebody renames `.kick-pad`, and renaming `.kick-pad` is
+exactly how The Dive loses its controls. Neither needs layout, paint or a real Safari.
 
-The whole thing takes about four seconds. Five of these have already earned their keep:
+The whole thing takes about four seconds. Six of these have already earned their keep:
 `agendas.test.js` found two cards that could be passed by doing nothing at all,
 `mission-stats.test.js` found a card reading a counter the boat race declared and never
 once wrote,
@@ -1519,7 +1546,11 @@ once wrote,
 than merely checked — the trench is a round trip on the beat and not off it because that
 file says so and the numbers were moved until it did,
 `transport.test.js` found a guest that registered its listener *after* sending the
-message it was waiting for a reply to, and the floor tests found that a speaking turn
+message it was waiting for a reply to,
+`touchpad.test.js` is where the iPad control bugs were caught and held — the media query
+that hid the thumb sheets, the missing pointer-lock fallback, the ski HUD the menu walker
+thought was a menu and the task button stacked underneath the sheet that ate it,
+and the floor tests found that a speaking turn
 left open really does keep ticking through every remaining seat — which is correct
 behaviour, and held the suite open for a minute and a half until they learned to close
 it.
@@ -1561,9 +1592,8 @@ The physics is arcade-simple; the response to it is what sells the hits. `hitSto
 freezes time for a few hundredths of a second on a perfect ring, a heavy landing or a
 crash, and `timeScale` gives a long slow exhale over the finish line. The camera has
 its own `camDip` (a drop on landing) and `camPush` (a fall-back when the boost lights),
-plus a fine rattle that only appears above three quarters of top speed. Pads rumble
-through `Input.rumble()` and phones buzz through `Input.haptic()`; both are no-ops
-where the hardware cannot do it.
+plus a fine rattle that only appears above three quarters of top speed. Phones buzz
+through `Input.haptic()`, which is a no-op on a machine with nothing to buzz.
 
 The one place the game deliberately lies to the physics is the trick landing. Releasing
 boost in the air rounds the banked rotation to the nearest whole turn instead of freezing

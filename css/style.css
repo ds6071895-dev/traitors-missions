@@ -2445,9 +2445,20 @@ select.nav-on{outline-offset:2px}
    Only ever rendered from `Session.myAgenda()`, which is null for
    everybody who is not a Traitor. */
 
+/* z-index 36 is a load-bearing number, not a taste.
+
+   The shootout and the dive put a transparent full-screen sheet over
+   the whole game to catch a thumb dragging to look (#touch-shoot and
+   #touch-dive, both z-index 35, both `pointer-events:all`). At 29 this
+   chip was underneath it, so on every phone and every tablet the one
+   button in the game that decides whether a Traitor got away with it
+   could not be pressed in two of the four missions. Above the sheets
+   and below `.screen` (40) is the only place it can live: the chip
+   itself passes taps through, so the sheet still gets every drag that
+   is not on the button. */
 #agenda-chip{
   position:fixed; left:max(14px, env(safe-area-inset-left));
-  bottom:max(90px, calc(env(safe-area-inset-bottom) + 90px)); z-index:29;
+  bottom:max(90px, calc(env(safe-area-inset-bottom) + 90px)); z-index:36;
   width:min(300px, 62vw); opacity:0; pointer-events:none; transform:translateY(8px);
   padding:11px 14px 12px; border-radius:12px; background:rgba(26,8,14,.88);
   border:1px solid rgba(216,30,64,.45); backdrop-filter:blur(8px);
@@ -2486,6 +2497,11 @@ body[data-screen]:not([data-screen=""]):not([data-screen^="hud"]) #agenda-chip{d
    of the game uses for a thumb. */
 .ac-mark{
   pointer-events:auto; -webkit-appearance:none; appearance:none;
+  /* It is pressed twice in a row on purpose, and two taps in the same
+     spot is also how Safari is asked to zoom. `manipulation` keeps the
+     tap and refuses the zoom, which is what lets touchguard.js stand
+     aside here rather than swallowing the second press. */
+  touch-action:manipulation;
   display:block; width:100%; margin-top:9px; min-height:38px; padding:9px 10px;
   border-radius:9px; cursor:pointer; font:inherit;
   font-size:10px; letter-spacing:.16em; text-transform:uppercase; font-weight:800;

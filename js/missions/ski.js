@@ -913,11 +913,11 @@ class SkiMission {
      number going somewhere it should not, and this is the only reason
      anybody could ever catch one. */
   _updateField(dt) {
-    /* Marking the task is a keypress and a pad button, and both of
-       those are edges that only exist inside a frame. The strip below
-       is throttled to a few times a second, which is fine for a
-       scoreboard and would drop most of a button press, so the poll
-       goes above the throttle and the drawing stays below it. */
+    /* Marking the task is a keypress, and a keypress is an edge that
+       only exists inside a frame. The strip below is throttled to a few
+       times a second, which is fine for a scoreboard and would drop
+       most of a button press, so the poll goes above the throttle and
+       the drawing stays below it. */
     if (this.agenda) RoomUI.pollMark();
     this._fieldT -= dt;
     if (this._fieldT > 0) return;
@@ -1142,7 +1142,6 @@ class SkiMission {
         AudioBus.play('countdown', { go: true });
         this._setCenter('DROP IN', '', 'go');
         this.fovKick = 14;
-        Input.rumble(0.6, 220);
         setTimeout(() => this._setCenter('', ''), 800);
       }
     }
@@ -1282,7 +1281,6 @@ class SkiMission {
     this.fx.labels.add('×' + this.flowLevel, this._tmpV.copy(this.skier.pos).setY(this.skier.pos.y + 3.4),
       { className: 'air', life: 1.1, rise: 10 });
     this._flash(0.10 + this.flowLevel * 0.02, '#8ef0ff');
-    Input.rumble(0.28, 90);
     this._setMusicGear();
   }
 
@@ -1480,7 +1478,6 @@ class SkiMission {
         this._tmpV.set(sp.x, sp.y + 1.6, sp.z),
         { className: 'gold', life: 1.3, rise: 14 });
       AudioBus.play('perfect', { combo: this.flowLevel * 2 });
-      Input.rumble(0.55, 170);
       this._flash(0.16, '#ffd9a0');
     }
   }
@@ -1515,7 +1512,6 @@ class SkiMission {
 
     AudioBus.play(perfect ? 'perfect' : 'hoop', { combo: this.flowLevel * 2 });
     if (h.air) AudioBus.play('whoosh', { amount: 1.1 });
-    Input.rumble(perfect ? 0.5 : 0.3, perfect ? 150 : 90);
     this.fovKick = Math.min(this.fovKick + (perfect ? 6 : 3), 14);
     const label = (h.gold ? 'GOLD ' : '') + (perfect ? 'PERFECT' : '') || 'HOOP';
     this.fx.labels.add(
@@ -1607,7 +1603,6 @@ class SkiMission {
     AudioBus.play('boostpop');
     this._flash(0.20, '#ffd166');
     this.fovKick = Math.min(this.fovKick + 9, 16);
-    Input.rumble(0.5, 200);
     this._setCenter(c.name.toUpperCase(),
       'saves ' + Math.round(c.gain) + 'm · gates pay ×3', 'go');
     clearTimeout(this._chuteT);
@@ -1634,7 +1629,6 @@ class SkiMission {
       if (this.mode === 'trial') this.deduct += this.C.trialGain * 2;
       else this.time += this.C.timePerHoop * 1.8;
       AudioBus.play('finish');
-      Input.rumble(0.7, 280);
       this._flash(0.24, '#ffd166');
       this.fx.labels.add(c.name.toUpperCase() + '  ' + U.money(Math.round(m * this.payout)),
         this._tmpV.copy(this.skier.pos).setY(this.skier.pos.y + 4),
@@ -1699,7 +1693,6 @@ class SkiMission {
       this.camPush = Math.min(1, this.camPush + 0.30 * amt);
       AudioBus.play('boostpop', { amount: U.clamp(amt, 0.3, 1.4) });
       this.flow += 0.05 * amt;
-      Input.rumble(0.22, 70);
       if (b > 0.95) {
         this.fx.labels.add('BOOST', this._tmpV.copy(s.pos).setY(s.pos.y + 2.2),
           { className: 'air', life: 0.7, rise: 14 });
@@ -1719,7 +1712,6 @@ class SkiMission {
     if (s.crashedNow) this._onCrash(s.crashedNow);
     if (s.bumped && s.bumped.force > 3 && !s.crashed) {
       AudioBus.play('crash', { amount: U.clamp(s.bumped.force / 14, 0.2, 0.8) });
-      Input.rumble(0.3, 90);
       this.shake = Math.max(this.shake, U.clamp(s.bumped.force / 16, 0, 0.6));
       this.flow -= 0.12;
     }
@@ -1788,7 +1780,6 @@ class SkiMission {
         { className: tk.stomped ? 'gold' : 'air', life: 1.5, rise: 13 });
       AudioBus.play(tk.stomped ? 'perfect' : 'hoop', { combo: this.flowLevel * 2 });
       SkiAudio.play('land', { amount: U.clamp(tk.impact / 22, 0.3, 1.4) });
-      Input.rumble(tk.stomped ? 0.8 : 0.45, tk.stomped ? 260 : 140);
       if (tk.stomped) {
         this._flash(0.22, '#ffe9a8');
         this.hitStop = 0.055;
@@ -1844,7 +1835,6 @@ class SkiMission {
     this._slowmoT = setTimeout(() => { this.timeScaleTarget = 1; }, 620);
     AudioBus.play('crash', { amount: 1.2 });
     SkiAudio.play('yardsale');
-    Input.rumble(1, 420);
     this._flash(0.26, '#ff6a6a');
     const label = reason === 'TREE' ? 'TREE!' : reason === 'ROCK' ? 'ROCK!' : 'DOWN';
     this._setCenter(label,
@@ -1891,7 +1881,6 @@ class SkiMission {
     this._flash(0.26, '#b98cff');
     this.fovKick = Math.min(this.fovKick + 9, 16);
     AudioBus.play('perfect', { combo: 8 });
-    Input.rumble(0.55, 240);
     if (this.score && this.score.setIntensity) this.score.setIntensity(1.2);
     clearTimeout(this._finalT);
     this._finalT = setTimeout(() => {
@@ -1935,7 +1924,6 @@ class SkiMission {
     this._setCenter('DOWN', trial ? U.clockTime(finalTime) : U.money(earned), 'go');
     this.timeScaleTarget = 0.35;
     this.fovKick = 14;
-    Input.rumble(0.9, 460);
     this._confetti();
     this.result = this._buildResult({
       completed: true, earned, raw, timeBonus, finalTime, medal,

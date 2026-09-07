@@ -44,6 +44,19 @@
     return !!el.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
   }
 
+  /* Things that are pressed rather than read. A real control handles
+     its own double-tap through `touch-action`, and the second tap of a
+     pair is often the whole point of it: the Traitor's "I said it"
+     button asks twice on purpose, and the guard below was eating the
+     press that confirms it — a task marked on a phone would silently
+     not be marked. So the guard stands aside on anything tappable and
+     lets the control's own CSS refuse the zoom. */
+  function isTappable(node) {
+    var el = node && node.nodeType === 3 ? node.parentNode : node;
+    if (!el || !el.closest) return false;
+    return !!el.closest('button, a[href], label, summary, [role="button"]');
+  }
+
   /* The touch overlays own two-finger play: a thumb on the stick and a
      thumb dragging to look is two touches, and it is not a pinch. */
   function isPad(node) {
@@ -160,10 +173,11 @@
      when the target says touch-action:none. Refuse only the second end of
      a one-finger tap in the same small patch of screen. The first tap —
      and therefore ordinary buttons — keeps its normal click, while inputs
-     retain all native selection and zoom behaviour. */
+     retain all native selection and zoom behaviour — and so does
+     anything that is a control in its own right; see `isTappable`. */
   var lastTapAt = 0, lastTapX = 0, lastTapY = 0;
   document.addEventListener('touchend', function (e) {
-    if (isTextish(e.target)) { lastTapAt = 0; return; }
+    if (isTextish(e.target) || isTappable(e.target)) { lastTapAt = 0; return; }
     if (!e.changedTouches || e.changedTouches.length !== 1 || e.touches.length) {
       lastTapAt = 0;
       return;
