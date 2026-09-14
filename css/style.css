@@ -2827,3 +2827,65 @@ body.touch .sk-hud{padding-bottom:calc(var(--br-foot) + 12px)}
   border-radius:20px; padding:2px 9px}
 .channel-shape b{color:var(--muted); font-weight:400}
 .channel-shape .cs-vert{color:var(--cyan); letter-spacing:.16em; margin-left:4px}
+
+/* Descent-only touch grab controls; the shared drive pad resets on exit. */
+.ski-grab{min-width:80px;height:52px;border:1px solid #ffa6c4;border-radius:28px;display:flex;align-items:center;justify-content:center;pointer-events:auto;background:#24354cdd;color:#fff;font-weight:800;touch-action:none}
+.ski-grab[hidden]{display:none!important}
+
+/* -------- the Descent's extra briefing settings --------
+   Built from the briefing's own parts (setup-head, seg, chip,
+   dr-select). The set-once settings fold under a quiet header. */
+#ski-setup-extra{display:flex; flex-direction:column; gap:12px}
+.sx-row{display:flex; flex-wrap:wrap; gap:6px}
+.sx-row .chip{flex:1 1 auto}
+.sx-field{display:flex; flex-direction:column; gap:6px; min-width:0}
+.sx-field .dr-select, #ski-setup-section .dr-select{font-size:13px; padding:8px 30px 8px 10px;
+  background-color:rgba(4,12,22,.65); border-color:rgba(255,255,255,.13);
+  background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
+                   linear-gradient(-45deg,transparent 50%,var(--muted) 50%);
+  background-size:5px 5px; background-repeat:no-repeat;
+  background-position:calc(100% - 16px) 55%, calc(100% - 11px) 55%}
+.channel-seed #ski-fav{font-size:13px; letter-spacing:0; padding:6px 10px}
+.sx-toggle{display:flex; align-items:baseline; width:100%; padding:12px 0 0; margin:0;
+  background:none; border:0; border-top:1px solid rgba(255,255,255,.09);
+  cursor:pointer; text-align:left; font-family:var(--body)}
+.sx-toggle .setup-sub{flex:1; font-size:10px; text-transform:uppercase}
+.sx-toggle::after{content:'+'; font-size:15px; font-weight:700; line-height:1; color:var(--muted)}
+.sx-toggle[aria-expanded="true"]::after{content:'−'}
+.sx-toggle:hover::after, .sx-toggle.nav-on::after{color:var(--gold)}
+.sx-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+.sx-wide{grid-column:1 / -1}
+.sx-grid .seg-btn{padding:7px 6px; font-size:11px}
+.sx-mastery{list-style:none; margin:0; padding:0; display:grid; grid-template-columns:1fr 1fr;
+  gap:5px 14px; font-size:12px; color:var(--muted)}
+.sx-mastery li{display:flex; gap:6px; align-items:baseline}
+.sx-mastery li::before{content:'○'; color:rgba(255,255,255,.3)}
+.sx-mastery li.done{color:var(--paper)}
+.sx-mastery li.done::before{content:'✓'; color:var(--mint)}
+.sx-mastery i{margin-left:auto; font-style:normal; font-size:10.5px; color:rgba(139,163,189,.7)}
+@media (max-width:640px){ .sx-grid, .sx-mastery{grid-template-columns:1fr} }
+
+/* -------- results: the two links under the two buttons -------- */
+.result-total[hidden], .result-pot[hidden], .result-more[hidden]{display:none}
+.result-more{display:flex; gap:22px; justify-content:center; margin-top:12px}
+.link-btn{font-family:var(--body); font-size:11px; font-weight:800; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--muted); background:none; border:0;
+  border-bottom:1px solid transparent; padding:6px 2px; cursor:pointer;
+  transition:color .16s, border-color .16s}
+.link-btn:hover, .link-btn.nav-on{color:var(--gold); border-bottom-color:rgba(242,193,78,.5)}
+
+/* -------- the practice card on the mountain --------
+   Stacked above the name tag like every other bottom-left tenant, and
+   inert apart from its button so it never eats a steering drag. */
+.sk-practice{position:absolute; left:clamp(14px,2.4vw,30px);
+  bottom:calc(var(--bl-foot, 96px) + 64px); width:min(290px, 60vw); pointer-events:none;
+  padding:11px 13px; border-radius:12px; background:rgba(6,15,26,.72);
+  border:1px solid rgba(255,255,255,.12); backdrop-filter:blur(6px);
+  box-shadow:0 12px 30px rgba(0,0,0,.28)}
+.sk-practice-head{font-size:9.5px; letter-spacing:.26em; text-transform:uppercase;
+  font-weight:800; color:var(--gold)}
+.sk-practice p{margin:5px 0 9px; font-size:12.5px; line-height:1.45; color:var(--paper)}
+.sk-practice .chip{pointer-events:auto; display:inline-flex; gap:8px; align-items:center}
+.sk-practice kbd{font-size:10px; letter-spacing:0}
+body.touch .sk-practice kbd{display:none}
+@media (max-width:640px){ .sk-practice{padding:9px 11px} .sk-practice p{font-size:11.5px} }

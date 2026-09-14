@@ -60,7 +60,7 @@ const ctx = H.load(['js/core/util.js', 'js/core/missions.js', 'js/world/conditio
                     'js/world/forest.js', 'js/world/reef.js', 'js/entities/swimmer.js',
                     'js/missions/boat-race.js', 'js/missions/shootout.js',
                     'js/missions/dive-twists.js', 'js/missions/dive.js',
-                    'js/world/mountain.js', 'js/entities/skier.js',
+                    'js/world/mountain.js', 'js/ski/tricks.js', 'js/ski/scoring.js', 'js/ski/progression.js', 'js/ski/course.js', 'js/ski/surfaces.js', 'js/ski/presentation.js', 'js/entities/skier.js',
                     'js/missions/ski-twists.js', 'js/missions/ski.js'], stubs);
 const BR = ctx.BoatRaceMission;
 const SH = ctx.ShootoutMission;
@@ -850,6 +850,8 @@ function skier(o = {}) {
     _grazeT: 0, _slowT: 0, _straightT: 0, _atTopT: 0, _atOneT: 0, _stuckT: 0,
     _curChute: null, _tmpV: v, _prevPos: { x: 0, y: 0, z: 0 },
     world: { colliders: [] },
+    opts: { reducedMotion: true },
+    ledger: new ctx.SkiScoring('prize'),
     hud: {},                    // every writer checks its element first
     fx: { labels: { add: noop }, rings: { fire: noop }, spray: { emit: noop },
           wake: { clear: noop } },
@@ -875,6 +877,30 @@ test('the ladder climbs on carving and air, and not on standing still', () => {
   idle.skier.speed = 2;                     // below the floor
   for (let i = 0; i < 60; i++) idle._updateFlow(1 / 60);
   ok(idle.flow < 0.5, 'crawling drains it: ' + idle.flow.toFixed(3));
+});
+
+test('ski fixed ticks consume full frame duration and count long stalls', () => {
+  const originalEngine = ctx.Engine.isPaused;
+  const ticks = [];
+  const m = skier({ scene: {}, state: 'running', mode: 'trial', _tick: dt => ticks.push(dt) });
+  m.update(.2, 0); eq(ticks.length, 18);
+  const m2 = skier({ scene: {}, state: 'running', mode: 'trial', _tick: dt => {} });
+  m2.update(2, 0); eq(m2.elapsed, 1.5, 'un-simulated stall still costs competitive time');
+  ctx.Engine.isPaused = originalEngine;
+});
+
+test('ghost playback uses recorded timestamps instead of render cadence', () => {
+  const m = skier({ ghost: { n: 3, dt: .1, times: [.1,.23,.4], x:[0,10,20], y:[0,0,0], z:[0,10,20], yaw:[0,0,0], s:[0,10,20] } });
+  const pose = m._ghostAt(.315, {});
+  ok(Math.abs(pose.x-15)<1e-8);
+  ok(Math.abs(m._ghostTimeAt(15)-.315)<1e-8);
+});
+
+test('stationary hopping cannot farm flow', () => {
+  const m = skier({ flow: .5, _forwardMetres: 0 });
+  m.skier.airborne = true; m.skier.speed = 30;
+  for (let i = 0; i < 90; i++) m._updateFlow(1 / 60);
+  ok(m.flow < .5);
 });
 
 test('a rung is a rung: the bar carries over, and six is the ceiling', () => {
@@ -906,10 +932,10 @@ test('the meter multiplies the descent, which is the whole economy', () => {
   eq(slow.money, 0, 'and below the floor the mountain pays nothing at all');
 });
 
-test('a crash costs three rungs and seconds, and never more than the ladder has', () => {
+test('a crash costs two rungs and seconds, and never more than the ladder has', () => {
   const m = skier({ flowLevel: 6, flow: 0.8, time: 60 });
   m._onCrash('TREE');
-  eq(m.flowLevel, 3, 'six rungs becomes three');
+  eq(m.flowLevel, 4, 'six rungs becomes four');
   eq(m.flow, 0, 'and the bar with it');
   eq(m.crashes, 1, 'the deck can count it');
   eq(m.stats.crashes, 1, '...and so can the board');
@@ -936,6 +962,28 @@ test('the shortcut pays for coming out of the bottom and not for bailing', () =>
   eq(bail.chuteMoney, 0, 'coming out of the side pays nothing');
   eq(bail.stats.chutesBailed, 1, 'and the deck can see that you did');
   ok(bail.flow < 0.9, 'and it costs meter');
+});
+
+test('a route cannot pay for entering at the rejoin or after bailing', () => {
+  const c = { name: 'Cut', z0: 100, z1: 580, gain: 30, hard: .2 };
+  const m = skier({ chutes: [c], face: { inChute: () => c } });
+  m.skier.pos.z = 110; m._checkChutes(); eq(m._curChute, null);
+  m.skier.pos.z = 565; m._checkChutes(); eq(m._curChute, null);
+  c.passed = false;
+  m.skier.pos.z = 200; m._checkChutes(); eq(m._curChute, c);
+  m.skier.pos.z = 300; m._leaveChute();
+  m.skier.pos.z = 565; m._checkChutes(); eq(m._curChute, null);
+  eq(m.chuteMoney, 0);
+});
+
+test('Time Trial gates and route completions cannot deduct race time', () => {
+  const m = skier({ mode: 'trial', deduct: 0 });
+  const ring = { radius: 8, gold: false, x: 0, y: 0, z: 10 };
+  const gate = { rings: [ring] };
+  m._hitRing(gate, ring, 0); eq(m.deduct, 0);
+  m._curChute = { name: 'Cut', z0: 10, z1: 100, hard: .2, gain: 20 };
+  m.skier.pos.z = 100; m._leaveChute(); eq(m.deduct, 0);
+  m._onCrash('TREE'); eq(m.deduct, -SK.CONFIG.trialCrashPenalty);
 });
 
 test('the wood pays while you hold it, and only while you are quick', () => {
@@ -980,15 +1028,13 @@ test('a landing is graded, and the grades are ordered', () => {
   }
 });
 
-test('rails are absent from the descent and its modifier deck', () => {
-  ok(!Object.keys(SK.CONFIG).some(k => /rail|grind/i.test(k)),
-     'the mission still exposes rail configuration');
-  ok(!ctx.SkiTwists.DECK.some(t => t.id === 'ironworks'),
-     'the rail-only modifier is still dealt');
-  for (const t of ctx.SkiTwists.DECK) {
-    ok(!Object.keys(t.config || {}).some(k => /rail|grind/i.test(k)),
-       t.id + ' still configures rails');
-  }
+test('the section catalog includes rails without restricting abilities', () => {
+  eq(ctx.SkiCourse.catalog.length, 24);
+  const face = ctx.SkiCourse.makeFace(42);
+  const d = ctx.SkiCourse.resolve(face, 42, {}, SK.CONFIG);
+  eq(d.rails.length, 12);
+  eq(new Set(d.rails.map(r => r.kind)).size, 3);
+  eq(ctx.SkiCourse.validate(d).length, 0);
 });
 
 section('the descent — the mountain the seed draws');

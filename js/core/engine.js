@@ -11,7 +11,7 @@ const Engine = (() => {
   let renderer, canvas;
   let view = null;                 // { scene, camera }
   let running = false, paused = false;
-  let last = 0, elapsed = 0;
+  let last = 0, elapsed = 0, wallLast = null;
   const updaters = new Set();      // global updaters (run every frame)
   let onFrame = null;              // the active view's update fn
 
@@ -67,7 +67,7 @@ const Engine = (() => {
     requestAnimationFrame(loop);
   }
 
-  function setPaused(p) { paused = p; if (!p) last = 0; }
+  function setPaused(p) { paused = p; if (!p) { last = 0; wallLast = null; } }
   function isPaused() { return paused; }
 
   function loop(now) {
@@ -76,13 +76,15 @@ const Engine = (() => {
     now *= 0.001;
     if (!last) last = now;
     // clamp so an alt-tab or a stall never teleports the physics
+    const wallDt = wallLast === null ? 0 : Math.max(0, now - wallLast);
+    wallLast = now;
     const dt = Math.min(now - last, 1 / 20);
     last = now;
     if (!paused) elapsed += dt;
 
     const d = paused ? 0 : dt;
     updaters.forEach(fn => fn(d, elapsed));
-    if (onFrame) onFrame(d, elapsed);
+    if (onFrame) onFrame(d, elapsed, paused ? 0 : wallDt);
     if (view) renderer.render(view.scene, view.camera);
   }
 

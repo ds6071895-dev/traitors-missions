@@ -1,0 +1,702 @@
+[
+  {
+    "seed": 1,
+    "completed": true,
+    "elapsed": 152.2,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 104730,
+    "completed": true,
+    "elapsed": 149.1,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 209459,
+    "completed": true,
+    "elapsed": 154.9,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 314188,
+    "completed": true,
+    "elapsed": 153.3,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 418917,
+    "completed": true,
+    "elapsed": 153.6,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 523646,
+    "completed": true,
+    "elapsed": 147.9,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 628375,
+    "completed": true,
+    "elapsed": 153.5,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 733104,
+    "completed": true,
+    "elapsed": 150.8,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 837833,
+    "completed": true,
+    "elapsed": 153,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 942562,
+    "completed": true,
+    "elapsed": 150.9,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 1047291,
+    "completed": true,
+    "elapsed": 151.7,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 1152020,
+    "completed": true,
+    "elapsed": 151.6,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 1256749,
+    "completed": true,
+    "elapsed": 152.7,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 1361478,
+    "completed": true,
+    "elapsed": 152,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 1466207,
+    "completed": true,
+    "elapsed": 153.5,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 1570936,
+    "completed": true,
+    "elapsed": 149.3,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 1675665,
+    "completed": true,
+    "elapsed": 154.4,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 1780394,
+    "completed": true,
+    "elapsed": 152.9,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 1885123,
+    "completed": true,
+    "elapsed": 152.1,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 1989852,
+    "completed": true,
+    "elapsed": 151.4,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 2094581,
+    "completed": true,
+    "elapsed": 153.3,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 2199310,
+    "completed": true,
+    "elapsed": 153.6,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 2304039,
+    "completed": true,
+    "elapsed": 152.7,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 2408768,
+    "completed": true,
+    "elapsed": 153,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 2513497,
+    "completed": true,
+    "elapsed": 153.7,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 2618226,
+    "completed": true,
+    "elapsed": 157.7,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 2722955,
+    "completed": true,
+    "elapsed": 153.7,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 2827684,
+    "completed": true,
+    "elapsed": 152.6,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 2932413,
+    "completed": true,
+    "elapsed": 153.1,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 3037142,
+    "completed": true,
+    "elapsed": 151.5,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 3141871,
+    "completed": true,
+    "elapsed": 155.6,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 3246600,
+    "completed": true,
+    "elapsed": 153.1,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 3351329,
+    "completed": true,
+    "elapsed": 154.9,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 3456058,
+    "completed": true,
+    "elapsed": 152.5,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 3560787,
+    "completed": true,
+    "elapsed": 152.8,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 3665516,
+    "completed": true,
+    "elapsed": 151.8,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 3770245,
+    "completed": true,
+    "elapsed": 155.3,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 3874974,
+    "completed": true,
+    "elapsed": 153.5,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 3979703,
+    "completed": true,
+    "elapsed": 156.3,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 4084432,
+    "completed": true,
+    "elapsed": 151.7,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 4189161,
+    "completed": true,
+    "elapsed": 151.7,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 4293890,
+    "completed": true,
+    "elapsed": 152.4,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 4398619,
+    "completed": true,
+    "elapsed": 153.1,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 4503348,
+    "completed": true,
+    "elapsed": 151.3,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 4608077,
+    "completed": true,
+    "elapsed": 151.9,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 4712806,
+    "completed": true,
+    "elapsed": 149.4,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 4817535,
+    "completed": true,
+    "elapsed": 154.1,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 4922264,
+    "completed": true,
+    "elapsed": 154.2,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 5026993,
+    "completed": true,
+    "elapsed": 153.4,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 5131722,
+    "completed": true,
+    "elapsed": 153.7,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 5236451,
+    "completed": true,
+    "elapsed": 151.9,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 5341180,
+    "completed": true,
+    "elapsed": 151.7,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 5445909,
+    "completed": true,
+    "elapsed": 149.8,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 5550638,
+    "completed": true,
+    "elapsed": 155.6,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 5655367,
+    "completed": true,
+    "elapsed": 150.2,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 5760096,
+    "completed": true,
+    "elapsed": 151.5,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 5864825,
+    "completed": true,
+    "elapsed": 151.5,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 5969554,
+    "completed": true,
+    "elapsed": 153.8,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 6074283,
+    "completed": true,
+    "elapsed": 150.1,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 6179012,
+    "completed": true,
+    "elapsed": 153.6,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 6283741,
+    "completed": true,
+    "elapsed": 152.5,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 6388470,
+    "completed": true,
+    "elapsed": 151,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 6493199,
+    "completed": true,
+    "elapsed": 152.5,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 6597928,
+    "completed": true,
+    "elapsed": 150.5,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 6702657,
+    "completed": true,
+    "elapsed": 152.8,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 6807386,
+    "completed": true,
+    "elapsed": 149.9,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 6912115,
+    "completed": true,
+    "elapsed": 154.7,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 7016844,
+    "completed": true,
+    "elapsed": 152.2,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 7121573,
+    "completed": true,
+    "elapsed": 152.8,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 7226302,
+    "completed": true,
+    "elapsed": 151.3,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 7331031,
+    "completed": true,
+    "elapsed": 151,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 7435760,
+    "completed": true,
+    "elapsed": 152.8,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 7540489,
+    "completed": true,
+    "elapsed": 150.4,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 7645218,
+    "completed": true,
+    "elapsed": 153.5,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 7749947,
+    "completed": true,
+    "elapsed": 152.5,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 7854676,
+    "completed": true,
+    "elapsed": 149.1,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 7959405,
+    "completed": true,
+    "elapsed": 154.6,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 8064134,
+    "completed": true,
+    "elapsed": 151.7,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 8168863,
+    "completed": true,
+    "elapsed": 154.8,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 8273592,
+    "completed": true,
+    "elapsed": 154.1,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 8378321,
+    "completed": true,
+    "elapsed": 154.8,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 8483050,
+    "completed": true,
+    "elapsed": 154.2,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 8587779,
+    "completed": true,
+    "elapsed": 153.1,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 8692508,
+    "completed": true,
+    "elapsed": 148.5,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 8797237,
+    "completed": true,
+    "elapsed": 153.5,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 8901966,
+    "completed": true,
+    "elapsed": 153.7,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 9006695,
+    "completed": true,
+    "elapsed": 154,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 9111424,
+    "completed": true,
+    "elapsed": 154.5,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 9216153,
+    "completed": true,
+    "elapsed": 152.3,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 9320882,
+    "completed": true,
+    "elapsed": 153.2,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 9425611,
+    "completed": true,
+    "elapsed": 152.4,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 9530340,
+    "completed": true,
+    "elapsed": 154.2,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 9635069,
+    "completed": true,
+    "elapsed": 152.7,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 9739798,
+    "completed": true,
+    "elapsed": 154.4,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 9844527,
+    "completed": true,
+    "elapsed": 153.9,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 9949256,
+    "completed": true,
+    "elapsed": 151.3,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 10053985,
+    "completed": true,
+    "elapsed": 153.3,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 10158714,
+    "completed": true,
+    "elapsed": 151.9,
+    "crashes": 0,
+    "z": 3601
+  },
+  {
+    "seed": 10263443,
+    "completed": true,
+    "elapsed": 151.2,
+    "crashes": 0,
+    "z": 3600
+  },
+  {
+    "seed": 10368172,
+    "completed": true,
+    "elapsed": 149.5,
+    "crashes": 0,
+    "z": 3600
+  }
+]

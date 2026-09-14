@@ -1,0 +1,19 @@
+{
+  "name": "traitors",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node test/run.js",
+    "test:browser": "node test/browser.test.js && node test/game-browser.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

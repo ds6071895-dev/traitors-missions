@@ -1,0 +1,65 @@
+[
+  {
+    "level": "novice",
+    "completed": false,
+    "elapsed": 148.21111111110372,
+    "timeLeft": 0,
+    "earned": 2833,
+    "progress": 3360.7750678936063,
+    "gates": 6,
+    "groundGates": 37,
+    "applicableMainGates": 19,
+    "crashes": 0,
+    "routes": 0,
+    "sources": {
+      "descent": 4147.753644573234,
+      "tricks": 889,
+      "gates": 630,
+      "routes": 0,
+      "trees": 0
+    },
+    "style": 1348
+  },
+  {
+    "level": "competent",
+    "completed": true,
+    "elapsed": 156.4444444444436,
+    "timeLeft": 9.555555555597387,
+    "earned": 11730,
+    "progress": 3600.5820177486803,
+    "gates": 10,
+    "groundGates": 37,
+    "applicableMainGates": 19,
+    "crashes": 1,
+    "routes": 0,
+    "sources": {
+      "descent": 5294.186896523299,
+      "tricks": 570,
+      "gates": 1080,
+      "routes": 0,
+      "trees": 0
+    },
+    "style": 864
+  },
+  {
+    "level": "expert",
+    "completed": true,
+    "elapsed": 137.61111111109528,
+    "timeLeft": 38.66888888892835,
+    "earned": 30709,
+    "progress": 3600.606913166865,
+    "gates": 6,
+    "groundGates": 37,
+    "applicableMainGates": 19,
+    "crashes": 0,
+    "routes": 3,
+    "sources": {
+      "descent": 12963.738892045378,
+      "tricks": 323,
+      "gates": 3960,
+      "routes": 4455,
+      "trees": 0
+    },
+    "style": 385
+  }
+]

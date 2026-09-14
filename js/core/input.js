@@ -52,6 +52,9 @@ const Input = (() => {
        with this, so it costs one key and nothing else. The chip on the
        HUD is a real button, which is how a phone presses it. */
     task:      ['KeyT'],
+    grabMute: ['KeyQ', 'Touch6'],
+    grabTail: ['KeyE', 'Touch7'],
+    sectionReset: ['KeyR'],
   };
 
   const down = new Set();          // codes currently held
@@ -320,7 +323,7 @@ const Input = (() => {
 
     const bBtn = pad.querySelector('.boost-btn');
     if (bBtn) {
-      bBtn.addEventListener('pointerdown', e => { e.preventDefault(); touch.boost = true; });
+      bBtn.addEventListener('pointerdown', e => { e.preventDefault(); bBtn.setPointerCapture(e.pointerId); touch.boost = true; });
       bBtn.addEventListener('pointerup', () => { touch.boost = false; });
       bBtn.addEventListener('pointercancel', () => { touch.boost = false; });
     }
@@ -328,6 +331,12 @@ const Input = (() => {
     /* The optional second button, hidden until a mission asks for it.
        It is bound like any other key rather than to a field on `touch`,
        so `Input.throttle()` reads it without knowing it exists. */
+    for (const [selector, code] of [['.ski-mute', 'Touch6'], ['.ski-tail', 'Touch7']]) {
+      const button = pad.querySelector(selector);
+      if (!button) continue;
+      button.addEventListener('pointerdown', e => { e.preventDefault(); button.setPointerCapture(e.pointerId); pressCode(code, true); });
+      for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) button.addEventListener(type, () => pressCode(code, false));
+    }
     const aBtn = pad.querySelector('.aux-btn');
     if (aBtn) {
       aBtn.addEventListener('pointerdown', e => { e.preventDefault(); pressCode('Touch5', true); });
@@ -446,7 +455,7 @@ const Input = (() => {
     if (swim) swim.classList.toggle('visible', isTouch && touchMode === 'swim');
     /* A button that goes off screen never gets its pointerup, so leaving
        the driving pad has to let go of everything it was holding. */
-    if (touchMode !== 'drive') { touch.boost = false; pressCode('Touch5', false); }
+    if (touchMode !== 'drive') { touch.boost = false; pressCode('Touch5', false); pressCode('Touch6', false); pressCode('Touch7', false); }
   }
 
   /* What the driving pad's buttons say, and whether it has two of them.
@@ -460,6 +469,10 @@ const Input = (() => {
     const main = pad.querySelector('.boost-btn');
     const aux = pad.querySelector('.aux-btn');
     if (main) main.textContent = (spec && spec.main) || 'BOOST';
+    for (const selector of ['.ski-mute', '.ski-tail']) {
+      const b = pad.querySelector(selector); if (b) b.hidden = !(spec && spec.grabs);
+    }
+    if (!(spec && spec.grabs)) { pressCode('Touch6', false); pressCode('Touch7', false); }
     if (aux) {
       const label = spec && spec.aux;
       aux.textContent = label || 'TUCK';

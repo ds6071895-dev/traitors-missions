@@ -110,6 +110,7 @@ const Scenes = (() => {
           if (scene && scene.setSpeaking) scene.setSpeaking(l.who || 'claudia');
           await Voice.say(l.text, { speaker: l.speaker === undefined ? 'Claudia' : l.speaker,
                                     rate: l.rate, pitch: l.pitch });
+          if (mine !== token) return false;
           if (scene && scene.setSpeaking) scene.setSpeaking(null);
         }
       }

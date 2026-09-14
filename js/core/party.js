@@ -1,11 +1,10 @@
 /* ------------------------------------------------------------------
    party.js — three people, one room, no login.
 
-   This is the only file in the game that knows what WebRTC is. Above
-   it, `transports.js` speaks the `Net` protocol and nothing else;
-   below it, Trystero deals with relays and ICE and the rest of it.
-   Keeping that line sharp is the whole reason multiplayer did not have
-   to be threaded through every scene.
+   The game page uses RoomSocket and the Node.js server. Above this
+   boundary, transports and missions keep their existing protocol.
+   The older Trystero adapter remains for legacy callers and tests;
+   the game page no longer imports or depends on it.
 
    The room code is four letters. That is not a style choice: a code
    has to be readable down a phone, typeable on a handset with no
@@ -56,6 +55,10 @@ const Party = (() => {
   let joinTimer = null;             // the guest's "did anyone answer?" watchdog
   let knockTimer = null;            // and the hello it repeats until one does
   let unreachable = null;           // a peer we found and could not connect to
+  let generation = 0;
+  let pending = null;
+  let cleanup = Promise.resolve();
+  let turnExpires = 0;
   let turnCache = null;              // temporary credentials, for this page load
 
   /* Long, on purpose. Relay discovery on a cold room genuinely takes
@@ -66,6 +69,8 @@ const Party = (() => {
   const JOIN_WAIT   = 18000;
 
   const listeners = {
+    closed: new Set(),   // unrecoverable server connection loss
+    status: new Set(),   // opening, joined, or left
     roster: new Set(),   // (roster)
     peer:   new Set(),   // (peerId, entry)
     left:   new Set(),   // (peerId, seat) — seat is null if they never had one
@@ -115,7 +120,7 @@ const Party = (() => {
   }
 
   async function loadTurnConfig() {
-    if (turnCache) return turnCache;
+    if (turnCache && Date.now() < turnExpires) return turnCache;
     if (typeof window.fetch !== 'function') return [];
 
     let timer = null;
@@ -149,6 +154,7 @@ const Party = (() => {
         .filter(Boolean);
       if (!servers.length) throw new Error('no TURN servers in response');
       turnCache = servers;
+      turnExpires = Date.now() + (4 * 60 * 60 - 60) * 1000;
       return servers;
     } catch (e) {
       console.warn('[party] TURN unavailable; trying direct connections only:',
@@ -194,9 +200,41 @@ const Party = (() => {
 
   /* ---------------- joining ---------------- */
 
-  async function open(theCode, theProfile, asHost) {
-    if (joined) leave();
+  function cancelled() {
+    const error = new Error('Room connection cancelled.');
+    error.name = 'AbortError';
+    return error;
+  }
+
+  function open(theCode, theProfile, asHost) {
+    // A second click shares the attempt; it cannot open an orphan room.
+    if (pending) return pending.promise;
+    leave();
+    const id = generation;
+    let cancel;
+    const cancellation = new Promise((_, reject) => { cancel = () => reject(cancelled()); });
+    const attempt = { id, cancel, promise: null };
+    pending = attempt;
+    attempt.promise = Promise.race([
+      openAttempt(theCode, theProfile, asHost, id), cancellation,
+    ]).catch(error => {
+      if (id === generation) leave();
+      throw error;
+    }).finally(() => {
+      if (pending === attempt) { pending = null; emit('status'); }
+    });
+    emit('status');
+    return attempt.promise;
+  }
+
+  async function openAttempt(theCode, theProfile, asHost, id) {
+    await cleanup;
+    if (id !== generation) throw cancelled();
+    if (typeof RoomSocket !== 'undefined') return openServer(theCode, theProfile, asHost, id);
     const [T, turnConfig] = await Promise.all([ready(), loadTurnConfig()]);
+    if (id !== generation) throw cancelled();
+    const current = () => id === generation;
+    const guard = fn => (...args) => { if (current()) return fn(...args); };
     code = normaliseCode(theCode);
     const theRoomCode = code;
     host = !!asHost;
@@ -209,7 +247,7 @@ const Party = (() => {
        only thing watching silence was the watchdog below, which blamed
        the four letters for it. `joinRoom` takes the handler in a
        callbacks object in the pinned 0.25 API. */
-    const onJoinError = (d) => {
+    const onJoinError = guard((d) => {
       unreachable = (d && d.error) || 'could not connect';
       console.warn('[party] ' + unreachable);
       /* A guest has a watchdog and will phrase this itself in a
@@ -217,9 +255,9 @@ const Party = (() => {
          that is simply not filling up — so it gets told now. */
       if (host) {
         emit('error', 'Somebody found the room but could not connect. '
-                    + 'You are probably on different networks.');
+                    + 'The peer connection failed. Try again or use server rooms.');
       }
-    };
+    });
     const callbacks = { onJoinError };
 
     unreachable = null;
@@ -236,7 +274,7 @@ const Party = (() => {
     send = {};
     for (const name of CHANNELS) {
       const action = room.makeAction(name);
-      const hit = (data, from) => receive(name, data, peerIdOf(from));
+      const hit = guard((data, from) => receive(name, data, peerIdOf(from)));
 
       if (action && typeof action.send === 'function') {
         /* 0.25's send is async and rejects on a peer that went away
@@ -267,14 +305,14 @@ const Party = (() => {
 
     /* `onPeerJoin` / `onPeerLeave` are assignable properties in 0.25 and
        were methods before it; `hook` covers both. */
-    hook(room, 'onPeerJoin', (peerId) => {
+    hook(room, 'onPeerJoin', guard((peerId) => {
       /* Everybody introduces themselves to everybody. The host is the
          only one that turns introductions into seats. */
       send.hello({ name: profile.name, look: profile.look }, peerId);
       if (host) admit(peerId);
-    });
+    }));
 
-    hook(room, 'onPeerLeave', (peerId) => {
+    hook(room, 'onPeerLeave', guard((peerId) => {
       /* The seat goes with the person, and the seat is handed to the
          listeners with them: a peer that was never seated — a fourth
          who was turned away, a guest that gave up knocking — leaving
@@ -285,7 +323,7 @@ const Party = (() => {
       emit('left', peerId, seat);
       if (host) publishRoster();
       else if (peerId === hostPeer) emit('error', 'The host left the room.');
-    });
+    }));
 
     /* A guest keeps knocking until somebody answers.
 
@@ -318,6 +356,49 @@ const Party = (() => {
     return code;
   }
 
+  async function openServer(theCode, theProfile, asHost, id) {
+    const candidate = RoomSocket.create({ code: normaliseCode(theCode), host: !!asHost,
+      profile: theProfile || {} });
+    pending.transport = candidate;
+    await candidate.open();
+    if (id !== generation) { candidate.leave(); throw cancelled(); }
+    room = candidate;
+    code = candidate.code;
+    hostPeer = candidate.hostId;
+    host = candidate.selfId === hostPeer;
+    profile = { name: (theProfile && theProfile.name) || 'Player', look: (theProfile && theProfile.look) || null };
+    seats = new Map(candidate.players.map(p => [p.id, p]));
+    joined = true;
+    send = {};
+    for (const channel of CHANNELS) send[channel] = (data, to) => candidate.post(channel, data, to);
+    const current = () => id === generation;
+    candidate.onMessage = (channel, data, from) => {
+      if (current()) emit(channel, data, from);
+    };
+    candidate.onRoster = (players, authority) => {
+      if (!current()) return;
+      const previous = seats;
+      seats = new Map(players.map(p => [p.id, p]));
+      hostPeer = authority;
+      for (const [peerId, seat] of previous) {
+        if (!seats.has(peerId)) emit('left', peerId, seat);
+        if (!current()) return;
+      }
+      emit('roster', roster());
+    };
+    candidate.onStatus = () => { if (current()) emit('status'); };
+    candidate.onClose = message => {
+      if (!current()) return;
+      emit('closed', message);
+      if (current()) leave();
+      emit('error', message);
+    };
+    candidate.activate();
+    if (!current()) throw cancelled();
+    emit('roster', roster());
+    return code;
+  }
+
   /* The knock stops when we are in the list, not when somebody
      answers. Being told who the host is only means we now know where
      to knock. */
@@ -337,11 +418,9 @@ const Party = (() => {
       leave();
       emit('error', found
         ? 'Found room ' + theRoomCode + ', but could not open a '
-          + 'connection to the host. You are probably on different '
-          + 'networks — try the same wifi, and turn off any VPN or '
-          + 'iCloud Private Relay.'
+          + 'peer connection. Please try again.'
         : 'Nobody answered in room ' + theRoomCode
-          + '. Check the four letters.');
+          + '. Discovery or connection timed out. Check the code and try again.');
     }, JOIN_WAIT);
   }
 
@@ -370,6 +449,7 @@ const Party = (() => {
   }
 
   function publishRoster() {
+    if (room && room.server) return;
     if (!host || !send.roster) return;
     const list = roster();
     send.roster({ list, hostId: hostPeer });
@@ -437,19 +517,35 @@ const Party = (() => {
   }
 
   function leave() {
+    ++generation; // Invalidate callbacks before asking the old transport to close.
+    const attempt = pending;
+    pending = null;
+    if (attempt) {
+      attempt.cancel();
+      if (attempt.transport && attempt.transport !== room) attempt.transport.leave();
+    }
     stopKnocking();
-    if (room) { try { room.leave(); } catch (e) {} }
+    const oldRoom = room;
+    if (oldRoom) {
+      try { cleanup = Promise.resolve(oldRoom.leave()).catch(e => console.warn(e)); }
+      catch (e) { cleanup = Promise.resolve(); }
+    }
     room = null; joined = false; host = false; hostPeer = null;
     code = null; seats = new Map(); send = {}; unreachable = null;
+    emit('status');
   }
 
   /* ---------------- reading the room ---------------- */
 
   const roster = () => [...seats.values()].sort((a, b) => a.seat - b.seat);
-  const selfId = () => (window.Trystero ? window.Trystero.selfId : null);
+  const selfId = () => (room && room.server ? room.selfId
+    : (window.Trystero ? window.Trystero.selfId : null));
   const self = () => seats.get(selfId()) || null;
   const peerIds = () => roster().map(e => e.id).filter(id => id !== selfId());
   const full = () => seats.size >= MAX;
+  function setLobby() {
+    if (host && room && room.server) room.setLobby();
+  }
 
   /* Everything above the wire talks in player ids, and a player id is
      the peer id — one name for a person, all the way down. */
@@ -466,18 +562,21 @@ const Party = (() => {
     const mine = self();
     if (mine) { mine.name = profile.name; mine.look = profile.look; }
     if (!joined) return;
+    if (room && room.server) { room.updateProfile(profile); return; }
     post('hello', { name: profile.name, look: profile.look });
     if (host) publishRoster(); else emit('roster', roster());
   }
 
   return {
-    ready, host: hostRoom, join: joinRoom, leave, on, post, setProfile, hook,
+    ready, host: hostRoom, join: joinRoom, leave, on, post, setProfile, setLobby, hook,
     roster, self, selfId, peerIds, randomCode, normaliseCode, validCode,
     publishRoster,
     MAX, CODE_LEN, ALPHABET,
     get isHost() { return host; },
     get hostId() { return hostPeer; },
     get code() { return code; },
+    get reconnecting() { return !!(room && room.reconnecting); },
+    get connecting() { return !!pending; },
     get connected() { return joined; },
     get room() { return room; },
   };

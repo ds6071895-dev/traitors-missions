@@ -93,6 +93,13 @@ const MissionParty = (() => {
   function optsFor(d, s) {
     const o = Object.assign({}, s, { ghost: false });
     delete o.skip;
+    if (d && d.id === 'ski') {
+      if (o.mode === 'practice') o.mode = 'prize';
+      if (typeof SkiMission !== 'undefined') {
+        const normalized = SkiMission.normalise(o);
+        Object.assign(o, normalized, { conditions: SkiMission.conditionsFor(normalized, SkiTwists.byId(normalized.modId)) });
+      }
+    }
     if (s && s.skip && d && d.quickStart) {
       Object.assign(o, d.quickStart.opts || {});
       o.ghost = false;
@@ -242,7 +249,7 @@ const MissionParty = (() => {
     }).join('') + emptySeats(list.length);
 
     const n = list.length;
-    el('mp-status').textContent = !Party.connected ? 'Opening a room…'
+    el('mp-status').textContent = Party.reconnecting ? 'Reconnecting…' : !Party.connected ? 'Opening a room…'
       : (!Party.isHost && !n) ? 'Looking for the room…'
       : n < MIN ? 'Send the link. ' + n + ' of you so far.'
       : Party.isHost ? (n >= Party.MAX ? 'Everybody is here.' : 'Ready when you are.')
@@ -259,6 +266,7 @@ const MissionParty = (() => {
       const wrap = el('mp-mode');
       wrap.innerHTML = '';
       for (const m of Object.values(def.modes)) {
+        if (m.solo) continue;
         const b = document.createElement('button');
         b.className = 'seg-btn' + (m.id === setup.mode ? ' on' : '');
         b.textContent = m.name;
@@ -323,7 +331,7 @@ const MissionParty = (() => {
     /* --- the button --- */
     const go = el('mp-start');
     go.hidden = !Party.isHost;
-    go.disabled = !def || n < MIN || started;
+    go.disabled = !def || n < MIN || started || Party.reconnecting;
     go.textContent = n < MIN ? 'WAITING FOR ONE MORE' : 'START MISSION';
 
     const mic = el('mp-mic');
@@ -354,6 +362,7 @@ const MissionParty = (() => {
   /* The host's way in: a mission was chosen on the missions screen and
      the room is opened for it. */
   async function openFor(missionId) {
+    if (Party.connecting) return;
     const d = Missions.get(missionId);
     if (!d || d.locked) return;
     if (Party.connected && !Party.isHost) {
@@ -378,6 +387,7 @@ const MissionParty = (() => {
         VoiceChat.listen();
         say('Room open. Send them the link.', 'good');
       } catch (e) {
+        if (e.name === 'AbortError') return;
         say((e && e.message) || 'Could not open a room.', 'bad');
       }
     }
@@ -387,6 +397,7 @@ const MissionParty = (() => {
 
   /* The guest's way in: somebody's link. */
   async function joinCode(code, missionId) {
+    if (Party.connecting) return;
     armed = true;
     started = false;
     asked = false;
@@ -402,6 +413,7 @@ const MissionParty = (() => {
       VoiceChat.listen();
       paint();
     } catch (e) {
+      if (e.name === 'AbortError') return;
       say((e && e.message) || 'Could not reach that room.', 'bad');
     }
   }
@@ -422,7 +434,7 @@ const MissionParty = (() => {
   /* ---------------- starting ---------------- */
 
   function start() {
-    if (!Party.isHost || started || !def) return;
+    if (!Party.isHost || started || !def || Party.reconnecting) return;
     const list = Party.roster();
     if (list.length < MIN) return;
     started = true;
@@ -465,9 +477,11 @@ const MissionParty = (() => {
     const players = (msg.players || []).map(q => Object.assign({}, q, {
       local: q.id === mine, alive: true,
     }));
+    const launchRoom = Party.room;
     AudioBus.resume();
     Voice.unlock();
     Screens.transition(() => {
+      if (!armed || !running || Party.room !== launchRoom) return;
       Game.enterShow();
       Missions.launch(d.id, Object.assign({}, msg.opts, {
         party: true,
@@ -525,12 +539,14 @@ const MissionParty = (() => {
     started = false;
     releasePot();
     MissionNet.detach();
+    const returnRoom = Party.room;
     Screens.transition(() => {
+      if (!armed || Party.room !== returnRoom) return;
       Missions.end();
       Engine.setPaused(false);
       Game.showAttract();
       Screens.show('mparty');
-      if (Party.isHost) { setup.seed = U.randomSeed(); broadcast(); }
+      if (Party.isHost) { Party.setLobby(); setup.seed = U.randomSeed(); broadcast(); }
       paint();
     }, 320);
   }
@@ -602,6 +618,7 @@ const MissionParty = (() => {
 
     Party.on('mp', onMp);
 
+    Party.on('status', paint);
     Party.on('roster', () => {
       if (!armed) return;
       /* A guest that has just been seated asks the host what it is

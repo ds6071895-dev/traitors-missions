@@ -45,8 +45,12 @@ const VoiceChat = (() => {
 
   /* ---------------- starting ---------------- */
 
+  let micGeneration = 0;
+  let requesting = false;
   async function start() {
     if (available) return true;
+    if (requesting) return false;
+    const requestId = ++micGeneration;
     const md = navigator.mediaDevices;
     if (!md || !md.getUserMedia) {
       denied = location.protocol === 'file:'
@@ -55,19 +59,23 @@ const VoiceChat = (() => {
       emit('state');
       return false;
     }
+    requesting = true;
     try {
-      stream = await md.getUserMedia({
+      const acquired = await md.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true,
                  autoGainControl: true },
         video: false,
       });
+      if (requestId !== micGeneration) { acquired.getTracks().forEach(t => t.stop()); return false; }
+      stream = acquired;
     } catch (e) {
+      if (requestId !== micGeneration) return false;
       denied = e && e.name === 'NotAllowedError'
         ? 'Microphone blocked. The night still works without it.'
         : 'No microphone found. The night still works without it.';
       emit('state');
       return false;
-    }
+    } finally { if (requestId === micGeneration) requesting = false; }
     available = true;
     denied = null;
     selfId = Party.selfId();
@@ -110,19 +118,34 @@ const VoiceChat = (() => {
     const room = Party.room;
     if (!room || !stream || published === room) return;
     published = room;
-    try { room.addStream(stream); } catch (e) { console.warn(e); }
+    if (room.server) {
+      ServerAudio.publish(room, stream).catch(() => {
+        if (Party.room !== room) return;
+        published = null;
+        denied = 'Could not start the microphone connection.';
+        emit('state');
+      });
+    } else { try { room.addStream(stream); } catch (e) { console.warn(e); } }
   }
 
   function watchPeers() {
-    publish();
     const room = Party.room;
-    if (!room || watched === room) return;
-    watched = room;
-    Party.hook(room, 'onPeerStream',
-               (peerStream, peerId) => attach(peerId, peerStream));
+    if (!room) return;
+    if (watched !== room) {
+      watched = room;
+      if (room.server) {
+        ServerAudio.listen(room, attach, message => { denied = message; emit('state'); });
+      } else {
+        Party.hook(room, 'onPeerStream', (peerStream, peerId) => attach(peerId, peerStream));
+      }
+    }
+    publish();
     if (!watching) {
       watching = true;
-      Party.on('left', (peerId) => detach(peerId));
+      Party.on('left', peerId => {
+        if (typeof ServerAudio !== 'undefined') ServerAudio.detach(peerId);
+        detach(peerId);
+      });
     }
   }
 
@@ -232,6 +255,8 @@ const VoiceChat = (() => {
   const openFloor = () => setFloor(null);
 
   function stop() {
+    ++micGeneration; requesting = false;
+    if (typeof ServerAudio !== 'undefined') ServerAudio.stop();
     if (stream) stream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
     stream = null;
     available = false;

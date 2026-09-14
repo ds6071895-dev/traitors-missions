@@ -2,3 +2,4 @@
 # Pages dashboard under Settings > Variables and Secrets.
 .dev.vars*
 .env*
+node_modules/

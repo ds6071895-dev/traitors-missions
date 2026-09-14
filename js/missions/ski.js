@@ -159,13 +159,15 @@ class SkiMission {
     },
     trial: {
       id: 'trial', name: 'Time Trial',
-      blurb: 'The clock counts up and every hoop knocks seconds off it. One number to beat.',
+      blurb: 'Elapsed time plus fixed crash penalties. Learn the fastest line.',
       better: (a, b) => {
         if (!a.completed) return false;
         if (!b || !b.completed) return true;
         return (a.finalTime || 1e9) < (b.finalTime || 1e9);
       },
     },
+    freestyle: { id: 'freestyle', name: 'Freestyle', blurb: 'Bank varied tricks, grinds and transfers. Three seconds to continue a chain.', better: (a, b) => a.completed && (!b || !b.completed || a.styleScore > (b.styleScore || 0)) },
+    practice: { id: 'practice', name: 'Practice', solo: true, blurb: 'Untimed. R resets this section. No earnings or records.', better: () => false },
   };
 
   /* The hour is a dial of its own rather than something the seed
@@ -215,7 +217,13 @@ class SkiMission {
       : U.dailySeed();
     return {
       seed,
-      mode: opts.mode === 'trial' ? 'trial' : 'prize',
+      mode: SkiMission.MODES[opts.mode] ? opts.mode : 'prize',
+      section: SkiCourse.catalog.some(s => s.id === opts.section) ? opts.section : null,
+      rulesVersion: SkiCourse.RULES,
+      conditions: opts.conditions || null,
+      quality: SkiPresentation.presets[opts.quality] ? opts.quality : 'medium',
+      reducedMotion: opts.reducedMotion !== false,
+      motion: Object.fromEntries(['shake', 'roll', 'speed', 'flashes'].map(k => [k, opts.motion ? opts.motion[k] === true : opts.reducedMotion === false])),
       tod: SkiMission.TOD.some(t => t.id === opts.tod) ? opts.tod : 'auto',
       modId: opts.modId || null,
       ghost: opts.ghost !== false,
@@ -248,10 +256,11 @@ class SkiMission {
      names either still outranks both, because that one was picked on
      purpose and paid for. */
   static conditionsFor(o, mod) {
+    if (o.conditions) return { ...o.conditions };
     const base = SkiConditions.forSeed(o.seed);
     const time = o.tod === 'night' ? 'night'
                : o.tod === 'day' ? Conditions.dayTime(base.time)
-               : SkiMission.autoTime();
+               : (o.daily ? 'day' : SkiMission.autoTime());
     return Object.assign(base, { time }, (mod && mod.cond) || {});
   }
 
@@ -260,14 +269,13 @@ class SkiMission {
     const o = SkiMission.normalise(opts);
     const mod = SkiTwists.byId(o.modId);
     const cond = SkiMission.conditionsFor(o, mod);
-    const key = GameState.runKey(o.mode, o.seed, o.modId);
+    const key = SkiCourse.key(o.mode, o.seed, o.modId, cond);
     const rec = GameState.runRecord('ski', key);
     /* The running order, worked out from the seed alone. It is the
        single most useful thing the briefing can show, because the
        difference between two mountains is not the scenery — it is
        whether the glades come before or after the cliffs. */
-    const face = new MountainKit.Face(U.makeRng((o.seed ^ 0x51a3f7) >>> 0),
-      { top: SkiMission.CONFIG.top, sections: SkiMission.configFor(mod).sections });
+    const face = SkiCourse.makeFace(o.seed, SkiMission.CONFIG.top);
     return {
       opts: o,
       mod,
@@ -295,6 +303,7 @@ class SkiMission {
 
   constructor(opts = {}) {
     this.opts = SkiMission.normalise(opts);
+    if (opts.party && this.opts.mode === 'practice') this.opts.mode = 'prize';
     this.seed = this.opts.seed;
     this.mode = this.opts.mode;
     this.modeDef = SkiMission.MODES[this.mode];
@@ -305,7 +314,10 @@ class SkiMission {
     this.snow = SkiConditions.resolve(this.cond).snow;
     this.payout = SkiConditions.payout(this.cond) * (this.mod ? this.mod.payout : 1);
     this.courseName = U.courseName(this.seed);
-    this.key = GameState.runKey(this.mode, this.seed, this.opts.modId);
+    this.opts.conditions = { ...this.cond };
+    this.key = SkiCourse.key(this.mode, this.seed, this.opts.modId, this.cond);
+    this.ledger = new SkiScoring(this.mode); this.carveMetres = 0;
+    this.graphics = SkiPresentation.presets[this.opts.quality];
 
     this.rng = U.makeRng(this.seed);
     this.state = 'idle';        // idle | waiting | countdown | running | finished | failed
@@ -390,7 +402,7 @@ class SkiMission {
     this.ghost = null;
     this.ghostT = 0;
     this.ghostDelta = null;
-    this.rec = { x: [], y: [], z: [], yaw: [], s: [] };
+    this.rec = { x: [], y: [], z: [], yaw: [], s: [], spin: [], pitch: [], roll: [], stance: [], times: [] };
     this._recAcc = 0;
   }
 
@@ -412,40 +424,35 @@ class SkiMission {
     const fog = (this.mod && this.mod.fog) || applied.time.fog;
     scene.fog = new THREE.Fog(Sky.PALETTE.fog, fog.near * 0.75, fog.far * 0.92);
     scene.add(SkiConditions.lights(this.cond));
+    scene.add(new THREE.HemisphereLight('#d8efff', '#7698bb', this.cond.time === 'night' ? .5 : .55));
+    this._previousShadows = Engine.renderer.shadowMap.enabled;
+    Engine.renderer.shadowMap.enabled = this.graphics.shadow > 0;
+    this.sun = new THREE.DirectionalLight(this.cond.time === 'night' ? '#b8d4ff' : '#ffe8bd', .35);
+    this.sun.castShadow = this.graphics.shadow > 0;
+    this.sun.shadow.mapSize.set(this.graphics.shadow || 256, this.graphics.shadow || 256);
+    Object.assign(this.sun.shadow.camera, { left: -65, right: 65, top: 65, bottom: -65, near: 1, far: 250 });
+    this.sun.shadow.bias = -.001; this.sun.shadow.normalBias = .15;
+    scene.add(this.sun, this.sun.target);
     Sky.build(scene, U.makeRng(this.seed + 7));
 
     // ---- the mountain ----
-    this.face = MountainKit.makeFace(U.makeRng((this.seed ^ 0x51a3f7) >>> 0),
-      { top: C.top, sections: C.sections });
-    this.chutes = MountainKit.findChutes(this.face, U.makeRng(this.seed + 31),
-      { count: C.chutes });
-    MountainKit.buildRamps(this.face, U.makeRng(this.seed + 53),
-      { spacing: C.rampSpacing, boost: C.rampBoost });
-
-    /* "Send It" is a card about the mountain rather than about the
-       skier, so it moves the mountain: every lip on it grows, and
-       everything downstream — the hoop placement, the air, the landings
-       — follows from that without knowing the card exists. */
-    if (C.rampScale !== 1) {
-      for (const r of this.face.ramps) {
-        if (r.kind === 'bank') continue;
-        r.h *= C.rampScale;
-        r.len *= U.lerp(1, C.rampScale, 0.45);
-      }
+    this.face = SkiCourse.makeFace(this.seed, C.top);
+    if (this.mode === 'practice' && this.opts.section) {
+      const def = SkiCourse.catalog.find(s => s.id === this.opts.section);
+      this.face = MountainKit.makeFace(U.makeRng(this.seed), { top: C.top, authored: [def] });
     }
-
-    // ---- the park ----
-    MountainKit.buildPads(this.face, U.makeRng(this.seed + 59),
-      { spacing: C.padSpacing, boost: C.rampBoost });
-    MountainKit.buildSpinners(this.face, U.makeRng(this.seed + 67),
-      { spacing: C.spinnerSpacing, scale: C.spinnerScale });
+    this.face.authoredTextures = true;
+    this.course = SkiCourse.resolve(this.face, this.seed, this.cond, C);
+    this.chutes = this.face.chutes;
+    this.surfaces = new SkiSurfaces(this.face, this.course);
+    this.playground = SkiPresentation.build(scene, this.face, this.course, this.opts.quality);
 
     // the clock has to know how much mountain it is being asked to cover
-    this.startTime = Math.round(C.startTime * U.clamp(this.face.total / 2900, 0.82, 1.30));
+    this.startTime = Math.round(this.face.total / 27 - 16 + (C.startTime - SkiMission.CONFIG.startTime));
     this.time = this.startTime;
     this.vertTotal = this.face.top - this.face.baseY(this.face.total);
 
-    scene.add(MountainKit.buildTerrain(this.face, this.rng));
+    const terrain = MountainKit.buildTerrain(this.face, this.rng, { step: this.opts.quality === 'low' ? 6.5 : 4.5 }); terrain.receiveShadow = true; scene.add(terrain);
 
     this.windU = {
       time: { value: 0 },
@@ -470,7 +477,8 @@ class SkiMission {
     /* Colliders, bucketed down the fall line. Nine hundred trunks
        tested ninety times a second is a slideshow; the dozen inside a
        hundred and twenty metres of you is a list. */
-    this._buildColliderIndex([...this.trees.colliders, ...this.rocks.colliders]);
+    this.course.colliders = [...this.trees.colliders, ...this.rocks.colliders];
+    this._buildColliderIndex(this.course.colliders);
 
     // ---- the hoops ----
     this.gates = this._buildGates();
@@ -490,11 +498,19 @@ class SkiMission {
 
     // ---- the skier ----
     const feel = Object.assign({}, (this.mod && this.mod.tune) || {});
+    const progress = SkiProgression.read();
+    const cosmetic = progress.equipped;
+    const unlocked = cosmetic >= 0 && cosmetic < 12 && SkiProgression.challenges.filter(c => c.reward === cosmetic).every(c => progress.done.includes(c.id));
+    const colors = ['#ff775f', '#58ccf0', '#62bf96', '#df98d1'];
+    const runLook = unlocked && cosmetic < 4 ? { ...this.myLook, coat: cosmetic, accent: cosmetic } : this.myLook;
+    this.trailColor = unlocked && cosmetic >= 8 ? colors[cosmetic - 8] : '#9dc6e8';
     this.skier = new Skier({
-      look: this.myLook,
+      look: runLook,
+      paint: unlocked && cosmetic >= 4 && cosmetic < 8 ? { accent: colors[cosmetic - 4] } : {},
       snow: this.snow,
       tune: feel,
     });
+    this.skier.group.traverse(o => { if (o.isMesh) o.castShadow = true; });
     scene.add(this.skier.group);
     this.skier.place(this.face.cxAt(0), 0, 0, { face: this.face });
     this._prevPos.copy(this.skier.pos);
@@ -504,10 +520,10 @@ class SkiMission {
 
     // ---- fx: the trench is the ribbon, lying in the snow ----
     this.fx = new FXSystem(scene, camera, document.getElementById('world-labels'), {
-      sprayMax: 1500,
+      sprayMax: this.graphics.particles,
       spray: { drag: 1.9, gravity: 15 },
       wake: {
-        segments: 120, life: 2.4, lift: 0.06, color: '#9dc6e8', alpha: 0.42,
+        segments: this.graphics.tracks, life: 22, lift: 0.06, color: this.trailColor, alpha: 0.42,
         heightAt: (x, z) => this.face.heightAt(x, z),
       },
     });
@@ -521,7 +537,7 @@ class SkiMission {
 
     if (this.avOn) this._buildAvalanche(scene);
 
-    this.world = { face: this.face, colliders: [] };
+    this.world = { face: this.face, surfaces: this.surfaces, colliders: [] };
     this.targets = this._computeTargets();
     this._cacheHud();
 
@@ -535,7 +551,16 @@ class SkiMission {
        up costs you half the steering lock exactly when you are going
        fast enough to need it. So the tuck comes off the stick and
        becomes a button your thumb can sit on. */
-    Input.setDrivePad({ main: 'POP', aux: 'TUCK' });
+    Input.setDrivePad({ main: 'POP / TRICK', grabs: true });
+    SkiMaterials.apply(terrain,'snow',18);
+    if (this.trees.mesh) SkiMaterials.apply(this.trees.mesh,'pine',7);
+    SkiMaterials.apply(this.rocks.mesh,'rock',9);
+    SkiMaterials.apply(this.skier.group,'cloth',2);
+    SkiMaterials.apply(scene,'snow',20);
+    this._practiceControls();
+    this._previousPixelRatio = Engine.renderer.getPixelRatio();
+    const applyResolution = () => Engine.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.graphics.resolution));
+    applyResolution(); this._offResolution = Engine.onResize(applyResolution);
 
     this._camPos.copy(this.skier.pos).add(new THREE.Vector3(0, 8, -14));
     this._camLook.copy(this.skier.pos);
@@ -876,7 +901,7 @@ class SkiMission {
       x: s.pos.x, y: s.pos.y, z: s.pos.z,
       h: s.heading, p: s.pitch, r: s.roll,
       f: this.flowLevel, v: s.speed, a: s.airborne ? 1 : 0,
-      c: s.crashed ? 1 : 0, t: s.fold,
+      c: s.crashed ? 1 : 0, t: s.fold, yaw: s.airYaw, grab: s.grab, switch: s.switch ? 1 : 0, grind: s.grinding ? 1 : 0,
     };
   }
 
@@ -895,7 +920,7 @@ class SkiMission {
       sk.heading = U.angLerp(a.h, b.h, k);
       sk.pitch = U.lerp(a.p, b.p, k);
       sk.roll = U.lerp(a.r, b.r, k);
-      sk.airborne = !!b.a;
+      sk.airborne = !!b.a; sk.airYaw = U.lerp(a.yaw || 0, b.yaw || 0, k); sk.grab = b.grab || 0; sk.switch = !!b.switch;
       sk.crashed = !!b.c;
       sk.speed = b.v || 0;
       sk.fold = U.lerp(sk.fold, b.t || 0, 1 - Math.exp(-9 * dt));
@@ -980,11 +1005,19 @@ class SkiMission {
   _ghostAt(t, out) {
     const g = this.ghost;
     const f = U.clamp(t / g.dt, 0, g.n - 1);
-    const i = Math.floor(f), k = f - i, j = Math.min(i + 1, g.n - 1);
+    let i = Math.floor(f), k = f - i, j = Math.min(i + 1, g.n - 1);
+    if (g.times) {
+      let lo = 0, hi = g.n - 1;
+      while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (g.times[mid] <= t) lo = mid; else hi = mid - 1; }
+      i = lo; j = Math.min(i + 1, g.n - 1);
+      k = U.clamp((t - g.times[i]) / Math.max(1e-9, g.times[j] - g.times[i]), 0, 1);
+    }
     out.x = U.lerp(g.x[i], g.x[j], k);
     out.y = U.lerp(g.y[i], g.y[j], k);
     out.z = U.lerp(g.z[i], g.z[j], k);
     out.yaw = U.angLerp(g.yaw[i], g.yaw[j], k);
+    for (const axis of ['spin', 'pitch', 'roll']) out[axis] = g[axis] ? U.lerp(g[axis][i], g[axis][j], k) : 0;
+    out.stance = g.stance ? g.stance[i] : 0;
     return out;
   }
 
@@ -996,32 +1029,35 @@ class SkiMission {
       if (g.s[i] >= z) {
         const a = g.s[i - 1], b = g.s[i];
         const k = b === a ? 0 : (z - a) / (b - a);
-        return (i - 1 + k) * g.dt;
+        return g.times ? U.lerp(g.times[i - 1], g.times[i], k) : (i - 1 + k) * g.dt;
       }
     }
-    return (g.n - 1) * g.dt;
+    return g.times ? g.times[g.n - 1] : (g.n - 1) * g.dt;
   }
 
   _recordGhost(dt) {
     this._recAcc += dt;
     if (this._recAcc < this.C.ghostRate) return;
-    this._recAcc = 0;
+    this._recAcc %= this.C.ghostRate;
     const r = this.rec, s = this.skier;
     r.x.push(U.r3(s.pos.x)); r.y.push(U.r3(s.pos.y)); r.z.push(U.r3(s.pos.z));
+    r.times.push(this.elapsed);
     r.yaw.push(U.r3(s.heading));
+    r.spin.push(U.r3(s.airYaw)); r.pitch.push(U.r3(s.pitch)); r.roll.push(U.r3(s.roll)); r.stance.push(s.switch ? 1 : 0);
     r.s.push(Math.round(s.pos.z * 10) / 10);
   }
 
   _updateGhost(dt) {
     if (!this.ghost || !this.ghostSkier) return;
-    if (this.state === 'running') this.ghostT += dt;
+    if (this.state === 'running') this.ghostT = this.elapsed;
     const g = this.ghost;
-    const done = this.ghostT >= (g.n - 1) * g.dt;
+    const done = this.ghostT >= (g.times ? g.times[g.n - 1] : (g.n - 1) * g.dt);
     this.ghostSkier.group.visible = this.state !== 'idle' && !done;
     if (!this.ghostSkier.group.visible) return;
     const p = this._ghostAt(this.ghostT, this._ghostPos || (this._ghostPos = {}));
     this.ghostSkier.group.position.set(p.x, p.y, p.z);
-    this.ghostSkier.group.rotation.y = p.yaw;
+    this.ghostSkier.group.rotation.set(p.pitch, p.yaw, p.roll, 'YXZ');
+    this.ghostSkier.mesh.rotation.y = p.spin + p.stance * Math.PI;
     if (this.state === 'running') {
       this.ghostDelta = this.elapsed - this._ghostTimeAt(this.skier.pos.z);
     }
@@ -1051,6 +1087,7 @@ class SkiMission {
     const tricks = 12 * 900;
     const raw = (hoopPay + descent + chute + tricks + C.finishBonus) * this.payout;
     const par = face.total / 30;              // thirty metres a second, near enough
+    if (this.mode === 'freestyle') return { kind: 'style', par: 8000, cuts: [2000, 5000, 8000, 12000] };
     return this.mode === 'trial'
       ? { kind: 'time', par, cuts: [par * 1.28, par * 1.14, par * 1.02, par * 0.92] }
       : { kind: 'money', par: raw,
@@ -1069,6 +1106,24 @@ class SkiMission {
 
   /* =================== the HUD =================== */
 
+  _practiceControls() {
+    const old = document.getElementById('ski-practice-controls'); if (old) old.remove();
+    if (this.mode !== 'practice') return;
+    const panel = document.createElement('div'); panel.id = 'ski-practice-controls'; panel.className = 'sk-practice';
+    const head = document.createElement('div'); head.className = 'sk-practice-head'; head.textContent = 'Practice';
+    const hints = document.createElement('p'); hints.textContent = 'Carve with A/D or stick. Hold pop, release to jump. Hold pop + direction in air; Q/E or Mute/Tail to grab. Release to align.';
+    const reset = document.createElement('button'); reset.className = 'chip'; reset.innerHTML = 'Reset section <kbd>R</kbd>'; reset.onclick = () => this.resetSection();
+    panel.append(head, hints, reset); document.querySelector('[data-screen="hud-ski"]').appendChild(panel);
+  }
+
+  resetSection() {
+    if (this.mode !== 'practice') return;
+    const sec = this.face.sectionAt(this.skier.pos.z);
+    this.restart(); this.state = 'running';
+    this.skier.place(this.face.cxAt(sec.z0), sec.z0, Math.atan(this.face.cxSlopeAt(sec.z0)), this.world);
+    this._prevPos.copy(this.skier.pos); this.ledger.progress = sec.z0;
+  }
+
   _cacheHud() {
     const q = id => document.getElementById(id);
     this.hud = {
@@ -1079,7 +1134,7 @@ class SkiMission {
       hoops: q('sk-hoops'), progress: q('sk-progress-fill'),
       section: q('sk-section'), vert: q('sk-vert'),
       speed: q('sk-speed'), speedBar: q('sk-speed-bar'),
-      air: q('sk-air'), airRot: q('sk-air-rot'), airH: q('sk-air-h'),
+      air: q('sk-air'), airRot: q('sk-air-rot'), airH: q('sk-air-h'), airCue: q('sk-air-cue'),
       chute: q('sk-chute'), chuteName: q('sk-chute-name'),
       chuteGain: q('sk-chute-gain'), chuteArrow: q('sk-chute-arrow'),
       slide: q('sk-avalanche'), slideBar: q('sk-avalanche-bar'),
@@ -1088,7 +1143,7 @@ class SkiMission {
       pop: q('sk-pop'), popFill: q('sk-pop-fill'),
     };
     const h = this.hud;
-    if (h.timeLabel) h.timeLabel.textContent = this.mode === 'trial' ? 'Elapsed' : 'Time';
+    if (h.timeLabel) h.timeLabel.textContent = this.mode === 'prize' ? 'Time left' : this.mode === 'practice' ? 'Untimed' : 'Elapsed';
     if (h.setup) {
       const bits = [this.courseName, SkiConditions.describe(this.cond)];
       if (this.mod) bits.push(this.mod.name);
@@ -1155,22 +1210,27 @@ class SkiMission {
   /* =================== per-frame =================== */
 
   update(rawDt, t) {
-    if (!this.scene) return;
-    if (Engine.isPaused()) return;
+    if (!this.scene || Engine.isPaused() || !(rawDt > 0)) return;
     if (Input.pressed('pause') && this.state === 'running') { this._pause(); return; }
     if (Input.pressed('mute')) AudioBus.toggleMute();
-
-    // ---- time dilation: a beat of near-freeze when it goes wrong, and
-    // ---- a long slow exhale over the line ----
-    let dt = rawDt;
-    if (this.hitStop > 0) {
-      this.hitStop -= rawDt;
-      dt = rawDt * 0.09;
-    } else {
-      this.timeScale = U.damp(this.timeScale, this.timeScaleTarget, 4.0, rawDt);
-      dt = rawDt * this.timeScale;
+    if (this.mode === 'practice' && Input.pressed('sectionReset')) this.resetSection();
+    // Fixed mission ticks make contacts, gates and ghost samples independent of render FPS.
+    // Very long stalls charge the full competitive clock without a physics catch-up spiral.
+    const catchup = Math.min(rawDt, .5);
+    if (this.state === 'running' && rawDt > catchup) {
+      this.elapsed += rawDt - catchup;
+      if (this.mode === 'prize') this.time -= rawDt - catchup;
     }
+    this._tickRemainder = (this._tickRemainder || 0) + catchup;
+    const step = 1 / 90;
+    while (this._tickRemainder + 1e-9 >= step) {
+      this._tickRemainder -= step;
+      this._tick(step, t);
+    }
+  }
 
+  _tick(dt, t) {
+    const rawDt = dt;
     if (this.state === 'countdown') this._updateCountdown(rawDt);
 
     const running = this.state === 'running';
@@ -1181,10 +1241,12 @@ class SkiMission {
           steer: Input.steer(),
           throttle: noBrake ? Math.max(0, Input.throttle()) : Input.throttle(),
           trick: Input.held('boost'),
+          grab: Input.held('grabTail') ? 2 : Input.held('grabMute') ? 1 : 0,
         }
       : { steer: 0, throttle: 0, trick: false };
 
     this.world.colliders = this._collidersNear(s.pos.z);
+    s.surfaceMaterial = this.face.sectionAt(s.pos.z).def.region === 'glacier' ? 'ice' : this.snow.id;
 
     if (running) {
       this._prevPos.copy(s.pos);
@@ -1201,14 +1263,28 @@ class SkiMission {
       this.elapsed += dt;
       if (this.mode === 'prize') this.time -= dt;
       this._trackFlags(dt);
+      this._forwardMetres = s.crashed || s.protection > 0 ? 0 : this.ledger.advance(s.pos.z);
       this._updateFlow(dt);
-      this._earnDescent(dt);
-      this._checkChutes();
-      this._checkGates();
-      this._checkSpinners();
-      this._checkGraze(dt);
+      if (s.carve > .25 && !s.crashed) this.carveMetres += this._forwardMetres;
+      if (this.mode !== 'practice') this._earnDescent(dt);
+      if (!s.crashed && !(s.protection > 0)) { this._checkChutes(); this._checkGates(); this._checkSpinners(); }
+      if (this._forwardMetres > 0 && this.mode !== 'practice') this._checkGraze(dt);
+      if (s.grindExit > 0) {
+        this.ledger.grindDistance += s.grindExit;
+        const reward = this.ledger.landing({ landed: true, grade: { id: 'clean' }, grind: s.grindExit, spins: 0, flips: 0, rolls: 0, family: 'grind', name: 'GRIND' }, s.pos.z, this.elapsed, this.flowLevel);
+        this.money += reward; this.trickMoney += reward;
+      }
+      if (s.grindEntered) {
+        AudioBus.play('perfect',{combo:3}); SkiAudio.play('land',{amount:.25});
+        this._landingFeedback={text:(s.switch?'SWITCH ':'')+'GRIND · relax steering, hold pop to exit',until:this.elapsed+1.4};
+        this.flow += .25;
+      }
       this._checkEvents(dt);
       this._checkSection();
+      if (this.mode === 'practice') {
+        const hint = document.querySelector('#ski-practice-controls p');
+        if (hint) hint.textContent = this.carveMetres < 40 ? '1 · Carve 40m: steer smoothly with A/D or the stick (' + Math.floor(this.carveMetres) + '/40m)' : this.ledger.families.size < 1 ? '2 · Land a manual trick: pop, hold Space + direction, release near alignment.' : this.ledger.grindDistance < 8 ? '3 · Grind 8m: ride straight onto a rail entrance, ease steering, then charge and pop out.' : 'Practice complete. Try a different line or reset this section.';
+      }
       this._checkFinal();
       this._checkStuck(dt);
       this._recordGhost(dt);
@@ -1256,7 +1332,10 @@ class SkiMission {
     }
     if (this._grazing) gain += C.flowGraze;
     if (this._curChute) gain += C.flowChute * 0.25;
-    const decay = s.speed < C.speedFloor ? C.flowIdleDecay : C.flowDecay;
+    if (this._forwardMetres !== undefined && this._forwardMetres <= 0) gain = 0;
+    if (gain > C.flowDecay) this._flowGrace = 1.2;
+    else this._flowGrace = Math.max(0, (this._flowGrace || 0) - dt);
+    const decay = s.speed < C.speedFloor ? C.flowIdleDecay : this._flowGrace > 0 ? 0 : C.flowDecay;
     this.flow += (gain - decay) * dt;
 
     while (this.flow >= 1) {
@@ -1307,7 +1386,7 @@ class SkiMission {
     if (s.crashed) return;
     const fast = U.clamp((s.speed - C.speedFloor) / (C.speedFull - C.speedFloor), 0, 1.2);
     if (fast <= 0) return;
-    const metres = s.speed * dt;
+    const metres = this._forwardMetres === undefined ? Math.max(0, s.vel ? s.vel.y * dt : s.speed * dt) : this._forwardMetres;
     const m = metres * C.moneyPerMetre * (0.28 + 0.72 * fast) * this.flowLevel * this._mult;
     this.money += m;
     this.descentMoney += m;
@@ -1332,14 +1411,14 @@ class SkiMission {
     this._stuckT = (this._stuckT || 0) + dt;
     if (this._stuckT < 3) return;
     this._stuckT = 0;
-    const z = s.pos.z + 20;
+    const z = s.pos.z;
     const x = this.face.cxAt(z);
     s.place(x, z, Math.atan(this.face.cxSlopeAt(z)), this.world);
     s.vel.set(Math.sin(s.heading) * 10, Math.cos(s.heading) * 10);
     s.speed = 10;
     this.flow = 0;
-    this.flowLevel = Math.max(1, this.flowLevel - 1);
-    this._setMusicGear();
+    this._onCrash('RESET');
+    s.protection = 1.1;
     this._prevPos.copy(s.pos);
     this.fx.wake.clear();
     AudioBus.play('boostpop');
@@ -1501,8 +1580,7 @@ class SkiMission {
     this.stats.golds = this.golds;
 
     // the clock, which is the reason to bother at all
-    if (this.mode === 'trial') this.deduct += C.trialGain * (perfect ? 1.35 : 1);
-    else this.time += C.timePerHoop * (perfect ? 1.28 : 1);
+    if (this.mode === 'prize') this.time += C.timePerHoop * (perfect ? 1.28 : 1);
 
     this.flow += perfect ? C.flowPerfect : C.flowHoop;
     if (h.gold) this.flow += C.flowHoop * 0.5;
@@ -1529,8 +1607,7 @@ class SkiMission {
     for (const r of gate.rings) if (r.state === 'pending') r.state = 'missed';
     this._dimGate(gate);
     this.stats.gatesMissed++;
-    if (this.mode === 'trial') this.deduct -= C.trialMissPenalty;
-    else this.time -= C.missPenalty;
+
     this.flow -= 0.30;
     AudioBus.play('miss');
     this.fx.labels.add('MISSED', this._tmpV.copy(this.skier.pos).setY(this.skier.pos.y + 2.4),
@@ -1581,7 +1658,9 @@ class SkiMission {
   _checkChutes() {
     const s = this.skier;
     const inC = this.face.inChute(s.pos.x, s.pos.z);
-    if (inC && !this._curChute) this._enterChute(inC);
+    // The shared entrance is not a commitment. Enter only after the lines diverge,
+    // and never re-enter a bailed route near its exit to collect its reward.
+    if (inC && !this._curChute && !inC.attempted && s.pos.z >= inC.z0 + 85 && s.pos.z <= inC.z0 + 145) this._enterChute(inC);
     else if (!inC && this._curChute) this._leaveChute();
 
     // ...and the card for whichever one is next
@@ -1598,7 +1677,7 @@ class SkiMission {
   _enterChute(c) {
     this._curChute = c;
     this._chuteEnterZ = this.skier.pos.z;
-    c.entered = true;
+    c.entered = true; c.attempted = true;
     this.flow += this.C.flowChute * 0.5;
     AudioBus.play('boostpop');
     this._flash(0.20, '#ffd166');
@@ -1615,7 +1694,8 @@ class SkiMission {
     const c = this._curChute;
     this._curChute = null;
     if (!c) return;
-    const out = this.skier.pos.z >= c.z1 - 8;
+    if (c.taken) return;
+    const out = !this.skier.crashed && this.skier.pos.z >= c.z1 - 8 && (this._chuteEnterZ === undefined || this.skier.pos.z - this._chuteEnterZ >= (c.z1 - c.z0) * .65);
     if (out) {
       c.taken = true;
       this.chutesDone++;
@@ -1626,8 +1706,7 @@ class SkiMission {
       this.stats.chutesTaken.push(c.name);
       this.stats.chuteMetres += Math.round(c.gain);
       this.flow += this.C.flowChute;
-      if (this.mode === 'trial') this.deduct += this.C.trialGain * 2;
-      else this.time += this.C.timePerHoop * 1.8;
+      if (this.mode === 'prize') this.time += this.C.timePerHoop * 1.8;
       AudioBus.play('finish');
       this._flash(0.24, '#ffd166');
       this.fx.labels.add(c.name.toUpperCase() + '  ' + U.money(Math.round(m * this.payout)),
@@ -1740,6 +1819,7 @@ class SkiMission {
     this.camDip = Math.min(1, this.camDip + U.clamp(tk.impact / 20, 0.1, 1));
     this.stats.landings++;
 
+    this._landingFeedback = { text: tk.grade.name + ' · ' + (tk.reason || 'Skis aligned'), until: this.elapsed + 2 };
     if (!tk.landed) return;                 // the crash path handles the rest
 
     /* What counts as a trick. Hang time and height alone used to, and
@@ -1750,18 +1830,10 @@ class SkiMission {
        pays once there is enough of it to have been a decision, and a
        hop off a roller pays nothing but still feeds the meter, which is
        the correct reward for it. */
-    const worthIt = tk.spins >= 1 || tk.flips >= 1 || tk.rolls >= 1
+    const worthIt = tk.spins >= .5 || tk.flips >= 1 || tk.rolls >= 1
                  || tk.grabbed || tk.height >= 6;
     if (tk.air > 0.30 && worthIt) {
-      let m = tk.spins * C.trickSpin
-            + tk.flips * C.trickFlip
-            + (tk.rolls || 0) * C.trickRoll
-            + (tk.grabbed ? C.trickGrab : 0)
-            + Math.max(0, tk.air - 0.5) * C.trickAir
-            + Math.max(0, tk.height - 4) * C.trickHeight;
-      m *= tk.grade.pay;
-      if (tk.stomped) m *= C.stompMult;
-      m = Math.min(m * this.flowLevel * this._mult, C.trickCap);
+      const m = this.ledger.landing(tk, s.pos.z, this.elapsed, this.flowLevel);
       this.money += m;
       this.trickMoney += m;
       this.tricks++;
@@ -1769,8 +1841,7 @@ class SkiMission {
       if (tk.stomped) {
         this.stomps++;
         this.stats.stomps = this.stomps;
-        if (this.mode === 'trial') this.deduct += C.timeStompBonus * 0.6;
-        else this.time += C.timeStompBonus;
+
       }
       this.flow += tk.grade.flow * 0.16;
 
@@ -1824,10 +1895,11 @@ class SkiMission {
        afterwards — so a good player's correct move became to stop
        trying, which is the opposite of what this meter is for. */
     this.flow = 0;
-    this.flowLevel = Math.max(1, this.flowLevel - 3);
+    this.flowLevel = Math.max(1, this.flowLevel - 2);
     this._setMusicGear();
     if (this.mode === 'trial') this.deduct -= C.trialCrashPenalty;
-    else this.time -= C.crashPenalty;
+    else if (this.mode === 'prize') this.time -= C.crashPenalty;
+    if (this.ledger) this.ledger.crash(s.pos.z);
     this.hitStop = 0.10;
     this.shake = 1;
     this.timeScaleTarget = 0.55;
@@ -1838,7 +1910,7 @@ class SkiMission {
     this._flash(0.26, '#ff6a6a');
     const label = reason === 'TREE' ? 'TREE!' : reason === 'ROCK' ? 'ROCK!' : 'DOWN';
     this._setCenter(label,
-      this.flags.oneCrash ? '' : '−' + C.crashPenalty.toFixed(0) + 's · −3 rungs', 'bad');
+      this.flags.oneCrash ? '' : '−' + C.crashPenalty.toFixed(0) + 's · −2 flow', 'bad');
     clearTimeout(this._crashT);
     this._crashT = setTimeout(() => {
       if (this.state === 'running') this._setCenter('', '');
@@ -1863,6 +1935,7 @@ class SkiMission {
 
   _checkSection() {
     const sec = this.face.sectionAt(this.skier.pos.z);
+    if (this.ledger && !this.ledger.splits.some(s => s.id === sec.id)) this.ledger.splits.push({ id: sec.id, name: sec.name, time: this.elapsed });
     if (!sec || this._seenSection.has(sec)) return;
     this._seenSection.add(sec);
     this.section = sec;
@@ -1877,7 +1950,7 @@ class SkiMission {
     if (this._inFinal) return;
     if (this.skier.pos.z < this.face.total * this.C.finalFrom) return;
     this._inFinal = true;
-    this._setCenter('LAST STRETCH', `Everything pays ×${this.C.finalMult}`, 'go');
+    this._landingFeedback = { text: 'Final section · keep your speed', until: this.elapsed + 2 };
     this._flash(0.26, '#b98cff');
     this.fovKick = Math.min(this.fovKick + 9, 16);
     AudioBus.play('perfect', { combo: 8 });
@@ -1916,8 +1989,11 @@ class SkiMission {
       ? Math.round(Math.max(0, this.targets.par - finalTime) * C.timeBonusPerSecond)
       : Math.round(Math.max(0, this.time) * C.timeBonusPerSecond);
     const raw = this.money + C.finishBonus + timeBonus;
-    const earned = Math.round(raw * this.payout);
-    const medal = this._medalFor(trial ? finalTime : earned);
+    let earned = Math.min(88000, Math.round(raw * this.payout));
+    const medal = this._medalFor(trial ? finalTime : this.mode === 'freestyle' ? this.ledger.style : earned);
+    if (trial || this.mode === 'freestyle') earned = Math.round((6000 + medal * 8000) * this.payout);
+    if (this.mode === 'practice') earned = 0;
+    earned = Math.min(88000, earned);
 
     AudioBus.play('finish');
     if (this.score && this.score.setGear) this.score.setGear(0, 3);
@@ -1927,7 +2003,9 @@ class SkiMission {
     this._confetti();
     this.result = this._buildResult({
       completed: true, earned, raw, timeBonus, finalTime, medal,
-      finishBonus: C.finishBonus,
+      finishBonus: this.mode === 'prize' ? C.finishBonus : 0,
+      completionReward: trial || this.mode === 'freestyle' ? Math.round(6000 * this.payout) : 0,
+      medalReward: trial || this.mode === 'freestyle' ? Math.round(medal * 8000 * this.payout) : 0,
     });
     this._reportT = setTimeout(() => this._report(), 1900);
   }
@@ -1945,7 +2023,7 @@ class SkiMission {
     this.timeScaleTarget = 0.5;
     // half of what the mountain paid is still money — unless the card
     // you took says it is not
-    const kept = this.flags.allOrNothing ? 0 : Math.round(this.money * 0.5 * this.payout);
+    const kept = this.mode !== 'prize' || this.flags.allOrNothing ? 0 : Math.min(88000, Math.round(this.money * .5 * this.payout));
     this.result = this._buildResult({
       completed: false, earned: kept, raw: this.money, timeBonus: 0,
       finalTime: this.mode === 'trial' ? this._clock() : 0, medal: 0, finishBonus: 0,
@@ -1972,6 +2050,12 @@ class SkiMission {
   _buildResult(part) {
     return Object.assign({
       mode: this.mode,
+      rulesVersion: SkiCourse.RULES,
+      conditions: { ...this.cond },
+      styleScore: this.ledger.style, bestChain: this.ledger.bestChain,
+      trickDiversity: this.ledger.families.size, grindDistance: this.ledger.grindDistance,
+      routeSplits: this.ledger.splits.slice(), crashLocations: this.ledger.crashLocations.slice(),
+      carveMetres: this.carveMetres,
       modeName: this.modeDef.name,
       seed: this.seed,
       courseName: this.courseName,
@@ -2018,11 +2102,15 @@ class SkiMission {
     this.reported = true;
     const r = this.result;
     if (this.opts.tod === 'auto') SkiMission.advanceTime();
-    const { isBest } = GameState.recordRun('ski', this.key, r, this.modeDef.better);
+    r.challengeProgress = SkiProgression.complete(r);
+    const { isBest } = this.mode === 'practice' ? { isBest: false } : GameState.recordRun('ski', this.key, r, this.modeDef.better);
     r.courseBest = isBest;
     r.ghostDelta = this.ghost && this.ghostDelta !== null ? this.ghostDelta : null;
     if (r.completed && isBest && this.rec.x.length > 4) {
       GameState.saveGhost('ski', this.key, {
+        rulesVersion: SkiCourse.RULES, conditions: this.cond,
+        times: this.rec.times,
+        spin: this.rec.spin, pitch: this.rec.pitch, roll: this.rec.roll, stance: this.rec.stance,
         dt: this.C.ghostRate, n: this.rec.x.length,
         x: this.rec.x, y: this.rec.y, z: this.rec.z, yaw: this.rec.yaw, s: this.rec.s,
         time: this.mode === 'trial' ? r.finalTime : this.elapsed,
@@ -2056,7 +2144,10 @@ class SkiMission {
      it is also most of what a player thinks the physics is. */
 
   _updateCamera(dt) {
+    if (!this.opts.motion.shake) this.shake = 0;
+    if (!this.opts.motion.speed) { this.fovKick = 0; this.camDip = 0; }
     const s = this.skier, cam = this.camera;
+    if (this.sun) { this.sun.position.set(s.pos.x - 45, s.pos.y + 80, s.pos.z - 35); this.sun.target.position.copy(s.pos); }
     const sp01 = U.clamp(s.speed / s.tune.topSpeed, 0, 1.3);
     const air = s.airborne ? 1 : 0;
 
@@ -2091,6 +2182,7 @@ class SkiMission {
     this._camLook.y = U.damp(this._camLook.y, this._tmpV.y, 5, dt);
     this._camLook.z = U.damp(this._camLook.z, this._tmpV.z, 6, dt);
 
+    this._camPos.y = Math.max(this._camPos.y, this.surfaces.query(this._camPos.x, this._camPos.z, Infinity).height + 2.6);
     cam.position.copy(this._camPos);
     if (this.shake > 0.001) {
       const k = this.shake * this.shake * 1.3;
@@ -2103,10 +2195,10 @@ class SkiMission {
     // and the horizon tips into the turn, which is the single cheapest
     // thing in the file and the one people describe as "the speed"
     const wantRoll = U.clamp(-s.yawVel * 0.16 - s.lean * 0.32, -0.26, 0.26);
-    this._camRoll = U.damp(this._camRoll, s.crashed ? 0 : wantRoll, 5, dt);
+    this._camRoll = U.damp(this._camRoll, !this.opts.motion.roll || s.crashed ? 0 : wantRoll, 5, dt);
     cam.rotateZ(this._camRoll);
 
-    const targetFov = this.baseFov + sp01 * 15 + air * 3 + s.tuck * 4 + this.fovKick;
+    const targetFov = this.baseFov + (!this.opts.motion.speed ? 0 : Math.min(12, sp01 * 8 + air * 2 + s.tuck * 2 + this.fovKick));
     cam.fov = U.damp(cam.fov, targetFov, 7, dt);
     cam.updateProjectionMatrix();
   }
@@ -2115,6 +2207,10 @@ class SkiMission {
      the plume, the trench, the hiss and the speed you are losing can
      never disagree about how hard you are working. */
   _spawnFx(dt) {
+    if (this.skier.grinding && Math.random() < Math.min(1, dt * 50)) {
+      const s = this.skier;
+      this.fx.sparks.emit(s.pos.x, s.pos.y, s.pos.z, (Math.random() - .5) * 3, 1.5, -5, .4, .4, MountainKit.COL.boostHot);
+    }
     const s = this.skier;
     const C = MountainKit.COL;
     if (s.crashed) {
@@ -2173,11 +2269,12 @@ class SkiMission {
       const on = !s.airborne && !s.crashed && this.state !== 'idle';
       this.carveSnd.set(on ? sp01 : 0,
         on ? U.clamp(s.slip / 9, 0, 1) : 0,
-        (this.snow && this.snow.spray) || 1);
+        (this.snow && this.snow.spray) || 1, s.grinding ? 'rail' : s.surfaceMaterial || this.snow.id);
     }
   }
 
   _flash(amount, color) {
+    if (this.opts.motion ? !this.opts.motion.flashes : this.opts.reducedMotion) return;
     const f = this.hud.flash;
     if (!f) return;
     f.style.background = color;
@@ -2198,7 +2295,9 @@ class SkiMission {
     const h = this.hud, s = this.skier, C = this.C;
     if (!h.money) return;
 
-    h.money.textContent = U.money(Math.round(this.money * this.payout));
+    const primaryLabel = document.querySelector('.sk-purse .hud-label');
+    if (primaryLabel) primaryLabel.textContent = this.mode === 'freestyle' ? 'Banked style' : this.mode === 'trial' ? 'Race time' : this.mode === 'practice' ? 'Learn the mountain' : 'Pot earnings';
+    h.money.textContent = this.mode === 'freestyle' ? this.ledger.style.toLocaleString() + ' pts' : this.mode === 'practice' ? 'PRACTICE' : this.mode === 'trial' ? U.clockTime(this._clock()) : U.money(Math.round(this.money * this.payout));
 
     // the ladder: a rung count, a bar towards the next one, and six pips
     h.flow.textContent = '×' + this.flowLevel;
@@ -2212,7 +2311,9 @@ class SkiMission {
       }
     }
 
-    if (this.mode === 'trial') {
+    if (this.mode === 'practice' || this.mode === 'freestyle') {
+      h.time.textContent = this.mode === 'practice' ? '∞' : U.clockTime(this.elapsed);
+    } else if (this.mode === 'trial') {
       h.time.textContent = U.clockTime(this._clock());
       h.time.classList.add('trial');
       h.time.classList.remove('urgent');
@@ -2229,7 +2330,7 @@ class SkiMission {
     h.progress.classList.toggle('final', this._inFinal);
     if (h.section) {
       const sec = this.face.sectionAt(s.pos.z);
-      h.section.textContent = sec ? sec.name : '';
+      h.section.textContent = this._landingFeedback && this.elapsed < this._landingFeedback.until ? this._landingFeedback.text : sec ? sec.name : '';
     }
 
     const kmh = Math.round(s.speed * 3.6);
@@ -2249,8 +2350,13 @@ class SkiMission {
        whole number yet. The needle going green *is* the landing cue. */
     if (h.air) {
       const flying = s.airborne;
-      h.air.classList.toggle('show', flying);
-      if (flying) {
+      h.air.classList.toggle('show', flying || !!s.grinding);
+      if(h.airCue) h.airCue.textContent = s.grinding ? 'charge + release to pop out' : 'let go to land';
+      if (s.grinding) {
+        h.airRot.textContent=(s.switch?'SWITCH ':'')+'GRIND · '+Math.floor(s.grindDistance)+'m';
+        h.airH.textContent=Math.abs(s.grindBalance)<.6?'LOCKED IN':'EASE STEERING';
+        h.air.classList.toggle('true',Math.abs(s.grindBalance)<.6);
+      } else if (flying) {
         const spin = Math.abs(s.airYaw) / U.TAU;
         const flip = Math.abs(s.airPitch) / U.TAU;
         const roll = Math.abs(s.airRoll) / U.TAU;
@@ -2261,7 +2367,7 @@ class SkiMission {
            for. */
         const off = Math.min(Math.abs(flip - Math.round(flip)), 0.5)
                   + Math.min(Math.abs(roll - Math.round(roll)), 0.5);
-        const name = s._auto ? s._auto.name : null;
+        const name = SkiTricks.describe(s).name;
         const deg = Math.round(spin * 360 / 45) * 45;
         h.airRot.textContent = name
           || ((deg ? deg + '°' : '') + (Math.round(flip) ? ' ·FLIP' : '')) || 'AIR';
@@ -2278,7 +2384,7 @@ class SkiMission {
         const mid = p.c.z0 + (p.c.z1 - p.c.z0) * 0.42;
         const side = this.face.chuteX(p.c, mid) - this.face.cxAt(mid);
         h.chuteName.textContent = p.c.name;
-        h.chuteGain.textContent = 'saves ' + Math.round(p.c.gain) + 'm';
+        h.chuteGain.textContent = '◆ Technical · saves ' + Math.round(p.c.gain) + 'm';
         h.chuteArrow.textContent = side < 0 ? '◀' : '▶';
         h.chute.classList.toggle('near', p.d < 120);
       }
@@ -2303,9 +2409,9 @@ class SkiMission {
     }
 
     const sp01 = U.clamp((s.speed - 14) / (s.tune.topSpeed - 14), 0, 1);
-    if (h.vignette) h.vignette.style.opacity = String(sp01 * 0.8);
+    if (h.vignette) h.vignette.style.opacity = !this.opts.motion.speed ? 0 : String(sp01 * .8);
     if (h.lines) {
-      h.lines.style.opacity = String(U.clamp((sp01 - 0.42) * 1.5, 0, 1) * 0.55);
+      h.lines.style.opacity = !this.opts.motion.speed ? 0 : String(U.clamp((sp01 - 0.42) * 1.5, 0, 1) * 0.55);
       h.lines.classList.toggle('on', sp01 > 0.5);
     }
   }
@@ -2313,6 +2419,11 @@ class SkiMission {
   /* =================== teardown =================== */
 
   dispose() {
+    const practice = document.getElementById('ski-practice-controls'); if (practice) practice.remove();
+    if (this.sun) this.sun.shadow.dispose();
+    if (this._previousShadows !== undefined) Engine.renderer.shadowMap.enabled = this._previousShadows;
+    if (this._offResolution) this._offResolution();
+    if (this._previousPixelRatio !== undefined) Engine.renderer.setPixelRatio(this._previousPixelRatio);
     clearTimeout(this._reportT);
     clearTimeout(this._flashT);
     clearTimeout(this._chuteT);
@@ -2379,6 +2490,7 @@ class SkiMission {
 
   restart() {
     clearTimeout(this._reportT);
+    this.ledger = new SkiScoring(this.mode); this.carveMetres = 0; this._tickRemainder = 0;
     this.reported = false;
     this.result = null;
     this.state = 'countdown';
@@ -2388,7 +2500,7 @@ class SkiMission {
     this.deduct = 0;
     this.elapsed = 0;
     this.money = 0;
-    this.flow = 0; this.flowLevel = 1; this.peakFlow = 1;
+    this.flow = 0; this.flowLevel = 1; this.peakFlow = 1; this._flowGrace = 0; this._forwardMetres = 0;
     this.hoopsHit = 0; this.perfects = 0; this.golds = 0;
     this.tricks = 0; this.stomps = 0; this.crashes = 0; this.chutesDone = 0;
     this.hoopMoney = this.trickMoney = this.grazeMoney = 0;
@@ -2410,11 +2522,11 @@ class SkiMission {
     this.avZ = this.C.avStart;
     this.ghostT = 0;
     this.ghostDelta = null;
-    this.rec = { x: [], y: [], z: [], yaw: [], s: [] };
+    this.rec = { x: [], y: [], z: [], yaw: [], s: [], spin: [], pitch: [], roll: [], stance: [], times: [] };
     this._recAcc = 0;
     this.hitStop = 0; this.timeScale = 1; this.timeScaleTarget = 1;
     this.shake = 0; this.fovKick = 0; this.camDip = 0; this.camPush = 0;
-    for (const c of this.chutes) { c.taken = false; c.entered = false; c.passed = false; }
+    for (const c of this.chutes) { c.taken = false; c.entered = false; c.passed = false; c.attempted = false; }
     for (const g of this.gates) {
       g.state = 'pending';
       for (const r of g.rings) { r.state = 'pending'; r.flash = 0; r.group.scale.setScalar(1); }
@@ -2470,14 +2582,14 @@ const SkiAudio = (() => {
     return {
       /* speed01 = 0..1, slip01 = 0..1, and spray scales how loud this
          snow is. */
-      set(speed01, slip01, spray = 1) {
+      set(speed01, slip01, spray = 1, surface = 'snow') {
         const tt = ctx.currentTime;
         const sp = U.clamp(speed01, 0, 1), sl = U.clamp(slip01, 0, 1);
         g1.gain.setTargetAtTime(0.0001 + 0.085 * sp * sp * spray, tt, 0.10);
-        lp.frequency.setTargetAtTime(380 + sp * 2100, tt, 0.10);
+        lp.frequency.setTargetAtTime((surface === 'powder' ? 220 : surface === 'ice' ? 1600 : 380) + sp * 2100, tt, 0.10);
         g2.gain.setTargetAtTime(
-          0.0001 + 0.115 * sl * (0.35 + sp * 0.65) * spray, tt, 0.07);
-        bp.frequency.setTargetAtTime(1500 + sl * 3400 + sp * 900, tt, 0.08);
+          0.0001 + 0.115 * (surface === 'rail' ? .8 : sl) * (0.35 + sp * 0.65) * spray, tt, 0.07);
+        bp.frequency.setTargetAtTime((surface === 'rail' ? 4800 : surface === 'ice' ? 3000 : 1500) + sl * 3400 + sp * 900, tt, 0.08);
         bp.Q.setTargetAtTime(1.1 + sl * 1.6, tt, 0.12);
       },
       stop() {
@@ -2556,34 +2668,12 @@ AudioBus.define('yardsale', (c, dest) => {
 Missions.register({
   id: 'ski',
   name: 'The Descent',
-  tagline: 'The hill does the driving. All you do is not give it back.',
-  description:
-    'One face of a highland mountain, drawn fresh from whatever seed you pick: a cornice '
-    + 'to drop off, five stretches of mountain in an order you have not seen before, and a '
-    + 'flat runout at the bottom where the run is actually decided. There is no throttle. '
-    + 'Gravity is the engine and every decision you make is about how much of what it gave '
-    + 'you you are prepared to hand back — a clean carve keeps nearly all of it, a skid '
-    + 'gives it away, and a tree takes the lot. '
-    + 'One meter runs the whole thing. Carve well, get air, thread a hoop or ski close '
-    + 'enough to the wood to hear it and the meter climbs a rung; crawl, skid or fall over '
-    + 'and it drops. Whatever rung you are on multiplies every pound the mountain pays, so '
-    + 'the entire mission is one sentence: go down fast and never stop doing things. '
-    + '<kbd>Space</kbd> is the whole game. Hold it to crouch, let go to pop — and let go '
-    + 'exactly as the lip leaves your feet and you will go somewhere. '
-    + 'You do not have to touch it to look good, though. Leave a lip with real air under '
-    + 'you and the skier throws a trick on its own — a grab, a cork, a flat spin, a triple '
-    + '— made up on the spot from three axes rather than picked off a list, so there is '
-    + 'nothing to unlock and nothing to run out of. Press <kbd>Space</kbd> again in the '
-    + 'air and it adds another turn to whatever is already going round, for as long as '
-    + 'there is room to land it. '
-    + 'The mountain is built for it. Blue and amber bars on the snow are boost pads and '
-    + 'there are hundreds: drive down the middle of one and it pushes you the whole way '
-    + 'along it. Spinners turn in the air over the fall line: get to one, through the middle, '
-    + 'and it pays, shoves you and hands you a fresh trick on the way past. '
-    + 'The mountain is littered with kickers, hips, rollers and cliffs, and it is cut '
-    + 'through by shortcuts: straight lines down the fall line where the groomed run '
-    + 'traverses, marked from a long way up, worth real seconds and full of gold hoops. '
-    + 'They also go through the trees.',
+  tagline: 'Six sections. Three lines. One mountain to master.',
+  description: 'Carve from the exposed summit through blue glacier walls and snowy pines to the village. '
+    + 'Follow cyan piste markers, amber diamonds for technical cuts, or pink freestyle lines. '
+    + 'Hold Space to charge and release to pop. In the air, hold Space with a direction to spin or flip; '
+    + 'release to align. Q/E hold mute or tail grabs. Ride straight onto a metal rail entrance or land along it to grind; ease steering, then charge and pop to exit. '
+    + 'Practice is untimed and every ability is available immediately.',
   icon: '04',
   maxPrize: 88000,
   players: '1-3',
@@ -2600,41 +2690,15 @@ Missions.register({
   better: (a, b) => (a.earned || 0) > (b.earned || 0),
 
   tips: [
-    '<b>There is no throttle.</b> <kbd>W</kbd> is a tuck — less drag, more speed, and '
-      + 'almost no steering. <kbd>S</kbd> is a check: it turns hard and scrubs hard. Most '
-      + 'of a good run is spent in neither.',
-    '<b>Carve, do not skid.</b> Turning costs you speed in proportion to how much the ski '
-      + 'is sliding sideways, not to how far round you turned. A long clean arc is nearly '
-      + 'free. A panic turn is not.',
-    '<b>Hold <kbd>Space</kbd>, then let go at the lip.</b> Holding it crouches and stores '
-      + 'a pop; releasing spends it, right then, off whatever you are stood on. Time the '
-      + 'release to the last metre of a kicker and you will double the jump.',
-    '<b>Every jump throws a trick.</b> Off any real lip the skier makes one up and lands it '
-      + 'for you. Nothing is locked and nothing is a list — a double cork can come up off '
-      + 'your first kicker, and the lip finds the height to fit it in.',
-    '<b>Space again in the air adds a turn.</b> Each press puts another rotation on '
-      + 'whatever is already going round, as long as there is still air to land it in. '
-      + 'Lean on it off a cliff and see what comes out.',
-    '<b>Aim at the blue.</b> The barred stripes on the snow are boost pads. They accelerate '
-      + 'you the whole way along and turn what is left into height off the lip, so the '
-      + 'middle of one is worth a lot more than the corner. The amber ones are the big '
-      + 'ones, and the meanest are down the shortcuts.',
-    '<b>Spinners are never a miss.</b> The turning rings are above the snow, so getting '
-      + 'through one means arriving already in the air, off something, on purpose. Through '
-      + 'the middle pays most, and it hands you a fresh trick on the way out.',
-    '<b>The meter is the money.</b> Six rungs, and whatever rung you are on multiplies '
-      + 'everything: hoops, tricks, trees and every metre of the descent. Going slowly is '
-      + 'the only thing that empties it faster than falling over.',
-    '<b>Take the shortcuts.</b> When the run traverses, the line straight down the fall '
-      + 'line is shorter — that is what the lit gate is telling you. Every hoop inside one '
-      + 'is gold, and getting out of the bottom of one pays again.',
-    '<b>The trees pay.</b> Skiing inside the wood earns while you hold it. So does hitting '
-      + 'one, in the other direction.',
-    '<b>Arrive with speed.</b> The runout at the bottom is nearly flat and pays double. '
-      + 'Whatever you are carrying when you reach it is all you are getting.',
+    '<b>Carve:</b> A/D steer, W tucks, S brakes. Keep some steering room before a turn.',
+    '<b>Pop:</b> hold Space and release. Speed, terrain and your charge set the flight.',
+    '<b>Tricks:</b> hold Space in the air with A/D to spin or W/S to flip. Diagonals add cork rotation. Q/E grab.',
+    '<b>Land:</b> release Space near alignment. Half turns land switch; unfinished flips crash.',
+    '<b>Rails:</b> ride onto the low entrance or land aligned. Relax steering for a steady slide; hold and release Space to pop out.',
+    '<b>Routes:</b> cyan piste, amber technical cuts, pink freestyle. Cut signs show measured metres saved.',
   ],
-  keys: ['<kbd>A</kbd><kbd>D</kbd> carve', '<kbd>W</kbd> tuck · <kbd>S</kbd> check',
-         '<kbd>Space</kbd> pop · again in the air for another turn'],
+  keys: ['<kbd>A</kbd><kbd>D</kbd> carve · <kbd>W</kbd> tuck · <kbd>S</kbd> brake',
+    '<kbd>Space</kbd> charge / pop · hold + direction in air', '<kbd>Q</kbd><kbd>E</kbd> grabs'],
 
   /* What this client tells the other two about its own run. Every card
      in the ski deck moves one of these columns and every card's alibi
@@ -2664,6 +2728,11 @@ Missions.register({
   resultRows: (r) => {
     const trial = r.mode === 'trial';
     const rows = [
+      ['Style score', String(r.styleScore || 0)],
+      ['Best chain', String(r.bestChain || 0)],
+      ['Trick families', String(r.trickDiversity || 0)],
+      ['Grind distance', Math.round(r.grindDistance || 0) + 'm'],
+      ['Mastery completed', String((r.challengeProgress || []).length)],
       ['Vertical', `${r.vertical}m of ${r.verticalTotal}m`],
       ['Hoops threaded', String(r.hoops)],
     ];
@@ -2683,7 +2752,15 @@ Missions.register({
     if (r.crashes) rows.push(['Times down', String(r.crashes)]);
     if (trial) rows.push(['Final time', U.clockTime(r.finalTime || 0)],
                          ['Par for this mountain', U.clockTime(r.par || 0)]);
+    if (r.routeSplits && r.routeSplits.length) for (let i = 1; i < r.routeSplits.length; i++) {
+      rows.push([r.routeSplits[i - 1].name, (r.routeSplits[i].time - r.routeSplits[i - 1].time).toFixed(1) + 's']);
+    }
+    if (r.crashLocations && r.crashLocations.length) rows.push(['Recoverable mistakes', r.crashLocations.map(z => 'Crash at ' + z + 'm').join(' · ')]);
     rows.push(null);
+    if (r.mode !== 'prize') {
+      if (r.mode !== 'practice') rows.push(['Completion reward', U.money(r.completionReward || 0)], ['Medal reward', U.money(r.medalReward || 0)]);
+      return rows;
+    }
     if (r.descentMoney) rows.push(['The descent', U.money(Math.round(r.descentMoney))]);
     if (r.hoopMoney) rows.push(['Hoops', U.money(Math.round(r.hoopMoney))]);
     if (r.trickMoney) rows.push(['Air', U.money(Math.round(r.trickMoney))]);

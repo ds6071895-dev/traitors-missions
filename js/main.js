@@ -88,6 +88,9 @@ const Game = (() => {
 
   let setup = null;          // the live setup for whichever mission is briefed
   let setupDef = null;
+  // which of the Descent's folded briefing sections are open; every
+  // setup change re-renders the panel, so this outlives the elements
+  const skiOpen = { options: false, mastery: false };
 
   // Each mission remembers its own setup: a mode id only means something to
   // the mission that defined it, so one shared blob would leak a shootout
@@ -106,6 +109,7 @@ const Game = (() => {
       tod: saved.tod || 'auto',
       modId: saved.modId || null,
       ghost: saved.ghost !== false,
+      ...(def.id === 'ski' ? { section: saved.section || null, quality: saved.quality || 'medium', reducedMotion: saved.reducedMotion !== false, motion: saved.motion || null } : {}),
     };
   }
 
@@ -116,6 +120,7 @@ const Game = (() => {
   }
 
   function setSetup(patch, opts = {}) {
+    if (setupDef && setupDef.id === 'ski' && (patch.seed !== undefined || patch.tod !== undefined || patch.modId !== undefined)) delete setup.conditions;
     Object.assign(setup, patch);
     saveSetup();
     if (!opts.quiet) AudioBus.play('ui-click');
@@ -149,6 +154,107 @@ const Game = (() => {
       modeWrap.appendChild(b);
     }
     document.getElementById('setup-mode-note').textContent = p.mode.blurb;
+    for (const id of ['ski-setup-extra', 'ski-setup-section', 'ski-fav']) {
+      const old = document.getElementById(id); if (old) old.remove();
+    }
+    /* The Descent has more to set than any other mission, and it used to
+       say all of it at once as a column of bare dropdowns. It now uses
+       the briefing's own parts: the one choice practice needs sits under
+       the mode, the star sits with the seed it saves, and the settings
+       you set once fold away under the rest. */
+    if (setupDef.id === 'ski') {
+      const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+      const chip = (parent, label, on, fn) => {
+        const b = el('button', 'chip' + (on ? ' on' : ''), label);
+        b.setAttribute('aria-pressed', String(!!on)); b.onclick = fn; parent.appendChild(b); return b;
+      };
+      const field = (parent, label, wide) => {
+        const f = el('div', 'sx-field' + (wide ? ' sx-wide' : ''));
+        if (label) f.appendChild(el('span', 'dr-label', label));
+        parent.appendChild(f); return f;
+      };
+      const select = (parent, label, entries, value, change, showLabel = true) => {
+        const input = el('select', 'dr-select'); input.setAttribute('aria-label', label);
+        for (const [id, name] of entries) { const option = el('option', null, name); option.value = id; input.appendChild(option); }
+        input.value = value; input.onchange = () => change(input.value);
+        field(parent, showLabel ? label : null).appendChild(input);
+      };
+      const progress = SkiProgression.read();
+
+      if (setup.mode === 'practice') {
+        const section = el('div', 'setup-block'); section.id = 'ski-setup-section';
+        section.appendChild(el('div', 'setup-head', 'Section'));
+        select(section, 'Practice section', [['', 'Full mountain'], ...SkiCourse.catalog.map(s => [s.id, s.name])],
+          setup.section || '', v => setSetup({ section: v || null }), false);
+        modeWrap.parentElement.after(section);
+      }
+
+      const seed = Number(p.opts.seed);
+      const saved = progress.favourites.includes(seed);
+      const fav = chip(document.querySelector('#brief-setup .channel-seed'), saved ? '★' : '☆', saved,
+        () => { SkiProgression.favourite(seed); setSetup({}); });
+      fav.id = 'ski-fav';
+      fav.title = saved ? 'In your favourite mountains' : 'Save this mountain to your favourites';
+      fav.setAttribute('aria-label', fav.title);
+
+      const extra = el('div'); extra.id = 'ski-setup-extra';
+      // a daily is a scored run, which is exactly what practice is not
+      if (setup.mode !== 'practice') {
+        const daily = el('div', 'setup-block');
+        daily.appendChild(el('div', 'setup-head', 'Today\'s runs'));
+        const row = el('div', 'sx-row');
+        for (const d of SkiProgression.daily()) {
+          chip(row, SkiMission.MODES[d.mode].name, !!setup.daily && setup.mode === d.mode && seed === d.seed, () => setSetup(d));
+        }
+        daily.appendChild(row); extra.appendChild(daily);
+      }
+
+      const fold = (key, head, sub, build) => {
+        const toggle = el('button', 'sx-toggle');
+        toggle.append(el('span', 'setup-head', head), el('span', 'setup-sub', sub));
+        const body = el('div', 'sx-body'); build(body);
+        const paint = () => { body.hidden = !skiOpen[key]; toggle.setAttribute('aria-expanded', String(skiOpen[key])); };
+        toggle.onclick = () => { skiOpen[key] = !skiOpen[key]; paint(); AudioBus.play('ui-click'); UINav.scan(); };
+        paint(); extra.append(toggle, body);
+      };
+
+      fold('options', 'Options', 'graphics · motion · look', body => {
+        const grid = el('div', 'sx-grid');
+        const seg = (label, entries, value, change) => {
+          const s = el('div', 'seg');
+          for (const [id, name] of entries) { const b = el('button', 'seg-btn' + (id === value ? ' on' : ''), name); b.onclick = () => change(id); s.appendChild(b); }
+          field(grid, label).appendChild(s);
+        };
+        seg('Graphics', [['low', 'Low'], ['medium', 'Med'], ['high', 'High']], setup.quality || 'medium', quality => setSetup({ quality }));
+        seg('Motion', [['reduced', 'Reduced'], ['full', 'Full']], setup.reducedMotion === false ? 'full' : 'reduced',
+          v => setSetup({ reducedMotion: v !== 'full', motion: null }));
+        const motion = setup.motion || Object.fromEntries(['shake', 'roll', 'speed', 'flashes'].map(k => [k, setup.reducedMotion === false]));
+        const effects = el('div', 'sx-row');
+        for (const [key, label] of [['shake', 'Shake'], ['roll', 'Roll'], ['speed', 'Speed lines'], ['flashes', 'Flashes']]) {
+          chip(effects, label, motion[key], () => setSetup({ motion: { ...motion, [key]: !motion[key] } }));
+        }
+        field(grid, 'Camera effects', true).appendChild(effects);
+        const unlocked = SkiProgression.rewards.map((name, i) => [String(i), name]).filter((_, i) => SkiProgression.challenges.filter(c => c.reward === i).every(c => progress.done.includes(c.id)));
+        select(grid, 'Look', [['-1', 'Original look'], ...unlocked], String(progress.equipped), v => { progress.equipped = Number(v); SkiProgression.save(progress); });
+        if (progress.favourites.length) {
+          select(grid, 'Favourites', [...(saved ? [] : [['', 'Pick a mountain']]), ...progress.favourites.map(n => [String(n), U.courseName(n)])],
+            saved ? String(seed) : '', v => { if (v) setSetup({ seed: Number(v) }); });
+        }
+        body.appendChild(grid);
+      });
+
+      fold('mastery', 'Mastery', progress.done.length + '/' + SkiProgression.challenges.length, body => {
+        const list = el('ul', 'sx-mastery');
+        for (const c of SkiProgression.challenges) {
+          const li = el('li', progress.done.includes(c.id) ? 'done' : null, c.name);
+          li.appendChild(el('i', null, String(c.target))); list.appendChild(li);
+        }
+        body.appendChild(list);
+      });
+
+      document.getElementById('brief-setup').appendChild(extra);
+    }
+
 
     // --- the place you are about to play ---
     const labels = setupDef.setupLabels || {};
@@ -529,9 +635,22 @@ const Game = (() => {
     };
     countMoney(Math.max(0, Math.round(r.earned || 0)));
 
-    for (const id of ['result-retry', 'result-new', 'result-menu']) {
+    /* Two buttons and two quiet links: going again and going back are
+       the choices nearly everyone makes, so only those are buttons. */
+    for (const id of ['result-retry', 'result-menu', 'result-more']) {
       document.getElementById(id).hidden = inRun || inParty;
     }
+    // practice earns nothing, so it says nothing about the pot either
+    const practising = def.id === 'ski' && r.mode === 'practice';
+    document.getElementById('result-retry').textContent = practising ? 'Practice again' : 'Race again';
+    earnedEl.parentElement.hidden = potEl.parentElement.hidden = practising;
+    const practiceButton = document.getElementById('result-practice-ski');
+    practiceButton.hidden = def.id !== 'ski' || practising;
+    practiceButton.onclick = () => {
+      AudioBus.play('ui-click');
+      const section = r.routeSplits && r.routeSplits.length ? r.routeSplits[r.routeSplits.length - 1].id : null;
+      Screens.transition(() => { Missions.end(); Screens.hideAll(); Missions.launch('ski', { ...opts, mode: 'practice', section }); });
+    };
     const cont = document.getElementById('result-continue');
     const boardEl = document.getElementById('result-board');
     cont.hidden = !inRun && !inParty;
@@ -796,11 +915,21 @@ const Game = (() => {
        peer-left callback, and the first thing it does is tear the room
        down underneath it. Two people leaving at once queue two of
        these, and the second finds itself already out. */
+    Party.on('closed', message => {
+      if (typeof MissionParty !== 'undefined' && MissionParty.armed) {
+        MissionParty.leave();
+        toMenu();
+        Lobby.say(message, 'bad');
+      } else roomClosed(message);
+    });
     Party.on('left', (peerId, seat) => {
       if (!seat) return;
       if (typeof MissionParty !== 'undefined' && MissionParty.peerLeft(seat)) return;
       const who = seat.name || 'Somebody';
-      setTimeout(() => roomClosed(who + ' left. The room is closed.'), 0);
+      const departedRoom = Party.room;
+      setTimeout(() => {
+        if (Party.room === departedRoom) roomClosed(who + ' left. The room is closed.');
+      }, 0);
     });
 
     // audio can only start after a real user gesture, and so can speech

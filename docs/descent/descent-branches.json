@@ -1,0 +1,86 @@
+[
+  {
+    "route": "cut",
+    "snow": "packed",
+    "completed": true,
+    "elapsed": 139.56666666666132,
+    "crashes": 0
+  },
+  {
+    "route": "cut",
+    "snow": "powder",
+    "completed": true,
+    "elapsed": 154.99999999999378,
+    "crashes": 0
+  },
+  {
+    "route": "cut",
+    "snow": "spring",
+    "completed": true,
+    "elapsed": 145.13333333332767,
+    "crashes": 0
+  },
+  {
+    "route": "cut",
+    "snow": "hard",
+    "completed": true,
+    "elapsed": 131.83333333332843,
+    "crashes": 0
+  },
+  {
+    "route": "cut",
+    "snow": "ice",
+    "completed": true,
+    "elapsed": 126.06666666666207,
+    "crashes": 0
+  },
+  {
+    "route": "cut",
+    "snow": "crust",
+    "completed": true,
+    "elapsed": 149.4999999999941,
+    "crashes": 0
+  },
+  {
+    "route": "style",
+    "snow": "packed",
+    "completed": true,
+    "elapsed": 166.96666666665976,
+    "crashes": 6
+  },
+  {
+    "route": "style",
+    "snow": "powder",
+    "completed": true,
+    "elapsed": 180.23333333332567,
+    "crashes": 6
+  },
+  {
+    "route": "style",
+    "snow": "spring",
+    "completed": true,
+    "elapsed": 171.5666666666595,
+    "crashes": 6
+  },
+  {
+    "route": "style",
+    "snow": "hard",
+    "completed": true,
+    "elapsed": 160.49999999999346,
+    "crashes": 6
+  },
+  {
+    "route": "style",
+    "snow": "ice",
+    "completed": true,
+    "elapsed": 156.1999999999937,
+    "crashes": 6
+  },
+  {
+    "route": "style",
+    "snow": "crust",
+    "completed": true,
+    "elapsed": 176.16666666665924,
+    "crashes": 6
+  }
+]

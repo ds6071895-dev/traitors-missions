@@ -1,54 +1,4 @@
-/* ------------------------------------------------------------------
-   skier.js — the skier: gravity does the driving, you do the keeping.
-
-   This is the only vehicle in the game with no throttle. The boat has
-   an engine and the diver has a kick; a skier has a mountain, and every
-   decision is about not giving back what it just gave you. So the whole
-   file is organised around one number — how much of your velocity is
-   pointing where your skis are pointing — because that is what skiing
-   is:
-
-     * a carve holds the edge, the velocity follows the skis, and you
-       keep nearly all of it
-     * a skid breaks the edge, the velocity carries on the old way, and
-       the snow charges you for the difference
-     * a check breaks it on purpose, which is how you survive a corner
-       you came into too hot
-
-   `slip` is that difference in metres a second, and it is the single
-   input to the spray, the sound, the trench in the snow and the speed
-   you lose. One number, four channels, and none of them can disagree
-   with each other about how hard you are working.
-
-   The other half is the air, and it is deliberately the same modal
-   button the boat uses, for the same reason: you are holding something
-   down almost all the time, so the trick key cannot be a key you are
-   already holding for another purpose.
-
-     on snow, held    -> crouch, storing a pop
-     on snow, let go  -> that pop, right now. An ollie off anything.
-     in the air, held -> steering spins, tuck/brake flips
-     in the air, let go -> the rotation snaps to the nearest whole turn,
-                           which is the only thing that makes a landing
-                           winnable
-
-   Timing the release to land on a kicker's lip is the deepest thing in
-   the mission and it is never explained anywhere: it just pays, every
-   time, and players find it.
-
-   The third half is what the mountain does without being asked. Leave a
-   lip with real air under you and the skier throws a trick out of the
-   book on its own — a grab off a roller, a cork off a kicker, a triple
-   off a cornice — sized to the hang time and re-aimed at the snow every
-   sub-step so it is always round by the time the skis get there. The
-   trick key still overrides it, from wherever the rotation had got to,
-   and holding it is still how you get the one *you* wanted. Nobody has
-   to learn a button to look good; the players who learn it look better.
-
-   Physics runs on fixed sub-steps. At forty metres a second a dropped
-   frame is three metres of travel, and three metres is the far side of
-   a tree.
------------------------------------------------------------------- */
+/* Gravity-driven skiing. Manual rotations, bounded assistance and rail contacts. */
 class Skier {
 
   static TUNE = {
@@ -102,8 +52,6 @@ class Skier {
     rampBoost:    25,
     boostCeil:    62,     // m/s the pads will not push you past
     rampPop:      3.4,    // ...and extra m/s up the lip gives you for it
-    trickLift:    7.0,    // ...and the most a lip will find to fit a trick in
-    spinnerLift:  7.0,    // what passing through a ring is worth, straight up
 
     // --- the air ---
     airDrag:      0.0016,
@@ -111,8 +59,6 @@ class Skier {
     airSpinRate:  9.4,    // rad/s: a full 360 in two thirds of a second
     airFlipRate:  6.8,    // rad/s: a flip in nine hundred milliseconds
     airRollRate:  8.2,    // rad/s of cork, when a trick asks for one
-    autoAir:      0.58,   // hang time below which nothing is thrown
-    autoFill:     0.84,   // ...and the fraction of the flight it uses up
     landTolerance: 1.00,  // radians off true before a landing starts costing
     driftTolerance: 1.15, // ...and radians of sideways before it is a crash
     launchK:      1.00,   // the ground must fall away faster than this × g
@@ -143,52 +89,6 @@ class Skier {
        used to be worth exactly nothing to the rest of the run. */
     { id: 'stomped', min: 0.76, keep: 1.06, flow: 2,   name: 'STOMPED!', pay: 1.4 },
   ];
-
-  /* =============== tricks ===============
-
-     There is no list of tricks. There was one, briefly, and it was
-     wrong for the reason every list of tricks is wrong: a table of
-     sixteen named moves is sixteen things a player can exhaust, and
-     the moment they have seen all sixteen the mountain has stopped
-     surprising them.
-
-     So a trick is composed on the spot instead. Three axes, a random
-     number of whole turns on each, a grab or not, and a name generated
-     from whatever came out — which means "CORK 1080 TAIL" is not an
-     entry in a table, it is a description of a thing that just
-     happened and might not happen again for an hour.
-
-     Whole turns, always. Yaw is free — nothing downstream reads which
-     way the body is pointing — but a flip or a cork that lands on a
-     fraction is a landing that is already lost, so fractions are simply
-     never generated.
-
-     Nothing is locked and nothing is earned. Every jump can produce
-     anything, and when what it produced is too big for the jump, the
-     ramp finds the height rather than the trick being refused. */
-
-  static NTH = ['', '', 'DOUBLE ', 'TRIPLE ', 'QUAD ', 'FIVE '];
-
-  /* The name, generated. The rules are the ones a commentator would
-     use: a cork is an off-axis spin so it takes the degrees with it, a
-     flip with a spin in it is a rodeo one way and a misty the other,
-     and anything with all three axes going at once is a bio. */
-  static nameTrick(sp, fl, ro, grab, front) {
-    const N = Skier.NTH;
-    const deg = sp * 360;
-    let base;
-    if (fl && ro) base = sp ? 'BIO ' + deg
-                : (Math.max(fl, ro) > 1 ? N[Math.max(fl, ro)] + 'BIO'
-                                        : 'CORKED ' + (front ? 'FRONTFLIP' : 'BACKFLIP'));
-    else if (ro)  base = sp ? (ro > 1 ? N[ro] + 'CORK ' : 'CORK ') + deg
-                            : N[ro] + 'LINCOLN LOOP';
-    else if (fl)  base = sp ? (fl > 1 ? N[fl] + 'MISTY ' : (front ? 'MISTY ' : 'RODEO ')) + deg
-                            : N[fl] + (front ? 'FRONTFLIP' : 'BACKFLIP');
-    else if (sp)  base = String(deg);
-    else          base = grab ? 'GRAB' : 'AIR';
-    if (grab && (sp + fl + ro)) base += grab === 2 ? ' TAIL' : ' MUTE';
-    return base;
-  }
 
   static gradeOf(q) {
     let out = Skier.LANDINGS[0];
@@ -365,6 +265,7 @@ class Skier {
   }
 
   place(x, z, heading, world) {
+    this.grinding = null; this.switch = false; this._rotation = null; this._grabTime = 0; this.wasTrick = false; this._lipCharge = 0;
     this.pos.set(x, 0, z);
     this.vel.set(0, 0);
     this.vy = 0;
@@ -395,6 +296,11 @@ class Skier {
   sampleGround(x, z, fx, fz, world) {
     const face = world && world.face;
     if (!face) return 0;
+    if (world.surfaces && world.surfaces.near(z).length) {
+      const surface = world.surfaces.query(x, z, this.pos.y);
+      this.surfaceId = surface.id; this.surfaceMaterial = surface.material;
+      if (surface.id !== 'snow') return surface.height;
+    }
     const L = this.tune.skiHalf;
     return (face.heightAt(x - fx * L, z - fz * L)
           + face.heightAt(x, z)
@@ -413,7 +319,7 @@ class Skier {
   update(dt, ctl, world) {
     if (!(dt > 0)) return;
     this.launched = 0; this.landed = 0; this.popped = 0;
-    this.threw = 0; this.spun = 0;
+    this.threw = 0; this.spun = 0; this.grindExit = 0; this.grindEntered = false;
     this.bumped = null; this.crashedNow = null; this.lastTrick = null;
 
     const step = this.tune.subStep;
@@ -429,8 +335,12 @@ class Skier {
   _step(dt, ctl, world) {
     const T = this.tune;
     const SN = this.snow;
+    this.protection = Math.max(0, (this.protection || 0) - dt);
+    this.railCooldown = Math.max(0, (this.railCooldown || 0) - dt);
+    if (this.grinding) { this._grindStep(dt, ctl, world); return; }
     this.relaunchT = Math.max(0, this.relaunchT - dt);
     this.popT = Math.max(0, this.popT - dt);
+    this._bufferT = Math.max(0, (this._bufferT || 0) - dt);
 
     /* ---- a crash is a passenger seat, not a pause ----
        You keep sliding, because you are on a mountain and gravity has
@@ -465,6 +375,11 @@ class Skier {
         this.airRoll = this.airPitch = this.airYaw = 0;
         this._gyPrev = gyC;
         this.sv = 0;
+        const z = this._crashZ;
+        const x = fc ? fc.cxAt(z) : this.pos.x;
+        this.place(x, z, fc ? Math.atan(fc.cxSlopeAt(z)) : 0, world);
+        this.vel.set(Math.sin(this.heading) * 10, Math.cos(this.heading) * 10);
+        this.speed = 10; this.protection = 1.1;
       }
       return;
     }
@@ -483,36 +398,31 @@ class Skier {
     this._fwd.set(Math.sin(this.heading), Math.cos(this.heading));
     this._right.set(this._fwd.y, -this._fwd.x);
     const face = world && world.face;
-    const n = face ? face.normalAt(this.pos.x, this.pos.z, this._n) : this._n;
+    const n = world.surfaces && world.surfaces.near(this.pos.z).length
+      ? world.surfaces.query(this.pos.x, this.pos.z, this.pos.y).normal
+      : face ? face.normalAt(this.pos.x, this.pos.z, this._n) : this._n;
 
-    /* ---- the trick button ----
-       On the snow it is a crouch you are storing; the frame you let go
-       of it, that store becomes an ollie off whatever you are stood on.
-
-       In the air it is one press, one trick, and that is the whole of
-       it. It used to be a held modality — hold it and steer to spin,
-       hold it and tuck to flip, let go to snap square — which is a fine
-       system and which almost nobody ever operated, because it asks a
-       player to perform fine motor control during the one second of the
-       mission when the camera is moving fastest and the ground is a
-       long way off. Now the press composes something and lands it, and
-       the skill it asks for is the one it should have been asking for
-       all along: getting to the lip fast, with height, pointing
-       somewhere worth pointing. */
+    // Ground: charge/release. Air: hold with directional input, release to align.
     if (!this.airborne) {
+      if (this._bufferT > 0) { this._bufferT = 0; this._launch(world, .55, true); }
       if (trick) this.crouch = Math.min(1, this.crouch + dt / T.popCharge);
       else if (this.wasTrick && this.crouch > 0.10 && this.popT <= 0) {
         this._launch(world, this.crouch, true);
       } else this.crouch = U.damp(this.crouch, 0, 9, dt);
-    } else if (trick && !this.wasTrick) {
-      this.throwTrick();
+    } else {
+      if (!trick && this.wasTrick && this.airTime < .10 && this._lipCharge > .1) {
+        this.vy += T.popVy * this._lipCharge; this._lipCharge = 0;
+      }
+      if (trick) this._airHeld = (this._airHeld || 0) + dt;
+      if (!trick && this.wasTrick && this.vy < 0 && this.airHeight < 2 && this._airHeld > .12) this._bufferT = .14;
+      SkiTricks.step(this, dt, { ...ctl, steer, throttle: thr });
     }
     this.wasTrick = trick;
 
     // ---- steering ----
     const sp = this.vel.length();
     this.speed = sp;
-    const speedFactor = U.smoothstep(0, 4.5, sp)
+    const speedFactor = U.lerp(.45, 1, U.smoothstep(0, 4.5, sp))
                       * U.lerp(1, T.turnLowSpeed, U.clamp(sp / T.topSpeed, 0, 1));
     /* Steering stays live in the air. With the rotation no longer bound
        to the same key, A and D get their real job back: pointing the
@@ -520,10 +430,10 @@ class Skier {
     const post = this.airborne
       ? T.airYawGain
       : U.lerp(1, T.tuckTurn, this.tuck) * U.lerp(1, T.brakeTurn, this.braking);
-    const targetYaw = -steer * T.turnRate * speedFactor * post;
+    const targetYaw = this.airborne ? 0 : -steer * T.turnRate * speedFactor * post;
     this.yawVel = U.damp(this.yawVel, targetYaw, 9, dt);
     this.heading += this.yawVel * dt;
-    if (this.airborne) this.airYaw += this.yawVel * dt;
+
     this._fwd.set(Math.sin(this.heading), Math.cos(this.heading));
     this._right.set(this._fwd.y, -this._fwd.x);
 
@@ -591,10 +501,21 @@ class Skier {
                  this._fwd.y * vf + this._right.y * vl);
     this.speed = this.vel.length();
 
+    const previous = { x: this.pos.x, y: this.pos.y, z: this.pos.z };
     // ---- move ----
     this.pos.x += this.vel.x * dt;
     this.pos.z += this.vel.y * dt;
 
+    const solid = world && world.surfaces && world.surfaces.solidContact(previous, this.pos, T.radius);
+    if (solid) {
+      const t = Math.max(0, solid.t - .001);
+      this.pos.x = U.lerp(previous.x, this.pos.x, t); this.pos.z = U.lerp(previous.z, this.pos.z, t);
+      this._crash('BUILDING'); return;
+    }
+    if (world && world.surfaces && world.surfaces.edge(previous, this.pos)) {
+      this.pos.x = previous.x; this.pos.z = previous.z;
+      this._crash('PLATFORM EDGE'); return;
+    }
     if (world) this._collide(dt, world);
 
     // ---- vertical: on the snow, or off it ----
@@ -638,17 +559,29 @@ class Skier {
       }
     }
 
-    if (this._auto && this.airborne) this._advanceTrick(dt, gy);
+
 
     if (this.airborne) {
       this.vy -= T.liftG * dt;
       this.pos.y += this.vy * dt;
       this.airHeight = this.pos.y - gy;
       this.peakHeight = Math.max(this.peakHeight, this.airHeight);
+      if (world.surfaces) {
+        const ceiling = world.surfaces.underside(previous, this.pos);
+        if (ceiling !== null) { this.pos.y = ceiling; this.vy = Math.min(0, this.vy); }
+        const rail = this.vy < 0 && world.surfaces.railAt(previous, this.pos, this.heading + this.airYaw, this.railCooldown);
+        if (rail && Math.abs(SkiTricks.wrap(this.airPitch, U.TAU)) < .55 && Math.abs(SkiTricks.wrap(this.airRoll, U.TAU)) < .55) {
+          this._enterRail(rail); return;
+        }
+      }
       if (this.pos.y <= gy) {
         this.pos.y = gy;
         this._touchdown(world, n);
       }
+    }
+    if (!this.airborne && !this.crashed && world.surfaces && this.speed > 5) {
+      const rail=world.surfaces.railAt(previous,this.pos,this.heading,this.railCooldown,true);
+      if(rail) {this._enterRail(rail);return;}
     }
     this.grounded = !this.airborne;
 
@@ -702,231 +635,57 @@ class Skier {
     this.popT = T.popCd;
     this.launched = Math.max(0.05, U.clamp(this.vy / 16, 0, 1.4));
     this.popped = U.clamp(pop, 0, 1);
+    this._lipCharge = ollie ? 0 : this.crouch * (1 - T.holdPop);
     this.crouch = 0;
     this.airRoll = this.airPitch = this.airYaw = 0;
     this.grab = 0;
 
-    /* ---- how long this is going to last ----
-       Not 2v/g: the snow is running away underneath at `sink` metres a
-       second the whole time, and on a thirty per cent pitch at forty
-       that is more airtime than the launch itself provided. Solving
-
-         ½gt² = (v + sink)·t
-
-       is the whole of it, and getting this right is the difference
-       between a trick book that lands and one that guesses. */
-    const sink = Math.max(0, -(this._slopeAhead ?? 0)) * this.speed;
-    let air = U.clamp(2 * (this.vy + sink) / T.liftG, 0, 5);
     this._auto = null;
+    this._rotation = null; this._grabTime = 0; this._airHeld = 0;
+    this.lastAirEst = Math.max(0, 2 * this.vy / T.liftG);
+  }
 
-    if (air >= T.autoAir) {
-      const tk = this._composeTrick(air * T.autoFill);
+  // Rings reward route choice; they never change a ballistic trajectory.
+  spinnerHit() { this.spun = 1; }
 
-      /* ---- the lip finds the room ----
-         Nothing filters what gets composed by how big the jump was, so
-         a triple cork can come up off a two-metre roller — and rather
-         than spin it at thirty radians a second and call that a trick,
-         the ramp simply sends you higher. Solve the hang time the trick
-         wants back into a launch speed and top up towards it, capped,
-         and weighted by the pad under the lip: a boost ramp finds nine
-         metres a second for a big one, a bare roller finds half that.
+  _enterRail(contact) {
+    this.switch = Math.abs(Math.round(this.airYaw/Math.PI))%2 ? !this.switch : !!this.switch;
+    this.grinding=contact.rail; this.grindBalance=0; this.grindDistance=0; this._grindAge=0;
+    this.grindEntered=true; this.pos.x=contact.x; this.pos.y=contact.y; this.heading=contact.angle;
+    this.airborne=false; this.grounded=false; this.airRoll=this.airPitch=this.airYaw=0;
+    this.roll=0; this.pitch=0; this.vy=0; this.squat=.35;
+  }
 
-         This is the line that makes the kickers feel like the point of
-         the mountain. You come off one, something enormous unfolds, and
-         the reason it had room to unfold is the ramp. */
-      if (tk.need > air * T.autoFill) {
-        const want = (tk.need / T.autoFill) * T.liftG * 0.5 - sink;
-        const room = T.trickLift * (0.45 + 0.55 * U.clamp(bst, 0, 1.6));
-        this.vy = U.clamp(want, this.vy, this.vy + room);
-        air = U.clamp(2 * (this.vy + sink) / T.liftG, 0, 5);
-        this.launched = Math.max(0.05, U.clamp(this.vy / 16, 0, 1.4));
-      }
-      this._start(tk, air * T.autoFill);
+  _grindStep(dt, ctl, world) {
+    const rail=this.grinding;
+    this._grindAge=(this._grindAge||0)+dt;
+    // Half a second to let go of the approach steering. Neutral input settles balance.
+    const input=this._grindAge<.5 ? 0 : (ctl.steer||0);
+    this.grindBalance += (input*1.15 + Math.sin(this.pos.z*.12)*.12 - this.grindBalance*.85)*dt;
+    if(Math.abs(this.grindBalance)>1) {this.grinding=null;this._crash('RAIL BALANCE');return;}
+    if(ctl.trick)this.crouch=Math.min(1,this.crouch+dt/this.tune.popCharge);
+    const exit=!ctl.trick&&this.wasTrick&&this.crouch>.1;
+    this.wasTrick=!!ctl.trick;
+    const previous={x:this.pos.x,y:this.pos.y,z:this.pos.z};
+    let a=rail.points[0],b=rail.points[1];
+    for(let i=1;i<rail.points.length;i++){a=rail.points[i-1];b=rail.points[i];if(this.pos.z<b.z)break;}
+    const slope=(b.y-a.y)/(b.z-a.z), bend=(b.x-a.x)/(b.z-a.z);
+    this.speed=U.clamp(this.speed+(2.8-this.speed*.018)*dt,8,52);
+    this.pos.z=Math.min(rail.points[rail.points.length-1].z,this.pos.z+this.speed*dt/Math.hypot(1,slope,bend));
+    for(let i=1;i<rail.points.length;i++){a=rail.points[i-1];b=rail.points[i];if(this.pos.z<=b.z)break;}
+    const u=U.clamp((this.pos.z-a.z)/(b.z-a.z),0,1);
+    this.pos.x=U.lerp(a.x,b.x,u);this.pos.y=U.lerp(a.y,b.y,u);
+    this.grindDistance+=Math.hypot(this.pos.x-previous.x,this.pos.y-previous.y,this.pos.z-previous.z);
+    this.heading=Math.atan2(b.x-a.x,b.z-a.z);
+    this.vel.set(Math.sin(this.heading)*this.speed,Math.cos(this.heading)*this.speed);
+    this.roll=U.damp(this.roll,this.grindBalance*.28,8,dt);
+    this.pitch=Math.atan2(-(b.y-a.y),Math.hypot(b.x-a.x,b.z-a.z))*.55;
+    this.fold=U.damp(this.fold,.6+Math.abs(this.grindBalance)*.2,8,dt);
+    if(exit||this.pos.z>=rail.points[rail.points.length-1].z) {
+      this.grindExit=this.grindDistance;this.grinding=null;this.railCooldown=.25;
+      this._slopeBack=(b.y-a.y)/(b.z-a.z);
+      this._launch(world,exit?this.crouch:.22,true);
     }
-    this.lastAirEst = air;
-  }
-
-  // the skier's own LCG: one number in, one number out, no globals, so
-  // three machines in a party throw the same tricks off the same lips
-  _roll01() {
-    this._tSeed = (Math.imul(this._tSeed, 1664525) + 1013904223) >>> 0;
-    return this._tSeed / 4294967296;
-  }
-
-  /* Three axes, weighted towards the small end, then trimmed to what
-     `budget` seconds can actually turn at a rate the eye can follow.
-     The trimming is what lets the composer be greedy: it can ask for a
-     quad cork off a kerb and get back a 360, without anything having
-     had to know how big the kerb was. */
-  _composeTrick(budget) {
-    const T = this.tune;
-    const r = () => this._roll01();
-    // pow(x, bias) with bias > 1 skews low: mostly ones and twos, and
-    // the big ones stay rare enough to still be an event
-    const draw = (max, bias) => Math.min(max, Math.floor(Math.pow(r(), bias) * (max + 1)));
-    const fit = (n, rate) => Math.max(0, Math.min(n, Math.floor(budget * rate / U.TAU + 0.04)));
-
-    let sp = fit(draw(4, 1.35), T.airSpinRate);
-    let fl = fit(draw(2, 2.30), T.airFlipRate);
-    let ro = fit(draw(2, 2.55), T.airRollRate);
-    const front = r() < 0.32;
-    // a grab is the answer to a jump with no room for anything else, so
-    // it is likeliest exactly when nothing else fitted
-    const grab = (sp + fl + ro) === 0 ? (r() < 0.55 ? 2 : 1)
-               : (r() < 0.42 ? (r() < 0.4 ? 2 : 1) : 0);
-
-    const need = Math.max(sp * U.TAU / T.airSpinRate,
-                          fl * U.TAU / T.airFlipRate,
-                          ro * U.TAU / T.airRollRate, 0.18);
-    return {
-      spins: sp, flips: fl, rolls: ro, grab, need,
-      yaw: sp * (r() < 0.5 ? 1 : -1),
-      pitch: fl * (front ? 1 : -1),
-      roll: ro * (r() < 0.5 ? 1 : -1),
-      name: Skier.nameTrick(sp, fl, ro, grab, front),
-    };
-  }
-
-  /* Start one, from wherever the body already is. The targets are the
-     current rotation rounded to a whole turn plus the turns asked for,
-     which is the bit that makes re-throwing mid-flight seamless: a new
-     trick thrown a third of the way through the last one absorbs that
-     third rather than snapping through it. */
-  _start(tk, budget) {
-    const y0 = this.airYaw, p0 = this.airPitch, r0 = this.airRoll;
-    const whole = (v) => Math.round(v / U.TAU) * U.TAU;
-    this._auto = {
-      y0, p0, r0,
-      y1: whole(y0) + tk.yaw * U.TAU,
-      p1: whole(p0) + tk.pitch * U.TAU,
-      r1: whole(r0) + tk.roll * U.TAU,
-      spins: tk.spins, flips: tk.flips, rolls: tk.rolls,
-      front: tk.pitch > 0, grab: tk.grab, name: tk.name,
-      dur: Math.max(0.22, Math.min(budget, tk.need * 1.35)),
-      t: 0,
-    };
-    this.threw = 1;
-    return this._auto;
-  }
-
-  /* Pressing it again, while something is already turning. It adds to
-     what is going round rather than restarting it, which is the whole
-     difference between a button that does something and a button that
-     cancels itself: mashing this used to compose a fresh trick out of
-     the two tenths of a second that were left, and two tenths of a
-     second buys a grab, so a player leaning on the key got thirty
-     grabs in a row and concluded the key was broken.
-
-     It rebases on the way through — the pose you are in becomes the new
-     start — so the rotation never steps backwards when the clock it is
-     measured against changes underneath it. */
-  _addTurn(budget) {
-    const T = this.tune;
-    const a = this._auto;
-    const dur = Math.max(0.20, budget);
-    const dir = (v, base) => Math.sign(v - base) || 1;
-
-    /* Room is measured against what is *left to turn*, not against the
-       size of the trick. The difference matters: a 720 that is already
-       three quarters round has almost no rotation outstanding, so there
-       is room to add to it — and asking whether a 1080 fits in the
-       remaining quarter second, which is what the size test asks, would
-       always have said no. Getting this wrong is a landing that arrives
-       mid-flip, so it is worth the six lines. */
-    const fits = (y1, p1, r1) =>
-      Math.abs(y1 - this.airYaw) / T.airSpinRate <= dur
-      && Math.abs(p1 - this.airPitch) / T.airFlipRate <= dur
-      && Math.abs(r1 - this.airRoll) / T.airRollRate <= dur;
-
-    const picks = [];
-    if (fits(a.y1 + U.TAU * dir(a.y1, a.y0), a.p1, a.r1)) picks.push(0);
-    if (fits(a.y1, a.p1 + U.TAU * (a.front ? 1 : -1), a.r1)) picks.push(1);
-    if (fits(a.y1, a.p1, a.r1 + U.TAU * dir(a.r1, a.r0))) picks.push(2);
-    if (!picks.length) {
-      // no room for another turn: the only thing left to add is style
-      if (a.grab === 2) return null;
-      a.grab = a.grab ? 2 : 1;
-    } else {
-      const k = picks[Math.min(picks.length - 1, Math.floor(this._roll01() * picks.length))];
-      if (k === 0) { a.spins++; a.y1 += U.TAU * dir(a.y1, a.y0); }
-      if (k === 1) { a.flips++; a.p1 += U.TAU * (a.front ? 1 : -1); }
-      if (k === 2) { a.rolls++; a.r1 += U.TAU * dir(a.r1, a.r0); }
-    }
-    a.y0 = this.airYaw; a.p0 = this.airPitch; a.r0 = this.airRoll;
-    a.t = 0;
-    a.dur = dur;
-    a.name = Skier.nameTrick(a.spins, a.flips, a.rolls, a.grab, a.front);
-    this.threw = 1;
-    return a;
-  }
-
-  /* The button, in the air. One press, one trick — no held modality, no
-     axis to steer, nothing to learn. It composes from the air you have
-     left, so mashing it near the snow gets you a grab and pressing it
-     at the top of a cliff drop gets you something absurd, and either
-     way it lands. */
-  throwTrick() {
-    const T = this.tune;
-    if (!this.airborne) return null;
-    const drop = Math.max(0, this.pos.y - this.groundY);
-    const tG = (this.vy + Math.sqrt(Math.max(0, this.vy * this.vy + 2 * T.liftG * drop)))
-             / T.liftG;
-    const budget = Math.max(0.20, tG * T.autoFill);
-    const a = this._auto;
-    if (a && a.t < a.dur) return this._addTurn(budget);
-    return this._start(this._composeTrick(budget), budget);
-  }
-
-  /* A spinner: it hands you speed, height and a fresh trick, which is
-     the whole reason to aim at one rather than past it. */
-  spinnerHit(power = 1) {
-    const T = this.tune;
-    const p = U.clamp(power, 0, 2);
-    this.vel.multiplyScalar(1 + 0.10 * p);
-    this.speed = this.vel.length();
-    if (this.airborne) {
-      this.vy += T.spinnerLift * p;
-      this.throwTrick();
-    }
-    this.spun = 1;
-  }
-
-  /* An automatic rotation is aimed at the snow rather than at a
-     stopwatch. Every sub-step it re-solves, ballistically and against
-     the ground height actually under it right now, how long is left
-     before touchdown — and shortens the trick to fit inside that.
-
-     That one line is what makes any of this landable. A jump that came
-     up short does not put you down halfway through a backflip; it makes
-     you check the rotation and get it round, which is also what a skier
-     would do about it. The player never sees the mechanism and never
-     has to: tricks simply land. */
-  _advanceTrick(dt, gy) {
-    const T = this.tune;
-    const a = this._auto;
-    const drop = Math.max(0, this.pos.y - gy);
-    const tG = (this.vy + Math.sqrt(Math.max(0, this.vy * this.vy + 2 * T.liftG * drop)))
-             / T.liftG;
-    /* The floor is not there to be tidy. The body follows the rotation
-       through a damper, and a trick checked into six hundredths of a
-       second leaves that damper a fifth of a turn behind at touchdown —
-       which the landing then grades, correctly and unfairly, as
-       sideways. Sixteen hundredths is about what the damper can track. */
-    a.dur = Math.max(a.t + 0.16, Math.min(a.dur, a.t + tG * T.autoFill));
-    a.t = Math.min(a.dur, a.t + dt);
-
-    /* Part-eased, not smoothstepped. A full smoothstep peaks at one and
-       a half times the average rate, which on a 1080 is a rotation the
-       eye reads as a glitch; this peaks at about one and a quarter and
-       still reads as a body winding up and checking out of it. */
-    const x = a.dur > 0 ? U.clamp(a.t / a.dur, 0, 1) : 1;
-    const u = U.lerp(x, x * x * (3 - 2 * x), 0.45);
-    this.airYaw = U.lerp(a.y0, a.y1, u);
-    this.airPitch = U.lerp(a.p0, a.p1, u);
-    this.airRoll = U.lerp(a.r0, a.r1, u);
-    // the hand comes off the ski before the skis come back to the snow
-    const want = (a.grab && x < 0.82) ? (a.grab === 2 ? 1.0 : 0.62) : 0;
-    this.grab = U.damp(this.grab, want, 9, dt);
   }
 
   _touchdown(world, n) {
@@ -935,13 +694,13 @@ class Skier {
     const air = this.airTime;
     const impact = Math.abs(this.vy);
 
-    const offRoll = Math.abs(U.wrapAngle(this.roll));
-    const offPitch = Math.abs(U.wrapAngle(this.pitch));
+    const offRoll = Math.abs(U.wrapAngle(this.airRoll));
+    const offPitch = Math.abs(U.wrapAngle(this.airPitch));
     const level = 1 - U.clamp(Math.max(offRoll, offPitch) / T.landTolerance, 0, 1);
 
     // where the velocity is pointing, against where the skis are
     const vAng = Math.atan2(this.vel.x, this.vel.y);
-    const drift = Math.abs(U.wrapAngle(vAng - this.heading));
+    const drift = Math.abs(SkiTricks.wrap(vAng - this.heading - this.airYaw, Math.PI));
     const square = 1 - U.clamp(drift / T.driftTolerance, 0, 1);
 
     // and how hard it came down, which powder forgives and ice does not
@@ -949,6 +708,7 @@ class Skier {
 
     let q = U.clamp(level * 0.55 + square * 0.45, 0, 1) * U.clamp(soft, 0, 1);
     q *= U.lerp(0.86, 1.06, U.clamp(SN.landing, 0, 1.6) / 1.6);
+    if (Math.max(offRoll, offPitch) > 1.0 || drift > 1.0) q = 0;
     if (air < 0.20) q = Math.max(q, 0.80);        // a hop is not a trick to blow
 
     const grade = Skier.gradeOf(q);
@@ -972,6 +732,10 @@ class Skier {
       dir: this.airYaw >= 0 ? 1 : -1,
     };
 
+    Object.assign(this.lastTrick, SkiTricks.describe(this));
+    this.switch = Math.abs(Math.round(this.airYaw / Math.PI)) % 2 !== 0 ? !this.switch : !!this.switch;
+    this.landingReason = grade.id === 'crash' ? (level < .5 ? 'Incomplete rotation' : 'Skis across travel') : grade.id === 'sketchy' ? 'Late alignment' : this.switch ? 'Clean switch landing' : 'Skis aligned';
+    this.lastTrick.reason = this.landingReason;
     this.airborne = false;
     this.lastAirTime = air;
     this.landed = U.clamp(impact / 24, 0.05, 1.4);
@@ -997,6 +761,8 @@ class Skier {
 
   _crash(reason) {
     if (this.crashed) return;
+    this._crashZ = this.pos.z;
+    this.grinding = null;
     this.crashed = true;
     this.crashedNow = reason || 'CRASH';
     this.crashReason = this.crashedNow;
@@ -1017,11 +783,15 @@ class Skier {
      is a run that ends because you were tidying up your line. */
   _collide(dt, world) {
     const T = this.tune;
+    if (this.protection > 0) return;
     if (world.colliders) {
       const clear = this.pos.y - this.groundY;
       for (const c of world.colliders) {
         if (c.kind === 'rock' && this.airborne && clear > c.r * 1.6) continue;
-        const dx = this.pos.x - c.x, dz = this.pos.z - c.z;
+        const px = this.pos.x - this.vel.x * dt, pz = this.pos.z - this.vel.y * dt;
+        const mx = this.pos.x - px, mz = this.pos.z - pz;
+        const u = U.clamp(((c.x - px) * mx + (c.z - pz) * mz) / Math.max(1e-9, mx * mx + mz * mz), 0, 1);
+        const dx = px + mx * u - c.x, dz = pz + mz * u - c.z;
         const rr = c.r + T.radius;
         const d2 = dx * dx + dz * dz;
         if (d2 > rr * rr) continue;
@@ -1070,7 +840,7 @@ class Skier {
     this.lean = U.damp(this.lean,
       U.clamp(-this.yawVel * this.speed * 0.014, -0.34, 0.34), 6, dt);
     // how folded up: a tuck, a stored pop, and a landing all fold you
-    const wantFold = U.clamp(this.tuck * 0.75 + this.crouch * 0.9
+    const wantFold = this.grinding ? .65 : U.clamp(this.tuck * 0.75 + this.crouch * 0.9
                      + this.squat * 0.8 + this.braking * 0.30, 0, 1.5);
     this.fold = U.damp(this.fold, wantFold, 11, dt);
 
@@ -1091,7 +861,7 @@ class Skier {
          downstream reads it: the skis still point along `heading`, the
          edge is still computed in that basis, and a landing is still
          graded on roll, pitch and drift. */
-      this.mesh.rotation.set(0, this.airYaw, this.lean * 0.55);
+      this.mesh.rotation.set(0, this.airYaw + (this.switch ? Math.PI : 0), this.lean * 0.55);
       this.mesh.position.y = -this.squat * 0.22;
     }
 

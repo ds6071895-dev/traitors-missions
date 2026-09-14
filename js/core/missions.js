@@ -73,10 +73,11 @@ const Missions = (() => {
     activeDef = def;
     activeOpts = opts || {};
     active = def.create(activeOpts);
+    if (id === 'ski') activeOpts = Object.assign({}, activeOpts, active.opts);
     active.def = def;
     const view = active.build();
-    Engine.setView(view, (dt, t) => {
-      active.update(dt, t);
+    Engine.setView(view, (dt, t, wallDt) => {
+      active.update(id === 'ski' && wallDt !== undefined ? wallDt : dt, t);
       Input.endFrame();
     });
     GameState.data.phase = 'mission';
@@ -91,7 +92,7 @@ const Missions = (() => {
     const def = activeDef;
     const earned = Math.max(0, Math.round(result.earned || 0));
     if (earned > 0) potSink(earned);
-    const { isBest } = GameState.recordMission(def.id, Object.assign({ earned }, result), def.better);
+    const { isBest } = def.id === 'ski' && result.mode === 'practice' ? { isBest: false } : GameState.recordMission(def.id, Object.assign({ earned }, result), def.better);
     GameState.logEvent('mission', `${def.name}: ${U.money(earned)} added to the pot`, { id: def.id });
     listeners.complete.forEach(fn => fn({
       def, opts: activeOpts || {}, result: Object.assign({ earned }, result), isBest,

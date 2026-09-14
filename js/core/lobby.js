@@ -52,6 +52,10 @@ const Lobby = (() => {
 
   function paint() {
     const inRoom = Party.connected;
+    for (const id of ['lobby-host', 'lobby-join']) {
+      const button = el(id);
+      if (button) button.disabled = !!Party.connecting;
+    }
     const cols = el('lobby-cols');
     const room = el('lobby-room');
     if (cols) cols.hidden = inRoom;
@@ -75,7 +79,7 @@ const Lobby = (() => {
       /* A guest with no roster yet has not been let in — it has only
          opened a door. Saying "0/3" there reads as an empty room the
          host is sitting in, which is the one thing it is not. */
-      el('lobby-status').textContent = (!Party.isHost && !n)
+      el('lobby-status').textContent = Party.reconnecting ? 'Reconnecting…' : (!Party.isHost && !n)
         ? 'Looking for the room…'
         : (full
             ? (Party.isHost ? 'Everybody is here.' : 'Everybody is here. Waiting for the host.')
@@ -83,7 +87,7 @@ const Lobby = (() => {
 
       const start = el('lobby-start');
       start.hidden = !Party.isHost;
-      start.disabled = !full;
+      start.disabled = !full || Party.reconnecting;
     }
 
     RoomUI.paintMic();
@@ -118,7 +122,7 @@ const Lobby = (() => {
   }
 
   async function host() {
-    if (Party.connected) return;
+    if (Party.connected || Party.connecting) return;
     say('Opening a room…');
     try {
       const code = await Party.host(profile());
@@ -127,12 +131,13 @@ const Lobby = (() => {
       say('Room ' + code + ' is open. Read those four letters out.', 'good');
       paint();
     } catch (e) {
+      if (e.name === 'AbortError') return;
       say(e.message || 'Could not open a room.', 'bad');
     }
   }
 
   async function join() {
-    if (Party.connected) return;
+    if (Party.connected || Party.connecting) return;
     const code = readCode();
     if (!Party.validCode(code)) { say('That is not a four-letter code.', 'bad'); return; }
     say('Looking for ' + code + '…');
@@ -145,9 +150,10 @@ const Lobby = (() => {
          thing to say here is that the door has been knocked on. The
          host's first roster is what turns this into "in", and the
          watchdog in `party.js` is what turns it into an apology. */
-      say('Knocking on ' + code + '…');
+      say(Party.self() ? 'In. Waiting for the others.' : 'Knocking on ' + code + '…', Party.self() ? 'good' : '');
       paint();
     } catch (e) {
+      if (e.name === 'AbortError') return;
       say(e.message || 'Could not reach that room.', 'bad');
     }
   }
@@ -167,7 +173,7 @@ const Lobby = (() => {
      gets a run the others do not have. */
 
   function start() {
-    if (!Party.isHost || started) return;
+    if (!Party.isHost || started || Party.reconnecting) return;
     const list = Party.roster();
     if (list.length < Party.MAX) return;
     started = true;
@@ -180,9 +186,11 @@ const Lobby = (() => {
   function launch(seed, players) {
     const mine = Party.selfId();
     const seated = players.map(p => Object.assign({}, p, { local: p.id === mine }));
+    const launchRoom = Party.room;
     AudioBus.resume();
     Voice.unlock();
     Screens.transition(() => {
+      if (Party.room !== launchRoom || !Party.connected) return;
       Game.enterShow();
       Show.beginParty({ seed, players: seated, host: Party.isHost });
     }, 420);
@@ -231,6 +239,7 @@ const Lobby = (() => {
       }
       paint();
     });
+    Party.on('status', paint);
     Party.on('left', paint);
     Party.on('error', (m) => {
       /* Some errors drop the room from under us — a refusal, a code
@@ -257,7 +266,10 @@ const Lobby = (() => {
            record that a night ever happened. Coming back to the lobby
            with the show over and the room still open has to be able to
            start another one. */
-        if (typeof Show === 'undefined' || !Show.running) started = false;
+        if (typeof Show === 'undefined' || !Show.running) {
+          started = false;
+          Party.setLobby();
+        }
         el('lobby-name').value = Look.getName();
         /* Nothing here opens a room. Arriving used to be able to, if
            you had come through a CREATE ROOM on the front door, and a

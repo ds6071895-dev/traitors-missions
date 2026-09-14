@@ -13,90 +13,99 @@ a browser with no account and no install. Three ways in:
   microphone, so the Traitor marks the card themselves during the mission — leave it
   unmarked and Claudia exposes you at the fire; mark one you never said and the verdict
   screen prints the card in front of the two people who were on the call with you.
-- **MISSIONS** is solo practice on the missions themselves. Three are built: **Boat
-  Race**, **Shootout** and **The Dive**.
+- **MISSIONS** is solo practice on the missions themselves. Four are built: **Boat
+  Race**, **Shootout**, **The Dive**, and **The Descent**.
 - **DRESSING ROOM** is where you decide who you are. Saved on your own machine; the
   other two see exactly what you built.
 
 Open `index.html` in a browser. Everything is plain `<script>` tags, so it works
 straight off disk (`file://`) for solo practice and the dressing room.
 
-**Multiplayer needs a real origin.** Microphones and WebRTC want a secure context, so
-for a night with other people the folder has to be served over http on localhost
-(`./serve.sh`) or over https for people on other machines. Direct WebRTC works from any
-static host; reliable play across different networks uses the small Cloudflare Pages
-Function in `functions/api/turn.js` to issue temporary TURN relay credentials.
+**Multiplayer uses a Node.js WebSocket server for rooms, game messages, and voice.**
+The browsers no longer need to discover or connect directly to each other. Room codes
+remain four letters, and the host browser still runs the existing game rules.
 
-Dependencies are three.js and Trystero from a CDN, plus two Google fonts. Claudia is
-spoken by the browser's own speech synthesiser; there are no audio files anywhere.
+## Run locally
 
----
-
-## Hosting on Cloudflare Pages with TURN
-
-The permanent Cloudflare TURN key stays in the Pages Function. Browsers receive a
-temporary four-hour credential when they open a room. Trystero keeps its own STUN
-servers and normal ICE policy: browsers connect directly when they can, and TURN carries
-traffic only for a peer whose NAT or firewall prevents a direct path.
-
-### 1. Create the TURN key
-
-1. Open the Cloudflare dashboard and go to **Realtime > TURN**.
-2. Create a TURN key.
-3. Copy the **TURN key ID** and its **API token** when Cloudflare shows them. Do not put
-   either value in this repository or in browser JavaScript.
-
-Cloudflare's credential API calls these values the TURN Token ID and TURN Key API Token.
-
-### 2. Add the Pages secrets
-
-Open **Workers & Pages**, select this Pages project, then open
-**Settings > Variables and Secrets > Add**. Add these production bindings:
-
-| Name | Value | Type |
-| --- | --- | --- |
-| `TURN_KEY_ID` | the TURN key/Token ID | Secret (or encrypted variable) |
-| `TURN_KEY_API_TOKEN` | the TURN key API token | Secret |
-
-Add the same bindings to the Preview environment as well if preview deployment URLs
-need multiplayer. Save them before the deployment that introduces the Function.
-
-### 3. Deploy the Function and site
-
-For a Git-connected Pages project, push the repository normally. Use framework preset
-**None**, build command `exit 0`, and build output directory `.` (or keep the existing
-output directory if it already serves the root `index.html`). Cloudflare finds the root
-`functions/` directory and deploys `/functions/api/turn.js` as `/api/turn`.
-
-If the existing project was created with dashboard drag-and-drop, do not drag the folder
-in again: dashboard drag-and-drop does not compile Pages Functions. From this repository
-use Wrangler instead:
+Install Node.js 22 or newer, then run:
 
 ```sh
-npx wrangler login
-npx wrangler pages deploy . --project-name=YOUR_PAGES_PROJECT_NAME
+npm ci
+npm start
 ```
 
-Run that command from the repository root so Wrangler sees both `index.html` and the
-root `functions/` directory. It can deploy to an existing Direct Upload project.
+Open `http://localhost:8080`. `./serve.sh 8080` starts the same server. `PORT` and `HOST`
+can override its listening address. Solo practice also works without the server.
 
-### 4. Check it before inviting people
+## Deploy the game and room server
 
-1. Visit `https://YOUR-SITE.pages.dev/api/turn`. It should return JSON containing a
-   non-empty `iceServers` list, not a 404 or `TURN is not configured`.
-2. Open the game on two devices using different networks—for example home Wi-Fi and
-   mobile data—and join a fresh room code.
-3. Keep the host tab open. A full night still needs three players before its Start
-   button is enabled.
+Use a Node.js service with persistent WebSocket connections. The repository includes a
+`Dockerfile`, or configure your host with:
 
-The credentials shown by `/api/turn` are deliberately short lived. The permanent API
-token remains inside Cloudflare. If the Function is unavailable, room creation still
-continues with direct/STUN connections and the browser console records the missing TURN
-fallback.
+- Install command: `npm ci --omit=dev`
+- Start command: `npm start`
+- Health-check path: `/health`
+- A public **HTTPS** URL, with WebSocket upgrades forwarded to `/rooms`
 
-For local testing of the Function, create an uncommitted `.dev.vars` file containing
-the two bindings, then run `npx wrangler pages dev .`. `.dev.vars*` and `.env*` are
-ignored by git.
+The Node process serves the game as well as its sockets. Share that HTTPS URL with all
+three devices. HTTPS is required for microphone access on phones and other machines;
+plain LAN HTTP can carry game messages but browsers generally block microphone capture.
+No TURN credentials, Trystero, Nostr relays, or separate audio service are needed.
+
+Run **one server instance** with one Node process. Rooms live in that process's memory;
+a restart ends them. Horizontal scaling would require shared room routing/state and is
+not implemented. If using a reverse proxy, enable WebSocket upgrades and an idle timeout
+of at least 60 seconds. A static-only Cloudflare Pages upload does not run this server.
+The old `functions/api/turn.js` is retained for legacy deployments and is not used by
+the new game page.
+
+For a separately hosted frontend, set `window.ROOM_SERVER_URL` to the full
+`wss://YOUR-NODE-HOST/rooms` URL **before** loading `room-socket.js`, and set the Node
+server's `ALLOWED_ORIGINS` to the frontend's exact HTTPS origin. Multiple allowed origins
+are comma-separated. Same-origin deployment needs neither setting.
+
+## Connection and voice behaviour
+
+- Only one join/create attempt runs at a time. Leaving cancels it; late callbacks cannot
+  reopen a room or modify the next room.
+- The server assigns collision-checked codes, player IDs and seats, rejects missing/full
+  rooms explicitly, and stamps every message with its actual sender.
+- A brief socket interruption automatically reconnects with the same identity. The server
+  reserves the seat for 15 seconds after detecting disconnection and replays unacknowledged
+  game messages. Sequence numbers suppress duplicates. Live positions and audio are not
+  queued by the server. A page reload starts a new player session; it is not a saved-game
+  resume. Explicit Leave removes a connected player immediately.
+- Returning to the lobby reopens room admission, so a replacement player can join
+  between missions. Starting a mission closes admission until the host returns.
+- The host continues to own game state and secret roles. Targeted roles are delivered only
+  to that player. The server is a room/message relay, not a new game simulation.
+- Voice uses AudioWorklet capture/playback and 24 kHz mono PCM16 over the same socket.
+  Permission, mute, voice meters and speaking-turn gates stay in `VoiceChat`. Playback has
+  a bounded jitter buffer. Voice is never recorded or replayed by the server. At full
+  continuous transmission, each microphone sends about 48 KB/s; a full room's server audio
+  egress is about 288 KB/s. This deliberately simple format trades bandwidth for broad
+  browser support; congested TCP connections can add voice latency.
+- Game joining does not depend on microphone permission. Modern browsers with AudioWorklet
+  support can listen without enabling their own microphone. Voice failure leaves gameplay
+  connected. As before, a full night closes when a player actually leaves; a mission party
+  can continue after a guest leaves, but the host must remain.
+
+## Verification
+
+```sh
+npm test
+npx playwright install chromium
+npm run test:browser
+```
+
+The logic suite includes real three-client WebSocket tests for admission, private routing,
+reconnection, audio frames, and retry cancellation. The browser test uses real audio graphs
+and server connections with a generated microphone tone to check audible playback, mute,
+speaking turns, and leaving/rejoining. The game-page browser test exercises a full-night
+handshake and all four mission parties: scene construction, start barriers, live positions,
+real finish paths, shared scoreboards, and returning to the room. It skips GPU drawing to
+avoid software-renderer timing noise; this is a lifecycle test, not a visual or performance
+benchmark. Physical devices and production HTTPS still need a smoke test after deployment.
 
 ---
 
@@ -168,7 +177,7 @@ carrying.
 #### Nothing checks it, and that is the mechanic
 
 No part of this game can hear a microphone. Judging one of these on the host would mean
-speech recognition on three live WebRTC streams to catch a whisper — and the cards worth
+speech recognition on three live voice streams to catch a whisper — and the cards worth
 playing (silence, brevity, refusing a name, never agreeing) are invisible to it anyway.
 
 So the task is marked by the only person who knows: the Traitor, on their own HUD,
@@ -754,7 +763,7 @@ changes at all to exist.
 index.html            script order + all screen markup
 css/style.css
 functions/
-  api/turn.js          temporary Cloudflare TURN credentials (Pages Function)
+  api/turn.js          legacy TURN endpoint (not used by the Node.js game)
 js/
   core/
     util.js           seeded RNG, damping, easing, money formatting
@@ -766,7 +775,10 @@ js/
     screens.js        DOM screen stack + fade transitions
     missions.js       mission registry and lifecycle
     look.js           who you are: the dressing-room descriptor and its storage
-    party.js          the only file that knows what WebRTC is — rooms, codes, peers
+    party.js          rooms, codes, players, and attempt cancellation
+    room-socket.js    WebSocket connection, acknowledgements, and reconnect
+    server-audio.js   microphone and playback graphs
+    voice-worklet.js  voice framing, resampling, and jitter buffer
     session.js        the authority for a night: phases, roles, tasks, votes, pot
     net.js            the transport seam — three methods, two implementations
     transports.js     the host's reducer and the guest's mirror, on the wire
@@ -822,20 +834,19 @@ test/
   look.test.js        the dressing room's data
 ```
 
-### The server is one of the three browsers
+### Game authority stays in the host browser
 
-There is no server. The host's browser *is* the authority: it owns `Session`, draws the
+The Node.js server routes messages. The host's browser remains the game authority: it owns `Session`, draws the
 roles and the tasks, holds the clock, and is the only client where `dispatch` does
 anything at all. The other two run the identical file in `guest` mode, where `dispatch`
 is inert and `state` is a mirror installed by `adopt()` from whatever the host last
 sent. Scenes cannot tell the difference, which is the point — they read `state`, they
 call `Net.send`, and that is exactly what they did when this was single-player.
 
-Transport is WebRTC over Trystero, which finds the other two through public signalling
-relays. Game authority still lives in the host browser; the only server-side endpoint is
-the optional Pages Function that keeps the permanent TURN key private and issues
-short-lived relay credentials. A four-letter room code remains the entire matchmaking
-system.
+Transport is WebSocket through the Node.js room server. `Party` keeps the same
+public interface, so missions and the session transport do not need a new game protocol.
+Voice frames use the same socket, separately from JSON game messages. The server owns
+room membership and reconnect tokens; the host browser owns the reducer and private roles.
 
 Three rules make it work, and all three are load-bearing:
 

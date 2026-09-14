@@ -29,16 +29,14 @@ const SkiTwists = (() => {
   const DECK = [
     {
       id: 'night', name: 'Night Run', icon: '☾', payout: 1.30,
-      blurb: 'Lit gates and a black mountain in between them. You will be '
-           + 'reading the poles, not the snow.',
+      blurb: 'Moonlit snow, warm village lights and reflective route markers.',
       cond: { time: 'night' },
     },
     {
       id: 'whiteout', name: 'Whiteout', icon: '❅', payout: 1.52,
-      blurb: 'Heavy snow and forty metres of it. Every gate arrives about a '
-           + 'second before you can do anything about it.',
+      blurb: 'Heavy snowfall softens the mountain. Read the bright route markers ahead.',
       cond: { snow: 'powder', flakes: 2.4 },
-      fog: { near: 26, far: 300 },
+      fog: { near: 90, far: 480 },
     },
     {
       id: 'ice', name: 'Boilerplate', icon: '◇', payout: 1.42,
@@ -84,15 +82,13 @@ const SkiTwists = (() => {
     },
     {
       id: 'park', name: 'Terrain Park', icon: '⧗', payout: 1.34,
-      blurb: 'The whole mountain has been shaped. Pads everywhere, kickers on '
-           + 'every pitch, spinners in the air and no room left to just ski.',
+      blurb: 'Extra kickers join the pink rail lines. Keep the chain alive between features.',
       config: { rampSpacing: 34, padSpacing: 20,
                 spinnerSpacing: 130, rampBoost: 1.25, treeScale: 0.5 },
     },
     {
       id: 'groomed', name: 'Cat Track', icon: '▬', payout: 1.24,
-      blurb: 'Groomed flat overnight. Two kickers on the whole hill, no park, and '
-           + 'nothing pushing you down it but the gradient.',
+      blurb: 'One gentle roller, quiet carving faces and unboosted rails. Carry your own speed.',
       config: { rampSpacing: 210, rampBoost: 0, padSpacing: 0,
                 spinnerScale: 0 },
     },

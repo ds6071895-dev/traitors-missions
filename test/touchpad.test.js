@@ -113,9 +113,9 @@ test('the pad goes back to its own labels when a mission lets go of it', () => {
      'hiding the second button must release whatever it was holding');
 });
 
-test('the mountain asks for both buttons and gives them back', () => {
+test('the mountain asks for contextual grabs and gives them back', () => {
   const ski = read('js/missions/ski.js');
-  ok(/Input\.setDrivePad\(\{[^}]*aux:\s*'TUCK'/.test(ski), 'the ski asks for a tuck button');
+  ok(/Input\.setDrivePad\(\{[^}]*grabs:\s*true/.test(ski), 'the ski asks for contextual grabs');
   ok(ski.indexOf('Input.setDrivePad(null)') >= 0, 'and puts the pad back on the way out');
 });
 

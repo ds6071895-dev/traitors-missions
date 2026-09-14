@@ -144,7 +144,7 @@ const MountainKit = (() => {
         if (used.size >= SECTIONS.length) used.clear();
       }
 
-      this.sections = [OPENER, ...mid, CLOSER].map((s, i, all) => {
+      this.sections = (opts.authored || [OPENER, ...mid, CLOSER]).map((s, i, all) => {
         const first = i === 0, last = i === all.length - 1;
         /* Measured, not guessed. At the lengths this first shipped with
            a full descent took three and a half minutes of real skiing,
@@ -152,9 +152,9 @@ const MountainKit = (() => {
            seconds past the point where a run stops being a run and
            becomes a commute. These give roughly two minutes at the pace
            the physics actually produces. */
-        const len = first ? rng.range(220, 290)
+        const len = s.length || (first ? rng.range(220, 290)
                   : last ? rng.range(380, 480)
-                  : rng.range(300, 440);
+                  : rng.range(300, 440));
         return {
           def: s, id: s.id, name: s.name, blurb: s.blurb,
           z0: 0, z1: 0, len,
@@ -1129,7 +1129,7 @@ const MountainKit = (() => {
          something to measure the run-up against on the way in. The
          biggest ones go amber, because a pad worth two of the others
          should not look like the others. */
-      if (boost > 0.02) {
+      if (boost > 0.02 && !face.authoredTextures) {
         const bar = 0.55 + 0.45 * Math.sin(z * 0.22 + x * 0.045);
         const hot = U.clamp((boost - 0.85) / 0.75, 0, 1);
         cB.copy(COL.boost).lerp(COL.boostHot, hot);
@@ -1218,7 +1218,7 @@ const MountainKit = (() => {
     parts.push(ForestKit.paintGeo(trunk.toNonIndexed(), COL.bark));
     const tiers = [[2.7, 6.0, 4.4], [2.15, 5.4, 7.6], [1.6, 4.6, 10.4], [0.9, 3.0, 12.9]];
     tiers.forEach(([rad, h, y], i) => {
-      const cone = new THREE.ConeGeometry(rad, h, 7, 1);
+      const cone = new THREE.ConeGeometry(rad, h, 10, 2);
       cone.translate(0, y, 0);
       // the top two tiers carry the snow
       const col = i >= 2 ? COL.pineSnow.clone().lerp(COL.pine, 0.35)
@@ -1261,6 +1261,7 @@ const MountainKit = (() => {
 
     // nothing grows in a chute, on a takeoff or on a pad
     const clearOf = (x, z) => {
+      if (face.clearLine && face.clearLine(x, z)) return false;
       for (const c of face.chutes) if (face.chuteAmount(c, x, z) > 0.16) return false;
       for (const r of face._rampsNear(z)) {
         if (r.kind === 'bank') continue;
@@ -1292,7 +1293,7 @@ const MountainKit = (() => {
       for (let z = -40; z < zEnd; z += 12) {
         const sec = face.sectionAt(z);
         const half = face.halfAt(z);
-        const density = (b.lo < 0.95 ? sec.trees : 1) * b.dens;
+        const density = (sec.def.region ? sec.trees : b.lo < 0.95 ? sec.trees : 1) * b.dens;
         const tries = Math.max(0, Math.round((12 / b.per) * 120 * density));
         for (let i = 0; i < tries; i++) {
           const side = rng() < 0.5 ? -1 : 1;
@@ -1347,7 +1348,8 @@ const MountainKit = (() => {
       for (const ch of face.chutes) if (face.chuteAmount(ch, x, z) > 0.3) skip = true;
       if (skip) continue;
       const r = rng.range(1.3, 4.2);
-      const g = new THREE.IcosahedronGeometry(r, 0);
+      if (face.clearLine && face.clearLine(x, z, r)) continue;
+      const g = new THREE.IcosahedronGeometry(r, 1);
       g.scale(rng.range(0.8, 1.4), rng.range(0.5, 0.9), rng.range(0.8, 1.4));
       g.rotateY(rng() * U.TAU);
       g.rotateX(rng.range(-0.3, 0.3));
