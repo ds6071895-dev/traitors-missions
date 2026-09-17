@@ -8,7 +8,7 @@ const { createServer } = require('../server');
   const app = createServer();
   await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
   const origin = 'http://127.0.0.1:' + app.server.address().port;
-  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox',
+  const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_PATH, args: ['--no-sandbox',
     '--disable-dev-shm-usage', '--autoplay-policy=no-user-gesture-required',
     '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
     '--enable-unsafe-swiftshader'] });

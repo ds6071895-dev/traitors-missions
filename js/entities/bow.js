@@ -69,6 +69,7 @@ class Bow {
      reads as two people watching you shoot. */
 
   static parts() {
+    if (typeof ShootoutBow !== 'undefined') return ShootoutBow.build();
     const g = new THREE.Group();
     const mat = (c, opts) => new THREE.MeshLambertMaterial(
       Object.assign({ color: c, flatShading: true }, opts || {}));
@@ -133,6 +134,7 @@ class Bow {
      this mission asks you to read off somebody else. */
   static poseParts(parts, draw) {
     if (!parts) return;
+    if (parts.limbs) { ShootoutBow.pose(parts, draw); return; }
     const pull = U.clamp(draw || 0, 0, 1) * 0.5;
     const p = parts.string.geometry.attributes.position.array;
     const a = parts.limbTips[0], b = parts.limbTips[1];
@@ -193,6 +195,7 @@ class Bow {
     const parts = Bow.parts();
     const g = parts.group;
     this.parts = parts;
+    if (parts.limbs) ShootoutBow.hands(parts);
     this.limbTips = parts.limbTips;
     this.string = parts.string;
     this.nocked = parts.nocked;
@@ -203,6 +206,7 @@ class Bow {
     this.baseScale = 0.23;
     g.scale.setScalar(this.baseScale);
     camera.add(g);
+    this.camera = camera;
     this._restPos = new THREE.Vector3(0.26, -0.22, -0.66);
     this._drawPos = new THREE.Vector3(0.11, -0.11, -0.54);
     this.setViewVisible(true);
@@ -223,7 +227,7 @@ class Bow {
 
     if (this.state === 'nocking') {
       this.nockT -= dt;
-      if (this.nockT <= 0) this.state = 'ready';
+      if (this.nockT <= 0) { this.state = 'ready'; AudioBus.play('bow-nock'); }
     }
 
     if (this.state === 'ready' && holding) {
@@ -278,6 +282,7 @@ class Bow {
     if (this.perfect) this.cleanShots++;
     this._reset();
     this.state = 'nocking';
+    this._releaseAge = 0;
     this.nockT = T.nockTime;
     AudioBus.play('bow-loose', { power: shot.power, perfect: shot.perfect });
     return shot;
@@ -291,9 +296,15 @@ class Bow {
 
   _animate(dt) {
     if (!this.group) return;
-    const c = this.charge;
+    const reduced = typeof ShootoutMaterials !== 'undefined' && ShootoutMaterials.reduced();
+    this._visualCharge = U.damp(this._visualCharge || 0, this.charge, 24, dt);
+    const c = reduced ? this.charge : this._visualCharge;
+    this._releaseAge = (this._releaseAge ?? 10) + dt;
     // the bow comes up and in as you draw, and the arm shakes with strain
-    const shake = (this.strain || 0) * 0.014;
+    const shake = reduced ? 0 : (this.strain || 0) * 0.008;
+    const narrow = this.camera && this.camera.aspect < .85;
+    this._restPos.x = narrow ? .12 : .26;
+    this._drawPos.x = narrow ? .07 : .11;
     this.group.position.lerpVectors(this._restPos, this._drawPos, U.smoothstep(0, 1, c));
     this.group.position.x += Math.sin(this._swayT * 21) * shake + (this._bob ? this._bob.x : 0);
     this.group.position.y += Math.cos(this._swayT * 17) * shake + (this._bob ? this._bob.y : 0);
@@ -302,7 +313,11 @@ class Bow {
     this.group.scale.setScalar(this.baseScale * (this.state === 'nocking' ? 0.96 : 1));
 
     // string and nock follow the draw exactly
-    Bow.poseParts(this.parts, c);
+    if (this.parts.limbs) {
+      const vibration = reduced ? 0 : Math.sin(this._releaseAge * 105) * Math.exp(-this._releaseAge * 20) * .035;
+      ShootoutBow.pose(this.parts, this.charge, vibration);
+      this.parts.drawHand.visible = this.state === 'drawing' || this.state === 'nocking';
+    } else Bow.poseParts(this.parts, this.charge);
     this.nocked.visible = this.state !== 'nocking';
   }
 
@@ -342,12 +357,17 @@ class ArrowSystem {
     const f2 = f1.clone(); f2.rotateZ(Math.PI / 2);
     this.geo = Sky.mergeGeometries([shaft, head, f1, f2].map(g => g.toNonIndexed()));
     this.geo.computeVertexNormals();
+    if (typeof ShootoutMaterials !== 'undefined') ShootoutMaterials.uv(this.geo, .35);
     // both lit *and* emissive, so an arrow crossing a shadowed treeline
     // does not disappear into it halfway
     this.matPlain = new THREE.MeshLambertMaterial({
       color: '#f4e7c6', emissive: '#6a5a34', flatShading: true });
     this.matClean = new THREE.MeshLambertMaterial({
       color: '#ffd166', emissive: '#b07400', flatShading: true });
+    if (typeof ShootoutMaterials !== 'undefined') {
+      ShootoutMaterials.dress(this.matPlain, 'timber');
+      ShootoutMaterials.dress(this.matClean, 'timber');
+    }
 
     /* The streak behind it, and the thing that actually sells the shot.
 

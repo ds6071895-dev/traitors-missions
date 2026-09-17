@@ -1,0 +1,115 @@
+{
+  "browser": "153.0.8010.12",
+  "renderer": "SwiftShader software rendering; no device FPS claim",
+  "errors": [],
+  "metrics": [
+    {
+      "name": "stand",
+      "calls": 135,
+      "triangles": 563243,
+      "memory": {
+        "geometries": 169,
+        "textures": 38
+      }
+    },
+    {
+      "name": "floor",
+      "calls": 79,
+      "triangles": 555174,
+      "memory": {
+        "geometries": 176,
+        "textures": 38
+      }
+    },
+    {
+      "name": "treeline",
+      "calls": 67,
+      "triangles": 554490,
+      "memory": {
+        "geometries": 176,
+        "textures": 38
+      }
+    },
+    {
+      "name": "draw",
+      "calls": 137,
+      "triangles": 564011,
+      "memory": {
+        "geometries": 178,
+        "textures": 38
+      }
+    },
+    {
+      "name": "animals",
+      "calls": 217,
+      "triangles": 573498,
+      "memory": {
+        "geometries": 279,
+        "textures": 38
+      }
+    },
+    {
+      "name": "owl",
+      "calls": 151,
+      "triangles": 560651,
+      "memory": {
+        "geometries": 248,
+        "textures": 38
+      }
+    },
+    {
+      "name": "stand-phone",
+      "calls": 94,
+      "triangles": 559048,
+      "memory": {
+        "geometries": 205,
+        "textures": 38
+      }
+    },
+    {
+      "name": "floor-phone",
+      "calls": 43,
+      "triangles": 550986,
+      "memory": {
+        "geometries": 205,
+        "textures": 38
+      }
+    },
+    {
+      "name": "treeline-phone",
+      "calls": 43,
+      "triangles": 550986,
+      "memory": {
+        "geometries": 205,
+        "textures": 38
+      }
+    },
+    {
+      "name": "draw-phone",
+      "calls": 106,
+      "triangles": 561694,
+      "memory": {
+        "geometries": 205,
+        "textures": 38
+      }
+    },
+    {
+      "name": "animals-phone",
+      "calls": 138,
+      "triangles": 566431,
+      "memory": {
+        "geometries": 279,
+        "textures": 38
+      }
+    },
+    {
+      "name": "owl-phone",
+      "calls": 110,
+      "triangles": 556834,
+      "memory": {
+        "geometries": 247,
+        "textures": 38
+      }
+    }
+  ]
+}

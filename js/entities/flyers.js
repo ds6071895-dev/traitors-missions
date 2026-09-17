@@ -20,6 +20,7 @@ const FlyerKit = (() => {
   // A bird: body, head, beak, tail and two wings on pivots. The wings are
   // the only moving part, and they are most of what makes it read as alive.
   function birdMesh(o) {
+    if (typeof ShootoutModels !== 'undefined') return ShootoutModels.bird(o);
     const g = new THREE.Group();
     const body = new THREE.Mesh(new THREE.IcosahedronGeometry(o.size, 0), lam(o.body));
     body.scale.set(1, 0.82, 1.7);
@@ -74,7 +75,7 @@ const FlyerKit = (() => {
     flame.position.y = -o.size * 0.3;
     g.add(flame);
     g.userData.flame = flame;
-    return g;
+    return typeof ShootoutModels === 'undefined' ? g : ShootoutModels.enrichProp(g, 'lantern', o);
   }
 
   function clayMesh(o) {
@@ -85,10 +86,11 @@ const FlyerKit = (() => {
     const rim = new THREE.Mesh(new THREE.TorusGeometry(o.size * 0.95, o.size * 0.1, 4, 9), lam(o.rim));
     rim.rotation.x = Math.PI / 2;
     g.add(rim);
-    return g;
+    return typeof ShootoutModels === 'undefined' ? g : ShootoutModels.enrichProp(g, 'clay', o);
   }
 
   function batMesh(o) {
+    if (typeof ShootoutModels !== 'undefined') return ShootoutModels.membrane(o, 'bat');
     const g = new THREE.Group();
     const body = new THREE.Mesh(new THREE.IcosahedronGeometry(o.size, 0), lam(o.body));
     body.scale.set(0.8, 1, 1.3);
@@ -111,6 +113,7 @@ const FlyerKit = (() => {
   }
 
   function waspMesh(o) {
+    if (typeof ShootoutModels !== 'undefined') return ShootoutModels.membrane(o, 'wasp');
     const g = new THREE.Group();
     for (let i = 0; i < 3; i++) {
       const seg = new THREE.Mesh(new THREE.IcosahedronGeometry(o.size * (1 - i * 0.15), 0),
@@ -133,6 +136,7 @@ const FlyerKit = (() => {
   }
 
   function mothMesh(o) {
+    if (typeof ShootoutModels !== 'undefined') return ShootoutModels.membrane(o, 'moth');
     const g = new THREE.Group();
     const body = new THREE.Mesh(new THREE.IcosahedronGeometry(o.size * 0.7, 0),
                                 new THREE.MeshBasicMaterial({ color: o.glow }));
@@ -162,7 +166,7 @@ const FlyerKit = (() => {
                                   lam('#e5133f'));
     ribbon.rotation.y = Math.PI / 2;
     g.add(ribbon);
-    return g;
+    return typeof ShootoutModels === 'undefined' ? g : ShootoutModels.enrichProp(g, 'scroll', o);
   }
 
   /* ---------------- a charm ----------------
@@ -194,13 +198,14 @@ const FlyerKit = (() => {
     const light = new THREE.PointLight(o.glow, 2.2, 24, 2);
     g.add(light);
     g.userData.flame = core;          // the flyer already pulses this for us
-    return g;
+    return typeof ShootoutModels === 'undefined' ? g : ShootoutModels.enrichProp(g, 'boon', o);
   }
 
   /* A four-legged animal: body, neck, head, four legs on pivots and a
      tail. The legs are the whole trick — a deer that slides across the
      grass reads as a bug, and four swinging boxes read as a deer. */
   function quadMesh(o) {
+    if (typeof ShootoutModels !== 'undefined') return ShootoutModels.mammal(o);
     const g = new THREE.Group();
     const S = o.size;
     const body = new THREE.Mesh(new THREE.IcosahedronGeometry(S, 0), lam(o.body));
@@ -280,7 +285,7 @@ const FlyerKit = (() => {
                                 lam(o.body, { transparent: true, opacity: 0.85 }));
     neck.position.y = S;
     g.add(neck);
-    return g;
+    return typeof ShootoutModels === 'undefined' ? g : ShootoutModels.enrichProp(g, 'bottle', o);
   }
 
   // a bell hung from a branch, which swings and rings
@@ -309,7 +314,7 @@ const FlyerKit = (() => {
     lip.rotation.x = Math.PI / 2;
     lip.position.y = -S * 0.55;
     g.add(lip);
-    return g;
+    return typeof ShootoutModels === 'undefined' ? g : ShootoutModels.enrichProp(g, 'bell', o);
   }
 
   /* ---------------- the Great Owl ----------------
@@ -470,7 +475,7 @@ const FlyerKit = (() => {
       talons: { obj: talons, radius: S * 0.8, label: 'THE TALONS' },
       chest: { obj: chest, radius: S * 1.0, label: 'THE HEART' },
     };
-    return g;
+    return typeof ShootoutModels === 'undefined' ? g : ShootoutModels.owl(g, o);
   }
 
   /* =============== the roster =============== */
@@ -479,13 +484,13 @@ const FlyerKit = (() => {
     raven: {
       id: 'raven', name: 'Raven', points: 100, hp: 1, radius: 2.1, size: 0.9,
       speed: [15, 21], flap: 7.5, wingAmp: 0.75,
-      mesh: () => birdMesh({ size: 0.9, body: '#20232c', wing: '#14161d', beak: '#f2c14e' }),
+      mesh: () => birdMesh({ species: 'raven', size: 0.9, body: '#20232c', wing: '#14161d', beak: '#f2c14e' }),
       death: 'feathers', deathColor: '#2a2d38',
     },
     dove: {
       id: 'dove', name: 'Dove', points: 0, hp: 1, radius: 1.35, size: 0.9,
       speed: [12, 17], flap: 6.5, wingAmp: 0.8, guard: true,
-      mesh: () => birdMesh({ size: 0.9, body: '#f6f7fb', wing: '#e2e8f2', beak: '#f2a04e' }),
+      mesh: () => birdMesh({ species: 'dove', size: 0.9, body: '#f6f7fb', wing: '#e2e8f2', beak: '#f2a04e' }),
       death: 'feathers', deathColor: '#ffffff',
     },
     lantern: {
@@ -515,7 +520,7 @@ const FlyerKit = (() => {
     goose: {
       id: 'goose', name: 'Goose', points: 140, hp: 1, radius: 2.6, size: 1.25,
       speed: [17, 22], flap: 5, wingAmp: 0.65,
-      mesh: () => birdMesh({ size: 1.25, body: '#6d6250', wing: '#4a4235', beak: '#1b1b1f' }),
+      mesh: () => birdMesh({ species: 'goose', size: 1.25, body: '#6d6250', wing: '#4a4235', beak: '#1b1b1f' }),
       death: 'feathers', deathColor: '#7a6f5a',
     },
     wasp: {
@@ -527,13 +532,13 @@ const FlyerKit = (() => {
     gilded: {
       id: 'gilded', name: 'Gilded Raven', points: 1400, hp: 1, radius: 1.9, size: 0.9,
       speed: [20, 26], flap: 11, wingAmp: 0.85, glowing: true,
-      mesh: () => birdMesh({ size: 0.9, body: '#ffd166', wing: '#e0a12a', beak: '#fff3cf' }),
+      mesh: () => birdMesh({ species: 'gilded', size: 0.9, body: '#ffd166', wing: '#e0a12a', beak: '#fff3cf' }),
       death: 'gold', deathColor: '#ffd166',
     },
     messenger: {
       id: 'messenger', name: 'Messenger', points: 280, hp: 1, radius: 2.0, size: 0.85,
       speed: [18, 23], flap: 9, wingAmp: 0.8, drops: 'scroll',
-      mesh: () => birdMesh({ size: 0.85, body: '#8a94a6', wing: '#6b7484', beak: '#f2c14e' }),
+      mesh: () => birdMesh({ species: 'messenger', size: 0.85, body: '#8a94a6', wing: '#6b7484', beak: '#f2c14e' }),
       death: 'feathers', deathColor: '#8a94a6',
     },
     scroll: {
@@ -547,35 +552,35 @@ const FlyerKit = (() => {
     deer: {
       id: 'deer', name: 'Deer', points: 300, hp: 1, radius: 2.6, size: 1.0,
       speed: [4, 7], ground: true, ride: 0, flee: 26,
-      mesh: () => quadMesh({ size: 1.0, body: '#a9784a', legCol: '#7c5432', tailCol: '#efe3c4',
+      mesh: () => quadMesh({ species: 'deer', size: 1.0, body: '#a9784a', legCol: '#7c5432', tailCol: '#efe3c4',
                              antlers: true, snout: true, ear: 0.6 }),
       death: 'feathers', deathColor: '#a9784a',
     },
     fox: {
       id: 'fox', name: 'Fox', points: 380, hp: 1, radius: 1.9, size: 0.62,
       speed: [7, 11], ground: true, ride: 0, flee: 20,
-      mesh: () => quadMesh({ size: 0.62, body: '#d2662a', legCol: '#3a2a22', tailCol: '#f0e6dc',
+      mesh: () => quadMesh({ species: 'fox', size: 0.62, body: '#d2662a', legCol: '#3a2a22', tailCol: '#f0e6dc',
                              snout: true, snoutCol: '#2b2320', tail: 1.5, neck: 0.7, legLen: 0.85 }),
       death: 'feathers', deathColor: '#d2662a',
     },
     rabbit: {
       id: 'rabbit', name: 'Rabbit', points: 260, hp: 1, radius: 1.5, size: 0.38,
       speed: [6, 10], ground: true, ride: 0, flee: 15, hop: true,
-      mesh: () => quadMesh({ size: 0.38, body: '#a89984', legCol: '#8d7f6c', tailCol: '#ffffff',
+      mesh: () => quadMesh({ species: 'rabbit', size: 0.38, body: '#a89984', legCol: '#8d7f6c', tailCol: '#ffffff',
                              ear: 1.5, neck: 0.4, legLen: 0.7, tail: 0.4 }),
       death: 'feathers', deathColor: '#a89984',
     },
     boar: {
       id: 'boar', name: 'Boar', points: 420, hp: 2, radius: 2.4, size: 0.85,
       speed: [8, 12], ground: true, ride: 0, charges: true,
-      mesh: () => quadMesh({ size: 0.85, body: '#4a3d3a', legCol: '#2b2320', snout: true,
+      mesh: () => quadMesh({ species: 'boar', size: 0.85, body: '#4a3d3a', legCol: '#2b2320', snout: true,
                              snoutCol: '#6b5a52', neck: 0.5, legLen: 0.8, tail: 0.5 }),
       death: 'feathers', deathColor: '#4a3d3a',
     },
     pheasant: {
       id: 'pheasant', name: 'Pheasant', points: 340, hp: 1, radius: 2.0, size: 0.7,
       speed: [5, 8], flap: 9, wingAmp: 0.9, ground: true, ride: 0, flush: 22,
-      mesh: () => birdMesh({ size: 0.7, body: '#b8452b', wing: '#7a5230', beak: '#f2c14e' }),
+      mesh: () => birdMesh({ species: 'pheasant', size: 0.7, body: '#b8452b', wing: '#7a5230', beak: '#f2c14e' }),
       death: 'feathers', deathColor: '#b8452b',
     },
     bottle: {
@@ -1124,18 +1129,30 @@ const FlyerKit = (() => {
       if (this.wings) {
         this.flap += dt * (this.type.flap || 0) * (this.flapRate || 1);
         const a = Math.sin(this.flap) * (this.type.wingAmp || 0.7);
-        for (const w of this.wings) w.pivot.rotation.z = -w.side * a;
+        for (const w of this.wings) {
+          w.pivot.rotation.z = -w.side * a;
+          if (w.cosmeticWrist) {
+            const fold = this.type.boss && this.behaviour === 'bossDive' ? .52 : 0;
+            w.fore.rotation.z = -w.side * (Math.sin(this.flap - .55) * .22 + fold);
+          }
+        }
       }
       if (this.legs) {
         // diagonal pairs, and a bound instead of a walk for the hoppers
         const swing = this.type.hop && this.hopT
           ? Math.sin(this.hopT) * 0.9 : Math.sin(this.gait * 3) * 0.55;
-        for (const l of this.legs) l.pivot.rotation.x = Math.sin(this.gait * 3 + l.phase) * 0.55;
+        const cadence = this.type.id === 'fox' ? 3.7 : this.type.id === 'boar' ? 2.6 : 3;
+        for (const l of this.legs) l.pivot.rotation.x = Math.sin(this.gait * cadence + l.phase) * 0.55;
         if (this.type.hop && this.hopT) {
           this.mesh.position.y += Math.max(0, Math.sin(this.hopT)) * 0.7;
           for (const l of this.legs) l.pivot.rotation.x = swing;
         }
       }
+      if (this.type.boss && this.mesh.userData.claws) {
+        const grasp = this.behaviour === 'bossSweep' || this.behaviour === 'bossRage' ? .45 : 0;
+        for (const claw of this.mesh.userData.claws) claw.obj.rotation.x = claw.rest + grasp + Math.sin(this.flap) * .04;
+      }
+      if (this.mesh.userData.tail) this.mesh.userData.tail.rotation.y = Math.sin(this.age * 2.7) * .09;
       if (this.mesh.userData.flame) {
         const s = 1 + Math.sin(this.age * 9 + this.phase) * 0.18;
         this.mesh.userData.flame.scale.setScalar(s);

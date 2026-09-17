@@ -692,6 +692,7 @@ const ForestKit = (() => {
       .map(s => ({ x: s.x, z: s.z, r: (s.kind === 'dead' ? 0.7 : 0.95) * s.s,
                    y0: s.y - 1, y1: s.y + 14 * s.s }));
 
+    if (o.visualProfile === 'shootout') ShootoutForest.apply(group, heightAt, uniforms, o);
     scene.add(group);
 
     /* What you can stand on: the ground, or the deck when you are on it,
@@ -713,8 +714,9 @@ const ForestKit = (() => {
       },
       fire,
       update(dt, camPos) {
-        uniforms.time.value += dt;
-        motes.update(dt, { x: uniforms.wind.value.x, y: uniforms.wind.value.y },
+        const motionDt = o.visualProfile === 'shootout' && ShootoutMaterials.reduced() ? 0 : dt;
+        uniforms.time.value += motionDt;
+        motes.update(motionDt, { x: uniforms.wind.value.x, y: uniforms.wind.value.y },
                      camPos, o.moteFall);
         // the fire never repeats itself, which is what makes it read as fire
         animateFire(fire, uniforms.time.value);

@@ -1,0 +1,575 @@
+{
+  "forest": {
+    "heights": true,
+    "colliders": true,
+    "rng": true,
+    "positions": true,
+    "defaults": true,
+    "defaultFlat": true,
+    "profileSmooth": true
+  },
+  "bow": {
+    "shots": [
+      {
+        "power": 0.4,
+        "charge": 0.4,
+        "perfect": false,
+        "speed": 77.37182734241242,
+        "pierce": 0,
+        "held": 0.2
+      },
+      {
+        "power": 1,
+        "charge": 1,
+        "perfect": true,
+        "speed": 112,
+        "pierce": 1,
+        "held": 0.5
+      },
+      {
+        "power": 1,
+        "charge": 1,
+        "perfect": false,
+        "speed": 112,
+        "pierce": 0,
+        "held": 0.64
+      }
+    ],
+    "nocking": "nocking",
+    "blocked": "nocking",
+    "ready": "drawing",
+    "same": true
+  },
+  "arrows": {
+    "trajectory": [
+      0.4122403565388583,
+      12.005035509549403,
+      -109.47425552321735
+    ],
+    "piercing": [
+      0,
+      1
+    ],
+    "remote": 0,
+    "land": [
+      "ground"
+    ]
+  },
+  "ownership": {
+    "lateUnbound": true,
+    "shared": true,
+    "textureSurvives": true
+  },
+  "score": {
+    "reward": {
+      "money": 112.5,
+      "chain": 1,
+      "kills": 1,
+      "hits": 1
+    },
+    "penalty": {
+      "cost": 400,
+      "doves": 1,
+      "chain": 0
+    },
+    "weak": {
+      "lantern": {
+        "radius": 2.3400000000000003,
+        "position": [
+          0,
+          -4.8100000000000005,
+          -0.52
+        ]
+      },
+      "eyes": {
+        "radius": 2.21,
+        "position": [
+          0,
+          2.3920000000000003,
+          -1.3
+        ]
+      },
+      "talons": {
+        "radius": 2.08,
+        "position": [
+          0,
+          -2.7300000000000004,
+          -0.52
+        ]
+      },
+      "chest": {
+        "radius": 2.6,
+        "position": [
+          0,
+          -0.26,
+          -2.3920000000000003
+        ]
+      }
+    },
+    "tests": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "renders": [
+    {
+      "costs": [
+        {
+          "name": "trees-pine-crown-3",
+          "n": 103095
+        },
+        {
+          "name": "trees-broadleaf-crown-3",
+          "n": 66240
+        },
+        {
+          "name": "under-bush",
+          "n": 51300
+        },
+        {
+          "name": "trees-pine-trunk-3",
+          "n": 46980
+        },
+        {
+          "name": "under-fern",
+          "n": 46060
+        },
+        {
+          "name": "detail-grass",
+          "n": 43200
+        },
+        {
+          "name": "trees-broadleaf-trunk-3",
+          "n": 22356
+        },
+        {
+          "name": "detail-flower",
+          "n": 19840
+        }
+      ],
+      "weather": "still",
+      "mobile": false,
+      "calls": 135,
+      "triangles": 563971,
+      "memory": {
+        "geometries": 169,
+        "textures": 38
+      }
+    },
+    {
+      "costs": [
+        {
+          "name": "trees-pine-crown-3",
+          "n": 103095
+        },
+        {
+          "name": "trees-broadleaf-crown-3",
+          "n": 66240
+        },
+        {
+          "name": "under-bush",
+          "n": 51300
+        },
+        {
+          "name": "trees-pine-trunk-3",
+          "n": 46980
+        },
+        {
+          "name": "under-fern",
+          "n": 46060
+        },
+        {
+          "name": "detail-grass",
+          "n": 43200
+        },
+        {
+          "name": "trees-broadleaf-trunk-3",
+          "n": 22356
+        },
+        {
+          "name": "detail-flower",
+          "n": 19840
+        }
+      ],
+      "weather": "drizzle",
+      "mobile": false,
+      "calls": 135,
+      "triangles": 563971,
+      "memory": {
+        "geometries": 169,
+        "textures": 39
+      }
+    },
+    {
+      "costs": [
+        {
+          "name": "trees-pine-crown-3",
+          "n": 103095
+        },
+        {
+          "name": "trees-broadleaf-crown-3",
+          "n": 66240
+        },
+        {
+          "name": "under-bush",
+          "n": 51300
+        },
+        {
+          "name": "trees-pine-trunk-3",
+          "n": 46980
+        },
+        {
+          "name": "under-fern",
+          "n": 46060
+        },
+        {
+          "name": "detail-grass",
+          "n": 43200
+        },
+        {
+          "name": "trees-broadleaf-trunk-3",
+          "n": 22356
+        },
+        {
+          "name": "detail-flower",
+          "n": 19840
+        }
+      ],
+      "weather": "snow",
+      "mobile": false,
+      "calls": 135,
+      "triangles": 563971,
+      "memory": {
+        "geometries": 169,
+        "textures": 38
+      }
+    },
+    {
+      "costs": [
+        {
+          "name": "trees-pine-crown-3",
+          "n": 103095
+        },
+        {
+          "name": "trees-broadleaf-crown-3",
+          "n": 66240
+        },
+        {
+          "name": "under-bush",
+          "n": 51300
+        },
+        {
+          "name": "trees-pine-trunk-3",
+          "n": 46980
+        },
+        {
+          "name": "under-fern",
+          "n": 46060
+        },
+        {
+          "name": "detail-grass",
+          "n": 43200
+        },
+        {
+          "name": "trees-broadleaf-trunk-3",
+          "n": 22356
+        },
+        {
+          "name": "detail-flower",
+          "n": 19840
+        }
+      ],
+      "weather": "night",
+      "mobile": false,
+      "calls": 136,
+      "triangles": 563971,
+      "memory": {
+        "geometries": 170,
+        "textures": 38
+      }
+    },
+    {
+      "costs": [
+        {
+          "name": "trees-pine-crown-3",
+          "n": 105939
+        },
+        {
+          "name": "trees-broadleaf-crown-3",
+          "n": 69760
+        },
+        {
+          "name": "under-bush",
+          "n": 51300
+        },
+        {
+          "name": "trees-pine-trunk-3",
+          "n": 48276
+        },
+        {
+          "name": "trees-broadleaf-trunk-3",
+          "n": 23544
+        },
+        {
+          "name": "under-fern",
+          "n": 23128
+        },
+        {
+          "name": "detail-grass",
+          "n": 21600
+        },
+        {
+          "name": "BufferGeometry",
+          "n": 16080
+        }
+      ],
+      "weather": "still",
+      "mobile": true,
+      "calls": 101,
+      "triangles": 448242,
+      "memory": {
+        "geometries": 135,
+        "textures": 37
+      }
+    },
+    {
+      "costs": [
+        {
+          "name": "trees-pine-crown-3",
+          "n": 105939
+        },
+        {
+          "name": "trees-broadleaf-crown-3",
+          "n": 69760
+        },
+        {
+          "name": "under-bush",
+          "n": 51300
+        },
+        {
+          "name": "trees-pine-trunk-3",
+          "n": 48276
+        },
+        {
+          "name": "trees-broadleaf-trunk-3",
+          "n": 23544
+        },
+        {
+          "name": "under-fern",
+          "n": 23128
+        },
+        {
+          "name": "detail-grass",
+          "n": 21600
+        },
+        {
+          "name": "BufferGeometry",
+          "n": 16080
+        }
+      ],
+      "weather": "drizzle",
+      "mobile": true,
+      "calls": 101,
+      "triangles": 448242,
+      "memory": {
+        "geometries": 135,
+        "textures": 52
+      }
+    },
+    {
+      "costs": [
+        {
+          "name": "trees-pine-crown-3",
+          "n": 105939
+        },
+        {
+          "name": "trees-broadleaf-crown-3",
+          "n": 69760
+        },
+        {
+          "name": "under-bush",
+          "n": 51300
+        },
+        {
+          "name": "trees-pine-trunk-3",
+          "n": 48276
+        },
+        {
+          "name": "trees-broadleaf-trunk-3",
+          "n": 23544
+        },
+        {
+          "name": "under-fern",
+          "n": 23128
+        },
+        {
+          "name": "detail-grass",
+          "n": 21600
+        },
+        {
+          "name": "BufferGeometry",
+          "n": 16080
+        }
+      ],
+      "weather": "snow",
+      "mobile": true,
+      "calls": 101,
+      "triangles": 448242,
+      "memory": {
+        "geometries": 135,
+        "textures": 51
+      }
+    },
+    {
+      "costs": [
+        {
+          "name": "trees-pine-crown-3",
+          "n": 105939
+        },
+        {
+          "name": "trees-broadleaf-crown-3",
+          "n": 69760
+        },
+        {
+          "name": "under-bush",
+          "n": 51300
+        },
+        {
+          "name": "trees-pine-trunk-3",
+          "n": 48276
+        },
+        {
+          "name": "trees-broadleaf-trunk-3",
+          "n": 23544
+        },
+        {
+          "name": "under-fern",
+          "n": 23128
+        },
+        {
+          "name": "detail-grass",
+          "n": 21600
+        },
+        {
+          "name": "BufferGeometry",
+          "n": 16080
+        }
+      ],
+      "weather": "night",
+      "mobile": true,
+      "calls": 102,
+      "triangles": 448242,
+      "memory": {
+        "geometries": 136,
+        "textures": 51
+      }
+    }
+  ],
+  "boss": [
+    {
+      "phase": 0,
+      "weak": "lantern",
+      "cue": "THE LANTERN — OPEN",
+      "mobile": false
+    },
+    {
+      "phase": 1,
+      "weak": "eyes",
+      "cue": "THE EYES — OPEN",
+      "mobile": false
+    },
+    {
+      "phase": 2,
+      "weak": "talons",
+      "cue": "THE TALONS — OPEN",
+      "mobile": false
+    },
+    {
+      "phase": 3,
+      "weak": "chest",
+      "cue": "THE HEART — OPEN",
+      "mobile": false
+    },
+    {
+      "phase": 0,
+      "weak": "lantern",
+      "cue": "THE LANTERN — OPEN",
+      "mobile": true
+    },
+    {
+      "phase": 1,
+      "weak": "eyes",
+      "cue": "THE EYES — OPEN",
+      "mobile": true
+    },
+    {
+      "phase": 2,
+      "weak": "talons",
+      "cue": "THE TALONS — OPEN",
+      "mobile": true
+    },
+    {
+      "phase": 3,
+      "weak": "chest",
+      "cue": "THE HEART — OPEN",
+      "mobile": true
+    }
+  ],
+  "repeat": [
+    {
+      "geometries": 129,
+      "textures": 52
+    },
+    {
+      "geometries": 129,
+      "textures": 52
+    },
+    {
+      "geometries": 129,
+      "textures": 52
+    },
+    {
+      "geometries": 129,
+      "textures": 52
+    },
+    {
+      "geometries": 129,
+      "textures": 52
+    }
+  ],
+  "comfort": {
+    "fov": 64,
+    "roll": 0,
+    "eye": 1.7200000000000002,
+    "windTime": 0
+  },
+  "fallback": {
+    "states": [
+      "error",
+      "error",
+      "error",
+      "error",
+      "error",
+      "error",
+      "error",
+      "error",
+      "error",
+      "error",
+      "error",
+      "error",
+      "error",
+      "error",
+      "error",
+      "error"
+    ],
+    "calls": 100
+  },
+  "browser": "153.0.8010.12",
+  "renderer": "SwiftShader; no device FPS claim",
+  "host": {
+    "platform": "linux",
+    "cpu": "12th Gen Intel(R) Core(TM) i3-1215U"
+  }
+}

@@ -990,7 +990,8 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .sb-pip.on{background:linear-gradient(90deg,#ff5470,#ff8fa3); border-color:transparent;
   box-shadow:0 0 14px rgba(255,84,112,.7)}
 .sh-boss.stagger .sb-name{color:var(--gold); text-shadow:0 2px 0 rgba(4,12,22,.6), 0 0 30px rgba(242,193,78,.7)}
-.sh-boss.open .sb-phase{color:var(--gold); animation:surfPulse 1s ease-in-out infinite}
+.sh-boss.open .sb-phase{color:var(--gold); animation:shWeakPulse 1s ease-in-out infinite}
+@keyframes shWeakPulse{0%,100%{opacity:1}50%{opacity:.65}}
 
 .sb-stages{display:flex; gap:6px; justify-content:center; margin-top:8px}
 .sb-stage{width:7px; height:7px; transform:rotate(45deg); background:rgba(6,18,30,.6);
@@ -1067,14 +1068,14 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
    passes taps through on purpose, so looking round the fire while the
    pouches are out keeps working. */
 #touch-shoot.visible.blocked{display:none}
-#touch-shoot .draw-pad,#touch-shoot .focus-pad{position:absolute; bottom:9vh; border-radius:50%;
+#touch-shoot .draw-pad,#touch-shoot .focus-pad,#touch-shoot .sprint-pad{position:absolute; bottom:9vh; border-radius:50%;
   display:grid; place-items:center; font-weight:800; letter-spacing:.1em; font-size:12px;
   pointer-events:all; touch-action:none}
 #touch-shoot .draw-pad{right:6vw; width:112px; height:112px; color:#eaffff;
   background:rgba(63,224,255,.26); border:2px solid rgba(63,224,255,.7)}
 #touch-shoot .focus-pad{right:6vw; bottom:26vh; width:74px; height:74px; color:#fff;
   background:rgba(240,249,255,.14); border:2px solid rgba(240,249,255,.4)}
-#touch-shoot .sprint-pad{right:24vw; bottom:11vh; width:74px; height:74px; color:var(--gold);
+#touch-shoot .sprint-pad{left:6vw; bottom:26vh; width:74px; height:74px; color:var(--gold);
   background:rgba(242,193,78,.16); border:2px solid rgba(242,193,78,.55)}
 #touch-shoot .move-zone{position:absolute; left:6vw; bottom:9vh; width:124px; height:124px;
   pointer-events:all; touch-action:none}
@@ -2918,3 +2919,27 @@ body.touch .sk-practice kbd{display:none}
 .estate-setting{display:inline-flex;align-items:center;gap:7px;text-transform:none;letter-spacing:0;font-size:11px}
 .estate-setting input{accent-color:#ebc47d}.estate-setting select{background:#17232c;color:#f4e9d4;border:0;padding:4px;min-height:24px}
 .play-foot{flex-wrap:wrap;justify-content:center}
+
+/* Shootout: parchment, moss and warm brass; warning and draw colours stay vivid. */
+.sh-hud .sh-money{color:#efd6a0;text-shadow:0 2px 5px #182519,0 0 18px #17241880}
+.sh-hud .sh-money.hurt{color:#ff7890}
+.sh-hud .sh-chain{color:#bed29a;text-shadow:0 2px 5px #172418}
+.sh-hud .sh-round,.sh-hud .sh-left{color:#f0ead9;text-shadow:0 2px 5px #172418}
+.sh-hud .sh-round-name,.sh-hud .sh-chain-lbl{color:#e2e4d4}
+.sh-hud .sh-round-track,.sh-hud .sh-chain-track,.sh-hud .sh-breath-track{background:#18291dcc;border-color:#d7d6b533}
+.sh-hud .sh-round-bar,.sh-hud .sh-chain-bar{background:linear-gradient(90deg,#809b63,#c2d4a2)}
+.sh-hud .sh-round-bar.low,.sh-hud .sh-chain-bar.low{background:#ff5470}
+.sh-hud .sh-breath-fill{background:linear-gradient(90deg,#6d978e,#d4e5ca)}
+.sh-hud .sh-breath.using .sh-breath-fill{background:linear-gradient(90deg,#c5d8a6,#fff3d1)}
+@media (max-width:600px){
+  .sh-top{gap:8px}
+  .sh-round-block{min-width:110px;max-width:42vw}
+  .sh-tally{min-width:60px}
+  .sh-round-name{font-size:9px;letter-spacing:.08em}
+  .sh-boss{top:max(108px,14vh);width:88vw}
+  .sh-boons{top:max(194px,25vh);gap:4px}
+}
+@media (prefers-reduced-motion:reduce){
+  .sh-hud *,.sh-reticle *,.sh-loose::after,.sh-hit i{animation:none!important;transition:none!important}
+}
+.sh-hud.reduce-motion *{animation:none!important;transition:none!important}

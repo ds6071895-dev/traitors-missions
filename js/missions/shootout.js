@@ -360,12 +360,16 @@ class ShootoutMission {
     const applied = ForestConditions.apply(this.cond);
     const fog = (this.twist && this.twist.fog) || applied.weather.fog;
     scene.fog = new THREE.Fog(Sky.PALETTE.fog, fog.near, fog.far);
-    scene.add(ForestConditions.lights(this.cond));
+    const lighting = ForestConditions.lights(this.cond);
+    lighting.children[0].color.lerp(new THREE.Color('#ffe2af'), .18);
+    lighting.children[2].groundColor.set('#314c3f');
+    scene.add(lighting);
     this.applied = applied;
 
     Sky.build(scene, U.makeRng(this.seed + 13), { birds: false });
 
     this.forest = ForestKit.build(scene, U.makeRng(this.seed + 3), {
+      visualProfile: 'shootout', visualSeed: this.seed, precip: applied.weather.precip,
       radius: C.forestRadius,
       clearing: 15,
       // low enough to walk on and off: a raised hide made sense when you
@@ -409,6 +413,7 @@ class ShootoutMission {
       dispose() { this.bits.dispose(); this.sparks.dispose(); this.rings.dispose(); this.labels.dispose(); },
     };
 
+    this.visualFx = new ShootoutFeedback(scene, this.seed);
     this._buildResidents();
 
     if (this.mode === 'prize') {
@@ -468,6 +473,7 @@ class ShootoutMission {
   _cacheHud() {
     const q = id => document.getElementById(id);
     this.hud = {
+      root: document.querySelector('.sh-hud'),
       money: q('sh-money'), docked: q('sh-docked'),
       chain: q('sh-chain'), chainWrap: q('sh-chain-wrap'), chainBar: q('sh-chain-bar'),
       round: q('sh-round'), roundName: q('sh-round-name'), roundBar: q('sh-round-bar'),
@@ -551,6 +557,7 @@ class ShootoutMission {
     this.flock.clear();
     this.arrows.clear();
     this.fx.labels.clear();
+    if (this.visualFx) this.visualFx.clear();
     this._resetRun();
     this.pos.set(0, this.forest.walkAt(0, 0), 0);
     this._buildResidents();
@@ -594,6 +601,7 @@ class ShootoutMission {
     if (this.arrows) this.arrows.dispose();
     if (this.flock) this.flock.dispose();
     if (this.fx) this.fx.dispose();
+    if (this.visualFx) this.visualFx.dispose();
     if (this.forest) this.forest.dispose();
     Engine.disposeObject(this.scene);
     Sky.resetPreset();
@@ -706,6 +714,11 @@ class ShootoutMission {
 
     this.forest.update(dt, this.camera.position);
     this.fx.update(dt);
+    if (this.visualFx) this.visualFx.update(dt);
+    for (const f of this.flock.list) {
+      const detail = f.mesh.userData.detail;
+      if (detail) detail.visible = f.pos.distanceToSquared(this.camera.position) < 110 * 110;
+    }
     Sky.update(dt, this.camera.position, t);
     this._updateCamera(rawDt);
     this._updateHud(rawDt);
@@ -878,15 +891,16 @@ class ShootoutMission {
 
   _updateCamera(dt) {
     const C = this.C;
+    const reduced = ShootoutMaterials.reduced();
     this.recoil = U.damp(this.recoil, 0, 9, dt);
     this.shake = U.damp(this.shake, 0, 5.5, dt);
     this.fovKick = U.damp(this.fovKick, 0, 6, dt);
 
-    const shakeX = this.shake ? (Math.random() - 0.5) * this.shake * 0.03 : 0;
-    const shakeY = this.shake ? (Math.random() - 0.5) * this.shake * 0.03 : 0;
+    const shakeX = !reduced && this.shake ? (Math.random() - 0.5) * this.shake * 0.03 : 0;
+    const shakeY = !reduced && this.shake ? (Math.random() - 0.5) * this.shake * 0.03 : 0;
 
     // the walk cycle, in the camera and in the hand holding the bow
-    const amp = C.bobAmp * this.speed01 * (this.sprinting ? 1.5 : 1);
+    const amp = (reduced ? 0 : C.bobAmp) * this.speed01 * (this.sprinting ? 1.5 : 1);
     const bobY = Math.abs(Math.sin(this.bobT)) * amp * 2 - amp;
     const bobX = Math.sin(this.bobT * 0.5) * amp * 1.2;
     this.camera.position.set(this.pos.x + bobX * 0.35,
@@ -898,12 +912,12 @@ class ShootoutMission {
     this.camera.rotation.order = 'YXZ';
     this.camera.rotation.y = this.aimYaw + shakeX;
     this.camera.rotation.x = this.aimPitch + shakeY;
-    this.camera.rotation.z = Math.sin(this.bobT * 0.5) * 0.016 * this.speed01;
+    this.camera.rotation.z = reduced ? 0 : Math.sin(this.bobT * 0.5) * 0.016 * this.speed01;
 
     // No zoom: holding your breath slows the world and steadies the bow,
     // and that is all it does. A field of view that moves under you while
     // you are trying to lead a bird is a fight, not a feature.
-    const wantFov = C.baseFov + this.fovKick + (this.sprinting ? C.sprintFov : 0);
+    const wantFov = C.baseFov + (reduced ? 0 : this.fovKick + (this.sprinting ? C.sprintFov : 0));
     if (Math.abs(this.camera.fov - wantFov) > 0.01) {
       this.camera.fov = U.damp(this.camera.fov, wantFov, 12, dt);
       this.camera.updateProjectionMatrix();
@@ -935,7 +949,7 @@ class ShootoutMission {
     }
     if (this.arrowsLeft !== Infinity) this.arrowsLeft--;
     this.recoil = 0.028 + shot.power * 0.03;
-    this.fovKick = 1.6 + shot.power * 2.4;
+    this.fovKick = 0.25 + shot.power * 0.45;
     this._looseRing(shot.perfect);
     Input.haptic(8);
 
@@ -1807,6 +1821,7 @@ class ShootoutMission {
     /* Where it landed, said out loud. A miss with no mark on it is a
        shot that simply evaporated, and half of learning the lead is
        seeing how far short or wide the last one went. */
+    AudioBus.play('shootout-surface', { surface: what });
     this._burst(arrow.pos, what === 'tree' ? 7 : 9,
                 what === 'tree' ? '#6b543a' : '#8a7a5c', 4.5);
     /* Somebody else's arrow burying itself in a trunk is their miss,
@@ -3086,6 +3101,8 @@ class ShootoutMission {
     const kind = target.type.death;
     const col = new THREE.Color(target.type.deathColor || '#ffffff');
     const p = info ? info.point : target.pos;
+    if (this.visualFx && (kind === 'feathers' || kind === 'shards')) this.visualFx.burst(p, target.type);
+    if (target.type.id === 'bell') AudioBus.play('shootout-surface', { surface: 'bell' });
     const n = kind === 'feathers' ? 26 : kind === 'embers' ? 34 : 30;
     for (let i = 0; i < n; i++) {
       const a = Math.random() * 6.28, sp = 2 + Math.random() * (kind === 'shards' ? 16 : 7);
@@ -3251,7 +3268,7 @@ class ShootoutMission {
 
   _flash(amount, color) {
     const f = this.hud.flash;
-    if (!f) return;
+    if (!f || ShootoutMaterials.reduced()) return;
     f.style.background = color;
     f.style.opacity = String(U.clamp(amount, 0, 0.8));
     clearTimeout(this._flashT);
@@ -3297,6 +3314,7 @@ class ShootoutMission {
 
   _updateHud(dt) {
     const h = this.hud, C = this.C;
+    if (h.root) h.root.classList.toggle('reduce-motion', ShootoutMaterials.reduced());
     if (!h.money) return;
     const shown = Math.round(Math.max(0, this.money - this.penalty) * this.payout);
     h.money.textContent = U.money(shown);
