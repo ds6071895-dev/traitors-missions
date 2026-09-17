@@ -1,3 +1,4 @@
+const finishTravel = require('./travel-helper');
 /* ------------------------------------------------------------------
    session.test.js — a whole night, driven through `dispatch`.
 
@@ -104,6 +105,7 @@ test('a guest cannot move the game on its own', () => {
   ctx.Session.startParty({ seed: 12, players: PLAYERS, mode: 'guest' });
   const before = ctx.Session.state.phase;
   ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
   eq(ctx.Session.state.phase, before, 'dispatch is inert on a guest');
 });
 
@@ -115,13 +117,15 @@ section('session — the run');
    channel, and most of an evening used to go on everything else. */
 function toFinale(ctx, seed) {
   ctx.Session.startParty({ seed, players: PLAYERS, mode: 'host' });
-  ctx.Session.dispatch({ type: 'advance' });                 // hill -> mission
+  ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);                 // hill -> mission
   ctx.Session.dispatch({ type: 'result', earned: 10000, completed: true, players: [] });
-  eq(ctx.Session.state.phase, 'finale', 'the mission leads straight to the fire');
+  finishTravel(ctx);
+  eq(ctx.Session.state.phase, 'finale', 'the mission returns to the fire after travel');
   eq(ctx.Session.state.pot, 10000, 'the mission banked');
 }
 
-test('the run walks hill -> mission -> finale, and nothing else', () => {
+test('the run walks welcome -> outbound -> mission -> return -> finale', () => {
   const ctx = fresh();
   toFinale(ctx, 21);
   eq(ctx.Session.PARTS, ['intro', 'm1', 'finale'], 'three parts, in order');
@@ -258,6 +262,7 @@ test('changing phase closes any floor that was open', () => {
   ctx.Session.startParty({ seed: 33, players: PLAYERS, mode: 'host' });
   ctx.Session.dispatch({ type: 'openFloor', seconds: 30 });
   ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
   eq(ctx.Session.state.floor, null, 'the hill took the floor with it');
   ctx.Session.abandon();
 });
@@ -284,11 +289,13 @@ function runWithTraitor(ctx, marks) {
   ok(dealt.length === 1, 'exactly one card for the whole night');
 
   ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
   if (marks) ctx.Session.dispatch({ type: 'taskDone', playerId: traitor.id });
   const reports = ctx.Session.state.players.map(p => ({
     playerId: p.id, name: p.name, earned: 1000, columns: ['A'], cells: ['x'], stats: {},
   }));
   ctx.Session.dispatch({ type: 'result', earned: 3000, completed: true, players: reports });
+  finishTravel(ctx);
   return { traitor, seed, card: dealt[0] };
 }
 
@@ -325,10 +332,12 @@ test('only the traitor can mark the task, and only during the mission', () => {
 
   ctx.Session.dispatch({ type: 'taskDone', playerId: traitor.id });
   ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
   ctx.Session.dispatch({ type: 'taskDone', playerId: faithful.id });
   const reports = ctx.Session.state.players.map(p => ({
     playerId: p.id, name: p.name, earned: 1000, stats: {} }));
   ctx.Session.dispatch({ type: 'result', earned: 1, completed: true, players: reports });
+  finishTravel(ctx);
 
   eq(ctx.Session.hasExposure(), true,
      'a mark from the hill and a mark from a faithful are both nothing');
@@ -340,6 +349,7 @@ test('marking is silent on the wire', () => {
   ctx.Session.startParty({ seed, players: PLAYERS, mode: 'host' });
   const traitor = ctx.Session.state.players[ctx.Session._peek().seat];
   ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
 
   let changes = 0;
   ctx.Session.on('change', () => { changes++; });
@@ -407,11 +417,13 @@ test('the board carries every player, in finishing order', () => {
   const ctx = fresh();
   ctx.Session.startParty({ seed: 44, players: PLAYERS, mode: 'host' });
   ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
   ctx.Session.dispatch({ type: 'result', earned: 900, completed: true, players: [
     { playerId: 'c', name: 'Cy', place: 1, earned: 500, columns: ['Place'], cells: ['P1'] },
     { playerId: 'a', name: 'Ana', place: 3, earned: 100, columns: ['Place'], cells: ['P3'] },
     { playerId: 'b', name: 'Bo', place: 2, earned: 300, columns: ['Place'], cells: ['P2'] },
   ] });
+  finishTravel(ctx);
   const d = ctx.Session.state.debrief;
   eq(d.rows.map(r => r.playerId), ['c', 'b', 'a'], 'sorted by place');
   eq(d.columns, ['Place'], 'columns come from the mission');

@@ -23,6 +23,7 @@
 const Show = (() => {
 
   let running = false;
+  let transitionAbort = null;
   let isHost = true;
   let solo = false;                 // a rehearsal night: you and two bots
   let offNet = null, restorePot = null;
@@ -84,6 +85,9 @@ const Show = (() => {
   function end(opts = {}) {
     if (!running) return;
     running = false;
+    if (transitionAbort) transitionAbort.abort();
+    Journey.stop();
+    const errorPanel=document.getElementById('destination-error');if(errorPanel)errorPanel.remove();
     clearTimeout(verdictGuard);
     verdictGuard = null;
     // a rehearsal's two bots have nothing left to act in
@@ -118,49 +122,48 @@ const Show = (() => {
       armVerdictGuard();
       return;
     }
-    const swap = () => {
-      Scenes.stop();
-      Missions.end();
+    if (transitionAbort) transitionAbort.abort();
+    const controller=new AbortController();transitionAbort=controller;
+    const swap=async()=>{
+      if(controller.signal.aborted||!running)return;
+      let prepared=null;
+      if(phase==='mission'&&Journey.active)prepared=Journey.takePrepared();
+      let pickup=null;
+      if(phase==='travel'&&Session.state.travel.direction==='return')pickup=Missions.releaseForTravel();
+      Journey.stop();Scenes.stop();
+      if(!prepared&&!pickup)Missions.end();
       Screens.hideAll();
-      switch (phase) {
-        case 'hill':    Scenes.play(new HillScene()); break;
-        case 'finale':  Scenes.play(new FinaleScene()); break;
-        case 'mission': launchMission(); break;
-        default: break;
+      if(phase==='hill')Scenes.play(new HillScene());
+      else if(phase==='finale')Scenes.play(new FinaleScene());
+      else if(phase==='travel')await Journey.start({missionOpts:missionOptions()},pickup);
+      else if(phase==='mission'){
+        try { if(prepared)Missions.activate(prepared);else launchMission(); }
+        catch(error){showBuildError(error);}
       }
     };
-    if (first) swap(); else Screens.transition(swap, 380);
+    Screens.cover(swap,controller.signal,first?0:380).catch(showBuildError);
   }
 
-  function launchMission() {
-    const s = Session.state;
-    const m = s.missions[s.missionAt];
-    if (!m) { Net.send({ type: 'result', earned: 0, completed: false }); return; }
-    const def = Missions.get(m.id);
-    if (!def || def.locked) {
-      // a mission that has gone away since the run was planned must not
-      // strand the night
-      console.warn('mission missing from the registry:', m.id);
-      Net.send({ type: 'result', earned: 0, completed: false });
-      return;
-    }
-    /* The mission is handed the party, its own agenda card and which
-       client it is. Everything else about it is a pure function of the
-       seed, which is why three machines can build the same water. */
-    Missions.launch(m.id, {
-      seed: m.seed, mode: m.mode, modId: m.modId, tod: 'auto', ghost: false,
-      /* Three people inside one mission needs three people. A
-         rehearsal night has one, so its missions are launched as the
-         solo runs they actually are — `MissionNet` would refuse to go
-         live anyway, and half the party paths would then be waiting on
-         a room that is not there. */
-      party: !solo && typeof Party !== 'undefined' && Party.connected,
-      host: isHost,
-      players: Session.state.players.map(p => ({ id: p.id, name: p.name,
-                                                 look: p.look, local: !!p.local,
-                                                 alive: p.alive, seat: p.seat })),
-      agenda: Session.myAgenda(),
-    });
+  function showBuildError(error){
+    console.error('Scene build failed',error);
+    if(!running)return;
+    let panel=document.getElementById('destination-error');
+    if(!panel){panel=document.createElement('div');panel.id='destination-error';panel.className='destination-error';document.body.appendChild(panel);}
+    panel.innerHTML='<p>We could not prepare the destination.</p><button>Retry</button><button>Leave the night</button>';
+    panel.children[1].onclick=()=>{panel.remove();enter(Session.state.phase,true);};
+    panel.children[2].onclick=()=>{panel.remove();end({abandon:true});Screens.show('play');};
+  }
+  function missionOptions(){
+    const s=Session.state,m=s.missions[s.missionAt];
+    return {seed:m.seed,mode:m.mode,modId:m.modId,tod:'auto',ghost:false,
+      party:!solo&&typeof Party!=='undefined'&&Party.connected,host:isHost,
+      players:s.players.map(p=>({id:p.id,name:p.name,look:p.look,local:!!p.local,alive:p.alive,seat:p.seat})),
+      agenda:Session.myAgenda()};
+  }
+  function launchMission(){
+    const m=Session.state.missions[Session.state.missionAt];
+    if(!m||!Missions.get(m.id))throw new Error('Destination unavailable');
+    Missions.launch(m.id,missionOptions());
   }
 
   /* ---------------- the join back from a mission ----------------
@@ -176,6 +179,8 @@ const Show = (() => {
      the board never arrived, so a dropped peer cannot strand a night. */
   function resultsAction(result, board) {
     if (!running || !result) return null;
+    RoomUI.hideAgenda();
+    if (Session.isHost) Net.send({ type: 'missionFinished' });
     const s = Session.state;
     const earned = board
       ? Math.max(0, Math.round(board.earned || 0))
@@ -202,7 +207,7 @@ const Show = (() => {
   function nextRoomLabel() {
     const s = Session.state;
     const parts = (s && s.parts) || [];
-    return parts.indexOf('finale') >= 0 ? 'To the fire' : 'To the verdict';
+    return parts.indexOf('finale') >= 0 ? 'Return to the castle' : 'To the verdict';
   }
 
   /* ---------------- the verdict ---------------- */

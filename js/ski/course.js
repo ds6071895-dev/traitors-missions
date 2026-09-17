@@ -1,6 +1,6 @@
 /* Authored section vocabulary. All placements are resolved once, before rendering. */
 const SkiCourse = (() => {
-  const RULES = 4;
+  const RULES = 5;
   // Authored takeoff stations, rail approach, line width and traverse variation.
   // Entrances/exits retain the common centre and tangent; only the interior changes.
   const layouts = [
@@ -49,6 +49,71 @@ const SkiCourse = (() => {
       const bag = catalog.filter(s => s.region === region && !used.has(s.id));
       const s = bag[Math.floor(rng() * bag.length)]; used.add(s.id); return s;
     });
+  }
+  // THREE.DodecahedronGeometry(1, 1) as a triangle soup, subdivided and pushed out to the
+  // sphere the same way, so a boulder's collider is built from exactly the rock that is drawn.
+  const DODECA = (() => {
+    const t = (1 + Math.sqrt(5)) / 2, r = 1 / t;
+    const v = [-1, -1, -1, -1, -1, 1, -1, 1, -1, -1, 1, 1, 1, -1, -1, 1, -1, 1, 1, 1, -1, 1, 1, 1,
+      0, -r, -t, 0, -r, t, 0, r, -t, 0, r, t, -r, -t, 0, -r, t, 0, r, -t, 0, r, t, 0, -t, 0, -r, t, 0, -r, -t, 0, r, t, 0, r];
+    const f = [3, 11, 7, 3, 7, 15, 3, 15, 13, 7, 19, 17, 7, 17, 6, 7, 6, 15, 17, 4, 8, 17, 8, 10, 17, 10, 6,
+      8, 0, 16, 8, 16, 2, 8, 2, 10, 0, 12, 1, 0, 1, 18, 0, 18, 16, 6, 10, 2, 6, 2, 13, 6, 13, 15,
+      2, 16, 18, 2, 18, 3, 2, 3, 13, 18, 1, 9, 18, 9, 11, 18, 11, 3, 4, 14, 12, 4, 12, 0, 4, 0, 8,
+      11, 9, 5, 11, 5, 19, 11, 19, 7, 19, 5, 14, 19, 14, 4, 19, 4, 17, 1, 12, 14, 1, 14, 5, 1, 5, 9];
+    const at = i => [v[i * 3], v[i * 3 + 1], v[i * 3 + 2]];
+    const mid = (a, b) => a.map((x, k) => (x + b[k]) / 2);
+    const out = [];
+    for (let i = 0; i < f.length; i += 3) {
+      const a = at(f[i]), b = at(f[i + 1]), c = at(f[i + 2]), ab = mid(a, b), ac = mid(a, c), bc = mid(b, c);
+      for (const p of [ab, ac, a, ab, bc, ac, b, bc, ab, bc, c, ac]) { const l = Math.hypot(...p); out.push(p[0] / l, p[1] / l, p[2] / l); }
+    }
+    return out;
+  })();
+  // Where a point of a boulder's unit sphere ends up in the world. Scenery and collider share it.
+  function boulderPoint(b, px, py, pz) {
+    if (b.kind === 'ice') {
+      const x = px * 12, y = py * b.tall, c = Math.cos(.14), s = Math.sin(.14);
+      return [b.x + x * c - y * s, b.y + 15 + x * s + y * c, b.z + pz * 16];
+    }
+    const w = 1 + .12 * Math.sin(px * 7 + pz * 3) + .08 * Math.cos(py * 9 - px * 4);
+    const x = px * 24 * w + py * 6, z = pz * 20 * w, c = Math.cos(b.turn), s = Math.sin(b.turn);
+    return [b.x + x * c + z * s, b.y + 19 + py * 48, b.z - x * s + z * c];
+  }
+  function convexHull(flat) {
+    const p = [];
+    for (let i = 0; i < flat.length; i += 2) p.push([flat[i], flat[i + 1]]);
+    p.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    if (p.length < 3) return p.flat();
+    const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const chain = list => {
+      const h = [];
+      for (const q of list) { while (h.length > 1 && cross(h[h.length - 2], h[h.length - 1], q) <= 0) h.pop(); h.push(q); }
+      return h.slice(0, -1);
+    };
+    return [...chain(p), ...chain(p.slice().reverse())].flat();
+  }
+  /* A solid's collider: its convex outline (x, z pairs, anticlockwise) in horizontal bands,
+     so a skier meets the rock at the height they are actually at and clears it only when
+     they are above it. `soup` is world-space triangles, nine numbers each. */
+  function footprint(soup, x, z, band = 1.5) {
+    let y0 = Infinity, y1 = -Infinity;
+    for (let i = 1; i < soup.length; i += 3) { y0 = Math.min(y0, soup[i]); y1 = Math.max(y1, soup[i]); }
+    const n = Math.max(1, Math.ceil((y1 - y0) / band)), pts = Array.from({ length: n }, () => []);
+    const put = (k, px, pz) => { if (k >= 0 && k < n) pts[k].push(px, pz); };
+    for (let t = 0; t < soup.length; t += 9) for (let e = 0; e < 3; e++) {
+      const a = t + e * 3, b = t + (e + 1) % 3 * 3, ay = soup[a + 1], by = soup[b + 1];
+      put(Math.min(n - 1, Math.floor((ay - y0) / band)), soup[a], soup[a + 2]);
+      // an edge crossing a band boundary gives both bands that point of the section
+      for (let k = Math.floor((Math.min(ay, by) - y0) / band) + 1; y0 + k * band < Math.max(ay, by); k++) {
+        const u = (y0 + k * band - ay) / (by - ay);
+        const px = soup[a] + (soup[b] - soup[a]) * u, pz = soup[a + 2] + (soup[b + 2] - soup[a + 2]) * u;
+        put(k - 1, px, pz); put(k, px, pz);
+      }
+    }
+    const layers = pts.map(convexHull);
+    let r = 0;
+    for (const l of layers) for (let i = 0; i < l.length; i += 2) r = Math.max(r, Math.hypot(l[i] - x, l[i + 1] - z));
+    return { kind: 'rock', x, z, r, y0, band, layers };
   }
   function key(mode, seed, mod, conditions) { return JSON.stringify([RULES, mode, seed, mod || null,
     Object.keys(conditions).sort().map(k => [k, conditions[k]])]); }
@@ -127,18 +192,88 @@ const SkiCourse = (() => {
         }
       }
     }
-    face.clearLine = (x, z, radius = 5) => {
-      const route = routes.find(r => z >= r.z0 && z <= r.z1);
-      const lines = [face.cxAt(z)];
-      if (route) {
-        const u = (z - route.z0) / (route.z1 - route.z0);
-        lines.push(U.lerp(route.cut[0].x, route.cut[route.cut.length - 1].x, u), face.cxAt(z) + route.side * Math.sin(u * Math.PI) * route.width);
+    // Pads down every cut: speed pads in pairs, then a launch pad that throws you.
+    // Footprints stay clear of roofs, chalets, rails and ramps; a launch's flight only
+    // has to miss the buildings and cliff drops, since sailing over a kicker is the fun.
+    const padSpacing = config.padSpacing ?? 34, padScale = config.rampBoost ?? 1;
+    if (padSpacing > 0 && padScale > 0) {
+      const gap = Math.max(36, padSpacing * 1.7);
+      const blocked = (x, z, margin, flight) => surfaces.some(s => Math.abs(x - s.x) < s.halfX + margin && Math.abs(z - s.z) < s.halfZ + margin)
+        || solids.some(s => x > s.min.x - margin && x < s.max.x + margin && z > s.min.z - margin && z < s.max.z + margin)
+        || !flight && rails.some(r => r.points.some(p => Math.hypot(x - p.x, z - p.z) < margin + 2))
+        || face.ramps.some(r => (!flight || r.kind === 'drop') && Math.abs(x - r.x) < r.wide * 1.25 + margin && z > r.z - r.len * .3 - margin && z < r.z + r.len * (r.tail ?? 1.18) + margin);
+      for (const [i, route] of routes.entries()) {
+        const x0 = route.cut[0].x, x1 = route.cut[route.cut.length - 1].x;
+        const cutX = z => U.lerp(x0, x1, U.clamp((z - route.z0) / (route.z1 - route.z0), 0, 1));
+        const clear = (za, zb, step, margin, flight = false) => {
+          for (let z = za; z <= zb; z += step) if (blocked(cutX(z), z, margin, flight)) return false;
+          return true;
+        };
+        const ax = Math.atan((x1 - x0) / (route.z1 - route.z0));
+        // every third slot wants a launch; a blocked one stays due until a slot clears
+        for (let k = 0, due = 0, z = route.z0 + 100; z + 24 <= route.z1 - 60; k++, z += gap) {
+          const speed = { kind: 'speed', x: cutX(z), z, ax, len: 24, wide: 5.5, boost: 1.2 * padScale, chute: face.chutes[i] };
+          const launch = { kind: 'launch', x: cutX(z), z, ax, len: 16, wide: 6.5, boost: .55 * padScale,
+            lift: 12 * Math.min(1.4, padScale), chute: face.chutes[i] };
+          if (k % 3 === 2) due = 1;
+          if (due && clear(z, z + 24, 6, 8) && clear(z, z + 110, 6, 8, true)) { face.addPad(launch); due = 0; }
+          else if (clear(z, z + 24, 6, 8)) face.addPad(speed);
+        }
       }
-      if (lines.some(line => Math.abs(x - line) < radius + 9)) return true;
+    }
+    // True when a round footprint of `radius` would touch a line someone skis (the whole piste
+    // too, with `piste`), a cut's corridor, a feature and its landing, a pad and its flight, a rail
+    // or a building. Scenery that answers false can never be in the way of a route.
+    face.clearLine = (x, z, radius = 5, piste = false) => {
+      const step = Math.max(2, radius / 4);
+      for (let dz = -radius; dz <= radius + 1e-6; dz += step) {
+        const zz = z + dz, reach = Math.sqrt(Math.max(0, radius * radius - dz * dz)), cx = face.cxAt(zz);
+        if (Math.abs(x - cx) < reach + (piste ? face.halfAt(zz) + 8 : 9)) return true;
+        const route = routes.find(r => zz >= r.z0 && zz <= r.z1);
+        if (!route) continue;
+        const u = (zz - route.z0) / (route.z1 - route.z0);
+        if (Math.abs(x - U.lerp(route.cut[0].x, route.cut[route.cut.length - 1].x, u)) < reach + face.chutes[routes.indexOf(route)].half + 2) return true;
+        if (Math.abs(x - cx - route.side * Math.sin(u * Math.PI) * route.width) < reach + 9) return true;
+      }
       return rails.some(r => r.points.some(p => Math.hypot(x - p.x, z - p.z) < radius + 12))
-        || surfaces.some(s => Math.abs(x - s.x) < s.halfX + radius + 8 && Math.abs(z - s.z) < s.halfZ + radius + 10);
+        || surfaces.some(s => Math.abs(x - s.x) < s.halfX + radius + 8 && Math.abs(z - s.z) < s.halfZ + radius + 10)
+        || solids.some(s => x > s.min.x - radius - 6 && x < s.max.x + radius + 6 && z > s.min.z - radius - 6 && z < s.max.z + radius + 6)
+        || face.ramps.some(r => Math.abs(x - r.x) < r.wide * 1.25 + radius + 4 && z > r.z - r.len * .3 - radius - 4 && z < r.z + r.len * (r.tail ?? 1.18) + radius + 4)
+        || face.pads.some(p => Math.abs(x - p.x) < p.wide + radius + 4 && z > p.z - radius - 4 && z < p.z + (p.lift ? 110 : p.len) + radius + 4);
     };
     face.seal();
+    // Region landmarks, summit granite and glacier seracs are resolved here so the mountain
+    // collides with exactly what is drawn. Each walks outward from its authored spot until it is
+    // off the piste and clear of everything clearLine protects.
+    const settle = (z, side, lat, radius) => {
+      while (lat < face.edge + 80 && face.clearLine(face.cxAt(z) + side * lat, z, radius, true)) lat += 4;
+      return face.cxAt(z) + side * lat;
+    };
+    const landmarks = [], boulders = [];
+    for (const sec of face.sections) {
+      const z = sec.z1 - 45, x = settle(z, -1, 90, 6), y = face.heightAt(x, z), id = sec.id + '-landmark';
+      landmarks.push({ id, x, y, z, region: sec.def.region });
+      solids.push({ id, min: { x: x - 4, y: y - 8, z: z - 4 }, max: { x: x + 4, y: y + 32, z: z + 4 } });
+    }
+    for (const sec of face.sections) {
+      const region = sec.def.region;
+      if (region !== 'summit' && region !== 'glacier') continue;
+      for (let j = 0; j < 12; j++) {
+        const z = sec.z0 + 30 + j / 12 * 550;
+        const b = { id: sec.id + '-boulder-' + j, kind: region === 'glacier' ? 'ice' : 'granite',
+          tall: 24 + j % 3 * 6, turn: j * .71, shade: j % 2, x: 0, y: 0, z: 0 };
+        let reach = 0;
+        for (let i = 0; i < DODECA.length; i += 3) {
+          const p = boulderPoint(b, DODECA[i], DODECA[i + 1], DODECA[i + 2]);
+          reach = Math.max(reach, Math.hypot(p[0], p[2]));
+        }
+        b.x = settle(z, j % 2 ? 1 : -1, 95 + j % 3 * 15, reach); b.z = z; b.y = face.heightAt(b.x, z);
+        const soup = [];
+        for (let i = 0; i < DODECA.length; i += 3) soup.push(...boulderPoint(b, DODECA[i], DODECA[i + 1], DODECA[i + 2]));
+        b.collider = footprint(soup, b.x, b.z, 2);
+        boulders.push(b);
+      }
+    }
     for (const [i, route] of routes.entries()) {
       const surfaceLength = path => path.slice(1).reduce((sum, p, j) => {
         const q = path[j];
@@ -148,7 +283,8 @@ const SkiCourse = (() => {
       face.chutes[i].gain = route.saved;
     }
     return { rulesVersion: RULES, seed, conditions: { ...conditions }, sectionIds: face.sections.map(s => s.id),
-      sections: face.sections, routes, features: face.ramps, rails, surfaces, buildings, solids, checkpoints, colliders: [], total: face.total };
+      sections: face.sections, routes, features: face.ramps, pads: face.pads, rails, surfaces, buildings, solids, checkpoints,
+      landmarks, boulders, colliders: boulders.map(b => b.collider), total: face.total };
   }
   function validate(d) {
     const errors = [];
@@ -164,5 +300,5 @@ const SkiCourse = (() => {
     }
     return errors;
   }
-  return { RULES, catalog, order, key, makeFace, resolve, validate };
+  return { RULES, catalog, order, key, makeFace, resolve, validate, boulderPoint, footprint, DODECA };
 })();

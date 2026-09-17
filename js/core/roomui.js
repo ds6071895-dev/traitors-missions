@@ -264,6 +264,7 @@ const RoomUI = (() => {
   }
 
   function pressMark() {
+    if (!Session.state || Session.state.phase !== 'mission' || Session.state.taskClosed) return;
     const card = Session.myAgenda ? Session.myAgenda() : null;
     if (!card || typeof Agendas === 'undefined') return;
     if (Agendas.isClosed() || Agendas.isMarked(card.id)) return;
@@ -315,9 +316,10 @@ const RoomUI = (() => {
 
     const b = el('agenda-mark');
     if (b) {
-      b.disabled = done || closed;
+      const playable=Session.state && Session.state.phase==='mission' && !Session.state.taskClosed;
+      b.disabled = done || closed || !playable;
       b.classList.toggle('armed', armed);
-      b.textContent = done   ? 'Marked — it counted'
+      b.textContent = !playable && !closed ? 'Available during the mission' : done   ? 'Marked — it counted'
                     : closed ? 'Too late'
                     : armed  ? 'Press again to confirm'
                              : 'I said it';

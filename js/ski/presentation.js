@@ -67,33 +67,21 @@ const SkiPresentation = (() => {
       // Layered eaves and end fascia give the roof depth without losing the clean silhouette.
       box(b.x,b.y+12.3,b.z,18.5,.4,22,'#a97758','shingles');
     }
-    for (const sec of d.sections) {
-      const region = sec.def.region;
-      for (let j = 0; j < 6 * presets[quality].density; j++) {
-        const z = sec.z0 + 30 + j / (6 * presets[quality].density) * 550;
-        const x = face.cxAt(z) + (j % 2 ? 1 : -1) * (95 + (j % 3) * 15);
-        const y = face.heightAt(x, z);
-        if (region === 'village') {
-          continue;
-        } else if (region === 'glacier') {
-          const ice = new THREE.Mesh(new THREE.DodecahedronGeometry(1,1),mat(j%2 ? '#b2e2f3' : '#85bedb','ice')); ice.scale.set(12,24+j%3*6,16); ice.position.set(x,y+15,z);ice.rotation.z=.14;group.add(ice);
-        } else if (region === 'summit') {
-          const geometry = new THREE.DodecahedronGeometry(1,1);
-          const positions=geometry.attributes.position;
-          for(let k=0;k<positions.count;k++) {
-            const px=positions.getX(k),py=positions.getY(k),pz=positions.getZ(k);
-            const weathering=1+.12*Math.sin(px*7+pz*3)+.08*Math.cos(py*9-px*4);
-            positions.setXYZ(k,px*24*weathering+py*6,py*48,pz*20*weathering);
-          }
-          geometry.computeVertexNormals();
-          const m = new THREE.Mesh(geometry, mat(j % 2 ? '#a9b7ca' : '#d0dce6','granite'));
-          m.position.set(x, y + 19, z); m.rotation.y=j*.71; group.add(m);
-        }
+    // Granite and seracs come placed from the descriptor, which also holds their colliders,
+    // so every quality level skis the same rock.
+    for (const b of d.boulders || []) {
+      const geometry = new THREE.DodecahedronGeometry(1, 1), positions = geometry.attributes.position;
+      for (let k = 0; k < positions.count; k++) {
+        positions.setXYZ(k, ...SkiCourse.boulderPoint(b, positions.getX(k), positions.getY(k), positions.getZ(k)));
       }
-      // Landmark visible at the region transition.
-      const z = sec.z1 - 45, x = face.cxAt(z) - 90, y = face.heightAt(x, z);
-      box(x, y + 16, z, 8, 32, 8, region === 'village' ? '#b47b70' : '#d4e7f7');
-      box(x, y + 33, z, 16, 3, 16, '#ffcf78');
+      geometry.computeVertexNormals();
+      group.add(new THREE.Mesh(geometry, b.kind === 'ice'
+        ? mat(b.shade ? '#b2e2f3' : '#85bedb', 'ice') : mat(b.shade ? '#a9b7ca' : '#d0dce6', 'granite')));
+    }
+    // Landmark visible at the region transition.
+    for (const l of d.landmarks || []) {
+      box(l.x, l.y + 16, l.z, 8, 32, 8, l.region === 'village' ? '#b47b70' : '#d4e7f7');
+      box(l.x, l.y + 33, l.z, 16, 3, 16, '#ffcf78');
     }
     // Route information belongs on a few entrance signs, not a carpet of rectangles.
     for (const route of d.routes) {

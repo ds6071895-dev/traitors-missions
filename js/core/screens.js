@@ -53,7 +53,29 @@ const Screens = (() => {
     }, ms);
   }
 
-  return { register, onShow, show, hideAll, transition, el,
+  let coverOwner = null;
+  async function cover(work, signal, ms=380) {
+    const owner={}; coverOwner=owner;
+    const fade=document.getElementById('fade');
+    const pause=duration=>new Promise(resolve=>{
+      if(signal && signal.aborted){resolve(false);return;}
+      let timer;
+      const finish=()=>{clearTimeout(timer);if(signal)signal.removeEventListener('abort',finish);resolve(!(signal&&signal.aborted));};
+      timer=setTimeout(finish,duration);if(signal)signal.addEventListener('abort',finish,{once:true});
+    });
+    if(fade)fade.classList.add('on');
+    try {
+      if(!await pause(ms))return false;
+      if(signal&&signal.aborted)return false;
+      await work();
+      if(!await pause(60))return false; // one composed frame before uncovering
+      return !(signal&&signal.aborted);
+    } finally {
+      if(coverOwner===owner){coverOwner=null;if(fade)fade.classList.remove('on');}
+    }
+  }
+
+  return { register, onShow, show, hideAll, transition, cover, el,
            get current() { return current; },
            get data() { return currentData; } };
 })();

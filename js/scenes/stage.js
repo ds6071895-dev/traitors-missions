@@ -43,13 +43,16 @@ const Stage = (() => {
     // it down again after Water.build
     const cond = { time: hour.time, sea: 'glass', wind: rng() * 6.283 };
     const applied = Conditions.apply(cond);
+    Estate.atmosphere(o.hour === 'night');
     const fog = applied.time.fog;
     scene.fog = new THREE.Fog(Sky.PALETTE.fog, fog.near * 1.4, fog.far * 1.5);
     scene.add(Conditions.lights(cond));
+    const castFill=new THREE.DirectionalLight('#e1d9cb',o.hour==='night'?.48:.8);castFill.position.set(8,16,20);scene.add(castFill);
 
     Sky.build(scene, U.makeRng(o.seed + 17), { birds: o.hour !== 'night' });
 
-    const land = HighlandKit.build(scene, U.makeRng(o.seed + 31), {
+    const land = Estate.build(scene, {
+      seed: o.seed, location: o.location || (o.dress === 'fire' ? 'fire' : 'welcome'),
       moteColor: hour.moteColour,
       /* The castle over the water lights its windows at the same hour
          the hill puts its fire out, which is the one thing that makes
@@ -61,13 +64,14 @@ const Stage = (() => {
        resets the sea to its defaults, so the hour's palette has to be
        reapplied after it — and `apply` brings the *sea state* back with
        the palette, so the loch has to be calmed again after that. */
-    Conditions.apply(cond);
     Water.setSeaState({ swell: 0.17, chop: 0.12, wind: cond.wind });
     land.setWind(Math.cos(cond.wind), Math.sin(cond.wind), hour.wind);
     const wFog = applied.time.waterFog;
     Water.setFog(wFog.near * 1.3, wFog.far * 1.6, Sky.PALETTE.fog);
 
     const summitY = land.heightAt(0, 0);
+    const parkedCar = o.dress === 'none' ? EstateCar.build(o.players) : null;
+    if (parkedCar) { parkedCar.pose(land.road.sample(0)); scene.add(parkedCar.group); }
 
     /* ---------------- the cast ---------------- */
 
@@ -75,10 +79,13 @@ const Stage = (() => {
        so the camera looking at her also looks out over the glen behind
        her. Every framing in every scene depends on that. */
     const claudia = Figure.build({ palette: 'claudia', height: 1.74, hair: 'long' });
+    // Keep the fringe above the eyes in close welcome and pouch shots.
+    claudia.userData.rig.head.traverse(mesh=>{const g=mesh.geometry;if(mesh.material===claudia.userData.mats.hair&&g&&g.type==='SphereGeometry'&&g.parameters.thetaLength<Math.PI){const radius=g.parameters.radius;g.dispose();mesh.geometry=new THREE.SphereGeometry(radius,24,16,0,Math.PI*2,0,Math.PI*.48);}});
     const cPos = V(0, 0, -3.4);
     cPos.y = land.heightAt(cPos.x, cPos.z);
     claudia.position.copy(cPos);
-    claudia.rotation.y = Math.PI;
+    claudia.rotation.y = 0;
+    EstateMaterials.fabric(claudia);
     scene.add(claudia);
 
     // the players, in a shallow arc facing her
@@ -92,7 +99,7 @@ const Stage = (() => {
       const p = o.players[i];
       const a = Math.PI * 0.5 + (i - (n - 1) / 2) * (n > 1 ? 0.62 : 0);
       const r = ring;
-      const x = Math.cos(a) * r, z = Math.sin(a) * r + 0.6;
+      const x = Math.cos(a) * r, z = Math.sin(a) * r + (o.dress === 'none' ? cPos.z : 0.6);
       const y = land.heightAt(x, z);
       const seat = { id: p.id, pos: V(x, y, z), angle: a, local: !!p.local };
       seats.push(seat);
@@ -107,6 +114,7 @@ const Stage = (() => {
         : Figure.build({ palette: Figure.paletteFor(p.seat),
                          height: 1.70 + (p.seat % 3) * 0.04,
                          hair: p.seat % 2 ? 'short' : 'bun', long: false });
+      EstateMaterials.fabric(fig);
       fig.position.set(x, y, z);
       fig.rotation.y = Math.atan2(cPos.x - x, cPos.z - z);
       fig.userData.playerId = p.id;
@@ -199,6 +207,9 @@ const Stage = (() => {
 
     const SHOTS = {
       // low in the grass, looking up the hill at her
+      handover: () => ({pos: firstPerson.pos.clone().add(V(0, firstPerson.eye, 0)), look: cPos.clone().add(V(0,1.52,0)), fov:64, speed:2}),
+      estate: () => ({pos: V(65,64,95),look: V(8,24,0),fov:55,speed:.45}),
+      castle: () => ({pos: V(16,34,24),look:land.landmark.clone().add(V(0,-10,0)),fov:58,speed:.65}),
       grass: () => ({ pos: V(2.1, land.heightAt(2.1, 7.4) + 0.28, 7.4),
                       look: V(0, summitY + 1.05, -3.0), fov: 52, speed: 0.42 }),
       // rising over the crest, the glen opening behind
@@ -385,14 +396,10 @@ const Stage = (() => {
         firstPerson.vel.z = U.damp(firstPerson.vel.z, 0, 12, dt);
       }
 
+      const previous = firstPerson.pos.clone();
       firstPerson.pos.x += firstPerson.vel.x * dt;
       firstPerson.pos.z += firstPerson.vel.z * dt;
-      const roam = 10.5;
-      const rr = Math.hypot(firstPerson.pos.x, firstPerson.pos.z);
-      if (rr > roam) {
-        firstPerson.pos.x *= roam / rr;
-        firstPerson.pos.z *= roam / rr;
-      }
+      land.constrain(firstPerson.pos, previous);
       // Keep the table/fire and every visible person solid enough that
       // first person cannot walk through them.
       const blockers = (o.dress === 'none' ? []
@@ -412,10 +419,11 @@ const Stage = (() => {
           firstPerson.pos.z = b.pos.z + dz / len * b.r;
         }
       });
+      if (parkedCar && Math.abs(firstPerson.pos.x-parkedCar.group.position.x)<1.6 && Math.abs(firstPerson.pos.z-parkedCar.group.position.z)<2.8) firstPerson.pos.copy(previous);
       firstPerson.pos.y = land.heightAt(firstPerson.pos.x, firstPerson.pos.z);
       const speed = Math.hypot(firstPerson.vel.x, firstPerson.vel.z);
       firstPerson.bob += dt * (3.2 + speed * 1.3);
-      const bob = speed > 0.15 ? Math.sin(firstPerson.bob) * 0.025 : 0;
+      const bob = !GameState.data.settings.reducedMotion && speed > 0.15 ? Math.sin(firstPerson.bob) * 0.025 : 0;
       if (scripted.active) {
         const k = 1 - Math.exp(-scripted.speed * dt);
         scripted.pos.lerp(scripted.targetPos, k);
@@ -423,7 +431,7 @@ const Stage = (() => {
         camera.fov = U.damp(camera.fov, scripted.targetFov, scripted.speed, dt);
         camera.updateProjectionMatrix();
         camera.position.copy(scripted.pos);
-        if (scripted.shake > 0.001) {
+        if (!GameState.data.settings.reducedMotion && scripted.shake > 0.001) {
           camera.position.x += (Math.random() - 0.5) * scripted.shake * 0.08;
           camera.position.y += (Math.random() - 0.5) * scripted.shake * 0.06;
           scripted.shake = U.damp(scripted.shake, 0, 4.5, dt);
@@ -438,12 +446,12 @@ const Stage = (() => {
       }
       if (mySeat) mySeat.pos.copy(firstPerson.pos);
 
+      if (parkedCar && !o.vehicleDirected) parkedCar.update(dt,t,[],false,null,camera);
       land.update(dt, camera.position, t);
-      Water.update(dt);
-      Water.follow(camera.position.x, camera.position.z);
       Sky.update(dt, camera.position, t);
 
       Figure.update(claudia, dt, t);
+      EstateMaterials.figureLOD(claudia,camera);
       Figure.lookAt(claudia, claudiaFocus
         || (speakingId && speakingId !== 'claudia'
           ? (seats.find(s => s.id === speakingId) || { pos: camera.position }).pos
@@ -452,7 +460,7 @@ const Stage = (() => {
         if (!f) continue;
         const player = typeof Session !== 'undefined'
           ? Session.playerById(f.userData.playerId) : null;
-        f.visible = !player || player.alive;
+        f.visible = (!player || player.alive) && f.position.distanceTo(camera.position)<65;
         /* Not over a scripted shot. The pouch going into the fire is
            the one minute of this game that is direction rather than
            play, and a floating label in the middle of it would be a
@@ -465,6 +473,7 @@ const Stage = (() => {
         } else Nametag.hide(f.userData.tag);
         if (!f.visible) continue;
         Figure.update(f, dt, t);
+        EstateMaterials.figureLOD(f,camera);
         Figure.lookAt(f, speakingId === 'claudia' || !speakingId
           ? cPos
           : (seats.find(s => s.id === speakingId) || { pos: cPos }).pos);
@@ -473,6 +482,7 @@ const Stage = (() => {
       if (fire) {
         fireBoost = U.damp(fireBoost, fire.userData.want || 1, 3.4, dt);
         ForestKit.animateFire(fire, t, fireBoost);
+        EstateFire.update(fire,t);
       }
       if (table && table.userData.candles) {
         table.userData.candles.forEach((c, i) => {
@@ -495,7 +505,7 @@ const Stage = (() => {
 
     return {
       view: { scene, camera }, scene, camera,
-      land, claudia, figures, seats, props, fire, table,
+      land, claudia, figures, seats, props, fire, table, parkedCar,
       summitY, claudiaPos: cPos,
       mySeat,
       setShot, setSpeaking, setControls, setCinematic, shotOn, update, dispose,
@@ -574,19 +584,23 @@ const Stage = (() => {
 
   function buildFirePit(land, props) {
     const y = land.heightAt(0, 0);
-    const fire = ForestKit.buildFire({ scale: 1.45, light: 3.1, range: 34, logs: 6 });
+    const fire = EstateFire.build({ scale: 1.45, light: 3.1, range: 34, logs: 6 });
     fire.position.set(0, y, 0);
     fire.userData.want = 1;
     props.add(fire);
 
+    const apron = new THREE.Mesh(new THREE.CylinderGeometry(2.3,2.35,.12,36),EstateMaterials.material('rock',{color:'#34312d'}));
+    apron.position.set(0,y+.03,0);props.add(apron);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(1.65,.09,8,40),EstateMaterials.material('iron'));
+    rim.rotation.x=Math.PI/2;rim.position.set(0,y+.38,0);props.add(rim);
     // stones to sit on, and something for the light to fall on
-    const mat = new THREE.MeshLambertMaterial({ color: '#6e7583', flatShading: true });
+    const mat = EstateMaterials.material('rock', { color: '#aaa9a0', flatShading: true });
     for (let i = 0; i < 9; i++) {
       const a = (i / 9) * Math.PI * 2 + 0.2;
       const r = 2.5 + (i % 3) * 0.18;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       const s = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34 + (i % 4) * 0.05, 0), mat);
-      s.position.set(x, land.heightAt(x, z) + 0.15, z);
+      EstateMaterials.uv(s.geometry,.7);s.position.set(x, land.heightAt(x, z) + 0.15, z);
       s.scale.set(1.2, 0.72, 1.0);
       s.rotation.y = a;
       props.add(s);

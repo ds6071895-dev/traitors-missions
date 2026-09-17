@@ -722,6 +722,13 @@ const Music = (() => {
     }));
   }
 
-  return { boss, stage, ceremony, verdict, dive, descent, duckAll, stopAll, pauseAll,
+  function journey(returning=false) {
+    if (!AudioBus.ready) return SILENT;
+    const gears=GEARS.map((g,i)=>({...g,bpm:returning?66+i*2:82+i*4,
+      kick:returning?.12:.36,tom:.12,hat:0,bass:.5,pad:.8,theme:.55,choir:.3}));
+    return begin(new Score({level:returning?.32:.46,theme:.6,choir:.3,pad:.9,
+      percussion:returning?.2:.45,reverb:.28,progression:'hymn',gears}));
+  }
+  return { journey, boss, stage, ceremony, verdict, dive, descent, duckAll, stopAll, pauseAll,
            Score, GEARS, DIVE_GEARS, SKI_GEARS, PROGRESSIONS };
 })();

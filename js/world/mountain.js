@@ -515,6 +515,22 @@ const MountainKit = (() => {
       return m;
     }
 
+    /* The launch pad under a skier, if any. Only the back half of one
+       fires, so the chevrons on the front half are the run-up. */
+    launchPadAt(x, z) {
+      const pads = this._padsNear(z);
+      for (let i = 0; i < pads.length; i++) {
+        const p = pads[i];
+        if (!p.lift) continue;
+        const dx = x - p.x, dz = z - p.z;
+        const u = (dz * p.c + dx * p.s) / p.len;
+        if (u < 0.45 || u > 1) continue;
+        if (Math.abs((-dz * p.s + dx * p.c) / p.wide) > 1) continue;
+        return p;
+      }
+      return null;
+    }
+
     /* The lip you just left, if you left one. Used at the moment of
        launch to decide how big the jump is allowed to be and whether it
        is worth throwing a trick off. */
@@ -1348,16 +1364,22 @@ const MountainKit = (() => {
       for (const ch of face.chutes) if (face.chuteAmount(ch, x, z) > 0.3) skip = true;
       if (skip) continue;
       const r = rng.range(1.3, 4.2);
-      if (face.clearLine && face.clearLine(x, z, r)) continue;
       const g = new THREE.IcosahedronGeometry(r, 1);
       g.scale(rng.range(0.8, 1.4), rng.range(0.5, 0.9), rng.range(0.8, 1.4));
       g.rotateY(rng() * U.TAU);
       g.rotateX(rng.range(-0.3, 0.3));
+      // stretched, a rock reaches well past r, and all of that reach has to miss the lines
+      const pos = g.attributes.position;
+      let reach = 0;
+      for (let k = 0; k < pos.count; k++) reach = Math.max(reach, Math.hypot(pos.getX(k), pos.getZ(k)));
+      if (face.clearLine && face.clearLine(x, z, reach)) { g.dispose(); continue; }
       g.translate(x, face.heightAt(x, z) - r * 0.34, z);
       c.copy(COL.rock).lerp(COL.rockWarm, rng() * 0.4)
         .lerp(COL.snowLit, rng() * 0.30).multiplyScalar(0.55);
-      geos.push(ForestKit.paintGeo(g.index ? g.toNonIndexed() : g, c));
-      colliders.push({ x, z, r: r * 0.85, kind: 'rock' });
+      const soup = g.index ? g.toNonIndexed() : g;
+      geos.push(ForestKit.paintGeo(soup, c));
+      // the collider is the drawn rock, band by band, not a circle inside it
+      colliders.push(SkiCourse.footprint(soup.attributes.position.array, x, z, 0.75));
     }
     if (!geos.length) return { mesh: new THREE.Group(), colliders };
     const merged = Sky.mergeGeometries(geos);
@@ -1405,6 +1427,94 @@ const MountainKit = (() => {
     meshA.frustumCulled = false; meshB.frustumCulled = false;
     group.add(meshA, meshB);
     return { group, geo, mats: [matA, matB] };
+  }
+
+  /* The pads, drawn. The authored course does not paint boost into the
+     snow, so each pad is a draped strip of chevrons scrolling the way it
+     pushes: cyan for speed, amber for a launch, and a pair of lit posts
+     beside every launch so it can be picked out from the top of a cut. */
+  function buildPadMeshes(face) {
+    const group = new THREE.Group();
+    group.name = 'Boost pads';
+    const texture = (stroke, edge, marks) => {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 64;
+      const g = cv.getContext('2d');
+      g.fillStyle = 'rgba(6,22,40,0.45)'; g.fillRect(0, 0, 64, 64);
+      g.fillStyle = edge; g.fillRect(0, 0, 5, 64); g.fillRect(59, 0, 5, 64);
+      g.strokeStyle = stroke; g.lineWidth = 9; g.lineCap = 'round'; g.lineJoin = 'round';
+      // apex at the top of the canvas, which is +v: the way the pad pushes
+      for (const y of marks) {
+        g.beginPath(); g.moveTo(14, y + 14); g.lineTo(32, y - 6); g.lineTo(50, y + 14); g.stroke();
+      }
+      const tex = new THREE.CanvasTexture(cv);
+      tex.wrapS = THREE.ClampToEdgeWrapping; tex.wrapT = THREE.RepeatWrapping;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    };
+    const kinds = {
+      speed:  { tex: texture('#9ff0ff', '#22c8ff', [34]), rate: 1.6 },
+      launch: { tex: texture('#ffe08a', '#ffb020', [22, 46]), rate: 2.6 },
+    };
+    for (const [kind, K] of Object.entries(kinds)) {
+      const pos = [], uv = [], idx = [];
+      for (const p of face.pads) {
+        if ((p.kind || 'speed') !== kind) continue;
+        const rows = Math.max(2, Math.ceil(p.len / 2) + 1), base = pos.length / 3;
+        for (let i = 0; i < rows; i++) {
+          const u = i / (rows - 1);
+          for (let j = 0; j < 3; j++) {
+            const v = j - 1;
+            const x = p.x + p.s * u * p.len + p.c * v * p.wide;
+            const z = p.z + p.c * u * p.len - p.s * v * p.wide;
+            pos.push(x, face.heightAt(x, z) + 0.3, z);
+            uv.push(j / 2, u * p.len / (p.wide * 2));
+          }
+          if (i) for (let j = 0; j < 2; j++) {
+            const a = base + (i - 1) * 3 + j;
+            idx.push(a, a + 3, a + 1, a + 1, a + 3, a + 4);
+          }
+        }
+      }
+      if (!pos.length) { K.tex.dispose(); continue; }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      g.computeBoundingSphere();
+      const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+        map: K.tex, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+        polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+      }));
+      mesh.renderOrder = 2;
+      group.add(mesh);
+    }
+    const launches = face.pads.filter(p => p.kind === 'launch');
+    if (launches.length) {
+      const post = new THREE.CylinderGeometry(0.22, 0.3, 2.8, 6);
+      post.translate(0, 1.4, 0);
+      const mat = new THREE.MeshLambertMaterial({ color: '#ffb020', emissive: '#ff9a00',
+        emissiveIntensity: 1.4, flatShading: true });
+      const mesh = new THREE.InstancedMesh(post, mat, launches.length * 2);
+      const d = new THREE.Object3D();
+      let n = 0;
+      for (const p of launches) for (const side of [-1, 1]) {
+        const x = p.x + p.s * p.len * 0.5 + p.c * side * (p.wide + 1.2);
+        const z = p.z + p.c * p.len * 0.5 - p.s * side * (p.wide + 1.2);
+        d.position.set(x, face.heightAt(x, z) - 0.1, z);
+        d.updateMatrix();
+        mesh.setMatrixAt(n++, d.matrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.frustumCulled = false;
+      group.add(mesh);
+    }
+    return {
+      group,
+      update(dt) {
+        for (const K of Object.values(kinds)) K.tex.offset.y = (K.tex.offset.y - dt * K.rate) % 1;
+      },
+    };
   }
 
   /* The mouth of a shortcut, lit, and visible from a long way up the
@@ -1488,7 +1598,7 @@ const MountainKit = (() => {
   }
 
   return { COL, SECTIONS, Face, makeFace, findChutes, buildRamps, buildTerrain,
-           buildPads, buildSpinners, buildSpinnerMeshes,
+           buildPads, buildPadMeshes, buildSpinners, buildSpinnerMeshes,
            updateSpinners,
            buildTrees, buildRocks, buildMarkers, buildChuteGate, buildSnowfall,
            pineGeometry, CHUTE_NAMES, byId };

@@ -5,13 +5,8 @@
    then gets out of the way: it establishes the place, it tells you what
    you are, and it names the first mission.
 
-   The camera does all the acting. It opens with its lens in the grass
-   because that is the detail the whole hill is built around and you
-   should see it before you see anything else, rises over the crest to
-   let the glen open behind Claudia, holds once on the castle out in the
-   loch so you know where you are, and then goes to her and stays there.
-   Nothing here is interactive: the only input is "go on", and the beat
-   runner already owns that.
+   Players arrive beside Claudia with control of their view, and the
+   welcome starts immediately. Boarding opens after the shared send-off.
 ------------------------------------------------------------------ */
 class HillScene {
 
@@ -29,7 +24,7 @@ class HillScene {
       dress: 'none',
       players: s.players,
     });
-    this.stage.setShot('grass', { cut: true });
+    this.stage.update(0);
     return this.stage.view;
   }
 
@@ -86,7 +81,6 @@ class HillScene {
     };
 
     Scenes.run([
-      { wait: 1.6 },
       ...speak('welcome', {}, ['grass', 'rise', 'loch']),
       ...speak('theRules', {}, ['claudia', null, null]),
       ...speak('roleIntro', {}, ['claudiaTight', null, null]),

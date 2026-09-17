@@ -426,13 +426,7 @@ class ShootoutMission {
 
     this._cacheHud();
 
-    Input.setMouseAim(true);
-    Input.setTouchMode('aim');
-    this._aimOn = true;
-    this._unlockWatch = Input.onLockChange((locked) => {
-      // losing the pointer mid-round is a pause, not a free hit
-      if (!locked && this.state === 'live' && !Input.isTouch) this._pause();
-    });
+
 
     return { scene, camera };
   }
@@ -510,7 +504,21 @@ class ShootoutMission {
 
   /* =================== lifecycle =================== */
 
+  cinematic() { return MissionCinematics.forMission(this.def.id, this); }
+
+  updateEnvironment(dt, t, camera) {
+    Sky.update(dt, camera.position, t);
+    if (this.forest) this.forest.update(dt, camera.position, t);
+  }
+
   start() {
+    Input.setMouseAim(true);
+    Input.setTouchMode('aim');
+    this._aimOn = true;
+    this._unlockWatch = Input.onLockChange((locked) => {
+      // losing the pointer mid-round is a pause, not a free hit
+      if (!locked && this.state === 'live' && !Input.isTouch) this._pause();
+    });
     if (this.party) {
       MissionNet.attach('shootout');
       this._offEvents = MissionNet.on('event', (d, from) => this._onNetEvent(d, from));

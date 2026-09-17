@@ -386,7 +386,7 @@ class BoatRaceMission {
        walking, and only their own dispose puts it back. Saying it here
        makes the boat's controls a fact about the boat rather than a
        fact about what happened to run before it. */
-    Input.setTouchMode('drive');
+
     this._camPos = new THREE.Vector3().copy(this.boat.pos).add(new THREE.Vector3(0, 10, -24));
     this._camLook = new THREE.Vector3().copy(this.boat.pos);
     this._camRoll = 0;
@@ -933,7 +933,15 @@ class BoatRaceMission {
 
   /* =================== lifecycle =================== */
 
+  cinematic() { return MissionCinematics.forMission(this.def.id, this); }
+
+  updateEnvironment(dt, t, camera) {
+    Sky.update(dt, camera.position, t);
+    Water.update(dt);
+  }
+
   start() {
+    Input.setTouchMode('drive');
     this.state = this.party ? 'waiting' : 'countdown';
     this.countdown = 3.999;
     this.engineSnd = AudioBus.engine();

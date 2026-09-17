@@ -787,7 +787,9 @@ class FinaleScene {
     const from = seat ? seat.pos.clone() : this.stage.claudiaPos.clone();
     const mesh = new THREE.Mesh(
       new THREE.IcosahedronGeometry(0.10, 0),
-      new THREE.MeshLambertMaterial({ color: '#6b1226', flatShading: true }));
+      EstateMaterials.material('upholstery', { color: '#b52d4b', roughness: .9 }));
+    EstateMaterials.uv(mesh.geometry,.12);
+    mesh.material.bumpScale=.002;
     const tie = new THREE.Mesh(
       new THREE.TorusGeometry(0.062, 0.016, 3, 7),
       new THREE.MeshLambertMaterial({ color: '#d8b24a', flatShading: true }));

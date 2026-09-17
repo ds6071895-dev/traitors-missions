@@ -8,6 +8,8 @@ The mission ID remains `ski`. The redesign is playable through the existing miss
 - Course descriptors shared by scenery and contact systems. Shortcut savings are measured along sampled three-dimensional terrain paths. No guessed time-saving labels.
 - Manual directional spins/flips/corks, held mute/tail grabs, half-turn switch landings, bounded alignment assistance, charged pop, lip grace and landing input buffering. Tricks and rings cannot add flight height.
 - Straight, kinked and curved grinds with low ride-on entrances, an approach-steering grace period, self-centring neutral balance, charged pop exits, transfers and switch capture; indexed elevated surfaces, underside/edge handling, swept obstacle contacts and recovery with protection at the original crash progress.
+- Boost pads down every technical cut: pairs of cyan speed pads (continuous push along the skis, capped by the skier's boost ceiling) and amber launch pads with lit posts, whose back half throws the skier into the air as a ramp-free lip. Chained pads escalate the feedback. Pads, and each launch's flight corridor, are kept clear of roofs, chalets, rails and ramps; Cat Track (`padSpacing: 0`) has none, and Terrain Park / Send It scale their density and strength.
+- Every rock collides with the stone that is drawn. Summit granite, glacier seracs and region landmarks are resolved in the course descriptor at a fixed count, whatever the graphics quality. Each is walked outward until it is off the piste and clear of cuts, style lines, ramp landings, pads and launch flights, rails and buildings. Rock colliders are banded convex outlines built from the render geometry, so a skier meets a rock at body height and clears it only when above it. Small rocks use the same colliders and the same full-reach clearance.
 - Prize, Trial, Freestyle and solo Practice. Trial uses elapsed time plus crash/reset penalties. Banked chains persist through crashes; repeated tricks diminish, progress gates prevent stationary farming, and shortcuts cannot pay from a late rejoin or repeated entry.
 - Local rules-versioned records/ghosts with resolved conditions; exact retry retains those conditions and the existing party roster. Practice excludes competitive records, progression and pot earnings.
 - 24 permanent mastery thresholds and 12 cosmetic rewards, favourites, three seeded daily modes, section choice/reset, Practice hints, results splits and mistake locations. Cosmetics do not modify physics.
@@ -52,7 +54,7 @@ Ordinary landing payout is capped at £800 before the condition multiplier, belo
 
 Generated with the built-in image generation tool: `assets/descent/alpine-materials.png`. The exact prompt is preserved in `assets/descent/alpine-materials.prompt.txt`. It requests a 4×4 refined low-poly alpine material atlas: snow, ice, slate, snowy granite, timber, dark wood, shingles, plaster, pine, frosted pine, bark, masonry, steel, gunmetal, warm glass and jacket fabric. Runtime cell extraction is part of material loading; no external texture requests are needed. The generated image is 1254×1254, sampled into sixteen reusable 256×256 material maps.
 
-Rules version is **4**; earlier rules' records remain separate history.
+Rules version is **5** (boost pads changed shortcut times); earlier rules' records remain separate history.
 
 ## Reproduce
 

@@ -50,7 +50,7 @@ const { createServer } = require('../server');
       await page.evaluate(()=>{const m=Missions.active;m.state='running';m._finish();clearTimeout(m._reportT);m._report();});
       await page.waitForTimeout(200);
       if(mode==='practice') assert.equal(await page.evaluate(()=>Missions.active.result.earned),0);
-      assert.equal(await page.evaluate(()=>Missions.active.result.rulesVersion),4);
+      assert.equal(await page.evaluate(()=>Missions.active.result.rulesVersion),5);
     }
     const resources=[];
     for(let i=0;i<(process.env.DESCENT_VISUAL_ONLY ? 0 : 20);i++) {

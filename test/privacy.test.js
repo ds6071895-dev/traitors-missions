@@ -1,3 +1,4 @@
+const finishTravel = require('./travel-helper');
 /* ------------------------------------------------------------------
    privacy.test.js — the one invariant everything else stands on.
 
@@ -50,16 +51,20 @@ test('not on the hill, not in a mission, not at the table, not at the fire', () 
     ok(!leaks(ctx), 'leaked on the hill, seed ' + seed);
 
     ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
     ok(!leaks(ctx), 'leaked in mission 0, seed ' + seed);
 
     ctx.Session.dispatch({ type: 'result', earned: 100, completed: true,
                            players: PLAYERS.map(p => ({ playerId: p.id, stats: {} })) });
+  finishTravel(ctx);
     ok(!leaks(ctx), 'leaked at the table, seed ' + seed);
 
     if (ctx.Session.state.phase === 'table') {
       ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
       ctx.Session.dispatch({ type: 'result', earned: 100, completed: true,
                              players: PLAYERS.map(p => ({ playerId: p.id, stats: {} })) });
+  finishTravel(ctx);
     }
     ok(!leaks(ctx), 'leaked at the fire, seed ' + seed);
     checked++;
@@ -71,7 +76,9 @@ test('a whole ballot leaks nothing, including the tally', () => {
   const ctx = fresh();
   ctx.Session.startParty({ seed: 77, players: PLAYERS, mode: 'host' });
   ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
   ctx.Session.dispatch({ type: 'result', earned: 100, completed: true, players: [] });
+  finishTravel(ctx);
 
   ctx.Session.dispatch({ type: 'name', playerId: 'a', targetId: 'c' });
   ctx.Session.dispatch({ type: 'name', playerId: 'b', targetId: 'c' });
@@ -90,10 +97,12 @@ test('an unfinished task is not in the state either', () => {
     const seat = ctx.Session._peek().seat;
     const traitor = ctx.Session.state.players[seat];
     ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
     ctx.Session.dispatch({ type: 'result', earned: 10, completed: true,
       players: ctx.Session.state.players.map(p => ({
         playerId: p.id, name: p.name, stats: {},
       })) });
+  finishTravel(ctx);
     if (!ctx.Session.hasExposure()) continue;
     ok(!leaks(ctx), 'the pending exposure leaked into the state');
     const snap = JSON.stringify(ctx.Session.snapshot());
@@ -110,7 +119,9 @@ section('privacy — what may be disclosed, and when');
    banishment, then the closing walk. It stops on `verdict`. */
 function toTheEnd(ctx) {
   ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
   ctx.Session.dispatch({ type: 'result', earned: 1, completed: true, players: [] });
+  finishTravel(ctx);
   ctx.Session.dispatch({ type: 'name', playerId: 'a', targetId: 'c' });
   ctx.Session.dispatch({ type: 'name', playerId: 'b', targetId: 'c' });
   ctx.Session.dispatch({ type: 'name', playerId: 'c', targetId: 'a' });

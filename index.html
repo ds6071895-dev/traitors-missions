@@ -14,100 +14,8 @@
 
 <canvas id="gl"></canvas>
 
-<!-- ============ THE BACKDROP ============
-     The menus used to be a stack of dark gradients over the attract
-     ocean, which is a lot of atmosphere and no *place*. This is the
-     place: a loch at dusk, the far shore behind it, and the castle
-     everybody is being driven to, sitting on the horizon where the
-     rendered water meets the drawn sky.
-
-     It is drawn rather than modelled on purpose. The ocean underneath
-     is still live — it is the water in front of the hills — and a
-     silhouette costs nothing to render and never has to be lit,
-     which means the front door opens instantly on a cold machine
-     instead of waiting on a scene nobody plays in. -->
-<div id="menu-bg" aria-hidden="true">
-  <div class="mb-sky"></div>
-  <div class="mb-stars"></div>
-  <div class="mb-aurora"></div>
-  <div class="mb-moon"></div>
-  <div class="mb-haze"></div>
-  <div class="mb-loch"></div>
-
-  <svg class="mb-hills" viewBox="0 0 1600 470" preserveAspectRatio="none">
-    <defs>
-      <!-- The far shore. Two ridges: the distant one sits higher and
-           hazier, the near headland lower and almost black, and the
-           gap between those two facts is the entire sense of depth. -->
-      <path id="mb-ridge-far" d="M0,300 V214 L88,182 L168,204 L262,152
-        L344,186 L432,138 L524,176 L612,130 L702,172 L792,124 L884,166
-        L982,144 L1082,192 L1172,156 L1262,196 L1352,164 L1452,204
-        L1544,172 L1600,190 V300 Z"/>
-      <path id="mb-ridge-near" d="M0,300 V266 L118,240 L232,268 L332,212
-        L424,246 L524,196 L644,238 L764,180 L884,228 L1004,202 L1124,250
-        L1244,210 L1364,252 L1484,226 L1600,254 V300 Z"/>
-      <linearGradient id="mb-fade" x1="0" y1="300" x2="0" y2="470"
-                      gradientUnits="userSpaceOnUse">
-        <stop offset="0" stop-color="#fff" stop-opacity=".45"/>
-        <stop offset=".55" stop-color="#fff" stop-opacity=".14"/>
-        <stop offset="1" stop-color="#fff" stop-opacity="0"/>
-      </linearGradient>
-      <mask id="mb-refmask">
-        <rect x="0" y="300" width="1600" height="170" fill="url(#mb-fade)"/>
-      </mask>
-    </defs>
-
-    <!-- what is standing there -->
-    <use href="#mb-ridge-far"  fill="#1d3450"/>
-    <use href="#mb-ridge-near" fill="#0a1421"/>
-
-    <!-- and what the loch makes of it -->
-    <g mask="url(#mb-refmask)" transform="translate(0,600) scale(1,-1)">
-      <use href="#mb-ridge-far"  fill="#24405c"/>
-      <use href="#mb-ridge-near" fill="#0d1a2a"/>
-    </g>
-  </svg>
-
-  <!-- The castle. Its own element, because a silhouette with straight
-       towers is the one thing on this screen that must not be
-       stretched to fit a window. -->
-  <svg class="mb-castle" viewBox="0 0 260 152">
-    <g fill="#080f1a">
-      <!-- the rock it is standing on -->
-      <path d="M6,152 L26,138 L96,132 L172,134 L238,140 L254,152 Z"/>
-      <!-- curtain walls, keep, and two towers with their caps -->
-      <rect x="22" y="102" width="52" height="42"/>
-      <rect x="150" y="106" width="58" height="38"/>
-      <rect x="70" y="68"  width="82" height="76"/>
-      <rect x="30" y="60"  width="28" height="84"/>
-      <rect x="176" y="54" width="30" height="90"/>
-      <path d="M26,62 L44,32 L62,62 Z"/>
-      <path d="M172,56 L191,22 L210,56 Z"/>
-      <!-- crenellations along the top of the keep -->
-      <rect x="72"  y="62" width="9" height="8"/>
-      <rect x="90"  y="62" width="9" height="8"/>
-      <rect x="108" y="62" width="9" height="8"/>
-      <rect x="126" y="62" width="9" height="8"/>
-      <rect x="142" y="62" width="9" height="8"/>
-      <!-- and the flag, which is the only thing up there moving -->
-      <rect x="189" y="6" width="2" height="18"/>
-      <path d="M191,8 L212,13 L191,18 Z"/>
-    </g>
-    <!-- somebody is up, and it is the only warm thing on the horizon -->
-    <g class="mb-lit" fill="#f2c14e">
-      <rect x="38"  y="76"  width="7" height="10" rx="1.5"/>
-      <rect x="40"  y="114" width="7" height="10" rx="1.5"/>
-      <rect x="84"  y="84"  width="8" height="11" rx="1.5"/>
-      <rect x="106" y="110" width="8" height="11" rx="1.5"/>
-      <rect x="130" y="84"  width="8" height="11" rx="1.5"/>
-      <rect x="186" y="70"  width="7" height="10" rx="1.5"/>
-      <rect x="170" y="118" width="7" height="10" rx="1.5"/>
-    </g>
-  </svg>
-
-  <div class="mb-vig"></div>
-</div>
-
+<!-- The rendered estate is the shared backdrop for the front door. -->
+<div id="menu-bg" aria-hidden="true"></div>
 
 <!-- world-anchored effects -->
 <div id="world-labels"></div>
@@ -170,9 +78,8 @@
       <div class="pm-rule"><i></i></div>
 
       <p class="play-blurb">
-        Three of you, in the same room, on the same call. Two missions, a round
-        table and a fire. <b>One of you may be a Traitor.</b>
-        It is possible that none of you is.
+        Three of you, one Highland estate, one mission and a fire.
+        <b>One of you is a Traitor.</b>
       </p>
     </header>
 
@@ -181,7 +88,7 @@
         <span class="pc-n">01</span>
         <span class="pc-text">
           <span class="pc-main">Play the Night</span>
-          <span class="pc-sub">A full run — missions, the table, the fire</span>
+          <span class="pc-sub">Arrive at the castle. Face the mission. Return to the fire.</span>
         </span>
         <span class="pc-meta"><b>3</b> players<i>~25 min</i></span>
         <span class="pc-go" aria-hidden="true">→</span>
@@ -214,7 +121,8 @@
         <span class="pot-value" id="play-pot">£0</span>
       </div>
       <button class="chip" id="play-mute" data-nav>Sound</button>
-      <span class="play-ver">Alpha v0.2</span>
+      <label class="chip estate-setting"><input id="estate-motion" type="checkbox"> Reduced motion</label>
+      <label class="chip estate-setting">Scenery <select id="estate-quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
     </footer>
 
   </div>
@@ -1022,10 +930,16 @@
 <script src="js/world/forest.js"></script>
 <script src="js/world/castle.js"></script>
 <script src="js/world/highland.js"></script>
+<script src="js/world/estate-layout.js"></script>
+<script src="js/world/estate-materials.js"></script>
+<script src="js/world/estate.js"></script>
+<script src="js/world/estate-fire.js"></script>
 <script src="js/world/reef.js"></script>
 <script src="js/world/mountain.js"></script>
 <script src="js/entities/boat.js"></script>
 <script src="js/entities/figure.js"></script>
+<script src="js/entities/estate-car.js"></script>
+<script src="js/core/mission-cinematics.js"></script>
 <script src="js/entities/swimmer.js"></script>
 <script src="js/ski/tricks.js"></script>
 <script src="js/ski/scoring.js"></script>
@@ -1057,6 +971,7 @@
 <script src="js/scenes/hill.js"></script>
 <script src="js/scenes/fireplace.js"></script>
 <script src="js/scenes/exposed.js"></script>
+<script src="js/scenes/journey.js"></script>
 <script src="js/scenes/show.js"></script>
 <script src="js/main.js"></script>
 </body>

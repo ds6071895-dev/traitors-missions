@@ -1,3 +1,4 @@
+const finishTravel = require('./travel-helper');
 /* ------------------------------------------------------------------
    transport.test.js — a host and a guest, in one process, on a fake
    wire.
@@ -102,6 +103,38 @@ async function party(seed) {
 
 section('transport — the two clients agree');
 
+await atest('solo travel actions receive the local identity and preserve bot identities', async () => {
+  const c=makeClient('host',true,makeBus());
+  c.Session.startParty({seed:72,mode:'host',players:seat(c,'host'),rehearsal:true});
+  c.Net.connect(c.Transports.SoloTransport);c.Net.send({type:'advance'});await flush();
+  const journeyId=c.Session.state.travel.id;
+  c.Net.send({type:'travelReady',journeyId,beat:-1});c.Net.send({type:'travelBoard',journeyId});
+  c.Net.send({type:'travelBoard',journeyId,playerId:'gst1'});await flush();
+  eq(c.Session.state.travel.ready,['host'],'local readiness is stamped');
+  eq(c.Session.state.travel.boarded,['host','gst1'],'local and bot boarding are distinct');
+  c.Net.disconnect();
+});
+
+await atest('travel catch-up advances within the phase and rebases an offset guest clock', async () => {
+  const {host,g1,g2}=await party(771);
+  host.Net.send({type:'advance'});await flush();
+  const journeyId=host.Session.state.travel.id;
+  for(const c of [host,g1,g2])c.Net.send({type:'travelReady',journeyId,beat:-1});
+  await flush();
+  const LocalDate=g1.Date;class OffsetDate extends Date {static now(){return Date.now()+900000;}}
+  g1.Date=OffsetDate;g1.Net.disconnect();
+  for(const id of ['host','gst1','gst2'])host.Session.dispatch({type:'travelBoard',journeyId,playerId:id});
+  host.Net.send({type:'travelTick',journeyId});await flush();
+  for(const id of ['host','gst1','gst2'])host.Session.dispatch({type:'travelReady',journeyId,beat:0,playerId:id});
+  let catches=0;const off=g1.Net.on(e=>{if(e.type==='state')catches++;});
+  g1.Net.connect(g1.Transports.GuestTransport);await flush();await flush();
+  eq(g1.Session.state.phase,'travel','phase stays travel');eq(g1.Session.state.travel.beat,0,'missed beat is restored');
+  ok(catches>0,'same-phase catch-up emits state');
+  ok(Math.abs(OffsetDate.now()-g1.Session.state.travel.startedAt)<1000,'guest uses elapsed time, not host wall clock');
+  g1.Date=LocalDate;off();for(const c of [host,g1,g2])c.Net.disconnect();
+});
+
+
 await atest('a guest is handed the host\'s state without running the reducer', async () => {
   const { host, g1 } = await party(101);
   eq(g1.Session.state.seed, host.Session.state.seed, 'same seed');
@@ -138,6 +171,7 @@ await atest('public scenes and private-script joins wait for every browser', asy
 await atest('mission results advance only when everybody leaves the board', async () => {
   const { host, g1, g2 } = await party(1002);
   host.Net.send({ type: 'advance' });
+  await H.flush(); finishTravel(host); await H.flush();
   await flush(); await flush();
   g1.Net.send({ type: 'readyResult', earned: 999999, completed: true, players: [] });
   g2.Net.send({ type: 'readyResult', earned: 999999, completed: true, players: [] });
@@ -145,7 +179,8 @@ await atest('mission results advance only when everybody leaves the board', asyn
   eq(host.Session.state.phase, 'mission', 'guests can be ready but cannot author the result');
   host.Net.send({ type: 'readyResult', earned: 1234, completed: true, players: [] });
   await flush(); await flush();
-  eq(host.Session.state.phase, 'finale', 'the last ready player releases the room');
+  eq(host.Session.state.phase, 'travel', 'the last ready player releases return boarding');
+  finishTravel(host); await H.flush();
   eq(g1.Session.state.pot, 1234, 'only the host-authored board reaches the pot');
 });
 
@@ -155,6 +190,7 @@ await atest('only the host may advance the running order', async () => {
   await flush(); await flush();
   eq(host.Session.state.phase, 'hill', 'a guest cannot skip the shared scene');
   host.Net.send({ type: 'advance' });
+  await H.flush(); finishTravel(host); await H.flush();
   await flush(); await flush();
   eq(host.Session.state.phase, 'mission', 'the host moved');
   eq(g1.Session.state.phase, 'mission', 'the guest that asked was told');
@@ -164,8 +200,10 @@ await atest('only the host may advance the running order', async () => {
 await atest('a whole ballot converges on all three machines', async () => {
   const { host, g1, g2 } = await party(103);
   host.Net.send({ type: 'advance' });
+  await H.flush(); finishTravel(host); await H.flush();
   await flush(); await flush();
   host.Net.send({ type: 'result', earned: 5000, completed: true, players: [] });
+  await H.flush(); finishTravel(host); await H.flush();
   await flush(); await flush();
   eq(host.Session.state.phase, 'finale', 'the fire is lit');
   eq(host.Session.state.finale.stage, 'name', 'on the one ballot there is');
@@ -210,8 +248,10 @@ await atest('a guest joining mid-run lands on the phase in progress', async () =
   host.Net.connect(host.Transports.HostTransport);
   await flush();
   host.Net.send({ type: 'advance' });
+  await H.flush(); finishTravel(host); await H.flush();
   await flush(); await flush();
   host.Net.send({ type: 'result', earned: 1200, completed: true, players: [] });
+  await H.flush(); finishTravel(host); await H.flush();
   await flush(); await flush();
   eq(host.Session.state.phase, 'finale', 'the host has moved on');
 
@@ -232,8 +272,10 @@ section('transport — what a client may claim');
 await atest('a guest can only ever act as itself', async () => {
   const { host, g1 } = await party(104);
   host.Net.send({ type: 'advance' });
+  await H.flush(); finishTravel(host); await H.flush();
   await flush(); await flush();
   host.Net.send({ type: 'result', earned: 1, completed: true, players: [] });
+  await H.flush(); finishTravel(host); await H.flush();
   await flush(); await flush();
 
   // gst1 tries to cast gst2's name
@@ -253,6 +295,7 @@ await atest('a guest cannot mark somebody else\'s task', async () => {
   const truth = host.Session.privateRoles();
   const traitorId = truth.find(r => r.role === 'traitor').playerId;
   host.Net.send({ type: 'advance' });
+  await H.flush(); finishTravel(host); await H.flush();
   await flush(); await flush();
 
   // gst1 marks the task on behalf of whoever the traitor actually is
@@ -260,6 +303,7 @@ await atest('a guest cannot mark somebody else\'s task', async () => {
   await flush(); await flush();
   host.Net.send({ type: 'result', earned: 1, completed: true,
                   players: [{ playerId: traitorId, stats: {} }] });
+  await H.flush(); finishTravel(host); await H.flush();
   await flush(); await flush();
 
   if (traitorId === 'gst1') {
@@ -286,10 +330,12 @@ await atest('a guest Traitor\'s mark reaches the host', async () => {
     if (traitorId === 'host') continue;
     guests++;
     host.Net.send({ type: 'advance' });
+  await H.flush(); finishTravel(host); await H.flush();
     await flush(); await flush();
     ({ host, gst1: g1, gst2: g2 })[traitorId].Net.send({ type: 'taskDone' });
     await flush(); await flush();
     host.Net.send({ type: 'result', earned: 1, completed: true, players: [] });
+  await H.flush(); finishTravel(host); await H.flush();
     await flush(); await flush();
     ok(!host.Session.hasExposure(),
        'seed ' + seed + ': ' + traitorId + ' marked in time and was not exposed');
@@ -364,11 +410,13 @@ await atest('a clean night answers "nobody", promptly', async () => {
   const traitorId = host.Session.privateRoles()
     .find(r => r.role === 'traitor').playerId;
   host.Net.send({ type: 'advance' });
+  await H.flush(); finishTravel(host); await H.flush();
   await flush(); await flush();
   const of = { host, gst1: g1, gst2: g2 };
   of[traitorId].Net.send({ type: 'taskDone' });
   await flush(); await flush();
   host.Net.send({ type: 'result', earned: 1, completed: true, players: [] });
+  await H.flush(); finishTravel(host); await H.flush();
   await flush(); await flush();
   eq(host.Session.hasExposure(), false, 'the card was marked in time');
 
@@ -393,10 +441,12 @@ await atest('an exposure reaches both guests as an event', async () => {
     g2.Net.on((e) => { if (e.type === 'expose') heard.g2 = e; });
 
     host.Net.send({ type: 'advance' });
+  await H.flush(); finishTravel(host); await H.flush();
     await flush(); await flush();
     // a hand that completes nothing, so whatever card was dealt fails
     host.Net.send({ type: 'result', earned: 10, completed: true,
       players: PLAYERS.map(p => ({ playerId: p.id, name: p.name, stats: {} })) });
+  await H.flush(); finishTravel(host); await H.flush();
     await flush(); await flush();
     if (!host.Session.hasExposure()) continue;
 

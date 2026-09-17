@@ -1,3 +1,4 @@
+const finishTravel = require('./travel-helper');
 /* ------------------------------------------------------------------
    bots.test.js — the rehearsal door.
 
@@ -211,6 +212,7 @@ test('the welcome then the fire skips everything between', () => {
   const s = startRehearsal(ctx, { parts: ['intro', 'finale'] });
   eq(s.phase, 'hill');
   ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
   eq(ctx.Session.state.phase, 'finale', 'the hill hands straight to the fire');
 });
 
@@ -220,6 +222,7 @@ test('the mission hands straight to the fire', () => {
   eq(s.phase, 'mission');
   eq(s.missionAt, 0);
   ctx.Session.dispatch({ type: 'result', earned: 1000, completed: true, players: [] });
+  finishTravel(ctx);
   eq(ctx.Session.state.phase, 'finale', 'and there is nothing between them');
   ok(ctx.Session.state.scene.phase === 'finale' && !ctx.Session.state.scene.started,
      'and the scene handshake was reset rather than inherited');
@@ -231,7 +234,8 @@ test('the welcome alone, and then the night is simply over', () => {
   const ctx = fresh();
   const s = startRehearsal(ctx, { parts: ['intro'], traitorSeat: -1 });
   eq(s.phase, 'hill');
-  ctx.Session.dispatch({ type: 'advance' });          // hill -> nothing left
+  ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);          // hill -> nothing left
   eq(ctx.Session.state.phase, 'verdict');
   const o = ctx.Session.state.outcome;
   ok(o && o.won, 'a Faithful still sitting there with no Traitor in the game won');

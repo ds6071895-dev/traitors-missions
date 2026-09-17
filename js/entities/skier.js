@@ -150,7 +150,7 @@ class Skier {
     this.tumble = 0;
 
     // one-frame events, cleared at the top of every update
-    this.launched = 0; this.landed = 0; this.popped = 0;
+    this.launched = 0; this.landed = 0; this.popped = 0; this.padLaunched = 0;
     this.bumped = null; this.crashedNow = null; this.lastTrick = null;
 
     this.groundY = 0;
@@ -318,7 +318,7 @@ class Skier {
   --------------------------------------------------------------- */
   update(dt, ctl, world) {
     if (!(dt > 0)) return;
-    this.launched = 0; this.landed = 0; this.popped = 0;
+    this.launched = 0; this.landed = 0; this.popped = 0; this.padLaunched = 0;
     this.threw = 0; this.spun = 0; this.grindExit = 0; this.grindEntered = false;
     this.bumped = null; this.crashedNow = null; this.lastTrick = null;
 
@@ -550,9 +550,15 @@ class Skier {
       this._slopeAhead = slopeAhead;
       const curv = (slopeAhead - slopeBack) / (back + ahead);
       const demand = this.speed * this.speed * curv;
+      const jumpPad = face && face.launchPadAt && this.speed > T.launchSpeed && this.relaunchT <= 0
+        ? face.launchPadAt(this.pos.x, this.pos.z) : null;
       if (demand < -T.gravity * T.launchK && this.speed > T.launchSpeed
           && this.relaunchT <= 0) {
         this._launch(world, this.crouch * T.holdPop, false);
+      } else if (jumpPad) {
+        // a launch pad is a lip with no ramp: the snow stays flat and throws you anyway
+        this._launch(world, this.crouch * T.holdPop, false, jumpPad.lift);
+        this.padLaunched = jumpPad.lift;
       } else {
         this.pos.y = gy;
         this.vy = this.sv;
@@ -787,18 +793,30 @@ class Skier {
     if (world.colliders) {
       const clear = this.pos.y - this.groundY;
       for (const c of world.colliders) {
-        if (c.kind === 'rock' && this.airborne && clear > c.r * 1.6) continue;
-        const px = this.pos.x - this.vel.x * dt, pz = this.pos.z - this.vel.y * dt;
-        const mx = this.pos.x - px, mz = this.pos.z - pz;
-        const u = U.clamp(((c.x - px) * mx + (c.z - pz) * mz) / Math.max(1e-9, mx * mx + mz * mz), 0, 1);
-        const dx = px + mx * u - c.x, dz = pz + mz * u - c.z;
-        const rr = c.r + T.radius;
-        const d2 = dx * dx + dz * dz;
-        if (d2 > rr * rr) continue;
-        const d = Math.sqrt(d2) || 1e-3;
-        const nx = dx / d, nz = dz / d;
-        this.pos.x = c.x + nx * rr;
-        this.pos.z = c.z + nz * rr;
+        let nx, nz;
+        if (c.layers) {
+          // a rock is its drawn outline at the height of your body, so you stop at the stone
+          const ox = this.pos.x - c.x, oz = this.pos.z - c.z, reach = c.r + T.radius;
+          if (ox * ox + oz * oz > reach * reach) continue;
+          const hit = this._footprintContact(c);
+          if (!hit || hit.d >= T.radius) continue;
+          nx = hit.nx; nz = hit.nz;
+          this.pos.x += nx * (T.radius - hit.d);
+          this.pos.z += nz * (T.radius - hit.d);
+        } else {
+          if (c.kind === 'rock' && this.airborne && clear > c.r * 1.6) continue;
+          const px = this.pos.x - this.vel.x * dt, pz = this.pos.z - this.vel.y * dt;
+          const mx = this.pos.x - px, mz = this.pos.z - pz;
+          const u = U.clamp(((c.x - px) * mx + (c.z - pz) * mz) / Math.max(1e-9, mx * mx + mz * mz), 0, 1);
+          const dx = px + mx * u - c.x, dz = pz + mz * u - c.z;
+          const rr = c.r + T.radius;
+          const d2 = dx * dx + dz * dz;
+          if (d2 > rr * rr) continue;
+          const d = Math.sqrt(d2) || 1e-3;
+          nx = dx / d; nz = dz / d;
+          this.pos.x = c.x + nx * rr;
+          this.pos.z = c.z + nz * rr;
+        }
         const vn = this.vel.x * nx + this.vel.y * nz;
         if (vn >= 0) continue;
         const force = -vn;
@@ -826,6 +844,34 @@ class Skier {
         }
       }
     }
+  }
+
+  /* The nearest face of a banded rock to the skier's body: a signed distance (negative
+     inside the stone) and its outward normal, from whichever band at the body's height is
+     deepest in. Null when the rock has no band anywhere between boots and head. */
+  _footprintContact(c) {
+    const x = this.pos.x, z = this.pos.z;
+    const k0 = Math.max(0, Math.floor((this.pos.y - c.y0) / c.band));
+    const k1 = Math.min(c.layers.length - 1, Math.floor((this.pos.y + 1.6 - c.y0) / c.band));
+    let best = null;
+    for (let k = k0; k <= k1; k++) {
+      const poly = c.layers[k], n = poly.length / 2;
+      if (!n) continue;
+      let inside = n > 2, depth = -Infinity, inx = 0, inz = 0, near = Infinity, onx = 0, onz = 0;
+      for (let i = 0; i < n; i++) {
+        const ax = poly[i * 2], az = poly[i * 2 + 1], j = (i + 1) % n;
+        const ex = poly[j * 2] - ax, ez = poly[j * 2 + 1] - az, len2 = ex * ex + ez * ez, len = Math.sqrt(len2) || 1e-9;
+        const out = ((x - ax) * ez - (z - az) * ex) / len;
+        if (out > 0) inside = false;
+        if (out > depth) { depth = out; inx = ez / len; inz = -ex / len; }
+        const u = len2 > 1e-12 ? U.clamp(((x - ax) * ex + (z - az) * ez) / len2, 0, 1) : 0;
+        const qx = x - ax - ex * u, qz = z - az - ez * u, d = Math.hypot(qx, qz);
+        if (d < near) { near = d; onx = d > 1e-9 ? qx / d : inx; onz = d > 1e-9 ? qz / d : inz; }
+      }
+      const hit = inside ? { d: depth, nx: inx, nz: inz } : { d: near, nx: onx, nz: onz };
+      if (!best || hit.d < best.d) best = hit;
+    }
+    return best;
   }
 
   /* =============== the body ===============

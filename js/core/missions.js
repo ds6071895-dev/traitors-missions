@@ -22,7 +22,8 @@
 const Missions = (() => {
 
   const registry = new Map();
-  let active = null, activeDef = null, activeOpts = null;
+  let active = null, activeDef = null, activeOpts = null, resultRecorded = false;
+  const prepared = new Set();
   const listeners = { complete: new Set(), exit: new Set() };
 
   /* Where a mission's winnings go. Practising banks straight into the
@@ -66,29 +67,73 @@ const Missions = (() => {
 
   // `opts` is whatever the mission's setup screen produced — seed, mode,
   // modifier. It is kept so "race again" can repeat the exact same run.
-  function launch(id, opts) {
-    if (active) end();
+  function prepare(id, opts) {
+    if (active || prepared.size) throw new Error('Release the current world before preparing a mission');
     const def = get(id);
-    if (!def || def.locked) return null;
-    activeDef = def;
-    activeOpts = opts || {};
-    active = def.create(activeOpts);
-    if (id === 'ski') activeOpts = Object.assign({}, activeOpts, active.opts);
-    active.def = def;
-    const view = active.build();
-    Engine.setView(view, (dt, t, wallDt) => {
-      active.update(id === 'ski' && wallDt !== undefined ? wallDt : dt, t);
+    if (!def || def.locked) throw new Error('Destination unavailable: ' + id);
+    let instance;
+    try {
+      instance = def.create(opts || {});
+      instance.def = def;
+      const view = instance.build();
+      if (instance._camPos && view.camera) view.camera.position.copy(instance._camPos);
+      if (instance._camLook && view.camera) view.camera.lookAt(instance._camLook);
+      const handle = { id, def, instance, view,
+        opts: id === 'ski' ? Object.assign({}, opts, instance.opts) : (opts || {}),
+        status: 'prepared', dispose() { disposePrepared(handle); } };
+      prepared.add(handle);
+      return handle;
+    } catch (error) {
+      if (instance) { try { instance.dispose(); } catch (_) {} }
+      throw error;
+    }
+  }
+
+  function disposePrepared(handle) {
+    if (!prepared.delete(handle)) return;
+    handle.status = 'disposed';
+    handle.instance.dispose();
+  }
+
+  function activate(handle) {
+    if (!handle || handle.status !== 'prepared' || !prepared.has(handle)) return null;
+    if (active) throw new Error('A mission is already active');
+    prepared.delete(handle); handle.status = 'active';
+    active = handle.instance; activeDef = handle.def; activeOpts = handle.opts;
+    resultRecorded = false;
+    const instance = active, id = handle.id;
+    Engine.setView(handle.view, (dt, t, wallDt) => {
+      if (active === instance) instance.update(id === 'ski' && wallDt !== undefined ? wallDt : dt, t);
       Input.endFrame();
     });
-    GameState.data.phase = 'mission';
-    GameState.save();
-    active.start();
-    return active;
+    GameState.data.phase = 'mission'; GameState.save();
+    instance.start();
+    return instance;
+  }
+
+  function launch(id, opts) {
+    if (!get(id) || get(id).locked) return null;
+    end();
+    return activate(prepare(id, opts));
+  }
+
+  // The completed mission can supply the return pickup without building
+  // two worlds against the shared Sky/Water singletons.
+  function releaseForTravel() {
+    if (!active) return null;
+    const instance = active;
+    const handle = { id: activeDef.id, def: activeDef, instance,
+      opts: activeOpts, view: { scene: instance.scene, camera: instance.camera },
+      status: 'presentation', dispose() { disposePrepared(handle); } };
+    active = null; activeDef = null; activeOpts = null;
+    prepared.add(handle);
+    return handle;
   }
 
   // called by the mission itself when the run is over
   function complete(result) {
-    if (!activeDef) return;
+    if (!activeDef || resultRecorded) return;
+    resultRecorded = true;
     const def = activeDef;
     const earned = Math.max(0, Math.round(result.earned || 0));
     if (earned > 0) potSink(earned);
@@ -100,6 +145,7 @@ const Missions = (() => {
   }
 
   function end() {
+    for (const handle of [...prepared]) disposePrepared(handle);
     if (active) {
       try { active.dispose(); } catch (e) { console.warn(e); }
       active = null; activeDef = null;
@@ -111,7 +157,8 @@ const Missions = (() => {
 
   function on(evt, fn) { listeners[evt].add(fn); return () => listeners[evt].delete(fn); }
 
-  return { register, all, get, launch, complete, end, on, setPotSink,
+  return { register, all, get, prepare, activate, disposePrepared, releaseForTravel, launch, complete, end, on, setPotSink,
+           get preparedCount() { return prepared.size; },
            get active() { return active; }, get activeDef() { return activeDef; },
            get activeOpts() { return activeOpts; } };
 })();

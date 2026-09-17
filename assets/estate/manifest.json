@@ -1,0 +1,131 @@
+{
+  "generator": "built-in image_gen",
+  "materials": [
+    {
+      "id": "masonry",
+      "source": "exec-cb45b2b0-91cf-49af-a562-57bd651a987d.png",
+      "prompt": "Square seamless repeating PBR base colour texture. Orthographic weathered Highland grey sandstone masonry, irregular rectangular coursed blocks, restrained warm grey variation, thin dark lime mortar, subtle moss and damp speckles. Neutral diffuse illumination, no lighting, shadows, highlights, perspective, text, borders or objects. Fine stone pores; seamless four edges.",
+      "file": "masonry.jpg",
+      "pixels": 1024,
+      "bump": "masonry-bump.jpg",
+      "lowPixels": 256
+    },
+    {
+      "id": "paving",
+      "source": "exec-b505142f-297c-4a02-96ed-309966d880fb.png",
+      "prompt": "Use case: stylized-concept. Asset type: square seamless repeating game material base colour. Subject: irregular closely fitted grey flagstone paving, worn edges, subtle pores, no loose objects. Orthographic flat surface, perfectly neutral diffuse illumination, no cast shadows or painted highlights, no perspective, no text, no border. Seamless on all four edges. Convincing small surface detail for a cinematic stylised Scottish castle estate. Fill the entire image with this one material.",
+      "file": "paving.jpg",
+      "pixels": 1024,
+      "bump": "paving-bump.jpg",
+      "lowPixels": 256
+    },
+    {
+      "id": "slate",
+      "source": "exec-6b49f0d5-80d9-4a66-b74b-2f93a7ce03a0.png",
+      "prompt": "Use case: stylized-concept. Asset type: square seamless repeating game material base colour. Subject: dark blue grey overlapping slate roofing in restrained staggered courses, fine mineral texture. Orthographic flat surface, perfectly neutral diffuse illumination, no cast shadows or painted highlights, no perspective, no text, no border. Seamless on all four edges. Convincing small surface detail for a cinematic stylised Scottish castle estate. Fill the entire image with this one material.",
+      "file": "slate.jpg",
+      "pixels": 512,
+      "bump": "slate-bump.jpg",
+      "lowPixels": 256
+    },
+    {
+      "id": "gravel",
+      "source": "exec-08a97cf5-d193-4634-9d23-b41186b4572c.png",
+      "prompt": "Use case: stylized-concept. Asset type: square seamless repeating game material base colour. Subject: fine Highland grey gravel mixed with compacted brown earth, small stones evenly distributed. Orthographic flat surface, perfectly neutral diffuse illumination, no cast shadows or painted highlights, no perspective, no text, no border. Seamless on all four edges. Convincing small surface detail for a cinematic stylised Scottish castle estate. Fill the entire image with this one material.",
+      "file": "gravel.jpg",
+      "pixels": 512,
+      "bump": "gravel-bump.jpg",
+      "lowPixels": 256
+    },
+    {
+      "id": "ground",
+      "source": "exec-ad380523-b80f-45b6-a658-f51e81dcf96a.png",
+      "prompt": "Use case: stylized-concept. Asset type: square seamless repeating game material base colour. Subject: Scottish moor grass and dark peat soil seen directly from overhead, subtle mixed olive greens and earthy browns. Orthographic flat surface, perfectly neutral diffuse illumination, no cast shadows or painted highlights, no perspective, no text, no border. Seamless on all four edges. Convincing small surface detail for a cinematic stylised Scottish castle estate. Fill the entire image with this one material.",
+      "file": "ground.jpg",
+      "pixels": 512,
+      "bump": "ground-bump.jpg",
+      "lowPixels": 256
+    },
+    {
+      "id": "heather",
+      "source": "exec-fd0f560d-aea3-4381-8899-6e731e7688be.png",
+      "prompt": "Use case: stylized-concept. Asset type: square seamless repeating game material base colour. Subject: dense low heather and bracken ground cover seen directly from above, restrained muted purple ochre and olive. Orthographic flat surface, perfectly neutral diffuse illumination, no cast shadows or painted highlights, no perspective, no text, no border. Seamless on all four edges. Convincing small surface detail for a cinematic stylised Scottish castle estate. Fill the entire image with this one material.",
+      "file": "heather.jpg",
+      "pixels": 512,
+      "bump": "heather-bump.jpg",
+      "lowPixels": 256
+    },
+    {
+      "id": "rock",
+      "source": "exec-ad08d141-c20d-48fe-aa54-8d6d41d59c40.png",
+      "prompt": "Use case: stylized-concept. Asset type: square seamless repeating game material base colour. Subject: weathered Highland rock surface, grey schist, fine mineral bands and hairline fissures. Orthographic flat surface, perfectly neutral diffuse illumination, no cast shadows or painted highlights, no perspective, no text, no border. Seamless on all four edges. Convincing small surface detail for a cinematic stylised Scottish castle estate. Fill the entire image with this one material.",
+      "file": "rock.jpg",
+      "pixels": 512,
+      "bump": "rock-bump.jpg",
+      "lowPixels": 256
+    },
+    {
+      "id": "timber",
+      "source": "exec-d17418c7-6c22-4c2a-baf2-666531318a7d.png",
+      "prompt": "Use case: stylized-concept. Asset type: square seamless repeating game material base colour. Subject: aged oak timber surface, parallel grain and restrained knots, muted brown. Orthographic flat surface, perfectly neutral diffuse illumination, no cast shadows or painted highlights, no perspective, no text, no border. Seamless on all four edges. Convincing small surface detail for a cinematic stylised Scottish castle estate. Fill the entire image with this one material.",
+      "file": "timber.jpg",
+      "pixels": 512,
+      "bump": "timber-bump.jpg",
+      "lowPixels": 256
+    },
+    {
+      "id": "iron",
+      "source": "exec-9a50092d-7d1b-412e-abd9-f0b2cb58e233.png",
+      "prompt": "Use case: stylized-concept. Asset type: square seamless repeating game material base colour. Subject: dark charcoal weathered iron, subtle fine pores and oxide speckles, no large rust patches. Orthographic flat surface, perfectly neutral diffuse illumination, no cast shadows or painted highlights, no perspective, no text, no border. Seamless on all four edges. Convincing small surface detail for a cinematic stylised Scottish castle estate. Fill the entire image with this one material.",
+      "file": "iron.jpg",
+      "pixels": 512,
+      "bump": "iron-bump.jpg",
+      "lowPixels": 256
+    },
+    {
+      "id": "paint",
+      "source": "exec-de01cd52-9821-46e1-8a7f-5638790e21b6.png",
+      "prompt": "Edit the dark forest-green paint surface: preserve fine enamel micrograin and hue; replace the broad diagonal brightness gradient with perfectly uniform neutral illumination. Orthographic seamless repeating PBR base colour; four matching edges; no gradient, vignette, shadows, highlights, objects or text. Equal mean brightness at every edge and centre.",
+      "file": "paint-v2.jpg",
+      "pixels": 512,
+      "bump": "paint-v2-bump.jpg",
+      "lowPixels": 256
+    },
+    {
+      "id": "rubber",
+      "source": "exec-59e80956-c88b-44a6-ba8d-0bc830a824c6.png",
+      "prompt": "Use case: stylized-concept. Asset type: square seamless repeating game material base colour. Subject: dark grey rubber fine matte surface texture. Orthographic flat surface, perfectly neutral diffuse illumination, no cast shadows or painted highlights, no perspective, no text, no border. Seamless on all four edges. Convincing small surface detail for a cinematic stylised Scottish castle estate. Fill the entire image with this one material.",
+      "file": "rubber.jpg",
+      "pixels": 512,
+      "bump": "rubber-bump.jpg",
+      "lowPixels": 256
+    },
+    {
+      "id": "upholstery",
+      "source": "exec-ccac7d15-1b4d-4308-8f1d-d43af274b3f4.png",
+      "prompt": "Use case: stylized-concept. Asset type: square seamless repeating game material base colour. Subject: charcoal woven automotive upholstery, fine dense fabric weave. Orthographic flat surface, perfectly neutral diffuse illumination, no cast shadows or painted highlights, no perspective, no text, no border. Seamless on all four edges. Convincing small surface detail for a cinematic stylised Scottish castle estate. Fill the entire image with this one material.",
+      "file": "upholstery.jpg",
+      "pixels": 512,
+      "bump": "upholstery-bump.jpg",
+      "lowPixels": 256
+    },
+    {
+      "id": "bark",
+      "prompt": "Use case: stylized-concept. Asset type: seamless square repeating base colour game texture. Subject: rough fissured Scots pine bark, irregular small layered reddish grey plates. Orthographic flat surface, neutral diffuse illumination, no highlights, cast shadows, perspective, text, border, or visible background. Entire image filled with material. Seamless on all four edges. Restrained cinematic stylised Scottish Highland estate surface.",
+      "source": "exec-dea10e5a-0afd-4119-9b3f-afec5606687f.png",
+      "file": "bark.jpg",
+      "pixels": 512,
+      "bump": "bark-bump.jpg",
+      "lowPixels": 256
+    },
+    {
+      "id": "foliage",
+      "prompt": "Use case: stylized-concept. Asset type: seamless square repeating base colour game texture. Subject: dense Scots pine needles and small sprays, deep muted olive green, evenly distributed fine organic detail. Orthographic flat surface, neutral diffuse illumination, no highlights, cast shadows, perspective, text, border, or visible background. Entire image filled with material. Seamless on all four edges. Restrained cinematic stylised Scottish Highland estate surface.",
+      "source": "exec-dc398a89-ba1c-4651-bbc7-4e737d2ef166.png",
+      "file": "foliage.jpg",
+      "pixels": 512,
+      "bump": "foliage-bump.jpg",
+      "lowPixels": 256
+    }
+  ]
+}

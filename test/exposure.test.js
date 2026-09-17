@@ -1,3 +1,4 @@
+const finishTravel = require('./travel-helper');
 /* ------------------------------------------------------------------
    exposure.test.js — the night ends in the room it ended in.
 
@@ -62,6 +63,7 @@ function owingACeremony() {
 
   ctx.Net.connect(wire(ctx));
   ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
   /* The card is never marked, which is what an unfinished task is now:
      nothing on the host can hear a microphone, so an unmarked card at
      the deadline is the whole of the evidence. */
@@ -72,6 +74,7 @@ function owingACeremony() {
       stats: {},
     })),
   });
+  finishTravel(ctx);
   ok(ctx.Session.hasExposure(), 'the night owes a ceremony');
   return { ctx, traitor };
 }
@@ -151,9 +154,11 @@ await atest('a marked task means no beats and no panel', async () => {
   const traitor = ctx.Session.state.players[ctx.Session._peek().seat];
   ctx.Net.connect(wire(ctx));
   ctx.Session.dispatch({ type: 'advance' });
+  finishTravel(ctx);
   ctx.Session.dispatch({ type: 'taskDone', playerId: traitor.id });
   ctx.Session.dispatch({ type: 'result', earned: 10, completed: true,
     players: PLAYERS.map(p => ({ playerId: p.id, stats: {} })) });
+  finishTravel(ctx);
 
   let told = 'unset';
   ctx.Net.on((e) => { if (e.type === 'expose') told = e; });

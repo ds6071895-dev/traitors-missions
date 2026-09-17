@@ -1,6 +1,6 @@
 /* ------------------------------------------------------------------
    main.js — boot, the front screens, results, and the attract-mode
-   ocean that sits behind the menus.
+   estate that sits behind the menus.
 
    Two ways in from the front door. PLAY hands over to `Show`, which
    runs a whole night and owns the screen until it is finished.
@@ -18,14 +18,8 @@ const Game = (() => {
 
   /* ---------------- attract mode ---------------- */
 
-  /* The hour the menus are set at, and it is not a decoration.
-
-     The front door has a drawn backdrop over this ocean — a loch at
-     dusk, hills, a castle on the horizon — and the water has to be the
-     same time of day as the picture it is standing in, or the join is
-     a bright blue sea under a dark blue sky. `Conditions` already owns
-     every hour the game has; this asks for one of them by name rather
-     than hand-mixing a fourth. */
+  /* The menu shares the estate's daylight geography and materials, with
+     a bounded camera and lighter scenery around the castle. */
   const ATTRACT_COND = { time: 'dusk', sea: 'slight', wind: 0.85 };
 
   function buildAttract() {
@@ -34,30 +28,18 @@ const Game = (() => {
 
     // must run before `Sky.build`: the haze is baked into the vertices
     const hour = Conditions.apply(ATTRACT_COND);
+    Estate.atmosphere(false);
     scene.fog = new THREE.Fog(Sky.PALETTE.fog, hour.time.fog.near, hour.time.fog.far);
     scene.add(Conditions.lights(ATTRACT_COND));
 
     Sky.build(scene, U.makeRng(4242));
-    Water.build(scene);
-    Water.setFog(hour.time.waterFog.near, hour.time.waterFog.far, Sky.PALETTE.fog);
-
-    const state = { t: 0, x: 0, z: 0 };
-    const look = new THREE.Vector3();
-
-    function frame(dt, t) {
-      state.t += dt;
-      Water.update(dt);
-      // a slow drift across open water
-      state.z += dt * 9;
-      state.x = Math.sin(state.t * 0.06) * 60;
-      const y = Water.sampleHeight(state.x, state.z);
-      camera.position.set(state.x, y + 7.5 + Math.sin(state.t * 0.4) * 0.6, state.z);
-      look.set(state.x + Math.sin(state.t * 0.09) * 40, y + 5.5, state.z + 60);
-      camera.lookAt(look);
-      camera.rotateZ(Math.sin(state.t * 0.13) * 0.02);
-      Water.follow(camera.position.x, camera.position.z);
-      Sky.update(dt, camera.position, state.t);
-      Input.endFrame();
+    const estate=Estate.build(scene,{seed:4242,lightweight:true});
+    let elapsed=0;
+    function frame(dt,t){
+      elapsed+=dt;
+      const move=GameState.data.settings.reducedMotion?0:Math.sin(elapsed*.035)*5;
+      camera.position.set(62+move,43,68);camera.lookAt(-30,35,-12);
+      estate.update(dt,camera.position,t);Sky.update(dt,camera.position,t);Input.endFrame();
     }
 
     return { view: { scene, camera }, frame, scene };
@@ -69,7 +51,7 @@ const Game = (() => {
        channel was last raced left its own palette and sea state in it.
        The sky does not need this — its colours were baked into the
        dome when the scene was built — but the sea does, every time. */
-    else Conditions.apply(ATTRACT_COND);
+    else Estate.atmosphere(false);
     Engine.setView(attract.view, attract.frame);
   }
 
@@ -1012,6 +994,11 @@ const Game = (() => {
       Screens.show('play');
       renderPlay();
     };
+    const motion=document.getElementById('estate-motion'),quality=document.getElementById('estate-quality');
+    if(GameState.settings.reducedMotion===undefined)GameState.settings.reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    motion.checked=!!GameState.settings.reducedMotion;quality.value=GameState.settings.quality||'high';
+    motion.onchange=()=>{GameState.settings.reducedMotion=motion.checked;GameState.save();};
+    quality.onchange=()=>{GameState.settings.quality=quality.value;GameState.save();disposeAttract();showAttract();};
     document.getElementById('play-mute').onclick = () => {
       const m = AudioBus.toggleMute();
       GameState.settings.muted = m; GameState.save();
@@ -1096,6 +1083,7 @@ const Game = (() => {
     Missions.on('complete', showResults);
 
     showAttract();
+    EstateMaterials.preload();
     Screens.show('play');
     /* A `#p=CODE&m=mission` in the address bar is somebody's invitation.
        It is read here rather than earlier so the mission registry is

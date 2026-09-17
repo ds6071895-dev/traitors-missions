@@ -71,6 +71,75 @@ for (const section of descriptorFace.sections.slice(1)) {
   assert.ok(Math.abs(descriptorFace.cxAt(section.z0-.001)-descriptorFace.cxAt(section.z0+.001))<.01);
   assert.ok(Math.abs(descriptorFace.cxSlopeAt(section.z0-.01)-descriptorFace.cxSlopeAt(section.z0+.01))<.01);
 }
+const pads = descriptorCheck.pads;
+assert.ok(pads.some(p => p.kind === 'speed') && pads.some(p => p.kind === 'launch'), 'cuts carry speed and launch pads');
+for (const route of descriptorCheck.routes) {
+  const mine = pads.filter(p => p.z >= route.z0 && p.z <= route.z1);
+  assert.ok(mine.length > 0, route.id + ': cut has pads');
+  for (const p of mine) {
+    const cutX = U.lerp(route.cut[0].x, route.cut[route.cut.length - 1].x, (p.z - route.z0) / (route.z1 - route.z0));
+    assert.ok(Math.abs(p.x - cutX) < 1e-6 && p.z >= route.z0 + 85, route.id + ': pads sit on the cut after the lines diverge');
+    assert.ok(!descriptorCheck.surfaces.some(s => Math.abs(p.x - s.x) < s.halfX + p.wide && Math.abs(p.z - s.z) < s.halfZ + p.len), 'pads clear of roofs');
+  }
+}
+assert.equal(SkiCourse.resolve(SkiCourse.makeFace(42), 42, {}, { padSpacing: 0, rampBoost: 0 }).pads.length, 0, 'Cat Track has no pads');
+const padPlane = { ...plane, launchPadAt: (x, z) => z > 4 && z < 8 ? { lift: 12 } : null };
+const flyer = skier({ face: padPlane }); flyer.vel.set(0, 20); flyer.speed = 20;
+let fired = false, padLanding = null;
+for (let i = 0; i < 400 && !padLanding; i++) {
+  flyer.update(1 / 90, { steer: 0, throttle: 0, trick: false }, { face: padPlane });
+  fired = fired || flyer.padLaunched > 0;
+  if (fired && flyer.lastTrick) padLanding = flyer.lastTrick;
+}
+assert.ok(fired && padLanding, 'a launch pad throws a skier who rides over it');
+assert.ok(padLanding.air > 1 && padLanding.landed && !flyer.crashed, 'and a straight flight off it lands clean');
+// Big rock: the collider is the drawn stone, and nothing a skier follows passes through one.
+const dodeca = new THREE.DodecahedronGeometry(1, 1).attributes.position.array;
+assert.ok(dodeca.length === SkiCourse.DODECA.length && dodeca.every((v, i) => Math.abs(v - SkiCourse.DODECA[i]) < 1e-6), 'collider rock is the drawn rock');
+assert.equal(descriptorCheck.boulders.length, 36);
+assert.equal(descriptorCheck.colliders.length, 36);
+assert.ok(descriptorCheck.landmarks.every(l => descriptorCheck.solids.some(s => s.id === l.id)), 'landmarks are solid');
+const rockProbe = skier();
+const onRock = (col, x, y, z) => { rockProbe.pos.set(x, y, z); const h = Math.hypot(x - col.x, z - col.z) <= col.r + 1.05 && rockProbe._footprintContact(col); return !!h && h.d < 1.05; };
+for (const b of descriptorCheck.boulders) {
+  const col = b.collider;
+  for (let i = 0; i < dodeca.length; i += 3) {
+    const [x, y, z] = SkiCourse.boulderPoint(b, dodeca[i], dodeca[i + 1], dodeca[i + 2]);
+    rockProbe.pos.set(x, y - .8, z);
+    assert.ok(rockProbe._footprintContact(col).d < 1e-3, b.id + ': drawn vertex inside its collider');
+  }
+}
+for (let z = 0; z < descriptorFace.total; z += 4) {
+  const half = descriptorFace.halfAt(z), cx = descriptorFace.cxAt(z);
+  const xs = [];
+  for (let lat = -half; lat <= half; lat += 4) xs.push(cx + lat);
+  for (const [i, route] of descriptorCheck.routes.entries()) if (z >= route.z0 && z <= route.z1) {
+    const u = (z - route.z0) / (route.z1 - route.z0), cut = U.lerp(route.cut[0].x, route.cut.at(-1).x, u);
+    for (let lat = -descriptorFace.chutes[i].half; lat <= descriptorFace.chutes[i].half; lat += 3) xs.push(cut + lat);
+  }
+  for (const x of xs) {
+    const y = descriptorFace.heightAt(x, z);
+    assert.ok(!descriptorCheck.colliders.some(col => onRock(col, x, y, z)), 'no big rock on the piste or a cut at z=' + z);
+    assert.ok(!descriptorCheck.landmarks.some(l => Math.abs(x - l.x) < 5.05 && Math.abs(z - l.z) < 5.05), 'no landmark on the piste or a cut');
+  }
+}
+for (const speed of [30, 6]) {
+  const b = { kind: 'granite', turn: .7, x: 0, z: 60, y: plane.heightAt(0, 60) }, soup = [];
+  for (let i = 0; i < dodeca.length; i += 3) soup.push(...SkiCourse.boulderPoint(b, dodeca[i], dodeca[i + 1], dodeca[i + 2]));
+  const col = SkiCourse.footprint(soup, 0, 60, 2), world = { face: plane, colliders: [col] };
+  let z0 = 0;
+  if (speed < 10) for (z0 = 0; z0 < 60 && !onRock(col, 0, plane.heightAt(0, z0 + 3), z0 + 3); z0 += .5);
+  const rider = skier(world); rider.place(0, z0, 0, world); rider.vel.set(0, speed); rider.speed = speed;
+  let reason = null, bumps = 0, closest = Infinity;
+  for (let i = 0; i < 720 && !reason; i++) {
+    rider.update(1 / 90, { steer: 0, throttle: speed > 10 ? 0 : -1, trick: false }, world);
+    reason = rider.crashedNow || null;
+    if (rider.bumped && rider.bumped.kind === 'rock') bumps++;
+    const h = rider._footprintContact(col); if (h) closest = Math.min(closest, h.d);
+  }
+  assert.ok(closest > 1, 'a skier never ends up inside a boulder');
+  if (speed > 20) assert.equal(reason, 'ROCK', 'a boulder at speed is a crash'); else assert.ok(bumps > 0 && !reason, 'a boulder at walking pace is a shove');
+}
 const ledger = new SkiScoring('prize'), trick = { landed:true,grade:{id:'clean'},spins:1,flips:0,rolls:0,grabbed:false,name:'360',family:'spin' };
 const first = ledger.landing(trick, 10, 1, 3);
 assert.equal(ledger.landing(trick, 10, 2, 3), 0);
@@ -95,7 +164,7 @@ for(let i=0;i<(process.env.DESCENT_BRANCHES_ONLY ? 0 : 100);i++) {
   const seed=1+i*104729, {face,descriptor}=faceFor(seed);
   assert.deepEqual(Array.from(SkiCourse.validate(descriptor)),[]);
   assert.equal(new Set(descriptor.sectionIds).size,6);
-  const world={face,surfaces:new SkiSurfaces(face,descriptor),colliders:[]};
+  const world={face,surfaces:new SkiSurfaces(face,descriptor),colliders:descriptor.colliders};
   const s=new Skier({figure:false});s.place(face.cxAt(0),0,Math.atan(face.cxSlopeAt(0)),world);
   let crashes=0, previousCrash=false, elapsed=0;
   for(;elapsed<220 && s.pos.z<face.total;elapsed+=1/30){
@@ -115,7 +184,7 @@ for(let i=0;i<(process.env.DESCENT_BRANCHES_ONLY ? 0 : 100);i++) {
 const branchResults = [];
 for (const routeKind of ['cut','style']) for (const snow of c.SkiConditions.SNOW) {
   const seed = 42, {face,descriptor} = faceFor(seed);
-  const world = {face, surfaces:new SkiSurfaces(face,descriptor),colliders:[]};
+  const world = {face, surfaces:new SkiSurfaces(face,descriptor),colliders:descriptor.colliders};
   const s = new Skier({figure:false,snow}); s.place(face.cxAt(0),0,Math.atan(face.cxSlopeAt(0)),world);
   let elapsed=0,crashes=0,wasCrash=false;
   for (;elapsed<260 && s.pos.z<face.total;elapsed+=1/30) {

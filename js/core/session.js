@@ -58,6 +58,7 @@ const Session = (() => {
                  taskDone: false };
 
   const listeners = {
+    travel: new Set(),
     change: new Set(),   // (state) — anything at all moved
     phase:  new Set(),   // (phase, prev)
     beat:   new Set(),   // (n)
@@ -455,10 +456,16 @@ const Session = (() => {
     if (!state || !action) return null;
     let moved = false;
     switch (action.type) {
+      case 'travelReady': case 'travelBoard': case 'travelSkip':
+      case 'travelGather': case 'travelTick': case 'travelMove':
+        moved = doTravel(action); break;
       case 'beat':    moved = doBeat(action); break;
       case 'advance': moved = doAdvance(); break;
       case 'result':  moved = doResult(action); break;
       case 'readyResult': moved = doReadyResult(action); break;
+      case 'missionFinished':
+        if (state.phase === 'mission' && action.authority) { state.taskClosed = true; moved = true; }
+        break;
       case 'taskDone': moved = doTaskDone(action); break;
       case 'name':    moved = doName(action); break;
       case 'speakName': moved = doSpeakName(action); break;
@@ -474,6 +481,65 @@ const Session = (() => {
     }
     if (moved) emit('change', state);
     return state;
+  }
+
+  // Public choreography only. No role, task or mission input belongs here.
+  const TRAVEL_SECONDS = { outbound: [4, 6, 6, 8, 2, 8, 6], return: [5, 7, 8, 2, 9, 7, 8] };
+  function beginTravel(direction) {
+    state.travelSerial = (state.travelSerial || 0) + 1;
+    state.travel = { id: state.startedAt + ':' + state.travelSerial,
+      direction, destination: state.missions[state.missionAt].id,
+      beat: -1, ready: [], boarded: [], gathered: [], votes: [], movement: {},
+      startedAt: null, elapsed: 0, duration: 30, skip: false };
+    setPhase('travel', true);
+    return true;
+  }
+  function travelBeat(n) {
+    const j = state.travel;
+    j.beat = n; j.ready = []; j.startedAt = null; j.elapsed = 0;
+    j.duration = n === 7 ? 30 : TRAVEL_SECONDS[j.direction][n];
+    emit('travel', { id: j.id, beat: n });
+  }
+  function doTravel(a) {
+    const j = state.travel;
+    if (state.phase !== 'travel' || !j || a.journeyId !== j.id) return false;
+    const p = a.playerId ? playerById(a.playerId) : localPlayer();
+    if (a.type !== 'travelTick' && (!p || !p.alive)) return false;
+    const all = list => alive().every(q => list.includes(q.id));
+    const add = list => { if (list.includes(p.id)) return false; list.push(p.id); return true; };
+    if (a.type === 'travelReady') {
+      if (a.beat !== j.beat || !add(j.ready)) return false;
+      if (all(j.ready) && j.startedAt === null) j.startedAt = Date.now();
+      return true;
+    }
+    if (a.type === 'travelMove') {
+      if (j.beat !== -1 && j.beat !== 7) return false;
+      if (![a.x, a.z].every(Number.isFinite) || Math.abs(a.x) > 10000 || Math.abs(a.z) > 10000) return false;
+      j.movement[p.id] = { x: a.x, z: a.z }; return true;
+    }
+    if (a.type === 'travelBoard') return j.beat === -1 && add(j.boarded);
+    if (a.type === 'travelGather') return j.beat === 7 && add(j.gathered);
+    if (a.type === 'travelSkip') {
+      if (j.beat < 0 || j.beat >= 6 || !add(j.votes)) return false;
+      j.skip = all(j.votes); return true;
+    }
+    if (a.type !== 'travelTick' || !a.authority || j.startedAt === null) return false;
+    j.elapsed = Math.max(0, (Date.now() - j.startedAt) / 1000);
+    if (j.beat === -1) {
+      if (!all(j.boarded) && j.elapsed < 30) return false;
+      j.boarded = alive().map(q => q.id); travelBeat(0); return true;
+    }
+    if (j.beat === 7) {
+      if (!all(j.gathered) && j.elapsed < 30) return false;
+      j.gathered = alive().map(q => q.id);
+      goToStep(stepIndexOf('finale')); return true;
+    }
+    if (j.elapsed < j.duration) return false;
+    if (j.beat === 6 && j.direction === 'outbound') {
+      state.taskClosed = false; goToStep(stepIndexOf('m1')); return true;
+    }
+    travelBeat(j.skip && j.beat < 6 ? 6 : j.beat + 1);
+    return true;
   }
 
   /* ---------------- the floor ----------------
@@ -497,6 +563,7 @@ const Session = (() => {
      had already stopped. */
 
   function doOpenFloor(a) {
+    if (state.phase === 'travel') return false;
     if (state.floor && !state.floor.done && (state.floor.all || state.floor.playerId)) {
       return false;
     }
@@ -650,7 +717,10 @@ const Session = (() => {
 
   // the scene that is pure theatre ends by asking for the next phase
   function doAdvance() {
-    if (state.phase === 'hill') return goToStep(stepIndexOf('intro') + 1);
+    if (state.phase === 'hill') {
+      if (partOn('m1')) return beginTravel('outbound');
+      return goToStep(stepIndexOf('intro') + 1);
+    }
     return false;
   }
 
@@ -669,7 +739,8 @@ const Session = (() => {
     state.debrief = buildDebrief(m, reports);
     judgeAgenda();
     GameState.logEvent('mission', `${m.name}: ${U.money(m.earned)} into the pot`, { id: m.id });
-    goToStep(stepIndexOf('m1') + 1);
+    if (partOn('finale')) beginTravel('return');
+    else goToStep(stepIndexOf('m1') + 1);
     return true;
   }
 
@@ -738,7 +809,7 @@ const Session = (() => {
 
   function doTaskDone(a) {
     if (mode !== 'host') return false;
-    if (state.phase !== 'mission') return false;
+    if (state.phase !== 'mission' || state.taskClosed) return false;
     if (!secret.has || secret.taskDone) return false;
     const p = a && a.playerId ? playerById(a.playerId) : localPlayer();
     if (!p || !p.alive || p.seat !== secret.seat) return false;
@@ -784,7 +855,7 @@ const Session = (() => {
      asked and heard nothing back cannot tell a clean night from a
      message still in flight, and would have to guess with a timer. */
   function doExpose() {
-    if (mode !== 'host') return false;
+    if (mode !== 'host' || state.phase !== 'finale') return false;
     if (!secret.exposed) {
       state.exposure = { checked: true, playerId: null };
       emit('expose', { playerId: null });
@@ -1083,7 +1154,15 @@ const Session = (() => {
     get active() { return !!state && state.phase !== 'verdict'; },
     get running() { return !!state; },
     // a serialised copy, which is exactly what a server would have sent
-    snapshot() { return state ? JSON.parse(JSON.stringify(state)) : null; },
+    snapshot() {
+      if (!state) return null;
+      const copy = JSON.parse(JSON.stringify(state));
+      if (copy.phase === 'travel' && copy.travel.startedAt !== null) {
+        copy.travel.elapsed = Math.max(0, (Date.now() - state.travel.startedAt) / 1000);
+      }
+      return copy;
+    },
+    TRAVEL_SECONDS,
 
     /* What the host has to tell each client about itself, and the one
        reason anything in here may read the role table on someone

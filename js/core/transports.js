@@ -30,6 +30,7 @@ const Transports = (() => {
   const EVENTS = [
     ['change',     (s)       => ({ type: 'state',      state: s })],
     ['phase',      (p, prev) => ({ type: 'phase',      phase: p, prev })],
+    ['travel', (j) => ({ type: 'travel', ...j })],
     ['beat',       (n)       => ({ type: 'beat',       n })],
     ['vote',       (v)       => ({ type: 'vote',       ...v })],
     ['decision',   (d)       => ({ type: 'decision',   ...d })],
@@ -53,7 +54,7 @@ const Transports = (() => {
      guest can only ever mark its own card. */
   const GUEST_ACTIONS = new Set([
     'vote', 'name', 'yieldFloor', 'sceneReady', 'syncReady', 'readyResult',
-    'taskDone',
+    'taskDone', 'travelReady', 'travelBoard', 'travelSkip', 'travelGather', 'travelMove',
   ]);
 
   /* ---------------- host ---------------- */
@@ -114,7 +115,7 @@ const Transports = (() => {
          about the night, and the reducer checks who sent them. A guest
          gets stamped with the peer the packet arrived from; the host
          has to stamp itself. */
-      if (own.type === 'readyResult' || own.type === 'taskDone') {
+      if (own.type === 'readyResult' || own.type === 'taskDone' || own.type.startsWith('travel')) {
         own.playerId = Party.selfId();
       }
       Session.dispatch(own);
@@ -189,7 +190,7 @@ const Transports = (() => {
     send(action) {
       if (!action) return;
       const own = Object.assign({}, action, { authority: true });
-      if ((own.type === 'readyResult' || own.type === 'taskDone') && !own.playerId) {
+      if ((own.type === 'readyResult' || own.type === 'taskDone' || own.type.startsWith('travel')) && !own.playerId) {
         const me = Session.state && Session.state.players.find(p => p.local);
         own.playerId = me ? me.id : null;
       }
@@ -221,6 +222,9 @@ const Transports = (() => {
           if (msg.at && msg.state.floor && msg.state.floor.endsAt) {
             const left = Math.max(0, msg.state.floor.endsAt - msg.at);
             msg.state.floor.endsAt = Date.now() + left;
+          }
+          if (msg.state.phase === 'travel' && msg.state.travel && msg.state.travel.startedAt !== null) {
+            msg.state.travel.startedAt = Date.now() - (msg.state.travel.elapsed || 0) * 1000;
           }
           Session.adopt(msg.state, Party.selfId());
         }

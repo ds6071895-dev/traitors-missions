@@ -261,6 +261,15 @@ const Bots = (() => {
     if (!running || !s) return;
 
     floorActs(s);
+    if (s.phase === 'travel') {
+      const j = s.travel;
+      for (const id of botIds()) {
+        for (const type of ['travelReady', ...(j.beat === -1 ? ['travelBoard'] : j.beat === 7 ? ['travelGather'] : j.votes.length ? ['travelSkip'] : [])]) {
+          after(j.id + ':' + j.beat + ':' + type + ':' + id, 0.6,
+            () => Net.send({ type, playerId: id, journeyId: j.id, beat: j.beat }));
+        }
+      }
+    }
     if (s.phase === 'mission') resultActs(s);
     if (s.phase === 'finale') finaleActs(s);
   }

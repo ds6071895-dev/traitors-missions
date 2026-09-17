@@ -102,7 +102,7 @@ const { createServer } = require('../server');
         assert.equal(opts.party, true);
         assert.equal(opts.ghost, false);
         assert.equal(opts.players.length, 3);
-        if (skiMode) { assert.equal(opts.mode,skiMode); assert.equal(opts.rulesVersion,4); assert.ok(opts.conditions); }
+        if (skiMode) { assert.equal(opts.mode,skiMode); assert.equal(opts.rulesVersion,5); assert.ok(opts.conditions); }
       }
       await Promise.all(pages.map(page => page.waitForFunction(() => MissionNet.others().length === 2,
         null, { timeout: 15000, polling: 100 })));

@@ -470,6 +470,9 @@ class SkiMission {
     this.markers = MountainKit.buildMarkers(this.face, { spacing: 34 });
     scene.add(this.markers.group);
 
+    this.padMesh = MountainKit.buildPadMeshes(this.face);
+    scene.add(this.padMesh.group);
+
     this.spinnerMesh = MountainKit.buildSpinnerMeshes(this.face);
     scene.add(this.spinnerMesh);
     this.spinners = this.face.spinners;
@@ -477,7 +480,7 @@ class SkiMission {
     /* Colliders, bucketed down the fall line. Nine hundred trunks
        tested ninety times a second is a slideshow; the dozen inside a
        hundred and twenty metres of you is a list. */
-    this.course.colliders = [...this.trees.colliders, ...this.rocks.colliders];
+    this.course.colliders = [...this.course.boulders.map(b => b.collider), ...this.trees.colliders, ...this.rocks.colliders];
     this._buildColliderIndex(this.course.colliders);
 
     // ---- the hoops ----
@@ -544,23 +547,20 @@ class SkiMission {
     /* Which touch overlay belongs to this mission, said here rather
        than inherited: the hill, the table and the fire all switch the
        pad to walking, and only their own dispose puts it back. */
-    Input.setTouchMode('drive');
+
     /* Two buttons on the mountain rather than the boat's one. A skier
        holds the tuck for most of a run and steers the whole time, and
        a single stick cannot do both — pushing it forward to stay folded
        up costs you half the steering lock exactly when you are going
        fast enough to need it. So the tuck comes off the stick and
        becomes a button your thumb can sit on. */
-    Input.setDrivePad({ main: 'POP / TRICK', grabs: true });
+
     SkiMaterials.apply(terrain,'snow',18);
     if (this.trees.mesh) SkiMaterials.apply(this.trees.mesh,'pine',7);
     SkiMaterials.apply(this.rocks.mesh,'rock',9);
     SkiMaterials.apply(this.skier.group,'cloth',2);
     SkiMaterials.apply(scene,'snow',20);
-    this._practiceControls();
-    this._previousPixelRatio = Engine.renderer.getPixelRatio();
-    const applyResolution = () => Engine.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.graphics.resolution));
-    applyResolution(); this._offResolution = Engine.onResize(applyResolution);
+
 
     this._camPos.copy(this.skier.pos).add(new THREE.Vector3(0, 8, -14));
     this._camLook.copy(this.skier.pos);
@@ -1163,7 +1163,19 @@ class SkiMission {
 
   /* =================== lifecycle =================== */
 
+  cinematic() { return MissionCinematics.forMission(this.def.id, this); }
+
+  updateEnvironment(dt, t, camera) {
+    Sky.update(dt, camera.position, t);
+  }
+
   start() {
+    Input.setTouchMode('drive');
+    Input.setDrivePad({ main: 'POP / TRICK', grabs: true });
+    this._practiceControls();
+    this._previousPixelRatio = Engine.renderer.getPixelRatio();
+    const applyResolution = () => Engine.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.graphics.resolution));
+    applyResolution(); this._offResolution = Engine.onResize(applyResolution);
     this.state = this.party ? 'waiting' : 'countdown';
     this.countdown = 3.999;
     this._lastBeep = 4;
@@ -1302,6 +1314,7 @@ class SkiMission {
     }
 
     MountainKit.updateSpinners(this.spinnerMesh, dt);
+    if (this.padMesh) this.padMesh.update(dt);
     this._updateRings(dt, t);
     this._spawnFx(dt);
     this.fx.update(dt);
@@ -1765,17 +1778,30 @@ class SkiMission {
        longest run-up on the hill, so a pad you cross the corner of and
        a pad you drive the length of both say it exactly once. */
     this._boostT = Math.max(0, (this._boostT || 0) - dt);
+    this._padChainT = Math.max(0, (this._padChainT || 0) - dt);
     const b = s.boost || 0;
     if (b > 0.22 && this._boostT <= 0 && !s.crashed) {
       this._boostT = 0.9;
+      // pads taken back to back build a chain, and each link hits harder
+      this._padChain = this._padChainT > 0 ? (this._padChain || 0) + 1 : 1;
+      this._padChainT = 2.6;
+      const chain = this._padChain;
       const amt = U.clamp(b, 0, 1.8);
       this.camPush = Math.min(1, this.camPush + 0.30 * amt);
-      AudioBus.play('boostpop', { amount: U.clamp(amt, 0.3, 1.4) });
+      AudioBus.play('boostpop', { amount: U.clamp(amt * (1 + (chain - 1) * 0.12), 0.3, 1.6) });
       this.flow += 0.05 * amt;
+      if (chain > 1) this.fovKick = Math.min(this.fovKick + 2 + Math.min(chain, 5), 16);
       if (b > 0.95) {
-        this.fx.labels.add('BOOST', this._tmpV.copy(s.pos).setY(s.pos.y + 2.2),
+        this.fx.labels.add(chain > 1 ? 'BOOST ×' + chain : 'BOOST', this._tmpV.copy(s.pos).setY(s.pos.y + 2.2),
           { className: 'air', life: 0.7, rise: 14 });
       }
+    }
+    if (s.padLaunched && !s.crashed) {
+      this.camPush = Math.min(1, this.camPush + 0.4);
+      this.fovKick = Math.min(this.fovKick + 7, 16);
+      this._flash(0.12, '#ffb020');
+      this.fx.labels.add('LAUNCH!', this._tmpV.copy(s.pos).setY(s.pos.y + 2.6),
+        { className: 'gold', life: 1.0, rise: 16 });
     }
 
     /* Every trick announces itself at the moment it is thrown rather
@@ -2508,7 +2534,7 @@ class SkiMission {
     this.vertical = 0; this.topSpeed = 0; this.airTotal = 0; this.biggestAir = 0;
     this.stats = SkiMission.freshStats();
     this._grazing = false; this._grazeT = 0; this._slowT = 0; this._straightT = 0;
-    this._boostT = 0;
+    this._boostT = 0; this._padChain = 0; this._padChainT = 0;
     if (this.spinners) for (const sp of this.spinners) {
       sp.taken = false;
       if (sp.obj) sp.obj.scale.setScalar(1);
@@ -2695,7 +2721,7 @@ Missions.register({
     '<b>Tricks:</b> hold Space in the air with A/D to spin or W/S to flip. Diagonals add cork rotation. Q/E grab.',
     '<b>Land:</b> release Space near alignment. Half turns land switch; unfinished flips crash.',
     '<b>Rails:</b> ride onto the low entrance or land aligned. Relax steering for a steady slide; hold and release Space to pop out.',
-    '<b>Routes:</b> cyan piste, amber technical cuts, pink freestyle. Cut signs show measured metres saved.',
+    '<b>Routes:</b> cyan piste, amber technical cuts, pink freestyle. Cut signs show measured metres saved. Cuts carry cyan speed pads and amber launch pads.',
   ],
   keys: ['<kbd>A</kbd><kbd>D</kbd> carve · <kbd>W</kbd> tuck · <kbd>S</kbd> brake',
     '<kbd>Space</kbd> charge / pop · hold + direction in air', '<kbd>Q</kbd><kbd>E</kbd> grabs'],
