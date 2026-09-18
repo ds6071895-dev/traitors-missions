@@ -51,6 +51,17 @@ test('partial rehearsals insert journeys only between enabled adjacent sections'
  }
 });
 section('authored estate geometry');
+test('the full lantern route stays walkable and above its graded terrain',()=>{
+ const l=fresh().EstateLayout;
+ for(let i=1;i<l.path.length;i++){
+  const a=l.path[i-1],b=l.path[i],length=Math.hypot(b[0]-a[0],b[2]-a[2]);
+  for(let t=0;t<=1;t+=.05){
+   const x=a[0]+(b[0]-a[0])*t,z=a[2]+(b[2]-a[2])*t,y=a[1]+(b[1]-a[1])*t;
+   assert.ok(Math.abs(l.heightAt(x,z)-y)<.01,`buried path at ${x},${z}`);
+   for(const side of [-2,0,2])assert.ok(l.walkable(x+(b[2]-a[2])*side/length,z-(b[0]-a[0])*side/length));
+  }
+ }
+});
 test('road samples are continuous, finite and orthonormal over the whole route',()=>{
  const c=fresh(),road=c.EstateLayout.route;let prev=road.sample(0).position;
  for(let d=.5;d<road.length;d+=.5){const s=road.sample(d),p=s.position,t=s.tangent,n=s.normal;

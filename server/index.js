@@ -5,10 +5,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID, randomBytes, randomInt } = require('node:crypto');
 const { WebSocketServer, WebSocket } = require('ws');
+const { createGzip } = require('node:zlib');
 
 const ROOT = path.resolve(__dirname, '..');
 const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const CHANNELS = new Set(['go', 'wire', 'sync', 'mev', 'mp']);
+const LIVE_BUFFER = 16 * 1024;
+const livePost = msg => msg.channel === 'sync'
+  || (msg.channel === 'mev' && msg.data?.k === 'event' && ['flock', 'reef'].includes(msg.data.data?.kind));
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.png': 'image/png', '.svg': 'image/svg+xml', '.jpg': 'image/jpeg', '.woff2': 'font/woff2' };
 
@@ -38,10 +42,25 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
     const file = path.join(root, name);
     fs.stat(file, (err, stat) => {
       if (err || !stat.isFile()) { res.writeHead(404); return res.end(); }
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
-        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      const etag = `W/"${stat.size.toString(16)}-${stat.mtimeMs.toString(16)}"`;
+      const headers = { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
+        'Cache-Control': 'no-cache', 'ETag': etag, 'Vary': 'Accept-Encoding',
+        'X-Content-Type-Options': 'nosniff' };
+      if (req.headers['if-none-match']?.split(/\s*,\s*/).includes(etag)) {
+        res.writeHead(304, headers); return res.end();
+      }
+      const gzip = /\.(html|js|css|svg)$/.test(file) && stat.size > 1024
+        && (req.headers['accept-encoding'] || '').split(',').some(part => {
+          const [encoding, ...params] = part.trim().split(';');
+          return encoding === 'gzip' && !params.some(p => /^\s*q=0(?:\.0*)?\s*$/.test(p));
+        });
+      if (gzip) headers['Content-Encoding'] = 'gzip';
+      else headers['Content-Length'] = stat.size;
+      res.writeHead(200, headers);
       if (req.method === 'HEAD') return res.end();
-      fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+      const stream = fs.createReadStream(file).on('error', () => res.destroy());
+      if (gzip) stream.pipe(createGzip()).on('error', () => res.destroy()).pipe(res);
+      else stream.pipe(res);
     });
   });
   const wss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024,
@@ -118,6 +137,15 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
     if (msg.channel === 'mev' && ['board', 'start'].includes(msg.data?.k)) return isHost;
     return true;
   }
+  function relay(member, msg) {
+    const data = { type: 'post', channel: msg.channel, data: msg.data, from: member.id };
+    for (const p of member.room.members.values()) {
+      if (p === member || (msg.to && msg.to !== p.id)) continue;
+      if (livePost(msg)) {
+        if (p.ws?.readyState === WebSocket.OPEN && p.ws.bufferedAmount < LIVE_BUFFER) raw(p.ws, JSON.stringify(data));
+      } else deliver(p, data);
+    }
+  }
 
   wss.on('connection', ws => {
     let member = null;
@@ -135,7 +163,7 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
         if (!member || data.length !== 960) return; // 20 ms of 24 kHz, mono PCM16
         const packet = Buffer.concat([Buffer.from(member.id, 'ascii'), data]);
         for (const p of member.room.members.values()) {
-          if (p !== member && p.ws?.readyState === WebSocket.OPEN && p.ws.bufferedAmount < 64 * 1024) {
+          if (p !== member && p.ws?.readyState === WebSocket.OPEN && p.ws.bufferedAmount < LIVE_BUFFER) {
             p.ws.send(packet, { binary: true }); // audio is live; never replay it on reconnect
           }
         }
@@ -193,6 +221,12 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
         }
         return;
       }
+      // Live updates have no replay sequence or per-frame acknowledgement.
+      // Validate the channel/type here; clients cannot make a vote disposable.
+      if (msg.type === 'post' && msg.live === true && livePost(msg)) {
+        if (permitted(member, msg)) relay(member, msg);
+        return;
+      }
       if (!Number.isSafeInteger(msg.seq) || msg.seq < 1) return;
       if (msg.seq <= member.inSeq) return raw(ws, JSON.stringify({ type: 'ack', seq: member.inSeq }));
       if (msg.seq !== member.inSeq + 1) return fail('Room messages arrived out of order. Please rejoin.');
@@ -204,13 +238,7 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
         member.room.started = false;
       } else if (msg.type === 'post' && permitted(member, msg)) {
         if (msg.channel === 'go') member.room.started = true;
-        for (const p of member.room.members.values()) {
-          if (p === member || (msg.to && msg.to !== p.id)) continue;
-          if (msg.channel === 'sync') {
-            // Poses expire immediately; replaying them adds latency after recovery.
-            raw(p.ws, JSON.stringify({ type: 'post', channel: msg.channel, data: msg.data, from: member.id }));
-          } else deliver(p, { type: 'post', channel: msg.channel, data: msg.data, from: member.id });
-        }
+        relay(member, msg);
       }
       raw(ws, JSON.stringify({ type: 'ack', seq: member.inSeq }));
     });

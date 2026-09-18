@@ -58,7 +58,9 @@ const Estate = (() => {
     for(const x of [-2.9,2.9])box('timber',.24,5.3,2.6,x,24.65,-23);
     box('paving',45,.2,55,0,21.99,3);
     box('gravel',11,.12,17,10,22.08,-10);box('gravel',12,.12,17,14,22.08,20);
-    for(const x of [-23,23])box('masonry',1,1.3,55,x,22.65,3);
+    box('masonry',1,1.3,55,-23,22.65,3);
+    // A six-metre opening follows the lantern path through the east wall.
+    for(const [from,to] of [[-24.5,8],[14,30.5]])box('masonry',1,1.3,to-from,23,22.65,(from+to)/2);
     for(const x of [-14,14])box('masonry',22,1.4,1,x,22.7,31);
     // Gatehouse and connected causeway: five metres clear between towers.
     for(const x of [-5.5,5.5]){
@@ -91,10 +93,10 @@ const Estate = (() => {
     for(let i=0;i<25;i++){const a=i/24*Math.PI;box('masonry',1.55,1,.6,48+Math.cos(a)*11.8,14.5,-8-Math.sin(a)*11.8,-a);}
     for(let i=1;i<EstateLayout.path.length;i++){
       const a=EstateLayout.path[i-1],b=EstateLayout.path[i],dx=b[0]-a[0],dy=b[1]-a[1],dz=b[2]-a[2],len=Math.hypot(dx,dy,dz);
-      const g=new THREE.BoxGeometry(3,.14,len);g.rotateX(-Math.atan2(dy,Math.hypot(dx,dz)));g.rotateY(Math.atan2(dx,dz));
+      const g=new THREE.BoxGeometry(4.8,.14,len);g.rotateX(-Math.atan2(dy,Math.hypot(dx,dz)));g.rotateY(Math.atan2(dx,dz));
       mesh(g,'paving',(a[0]+b[0])/2,(a[1]+b[1])/2+.12,(a[2]+b[2])/2);
     }
-    box('masonry',.7,1.5,13,37,17.4,18,.4);
+    box('masonry',.7,1.5,13,39.5,17.4,20.5,.4);
     for(const x of [-16,18]){box('timber',3,.15,.6,x,22.55,4);for(const sx of [-1,1])box('iron',.14,.6,.5,x+sx*1.2,22.25,4);}
     function lantern(x,y,z){
       box('iron',.12,2,.12,x,y+1,z);box('iron',.5,.1,.5,x,y+2.4,z);

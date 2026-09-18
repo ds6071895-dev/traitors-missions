@@ -1,6 +1,10 @@
 /* Server rooms: one authenticated socket per player, with ordered replay of
    game messages during a brief interruption. Voice frames are never replayed. */
 const RoomSocket = (() => {
+  // These snapshots are replaced by the next update. Actions/results are reliable.
+  const livePost = (channel, data) => channel === 'sync'
+    || (channel === 'mev' && data?.k === 'event' && ['flock', 'reef'].includes(data.data?.kind));
+  const LIVE_BUFFER = 16 * 1024;
   function create(options) {
     let socket = null, stopped = false, admitted = false, active = false;
     let token = null, seq = 0, received = 0, lastSeen = 0, retrySince = 0;
@@ -16,13 +20,16 @@ const RoomSocket = (() => {
       open() { connect(); return ready; },
       activate() { active = true; while (incoming.length && !stopped) dispatch(incoming.shift()); },
       post(channel, data, to) {
-        if (channel === 'sync' && !live()) return;
+        if (livePost(channel, data)) {
+          if (live() && socket.bufferedAmount < LIVE_BUFFER) send({ type: 'post', channel, data, to, live: true });
+          return;
+        }
         reliable({ type: 'post', channel, data, to });
       },
       updateProfile(profile) { reliable({ type: 'profile', profile }); },
       setLobby() { reliable({ type: 'lobby' }); },
       sendAudio(data) {
-        if (live() && socket.bufferedAmount < 64 * 1024) socket.send(data);
+        if (live() && socket.bufferedAmount < LIVE_BUFFER) socket.send(data);
       },
       leave() {
         if (stopped) return;

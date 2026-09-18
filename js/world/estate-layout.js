@@ -55,7 +55,8 @@ const EstateLayout = (() => {
     return {points,length,width:4.8,sample,nearest};
   }
   const route=road();
-  const path=[anchors.returnStop,[26,20,12],[34,17,17],[43,14,8],[48,14,-8]];
+  // Stay level until clear of the courtyard paving and its east wall.
+  const path=[anchors.returnStop,[24,22,11.3333333333],[34,17,17],[43,14,8],[48,14,-8]];
   const lakes=[{x:195,z:130,rx:115,rz:230,y:1},{x:-480,z:580,rx:90,rz:150,y:5},{x:490,z:670,rx:120,rz:85,y:5}];
   function basin(x,z,l){return Math.hypot((x-l.x)/l.rx,(z-l.z)/l.rz);}
   function heightAt(x,z) {
@@ -70,15 +71,20 @@ const EstateLayout = (() => {
     if(along>0&&along<1.2&&lateral<38){const slope=14-clamp(along,0,1)*12,blend=clamp((lateral-14)/24,0,1);h=Math.min(h,slope+(h-slope)*blend);}
     if(fire<12)h=14;
     h=beforeTerrace+(h-beforeTerrace)*clamp(courtDistance/18,0,1);
-    for(let i=1;i<path.length;i++) {
-      const a=path[i-1],b=path[i],dx=b[0]-a[0],dz=b[2]-a[2];
-      const t=clamp(((x-a[0])*dx+(z-a[2])*dz)/(dx*dx+dz*dz),0,1);
-      if(Math.hypot(x-a[0]-dx*t,z-a[2]-dz*t)<2.4)h=a[1]+(b[1]-a[1])*t;
-    }
     const creek=Math.abs(z-220);
     if(x>-60&&x<20&&creek<10){const bank=6+(h-6)*clamp((creek-4.5)/5.5,0,1),ends=clamp((Math.abs(x+20)-30)/10,0,1);h=bank+(h-bank)*ends;}
     const r=route.nearest(x,z);
     if(r.distance<16 && !(x>-55&&x<18&&creek<10))h=r.y+(h-r.y)*clamp((r.distance-7)/9,0,1);
+    // The footpath owns its grade, including where it leaves the road.
+    // Blend its shoulders so the terrain cannot rise through the paving.
+    let nearest=Infinity,grade=0;
+    for(let i=1;i<path.length;i++) {
+      const a=path[i-1],b=path[i],dx=b[0]-a[0],dz=b[2]-a[2];
+      const t=clamp(((x-a[0])*dx+(z-a[2])*dz)/(dx*dx+dz*dz),0,1);
+      const distance=Math.hypot(x-a[0]-dx*t,z-a[2]-dz*t);
+      if(distance<nearest){nearest=distance;grade=a[1]+(b[1]-a[1])*t;}
+    }
+    if(nearest<6)h=grade+(h-grade)*clamp((nearest-3)/3,0,1);
     return h;
   }
   function walkable(x,z){
@@ -88,7 +94,7 @@ const EstateLayout = (() => {
     if(Math.hypot(x-48,z+8)<11.5)return true;
     for(let i=1;i<path.length;i++){
       const a=path[i-1],b=path[i],dx=b[0]-a[0],dz=b[2]-a[2],t=clamp(((x-a[0])*dx+(z-a[2])*dz)/(dx*dx+dz*dz),0,1);
-      if(Math.hypot(x-a[0]-dx*t,z-a[2]-dz*t)<2.2)return true;
+      if(Math.hypot(x-a[0]-dx*t,z-a[2]-dz*t)<3)return true;
     }return false;
   }
   return {anchors,route,path,lakes,heightAt,walkable,basin};

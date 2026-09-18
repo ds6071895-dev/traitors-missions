@@ -68,7 +68,7 @@ const Input = (() => {
   // by whoever reads them, so a 200 Hz mouse still turns you exactly once
   const look = { dx: 0, dy: 0 };
   const touchMove = { active: false, x: 0, y: 0 };
-  let mouseAim = false, locked = false, touchMode = 'drive';
+  let mouseAim = false, locked = false, mouseBlocked = false, touchMode = 'drive';
   const lockListeners = new Set();
   let enabled = true;
 
@@ -149,6 +149,7 @@ const Input = (() => {
 
   function onKey(e, isDown) {
     if (!enabled) return;
+    if (isDown && e.code === 'Tab' && locked) { e.preventDefault(); releaseLock(); return; }
     if (actionsFor(e.code).length && e.code === 'Space') e.preventDefault();
     pressCode(e.code, isDown);
   }
@@ -202,7 +203,7 @@ const Input = (() => {
   function initMouse() {
     const canvas = document.getElementById('gl');
     window.addEventListener('mousemove', (e) => {
-      if (!mouseAim) return;
+      if (!mouseAim || mouseBlocked) return;
       if (locked) {
         look.dx += e.movementX || 0;
         look.dy += e.movementY || 0;
@@ -216,7 +217,8 @@ const Input = (() => {
       look.dx += dx; look.dy += dy;
     });
     window.addEventListener('mousedown', (e) => {
-      if (!mouseAim) return;
+      // Only the world owns mouse look. Buttons must keep their normal click.
+      if (!mouseAim || mouseBlocked || !enabled || e.target !== canvas) return;
       // first click only takes the pointer — where there is one to take
       if (!locked && lockable()) { requestLock(); return; }
       e.preventDefault();
@@ -226,9 +228,11 @@ const Input = (() => {
       if (!mouseAim) return;
       pressCode('Mouse' + e.button, false);
     });
-    window.addEventListener('contextmenu', (e) => { if (mouseAim) e.preventDefault(); });
+    window.addEventListener('contextmenu', (e) => { if (mouseAim && !mouseBlocked && e.target === canvas) e.preventDefault(); });
     document.addEventListener('pointerlockchange', () => {
       locked = document.pointerLockElement === canvas;
+      // A menu can open while the browser is still granting an earlier request.
+      if (locked && mouseBlocked) { releaseLock(); return; }
       if (!locked) {
         // dropping the pointer must not leave the string drawn
         pressCode('Mouse0', false); pressCode('Mouse2', false);
@@ -239,8 +243,11 @@ const Input = (() => {
 
   function requestLock() {
     const canvas = document.getElementById('gl');
-    if (!canvas || locked || !canvas.requestPointerLock) return;
-    try { canvas.requestPointerLock(); } catch (e) {}
+    if (!canvas || !mouseAim || mouseBlocked || !enabled || locked || !canvas.requestPointerLock) return;
+    try {
+      const pending = canvas.requestPointerLock();
+      if (pending && pending.catch) pending.catch(() => {});
+    } catch (e) {}
   }
   function releaseLock() {
     if (document.pointerLockElement) { try { document.exitPointerLock(); } catch (e) {} }
@@ -362,6 +369,8 @@ const Input = (() => {
     if (typeof Screens === 'undefined') return;
     const paint = (id) => {
       const blocked = !!id && THUMBS_OK.indexOf(id) < 0;
+      mouseBlocked = blocked || id === 'vote';
+      if (mouseBlocked) { releaseLock(); clearAll(); }
       /* All three overlays are siblings of the screen stack. Leaving the
          driving pad out of this list made its BOOST button sit above the
          title, briefing and results screens whenever touch mode was drive

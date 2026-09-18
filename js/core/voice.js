@@ -178,7 +178,7 @@ const Voice = (() => {
       }, 7000);
 
       const next = () => {
-        if (t !== token || finished) return;
+        if (t !== token || !live || finished) return;
         if (i >= parts.length) { finished = true; return; }
         const u = new SpeechSynthesisUtterance(parts[i++]);
         u.voice = voice;

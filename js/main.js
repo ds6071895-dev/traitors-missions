@@ -996,9 +996,9 @@ const Game = (() => {
     };
     const motion=document.getElementById('estate-motion'),quality=document.getElementById('estate-quality');
     if(GameState.settings.reducedMotion===undefined)GameState.settings.reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    motion.checked=!!GameState.settings.reducedMotion;quality.value=GameState.settings.quality||'high';
+    motion.checked=!!GameState.settings.reducedMotion;quality.value=GameState.settings.quality||'medium';
     motion.onchange=()=>{GameState.settings.reducedMotion=motion.checked;GameState.save();};
-    quality.onchange=()=>{GameState.settings.quality=quality.value;GameState.save();disposeAttract();showAttract();};
+    quality.onchange=()=>{GameState.settings.quality=quality.value;GameState.save();Engine.resize();disposeAttract();showAttract();};
     document.getElementById('play-mute').onclick = () => {
       const m = AudioBus.toggleMute();
       GameState.settings.muted = m; GameState.save();

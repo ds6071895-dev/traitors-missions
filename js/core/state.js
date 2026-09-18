@@ -27,7 +27,7 @@ const GameState = (() => {
       round: 1,
       phase: 'lobby',            // lobby | mission | roundtable | endgame
       missions: {},              // id -> { plays, completed, best:{...}, lastEarned }
-      settings: { muted: false, camera: 'chase', quality: 'high' },
+      settings: { muted: false, camera: 'chase', quality: 'medium' },
       log: [],                   // narrative events, for a future recap screen
     };
   }

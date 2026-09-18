@@ -10,6 +10,8 @@ class RoomVoiceProcessor extends AudioWorkletProcessor {
     this.count = 0;
     this.packet = new Int16Array(480);
     this.offset = 0;
+    this.energy = 0;
+    this.speechUntil = 0;
     this.ring = new Float32Array(4800);
     this.read = 0;
     this.write = 0;
@@ -44,11 +46,18 @@ class RoomVoiceProcessor extends AudioWorkletProcessor {
         this.phase += 24000;
         if (this.phase >= sampleRate) {
           this.phase -= sampleRate;
-          this.packet[this.offset++] = Math.round(Math.max(-1, Math.min(1, this.sum / this.count)) * 32767);
+          const sample = Math.max(-1, Math.min(1, this.sum / this.count));
+          this.packet[this.offset++] = Math.round(sample * 32767);
+          this.energy += sample * sample;
           this.sum = this.count = 0;
           if (this.offset === 480) {
-            this.port.postMessage(this.packet.buffer, [this.packet.buffer]);
+            // Stop transmitting silence; keep a short tail for quiet word endings.
+            if (this.energy / 480 > .00001) this.speechUntil = currentTime + .25;
+            if (currentTime < this.speechUntil) {
+              this.port.postMessage({ pcm: this.packet.buffer, at: currentTime }, [this.packet.buffer]);
+            }
             this.packet = new Int16Array(480); this.offset = 0;
+            this.energy = 0;
           }
         }
       }

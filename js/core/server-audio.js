@@ -63,7 +63,11 @@ const ServerAudio = (() => {
     });
     state.capture.port.onmessage = event => {
       if (state.closed || !stream.getAudioTracks().some(t => t.enabled && t.readyState === 'live')) return;
-      room.sendAudio(event.data);
+      // A stalled main thread can receive seconds of worklet messages at once.
+      // Sending that backlog makes speech crawl long after rendering recovers.
+      const packet = event.data;
+      if (!packet || state.ctx.currentTime - packet.at > .12) return;
+      room.sendAudio(packet.pcm);
     };
     state.source.connect(state.capture);
     // Capture emits silence here; connecting keeps the worklet processing.

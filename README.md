@@ -59,6 +59,12 @@ of at least 60 seconds. A static-only Cloudflare Pages upload does not run this 
 The old `functions/api/turn.js` is retained for legacy deployments and is not used by
 the new game page.
 
+The server compresses text assets and revalidates cached files with ETags. Rendering
+runs on each player's device: new saves use Medium scenery, pixel counts are capped,
+and sustained slow frames reduce render resolution automatically. Low frame rates use
+bounded simulation steps so movement does not slow down with the display. After updating,
+restart the Node service and reload every player's page so client and server code agree.
+
 For a separately hosted frontend, set `window.ROOM_SERVER_URL` to the full
 `wss://YOUR-NODE-HOST/rooms` URL **before** loading `room-socket.js`, and set the Node
 server's `ALLOWED_ORIGINS` to the frontend's exact HTTPS origin. Multiple allowed origins
@@ -72,8 +78,9 @@ are comma-separated. Same-origin deployment needs neither setting.
   rooms explicitly, and stamps every message with its actual sender.
 - A brief socket interruption automatically reconnects with the same identity. The server
   reserves the seat for 15 seconds after detecting disconnection and replays unacknowledged
-  game messages. Sequence numbers suppress duplicates. Live positions and audio are not
-  queued by the server. A page reload starts a new player session; it is not a saved-game
+  game messages. Sequence numbers suppress duplicates. Live positions, repeating world
+  snapshots and audio bypass replay queues and are dropped when the socket backs up.
+  A page reload starts a new player session; it is not a saved-game
   resume. Explicit Leave removes a connected player immediately.
 - Returning to the lobby reopens room admission, so a replacement player can join
   between missions. Starting a mission closes admission until the host returns.
@@ -81,7 +88,8 @@ are comma-separated. Same-origin deployment needs neither setting.
   to that player. The server is a room/message relay, not a new game simulation.
 - Voice uses AudioWorklet capture/playback and 24 kHz mono PCM16 over the same socket.
   Permission, mute, voice meters and speaking-turn gates stay in `VoiceChat`. Playback has
-  a bounded jitter buffer. Voice is never recorded or replayed by the server. At full
+  a bounded jitter buffer. Capture skips silence and discards packets older than 120 ms
+  after a main-thread stall. Voice is never recorded or replayed by the server. At full
   continuous transmission, each microphone sends about 48 KB/s; a full room's server audio
   egress is about 288 KB/s. This deliberately simple format trades bandwidth for broad
   browser support; congested TCP connections can add voice latency.
@@ -96,6 +104,7 @@ are comma-separated. Same-origin deployment needs neither setting.
 npm test
 npx playwright install chromium
 npm run test:browser
+npm run test:interaction-browser
 ```
 
 The logic suite includes real three-client WebSocket tests for admission, private routing,
@@ -106,6 +115,8 @@ handshake and all four mission parties: scene construction, start barriers, live
 real finish paths, shared scoreboards, and returning to the room. It skips GPU drawing to
 avoid software-renderer timing noise; this is a lifecycle test, not a visual or performance
 benchmark. Physical devices and production HTTPS still need a smoke test after deployment.
+The interaction suite keeps rendering enabled and checks real pointer lock, clickable
+votes, and a continuous walk from the returning car to the fire through the lantern path.
 
 ---
 
@@ -259,6 +270,7 @@ losing loses it. Nothing is banked until the fire goes out.
 | --- | --- |
 | Menus | mouse, touch, **arrow keys** and `Tab`, `Enter` to choose, `Esc` to go back |
 | Hill and fire | first person: **WASD** to move, **mouse or arrows** to look; click once to capture the mouse, on a browser that has a pointer to capture |
+| Free the mouse | **Tab** releases mouse look; menus and voting release it automatically. Click the world to look again. |
 | Dialogue | Voiceover cannot be skipped; clicks capture the pointer without cutting a line short |
 | Pouch reveal | The camera unlocks only for the short cinematic as the pouch is thrown into the fire |
 | The fire | the vote is a panel of buttons; mouse, thumb and keyboard all drive it |

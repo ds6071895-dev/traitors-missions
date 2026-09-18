@@ -213,6 +213,22 @@ function tap(el, id = 1, at = { clientX: 400, clientY: 400 }) {
 const vis = (el) => el.classList.contains('visible');
 
 section('touch — which machine is this');
+test('desktop buttons never capture the pointer or fire a weapon', () => {
+  const { Input, fireWindow, canvas, dom } = boot('desktop');
+  Input.setMouseAim(true);
+  const button = dom.doc.createElement('button');
+  fireWindow('mousedown', { target: button, button: 0 });
+  eq(dom.doc.pointerLockElement, null); eq(Input.held('fire'), false);
+  fireWindow('mousedown', { target: canvas, button: 0 });
+  ok(dom.doc.pointerLockElement === canvas);
+  dom.doc.fire('pointerlockchange');
+  let released = false;
+  dom.doc.exitPointerLock = () => { released = true; dom.doc.pointerLockElement = null; dom.doc.fire('pointerlockchange'); };
+  fireWindow('keydown', { code: 'Tab' });
+  eq(released, true); eq(Input.pointerLocked, false);
+  fireWindow('mousedown', { target: button, button: 0 });
+  eq(dom.doc.pointerLockElement, null);
+});
 
 test('a phone is a touchscreen', () => {
   eq(boot('phone').Input.isTouch, true, 'a phone');

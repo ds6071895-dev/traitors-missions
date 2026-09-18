@@ -81,6 +81,33 @@ async function until(fn) {
       eq(bytes.subarray(0, 36).toString(), A.Party.selfId());
       eq(bytes.readInt16LE(36), 1234);
     });
+    await atest('live snapshots are unsequenced and skipped behind a congested sender', async () => {
+      const socket = A.sockets.at(-1), sent = [], original = socket.send;
+      socket.send = function(data, ...args) { sent.push(JSON.parse(data)); return original.call(this, data, ...args); };
+      try {
+        A.Party.post('sync', { k: 'pose', p: { x: 10 } });
+        A.Party.post('mev', { k: 'event', data: { kind: 'flock', a: [] } });
+        eq(sent.length, 2);
+        ok(sent.every(msg => msg.live === true && msg.seq === undefined));
+        Object.defineProperty(socket, 'bufferedAmount', { configurable: true, value: 20000 });
+        A.Party.post('sync', { k: 'pose', p: { x: 20 } });
+        A.Party.post('mev', { k: 'event', data: { kind: 'reef' } });
+        eq(sent.length, 2);
+        A.Party.post('wire', { ev: { type: 'vote' } }, B.Party.selfId());
+        ok(Number.isSafeInteger(sent[2].seq), 'votes remain reliable during congestion');
+      } finally { delete socket.bufferedAmount; socket.send = original; }
+    });
+    await atest('a congested receiver drops live state but retains important events', async () => {
+      const room = app.rooms.get(code), member = room.members.get(B.Party.selfId());
+      const socket = member.ws, heard = [];
+      const off = B.Party.on('sync', data => heard.push(data));
+      try {
+        Object.defineProperty(socket, 'bufferedAmount', { configurable: true, value: 20000 });
+        A.Party.post('sync', { k: 'pose', p: { x: 99 } });
+        await delay(40); eq(heard.length, 0);
+        ok(!member.queue.some(item => JSON.parse(item.data).channel === 'sync'));
+      } finally { delete socket.bufferedAmount; off(); }
+    });
     await atest('brief interruption retains the seat and replays private messages once', async () => {
       const id = B.Party.selfId();
       let departed = 0;
@@ -129,6 +156,17 @@ async function until(fn) {
       for (const file of ['/server/index.js', '/.git/config', '/package-lock.json', '/.env', '/js/%2e%2e/server/index.js']) {
         eq((await fetch(origin + file)).status, 404, file);
       }
+    });
+    await atest('static files compress and revalidate instead of downloading again', async () => {
+      const url = origin + '/js/core/input.js';
+      const response = await fetch(url, { headers: { 'Accept-Encoding': 'gzip' } });
+      eq(response.headers.get('content-encoding'), 'gzip');
+      ok((await response.text()).includes('const Input'));
+      const cached = await fetch(url, { headers: { 'If-None-Match': response.headers.get('etag') } });
+      eq(cached.status, 304); eq(await cached.text(), '');
+      const plain = await fetch(url, { headers: { 'Accept-Encoding': 'gzip;q=0' } });
+      eq(plain.headers.get('content-encoding'), null);
+      ok((await plain.text()).includes('const Input'));
     });
   } finally {
     clients.forEach(c => c.Party.leave());

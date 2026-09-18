@@ -13,6 +13,7 @@ const Journey = (() => {
     document.body.appendChild(root);a.ui=root;
     const el=id=>root.querySelector('#journey-'+id);a.el=el;
     el('motion').checked=!!GameState.data.settings.reducedMotion;
+    const hint=document.createElement('small');hint.textContent='Tab frees the mouse';root.querySelector('.journey-actions').appendChild(hint);
     el('motion').onchange=()=>{GameState.data.settings.reducedMotion=el('motion').checked;GameState.save();};
     el('enter').onclick=()=>board(a);el('join').onclick=()=>Session.state.travel.beat===7?send('travelGather'):board(a);
     el('skip').onclick=()=>send('travelSkip');
