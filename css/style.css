@@ -2943,3 +2943,217 @@ body.touch .sk-practice kbd{display:none}
   .sh-hud *,.sh-reticle *,.sh-loose::after,.sh-hit i{animation:none!important;transition:none!important}
 }
 .sh-hud.reduce-motion *{animation:none!important;transition:none!important}
+
+/* ==================================================================
+   TUTORIAL
+   A gold ring round the real thing, a candle-lit card beside it, and
+   in a mission a big keycap that lights while you are holding it.
+   Above every screen, HUD and sheet; below the fade (90) and boot.
+   ================================================================== */
+#tutorial{position:fixed; inset:0; z-index:70; pointer-events:none; font-family:var(--body)}
+/* the toast outlives the tour it announces the end of */
+#tutorial:not(.on) > :not(.tut-toast){display:none}
+#tutorial.hide .tut-ring, #tutorial.hide .tut-card, #tutorial.hide .tut-shade,
+#tutorial.hide .tut-block{visibility:hidden}
+
+/* the four click-blockers leave a hole round the target; they only
+   take the pointer on a solo menu tour */
+.tut-block{position:fixed; left:0; top:0; width:0; height:0; pointer-events:none}
+#tutorial.blocking .tut-block{pointer-events:auto; cursor:not-allowed}
+
+/* no target: the whole screen dims evenly */
+.tut-shade{position:fixed; inset:0; background:rgba(3,8,15,.62);
+  opacity:0; transition:opacity .35s ease}
+#tutorial.menu:not(.has-target) .tut-shade{opacity:1}
+
+/* the ring: its own 9999px shadow is the dim, so the hole is exact */
+.tut-ring{position:fixed; left:0; top:0; width:0; height:0; opacity:0;
+  border:2px solid var(--gold); border-radius:14px;
+  box-shadow:0 0 0 4px rgba(242,193,78,.18), 0 0 28px 6px rgba(242,193,78,.45);
+  transition:transform .45s cubic-bezier(.2,.9,.25,1.12), width .45s cubic-bezier(.2,.9,.25,1.12),
+             height .45s cubic-bezier(.2,.9,.25,1.12), border-radius .3s, opacity .3s;
+  animation:tut-glow 1.8s ease-in-out infinite}
+#tutorial.has-target .tut-ring{opacity:1}
+#tutorial.menu.has-target .tut-ring{
+  box-shadow:0 0 0 9999px rgba(3,8,15,.64), 0 0 0 4px rgba(242,193,78,.18), 0 0 30px 8px rgba(242,193,78,.5)}
+/* in a mission the world stays bright: the ring only says "here" */
+#tutorial.mission .tut-ring{border-width:3px}
+.tut-ping{position:absolute; inset:-2px; border-radius:inherit; border:2px solid var(--gold);
+  animation:tut-ping 1.8s cubic-bezier(.2,.6,.3,1) infinite}
+@keyframes tut-glow{50%{border-color:#ffe08a}}
+@keyframes tut-ping{from{transform:scale(1); opacity:.9} to{transform:scale(1.28); opacity:0}}
+
+/* ---------------- the card ---------------- */
+.tut-card{position:fixed; left:0; top:0; width:min(360px, calc(100vw - 20px));
+  pointer-events:auto; padding:16px 18px 12px; border-radius:16px; text-align:left;
+  background:
+    radial-gradient(120% 90% at 0% 0%, rgba(242,193,78,.14), transparent 55%),
+    linear-gradient(180deg, rgba(23,38,58,.97), rgba(10,17,25,.97));
+  border:1px solid rgba(242,193,78,.42);
+  box-shadow:var(--shadow), 0 0 0 1px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.07);
+  backdrop-filter:blur(10px); color:var(--paper);
+  transition:transform .42s cubic-bezier(.2,.9,.25,1.08)}
+.tut-card.wide{width:min(440px, calc(100vw - 20px)); text-align:center; padding:22px 24px 16px}
+.tut-card.show > *{animation:tut-in .42s cubic-bezier(.2,.9,.3,1.2) both}
+.tut-card.show > :nth-child(2){animation-delay:.03s}
+.tut-card.show > :nth-child(3){animation-delay:.06s}
+.tut-card.show > :nth-child(4){animation-delay:.09s}
+.tut-card.show > :nth-child(5){animation-delay:.12s}
+.tut-card.show > :nth-child(n+6){animation-delay:.15s}
+@keyframes tut-in{from{opacity:0; transform:translateY(8px) scale(.97)}}
+.tut-card.nudge{animation:tut-nudge .4s ease}
+@keyframes tut-nudge{20%,60%{margin-left:-7px} 40%,80%{margin-left:7px}}
+
+/* the notch that points at the target */
+.tut-card:before{content:''; position:absolute; width:14px; height:14px; display:none;
+  background:rgba(23,38,58,.97); border:1px solid rgba(242,193,78,.42); transform:rotate(45deg)}
+.tut-card[data-side="top"]:before{display:block; top:-8px; left:calc(var(--ax) - 7px);
+  border-right:0; border-bottom:0}
+.tut-card[data-side="bottom"]:before{display:block; bottom:-8px; left:calc(var(--ax) - 7px);
+  border-left:0; border-top:0; background:rgba(10,17,25,.97)}
+.tut-card[data-side="left"]:before{display:block; left:-8px; top:calc(var(--ay) - 7px);
+  border-right:0; border-top:0}
+.tut-card[data-side="right"]:before{display:block; right:-8px; top:calc(var(--ay) - 7px);
+  border-left:0; border-bottom:0}
+
+.tut-top{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px}
+.tut-card.wide .tut-top{justify-content:center; flex-direction:column; gap:8px}
+.tut-kicker{font-size:10px; font-weight:800; letter-spacing:.2em; text-transform:uppercase; color:var(--gold)}
+.tut-pips{display:flex; gap:5px}
+.tut-pips i{width:7px; height:7px; border-radius:50%; background:rgba(255,255,255,.18);
+  transition:background .3s, transform .3s, width .3s}
+.tut-pips i.done{background:var(--gold-dim)}
+.tut-pips i.now{background:var(--gold); width:18px; border-radius:4px}
+.tut-card.wide .tut-pips{display:none}
+
+.tut-seal{display:none; width:64px; height:64px; margin:4px auto 8px}
+.tut-card.welcome .tut-seal{display:block; animation:tut-in .5s ease both, tut-float 4s ease-in-out .5s infinite}
+.tut-seal svg{width:100%; height:100%}
+@keyframes tut-float{50%{transform:translateY(-3px)}}
+
+.tut-title{font-family:var(--display); font-size:25px; line-height:1.1; letter-spacing:.02em;
+  text-transform:uppercase; margin:2px 0 6px}
+.tut-card.wide .tut-title{font-size:32px}
+.tut-text{font-size:14.5px; line-height:1.5; color:#c9d7e6}
+.tut-text b{color:var(--paper)}
+.tut-text kbd, .tut-foot kbd{font-size:.8em}
+
+/* ---------------- keycaps ---------------- */
+.tut-keys{display:flex; align-items:flex-end; justify-content:center; gap:8px;
+  margin:6px 0 12px; min-height:58px}
+.tut-key{display:inline-grid; place-items:center; min-width:52px; height:52px; padding:0 12px;
+  font-family:var(--display); font-size:24px; letter-spacing:.04em; color:var(--paper);
+  border-radius:10px; border:1px solid rgba(255,255,255,.3); border-bottom-width:5px;
+  border-bottom-color:rgba(255,255,255,.16);
+  background:linear-gradient(180deg, #2a3d57, #1a2a3f);
+  box-shadow:0 6px 16px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.14);
+  animation:tut-press 1.6s ease-in-out infinite;
+  transition:background .15s, color .15s, box-shadow .15s}
+.tut-key.space{min-width:150px; font-size:17px}
+.tut-key.wide{min-width:78px; font-size:17px}
+@keyframes tut-press{0%,55%,100%{transform:translateY(0); border-bottom-width:5px}
+  65%,80%{transform:translateY(3px); border-bottom-width:2px}}
+.tut-keys.on .tut-key{animation:none; transform:translateY(3px); border-bottom-width:2px;
+  background:linear-gradient(180deg, var(--gold), var(--gold-dim)); color:#1a1206;
+  box-shadow:0 0 26px rgba(242,193,78,.65)}
+.tut-or{font-size:11px; font-weight:800; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--muted); align-self:center}
+
+/* the mouse, with whichever button matters lit */
+.tut-key.mouse{min-width:44px; width:44px; height:58px; padding:6px; border:0; background:none;
+  box-shadow:none; animation:tut-wiggle 2.2s ease-in-out infinite}
+.tut-key.mouse svg{width:100%; height:100%; overflow:visible}
+.tut-key.mouse rect{fill:#1f3049; stroke:rgba(255,255,255,.55); stroke-width:1.5}
+.tut-key.mouse line{stroke:rgba(255,255,255,.4); stroke-width:1.2}
+.tut-key.mouse path{fill:transparent}
+.tut-key.lmb path.l, .tut-key.rmb path.r{fill:var(--gold); animation:tut-blink 1.6s ease-in-out infinite}
+.tut-key.lmb, .tut-key.rmb{animation:none}
+.tut-keys.on .tut-key.mouse{background:none; box-shadow:none; transform:none}
+.tut-keys.on .tut-key.mouse rect{stroke:var(--gold)}
+@keyframes tut-wiggle{25%{transform:translateX(-6px) rotate(-4deg)} 75%{transform:translateX(6px) rotate(4deg)}}
+@keyframes tut-blink{50%{opacity:.35}}
+
+/* a thumb, for a touchscreen */
+.tut-key.thumb{min-width:52px; width:52px; border-radius:50%; border:2px solid rgba(242,193,78,.6);
+  background:rgba(242,193,78,.1); animation:none; position:relative}
+.tut-key.thumb i{width:18px; height:18px; border-radius:50%; background:var(--gold);
+  box-shadow:0 0 18px var(--gold); animation:tut-tap 1.4s ease-in-out infinite}
+.tut-key.thumb.drag i{animation:tut-drag 1.8s ease-in-out infinite}
+@keyframes tut-tap{0%,100%{transform:scale(1)} 50%{transform:scale(.6); opacity:.7}}
+@keyframes tut-drag{0%,100%{transform:translateX(-12px)} 50%{transform:translateX(12px)}}
+
+/* hold-to-finish */
+.tut-meter{height:6px; margin:10px 0 2px; border-radius:3px; overflow:hidden;
+  background:rgba(255,255,255,.1)}
+.tut-meter i{display:block; height:100%; transform-origin:left; transform:scaleX(0);
+  background:linear-gradient(90deg, var(--gold-dim), var(--gold), #fff3c4);
+  box-shadow:0 0 12px rgba(242,193,78,.8); transition:transform .08s linear}
+
+.tut-clock{display:flex; align-items:center; gap:7px; margin-top:10px; font-size:11px; font-weight:700;
+  letter-spacing:.06em; text-transform:uppercase; color:var(--mint)}
+.tc-icon{width:12px; height:12px; position:relative; flex:none}
+.tc-icon:before, .tc-icon:after{content:''; position:absolute; top:0; width:4px; height:12px;
+  border-radius:1px; background:var(--mint)}
+.tc-icon:before{left:1px} .tc-icon:after{right:1px}
+
+.tut-actions{display:flex; align-items:center; gap:10px; margin-top:14px}
+.tut-card.wide .tut-actions{justify-content:center; flex-wrap:wrap}
+.tut-actions .tut-next{margin-left:auto; padding:10px 20px; font-size:13px}
+.tut-card.wide .tut-actions .tut-next{margin-left:0; order:-1; padding:13px 34px; font-size:14px}
+.tut-skip, .tut-off{background:none; border:0; padding:6px 2px; cursor:pointer; font:inherit;
+  font-size:12px; font-weight:700; color:var(--muted); text-decoration:underline;
+  text-decoration-color:rgba(139,163,189,.4); text-underline-offset:3px}
+.tut-skip:hover, .tut-off:hover{color:var(--paper)}
+.tut-card.wide .tut-skip, .tut-card.wide .tut-off{flex-basis:auto}
+.tut-foot{margin-top:6px; font-size:10.5px; color:rgba(139,163,189,.8); letter-spacing:.03em}
+.tut-foot:empty{display:none}
+#tutorial.mission .tut-actions{margin-top:10px}
+
+/* ---------------- done ---------------- */
+.tut-check{position:absolute; inset:0; display:grid; place-items:center; pointer-events:none;
+  border-radius:inherit; opacity:0; background:rgba(10,30,26,.55)}
+.tut-check svg{width:70px; height:70px; fill:none; stroke:var(--mint); stroke-width:3;
+  stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:24; stroke-dashoffset:24;
+  filter:drop-shadow(0 0 12px rgba(125,252,208,.7))}
+.tut-card.ok{border-color:var(--mint); box-shadow:var(--shadow), 0 0 34px rgba(125,252,208,.35)}
+.tut-card.ok .tut-check{opacity:1; transition:opacity .15s}
+.tut-card.ok .tut-check svg{animation:tut-tick .38s ease-out forwards, tut-pop .38s cubic-bezier(.2,1.6,.4,1)}
+@keyframes tut-tick{to{stroke-dashoffset:0}}
+@keyframes tut-pop{from{transform:scale(.5)}}
+.tut-card.ok .tut-meter i{transform:scaleX(1)!important; background:var(--mint)}
+
+.tut-toast{position:fixed; left:50%; top:max(18%, calc(env(safe-area-inset-top) + 70px));
+  transform:translate(-50%, -12px) scale(.96); opacity:0; pointer-events:none;
+  padding:12px 22px; border-radius:999px; white-space:nowrap; max-width:calc(100vw - 24px);
+  font-family:var(--display); font-size:20px; letter-spacing:.04em; text-transform:uppercase;
+  color:#1a1206; background:linear-gradient(180deg, var(--gold), var(--gold-dim));
+  box-shadow:0 10px 34px rgba(242,193,78,.5); transition:opacity .3s, transform .35s cubic-bezier(.2,1.4,.4,1)}
+.tut-toast.show{opacity:1; transform:translate(-50%, 0) scale(1)}
+
+/* the briefing's own switch for it */
+.brief-tut{margin-right:auto; white-space:nowrap}
+
+@media (max-width:560px){
+  .tut-card{padding:13px 14px 10px}
+  .tut-title{font-size:21px}
+  .tut-card.wide .tut-title{font-size:26px}
+  .tut-text{font-size:13.5px}
+  .tut-key{min-width:44px; height:44px; font-size:20px}
+  .tut-key.space{min-width:120px}
+  .tut-toast{font-size:16px}
+}
+@media (prefers-reduced-motion: reduce){
+  .tut-ring, .tut-ping, .tut-key, .tut-key.mouse, .tut-key.thumb i, .tut-seal,
+  .tut-card.welcome .tut-seal, .tut-key.lmb path.l, .tut-key.rmb path.r{animation:none!important}
+  .tut-card, .tut-ring{transition:none}
+}
+/* in a room the card is a hint, not a lesson: smaller, and it leaves */
+#tutorial.hints .tut-card{width:min(300px, calc(100vw - 20px)); padding:11px 14px 9px;
+  background:linear-gradient(180deg, rgba(23,38,58,.9), rgba(10,17,25,.9))}
+#tutorial.hints .tut-title{font-size:19px}
+#tutorial.hints .tut-text{font-size:12.5px}
+#tutorial.hints .tut-keys{min-height:40px; margin:2px 0 8px}
+#tutorial.hints .tut-key{min-width:38px; height:38px; font-size:17px; border-bottom-width:4px}
+#tutorial.hints .tut-key.space{min-width:100px; font-size:13px}
+#tutorial.hints .tut-foot{display:none}
+#tutorial.hints .tut-actions{margin-top:6px}

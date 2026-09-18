@@ -104,10 +104,13 @@ const Missions = (() => {
     const instance = active, id = handle.id;
     Engine.setView(handle.view, (dt, t, wallDt) => {
       if (active === instance) instance.update(id === 'ski' && wallDt !== undefined ? wallDt : dt, t);
+      // the tutorial reads this frame's presses, so before they are cleared
+      if (typeof Tutorial !== 'undefined' && active === instance && !Engine.isPaused()) Tutorial.frame(instance, dt);
       Input.endFrame();
     });
     GameState.data.phase = 'mission'; GameState.save();
     instance.start();
+    if (typeof Tutorial !== 'undefined') Tutorial.missionStarted(id, instance);
     return instance;
   }
 
@@ -121,6 +124,7 @@ const Missions = (() => {
   // two worlds against the shared Sky/Water singletons.
   function releaseForTravel() {
     if (!active) return null;
+    if (typeof Tutorial !== 'undefined') Tutorial.missionEnded();
     const instance = active;
     const handle = { id: activeDef.id, def: activeDef, instance,
       opts: activeOpts, view: { scene: instance.scene, camera: instance.camera },
@@ -145,6 +149,7 @@ const Missions = (() => {
   }
 
   function end() {
+    if (typeof Tutorial !== 'undefined') Tutorial.missionEnded();
     for (const handle of [...prepared]) disposePrepared(handle);
     if (active) {
       try { active.dispose(); } catch (e) { console.warn(e); }

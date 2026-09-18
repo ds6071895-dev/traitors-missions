@@ -103,7 +103,7 @@ const Estate = (() => {
       const glow=new THREE.Mesh(new THREE.BoxGeometry(.28,.42,.28),new THREE.MeshBasicMaterial({color:'#ffd497'}));glow.position.set(x,y+2.12,z);group.add(glow);
       if(!low&&lights.length<(medium?3:5)){const l=new THREE.PointLight('#ffbd73',1.4,16,2);l.position.set(x,y+2.2,z);group.add(l);lights.push(l);}
     }
-    for(const a of [[-4,22,42],[4,22,42],[-8,22,-19],[8,22,-19],...EstateLayout.path.map(p=>[p[0]+2.4,p[1],p[2]])])lantern(...a);
+    for(const a of [[-4,22,42],[4,22,42],[-8,22,-19],[8,22,-19],...EstateLayout.path.map(p=>[p[0]+2.4,EstateLayout.heightAt(p[0]+2.4,p[2]),p[2]])])lantern(...a);
     // Basin-shaped terrain with authored flat areas and graded shoulders.
     // One graded surface: adaptive grid lines stay shared at detail boundaries.
     // Overlapping coarse and fine patches exposed cliffs at the road shoulders.

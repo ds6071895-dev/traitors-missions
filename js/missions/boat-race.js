@@ -1186,8 +1186,10 @@ class BoatRaceMission {
     this.boat.animateFlag(t);
 
     if (racing) {
-      this.elapsed += dt;
-      if (this.mode === 'prize') this.time -= dt;
+      // a first run's tutorial holds the clock until the controls are learnt
+      const clk = (typeof Tutorial !== 'undefined' && Tutorial.holdsClock()) ? 0 : dt;
+      this.elapsed += clk;
+      if (this.mode === 'prize') this.time -= clk;
       this._trackAgenda(dt);
       this._updateCombo(dt);
       this._checkGates();

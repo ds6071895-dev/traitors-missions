@@ -1229,7 +1229,7 @@ class SkiMission {
     // Fixed mission ticks make contacts, gates and ghost samples independent of render FPS.
     // Very long stalls charge the full competitive clock without a physics catch-up spiral.
     const catchup = Math.min(rawDt, .5);
-    if (this.state === 'running' && rawDt > catchup) {
+    if (this.state === 'running' && rawDt > catchup && !(typeof Tutorial !== 'undefined' && Tutorial.holdsClock())) {
       this.elapsed += rawDt - catchup;
       if (this.mode === 'prize') this.time -= rawDt - catchup;
     }
@@ -1272,8 +1272,10 @@ class SkiMission {
     }
 
     if (running) {
-      this.elapsed += dt;
-      if (this.mode === 'prize') this.time -= dt;
+      // a first run's tutorial holds the clock until the controls are learnt
+      const clk = (typeof Tutorial !== 'undefined' && Tutorial.holdsClock()) ? 0 : dt;
+      this.elapsed += clk;
+      if (this.mode === 'prize') this.time -= clk;
       this._trackFlags(dt);
       this._forwardMetres = s.crashed || s.protection > 0 ? 0 : this.ledger.advance(s.pos.z);
       this._updateFlow(dt);

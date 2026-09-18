@@ -2011,7 +2011,8 @@ class DiveMission {
 
     if (this.state === 'countdown') this._tickCountdown(rawDt);
     if (this.state === 'live') {
-      this.elapsed += dt;
+      // a first run's tutorial holds the clock until the controls are learnt
+      this.elapsed += (typeof Tutorial !== 'undefined' && Tutorial.holdsClock()) ? 0 : dt;
       if (this.mode === 'salvage') {
         this.timeLeft = Math.max(0, this.C.runTime - this.elapsed);
         if (this.timeLeft <= 0) { this._finish('THE BELL'); }

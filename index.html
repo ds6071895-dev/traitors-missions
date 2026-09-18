@@ -121,6 +121,7 @@
         <span class="pot-value" id="play-pot">£0</span>
       </div>
       <button class="chip" id="play-mute" data-nav>Sound</button>
+      <button class="chip" id="play-howto" data-nav title="Replay every tutorial from the start">How to play</button>
       <label class="chip estate-setting"><input id="estate-motion" type="checkbox"> Reduced motion</label>
       <label class="chip estate-setting">Scenery <select id="estate-quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
     </footer>
@@ -395,6 +396,8 @@
 
     <div class="brief-actions">
       <div class="brief-keys" id="brief-keys"></div>
+      <label class="toggle brief-tut" title="Run the step-by-step controls tutorial when this mission starts">
+        <input type="checkbox" id="brief-tut"><span>Controls tutorial</span></label>
       <button class="btn ghost" id="brief-back" data-back data-nav>Back</button>
       <button class="btn primary" id="brief-go">Start Mission<span class="btn-mult" id="brief-mult"></span></button>
     </div>
@@ -750,6 +753,7 @@
     <div class="pause-actions">
       <button class="btn primary" id="pause-resume" data-back data-nav>Resume</button>
       <button class="btn ghost" id="pause-restart">Restart mission</button>
+      <button class="btn ghost" id="pause-skip-tut" data-nav hidden>Skip tutorial</button>
       <button class="btn ghost" id="pause-quit" data-nav>Leave</button>
     </div>
   </div>
@@ -893,6 +897,46 @@
   <div class="ac-state" id="agenda-state"></div>
 </div>
 
+<!-- The tutorial: a gold ring round the real button, a card that says
+     what it does, and — in a mission — a keycap that lights while you
+     hold it. Built once, driven by `js/core/tutorial.js`. Above every
+     screen and HUD, below the fade. -->
+<div id="tutorial" aria-live="polite">
+  <div class="tut-block"></div><div class="tut-block"></div>
+  <div class="tut-block"></div><div class="tut-block"></div>
+  <div class="tut-shade"></div>
+  <div class="tut-ring"><i class="tut-ping"></i></div>
+  <div class="tut-card" role="dialog" aria-label="Tutorial">
+    <div class="tut-top">
+      <span class="tut-kicker">How to play</span>
+      <span class="tut-pips"></span>
+    </div>
+    <div class="tut-seal" aria-hidden="true">
+      <svg viewBox="0 0 64 64">
+        <circle class="ps-ring" cx="32" cy="32" r="29"/>
+        <circle class="ps-ring thin" cx="32" cy="32" r="24.5"/>
+        <path class="ps-keep" d="M21 45V29h2.6v-3.6h2.6V29h3.5v-5.4h4.6V29h3.5v-3.6h2.6V29H43v16z"/>
+        <path class="ps-blade" d="M32 11.5l3.4 9.4h-6.8z"/>
+      </svg>
+    </div>
+    <div class="tut-keys"></div>
+    <div class="tut-title"></div>
+    <div class="tut-text"></div>
+    <div class="tut-meter" hidden><i></i></div>
+    <div class="tut-clock" hidden><span class="tc-icon" aria-hidden="true"></span>Clock paused while you learn</div>
+    <div class="tut-actions">
+      <button class="tut-skip" type="button">Skip</button>
+      <button class="tut-off" type="button" hidden>Turn tutorials off</button>
+      <button class="btn primary tut-next" type="button">Next</button>
+    </div>
+    <div class="tut-foot"></div>
+    <div class="tut-check" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+    </div>
+  </div>
+  <div class="tut-toast"></div>
+</div>
+
 <div id="boot"><div class="boot-inner"><div class="boot-spin"></div><span>Loading the loch…</span></div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
@@ -909,6 +953,8 @@
 <script src="js/core/state.js"></script>
 <script src="js/core/screens.js"></script>
 <script src="js/core/missions.js"></script>
+<script src="js/core/tutorial-steps.js"></script>
+<script src="js/core/tutorial.js"></script>
 <script src="js/core/voice.js"></script>
 <script src="js/core/uinav.js"></script>
 <script src="js/core/look.js"></script>

@@ -885,6 +885,7 @@ const Game = (() => {
     Input.init();
     Voice.init();
     UINav.init();
+    Tutorial.init();
     Lobby.init();
     MissionParty.init();
     Dressing.init();
@@ -949,6 +950,16 @@ const Game = (() => {
           (def.keys || []).map(k => `<span>${k}</span>`).join('');
         document.getElementById('brief-go').onclick = () => {
           AudioBus.play('ui-click'); launch(def.id, def.setup ? setup : null);
+        };
+        /* Ticked means "teach me": it is simply whether this mission's
+           tour has been seen, so a first visit arrives ticked and a
+           player who wants it again only has to tick it. */
+        const tut = document.getElementById('brief-tut');
+        tut.checked = !Tutorial.off && !Tutorial.seen('mission:' + def.id);
+        tut.onchange = () => {
+          AudioBus.play('ui-click');
+          if (tut.checked) { if (Tutorial.off) Tutorial.setOff(false); Tutorial.forget('mission:' + def.id); }
+          else Tutorial.markSeen('mission:' + def.id);
         };
         renderSetup();
       },
@@ -1052,6 +1063,24 @@ const Game = (() => {
       if (Missions.active && Missions.active.restart) Missions.active.restart();
     };
     document.getElementById('pause-quit').onclick = () => { Engine.setPaused(false); toMenu(); };
+    // with the mouse captured the card's own Skip cannot be clicked, so
+    // the pause menu carries one while a tour is running
+    document.getElementById('pause-skip-tut').onclick = () => {
+      Tutorial.skip();
+      resume();
+    };
+    Screens.onShow((id) => {
+      if (id === 'pause') {
+        const cur = Tutorial.current;
+        document.getElementById('pause-skip-tut').hidden = !(cur && cur.kind === 'mission');
+      }
+    });
+    /* Every tour again, from the welcome card, right now. */
+    document.getElementById('play-howto').onclick = () => {
+      AudioBus.play('ui-click');
+      Tutorial.reset();
+      Tutorial.onScreen('play');
+    };
 
     const muteBtn = document.getElementById('mute-btn');
     const syncMute = (m) => muteBtn.classList.toggle('muted', m);

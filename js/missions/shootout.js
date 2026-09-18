@@ -695,7 +695,8 @@ class ShootoutMission {
     }
 
     if (this.state === 'live') {
-      this.elapsed += dt;
+      // a first run's tutorial holds the clock until the controls are learnt
+      this.elapsed += (typeof Tutorial !== 'undefined' && Tutorial.holdsClock()) ? 0 : dt;
       this._trackDove();
       this._updateChain(dt);
       this._recordGhost(dt);
@@ -2611,7 +2612,8 @@ class ShootoutMission {
 
     // A boss round's clock is only the remaining time-bonus window. Once
     // it is spent, the fight carries on until the owl is actually down.
-    R.time = R.def.kind === 'boss' ? Math.max(0, R.time - dt) : R.time - dt;
+    const clk = (typeof Tutorial !== 'undefined' && Tutorial.holdsClock()) ? 0 : dt;
+    R.time = R.def.kind === 'boss' ? Math.max(0, R.time - clk) : R.time - clk;
     R.spawnT -= dt;
 
     if (R.spawned < R.total && R.spawnT <= 0) {
