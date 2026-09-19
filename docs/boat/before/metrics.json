@@ -1,0 +1,107 @@
+{
+  "browser": "153.0.8010.12",
+  "renderer": "SwiftShader (correctness only)",
+  "errors": [],
+  "metrics": [
+    {
+      "shot": "launch",
+      "phone": false,
+      "calls": 88,
+      "triangles": 558848,
+      "memory": {
+        "geometries": 104,
+        "textures": 27
+      }
+    },
+    {
+      "shot": "hull",
+      "phone": false,
+      "calls": 54,
+      "triangles": 529782,
+      "memory": {
+        "geometries": 104,
+        "textures": 27
+      }
+    },
+    {
+      "shot": "channel",
+      "phone": false,
+      "calls": 27,
+      "triangles": 540080,
+      "memory": {
+        "geometries": 104,
+        "textures": 27
+      }
+    },
+    {
+      "shot": "gate",
+      "phone": false,
+      "calls": 46,
+      "triangles": 553880,
+      "memory": {
+        "geometries": 104,
+        "textures": 27
+      }
+    },
+    {
+      "shot": "race",
+      "phone": false,
+      "calls": 81,
+      "triangles": 557734,
+      "memory": {
+        "geometries": 104,
+        "textures": 27
+      }
+    },
+    {
+      "shot": "launch",
+      "phone": true,
+      "calls": 76,
+      "triangles": 554972,
+      "memory": {
+        "geometries": 104,
+        "textures": 27
+      }
+    },
+    {
+      "shot": "hull",
+      "phone": true,
+      "calls": 52,
+      "triangles": 542578,
+      "memory": {
+        "geometries": 104,
+        "textures": 27
+      }
+    },
+    {
+      "shot": "channel",
+      "phone": true,
+      "calls": 24,
+      "triangles": 539524,
+      "memory": {
+        "geometries": 104,
+        "textures": 27
+      }
+    },
+    {
+      "shot": "gate",
+      "phone": true,
+      "calls": 43,
+      "triangles": 551184,
+      "memory": {
+        "geometries": 104,
+        "textures": 27
+      }
+    },
+    {
+      "shot": "race",
+      "phone": true,
+      "calls": 65,
+      "triangles": 546630,
+      "memory": {
+        "geometries": 104,
+        "textures": 27
+      }
+    }
+  ]
+}

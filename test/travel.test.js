@@ -51,15 +51,25 @@ test('partial rehearsals insert journeys only between enabled adjacent sections'
  }
 });
 section('authored estate geometry');
-test('the full lantern route stays walkable and above its graded terrain',()=>{
- const l=fresh().EstateLayout;
- for(let i=1;i<l.path.length;i++){
-  const a=l.path[i-1],b=l.path[i],length=Math.hypot(b[0]-a[0],b[2]-a[2]);
-  for(let t=0;t<=1;t+=.05){
-   const x=a[0]+(b[0]-a[0])*t,z=a[2]+(b[2]-a[2])*t,y=a[1]+(b[1]-a[1])*t;
-   assert.ok(Math.abs(l.heightAt(x,z)-y)<.01,`buried path at ${x},${z}`);
-   for(const side of [-2,0,2])assert.ok(l.walkable(x+(b[2]-a[2])*side/length,z-(b[0]-a[0])*side/length));
-  }
+test('the lantern walk is one smooth, walkable, graded path from the forecourt to the fire',()=>{
+ const l=fresh().EstateLayout,f=l.footpath;
+ assert.ok(Math.hypot(f.points[0].x-l.path[0][0],f.points[0].z-l.path[0][2])<.01,'starts at the return stop');
+ const last=f.points[f.points.length-1];assert.ok(Math.hypot(last.x-l.anchors.fire[0],last.z-l.anchors.fire[2])<.01,'ends at the fire');
+ for(let i=1;i<f.points.length;i++){
+  const a=f.points[i-1],b=f.points[i],run=Math.hypot(b.x-a.x,b.z-a.z);
+  assert.ok((a.y-b.y)/run<.4,'too steep at '+a.along);assert.ok(b.y<=a.y+1e-9,'climbs at '+a.along);
+  if(i>1&&a.along<=f.rim){const p=f.points[i-2],turn=Math.abs(Math.atan2(b.x-a.x,b.z-a.z)-Math.atan2(a.x-p.x,a.z-p.z));assert.ok(turn<.06,'kink at '+a.along);}
+  const s=f.sample(a.along);
+  // The graded bed is level across the paving, so nothing floats or buries it.
+  for(const side of [-2,0,2]){const x=s.x+s.tz*side,z=s.z-s.tx*side;
+   assert.ok(l.walkable(x,z),`unwalkable at ${x},${z}`);
+   // Where the path meets the terrace, the level paving owns the ground.
+   const onTerrace=Math.hypot(x-l.terrace.x,z-l.terrace.z)<12.4,h=l.heightAt(x,z);
+   assert.ok(onTerrace?h<=a.y+1e-9:Math.abs(h-a.y)<.05,`bed off grade at ${x},${z}`);}
+ }
+ // The old lantern anchors still lie on the paving, so straight walks between them work.
+ for(let i=1;i<l.path.length;i++)for(let t=0;t<=1;t+=.05){
+  const a=l.path[i-1],b=l.path[i];assert.ok(l.walkable(a[0]+(b[0]-a[0])*t,a[2]+(b[2]-a[2])*t));
  }
 });
 test('road samples are continuous, finite and orthonormal over the whole route',()=>{
@@ -68,6 +78,12 @@ test('road samples are continuous, finite and orthonormal over the whole route',
   assert.ok(Object.values(p).every(Number.isFinite));assert.ok(Math.hypot(p.x-prev.x,p.y-prev.y,p.z-prev.z)<.51);
   assert.ok(Math.abs(t.x*n.x+t.y*n.y+t.z*n.z)<1e-8);assert.ok(Math.abs(Math.hypot(n.x,n.y,n.z)-1)<1e-8);prev=p;
  }
+});
+test('the fire terrace is level to its rim and nothing rises through it',()=>{
+ const l=fresh().EstateLayout,t=l.terrace;
+ for(let r=0;r<=12.35;r+=.25)for(let a=0;a<Math.PI*2;a+=.05)assert.equal(l.heightAt(t.x+Math.cos(a)*r,t.z+Math.sin(a)*r),t.y,`terrace off level at r=${r} a=${a}`);
+ // Just outside, the ground only climbs where the seat wall holds it back.
+ for(let a=0;a<Math.PI*2;a+=.05){const x=t.x+Math.cos(a)*12.5,z=t.z+Math.sin(a)*12.5,h=l.heightAt(x,z);if(l.footpath.nearest(x,z).distance<4)continue;assert.ok(h<=t.y+.05+t.wall.height*l.terraceWall(a),`bank over the rim at ${a}`);}
 });
 test('welcome, boarding, gate and terrace anchors are walkable; lakes are enclosed basins',()=>{
  const c=fresh(),l=c.EstateLayout;

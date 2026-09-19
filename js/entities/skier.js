@@ -238,26 +238,37 @@ class Skier {
 
     // helmet and goggles: they hide the face, which is exactly right for
     // somebody doing a hundred and thirty on a mountain
+    /* Sized from the head the figure actually has (`rig.headDims`),
+       so the helmet goes over the hair rather than the skull poking out
+       of the top of it. */
     const head = rig.head;
+    const H = rig.headDims || Figure.HEAD;
     let goggles = null;
     if (head) {
-      const helm = new THREE.Mesh(new THREE.SphereGeometry(0.128, 14, 10,
-        0, Math.PI * 2, 0, Math.PI * 0.62), lam(trim));
-      helm.position.set(0, 0.028, 0);
-      helm.scale.set(1.06, 1.14, 1.10);
+      const out = 0.032;                       // clear of the thickest hair
+      const helm = new THREE.Mesh(new THREE.SphereGeometry(1, 18, 12,
+        0, Math.PI * 2, 0, Math.PI * 0.56), lam(trim, { side: THREE.DoubleSide }));
+      helm.scale.set(H.rx + out, H.ry + out, H.rz + out);
+      helm.position.set(0, H.cy, -0.008);
+      helm.rotation.x = -0.30;
       head.add(helm);
-      goggles = new THREE.Mesh(new THREE.BoxGeometry(0.225, 0.085, 0.055), glass);
-      goggles.position.set(0, 0.018, 0.098);
+      const eyeY = H.eyeY !== undefined ? H.eyeY : H.cy;
+      const faceZ = H.faceZ !== undefined ? H.faceZ : H.rz;
+      goggles = new THREE.Mesh(new THREE.BoxGeometry(H.rx * 1.62, 0.075, 0.050), glass);
+      goggles.position.set(0, eyeY + 0.004, faceZ + 0.010);
       head.add(goggles);
-      const strap = new THREE.Mesh(new THREE.BoxGeometry(0.238, 0.045, 0.205), lam('#20252e'));
-      strap.position.set(0, 0.022, 0.005);
+      const strap = new THREE.Mesh(new THREE.CylinderGeometry(
+        H.rx + 0.014, H.rx + 0.014, 0.040, 20, 1, true), lam('#20252e', { side: THREE.DoubleSide }));
+      strap.position.y = eyeY + 0.006;
+      strap.scale.z = (H.rz + 0.014) / (H.rx + 0.014);
       head.add(strap);
     }
 
     // a race bib, so three skiers on one mountain are three people
     if (rig.chest) {
       const bib = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.30, 0.035), lam(accent));
-      bib.position.set(0, 0.22, 0.115);
+      const at = 0.22;
+      bib.position.set(0, at, (rig.frontZ ? rig.frontZ(at) : 0.10) + 0.012);
       rig.chest.add(bib);
     }
 

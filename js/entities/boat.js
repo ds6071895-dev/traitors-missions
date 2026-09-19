@@ -106,7 +106,7 @@ class Boat {
   constructor(opts = {}) {
     this.tune = Object.assign({}, Boat.TUNE, opts.tune || {});
     this.group = new THREE.Group();
-    this.mesh = Boat.buildMesh(opts.paint || {});
+    this.mesh = Boat.buildMesh(opts.paint || {}, opts.visualProfile);
     this.group.add(this.mesh);
 
     this.pos = new THREE.Vector3(0, 0, 0);
@@ -147,7 +147,8 @@ class Boat {
     this._up = new THREE.Vector3();
 
     // engine wash / afterburner glow, scaled by boost
-    this.flame = Boat.buildFlame();
+    this.visualProfile = opts.visualProfile;
+    this.flame = opts.visualProfile === 'highland' ? BoatVisual.exhaust() : Boat.buildFlame();
     this.group.add(this.flame);
   }
 
@@ -382,8 +383,10 @@ class Boat {
 
     // ---- flame -----------------------------------------------------------
     const fl = this.boosting ? 1 : (this.throttleIn > 0 ? 0.20 + this.speed01 * 0.16 : 0.05);
-    const s = U.damp(this.flame.scale.z, fl, 14, dt);
+    const s = U.damp(this.visualProfile === 'highland' ? (this._exhaustStrength ?? .05) : this.flame.scale.z, fl, 14, dt);
+    this._exhaustStrength = s;
     this.flame.scale.set(0.6 + s * 0.85, 0.6 + s * 0.85, s);
+    if (this.visualProfile === 'highland') this.flame.scale.set(1, 1, 1);
     this.flame.visible = s > 0.08;
     this.flame.material.opacity = U.clamp(s * 0.95, 0, 1);
   }
@@ -444,7 +447,13 @@ class Boat {
 
   /* ================= mesh ================= */
 
-  static buildMesh(paint) {
+  static buildMesh(paint = {}, visualProfile, detail = 'player') {
+    return visualProfile === 'highland'
+      ? BoatVisual.build(paint, () => Boat.buildLegacyMesh({stripe:'#742f35', stripe2:'#58292e', accent:'#b89a61', deck:'#cdbb92', deckDk:'#a28c69', ...paint}), detail)
+      : Boat.buildLegacyMesh(paint);
+  }
+
+  static buildLegacyMesh(paint) {
     const P = Object.assign({
       hull:    '#f7f9fc',
       hullLo:  '#e6edf5',
@@ -534,6 +543,7 @@ class Boat {
       }
     }
 
+    const shellEnd = pos.length / 3;
     /* ---- deck ------------------------------------------------------- */
     const CK = H.cockpit;
     const inCockpit = z => z > CK.z0 && z < CK.z1;
@@ -574,6 +584,7 @@ class Boat {
       }
     }
 
+    const deckEnd = pos.length / 3;
     /* ---- cockpit tub ------------------------------------------------- */
     const floorY = CK.floorY;
     for (const side of [1, -1]) {
@@ -602,6 +613,7 @@ class Boat {
       quad([-xi, dy, zEnd], [xi, dy, zEnd], [xi, floorY, zEnd], [-xi, floorY, zEnd], P.inner);
     }
 
+    const tubEnd = pos.length / 3;
     /* ---- transom ----------------------------------------------------- */
     {
       const A = rings[0], z = zOf(0);
@@ -625,6 +637,10 @@ class Boat {
       vertexColors: true, flatShading: true, side: THREE.DoubleSide,
     }));
     hull.name = 'hull';
+    g.addGroup(0, shellEnd, 0);
+    g.addGroup(shellEnd, deckEnd - shellEnd, 1);
+    g.addGroup(deckEnd, tubEnd - deckEnd, 2);
+    g.addGroup(tubEnd, pos.length / 3 - tubEnd, 0);
 
     const grp = new THREE.Group();
     grp.add(hull);
@@ -653,6 +669,7 @@ class Boat {
     const cowl = new THREE.Mesh(cowlGeo, lam(P.stripe));
     onDeck(cowl, cowlZ, 0, cowlH, 0.14);
     cowl.rotation.x = -0.05;
+    cowl.name = 'engine-cowl';
     grp.add(cowl);
     const cowlTop = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.10, 1.15), lam(P.accent));
     cowlTop.position.set(0, cowl.position.y + cowlH / 2 + 0.02, cowlZ - 0.08);
@@ -667,6 +684,7 @@ class Boat {
     // a bench across the back of the cockpit, so the tub is not just a pit
     const bench = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.18, 0.55), lam(P.stripe));
     bench.position.set(0, floorY + 0.34, CK.z0 + 0.42);
+    bench.name = 'bench';
     grp.add(bench);
     const benchLeg = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.34, 0.42), lam(P.inner));
     benchLeg.position.set(0, floorY + 0.17, CK.z0 + 0.42);
@@ -684,6 +702,7 @@ class Boat {
     const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.20, 0.045, 8, 18), lam('#161f2a'));
     wheel.position.set(0, floorY + 0.68, consZ - 0.18);
     wheel.rotation.x = 1.15;
+    wheel.name = 'wheel';
     grp.add(wheel);
 
     // seats on the sole
@@ -695,6 +714,7 @@ class Boat {
       const back = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.52, 0.14), lam(P.stripe));
       back.position.set(sx, floorY + 0.62, -0.24);
       back.rotation.x = -0.14;
+      base.name = 'seat'; back.name = 'seat-back';
       grp.add(base, post, back);
     }
 
@@ -723,6 +743,7 @@ class Boat {
       // frame along the top edge, sitting on the glass
       const frame = new THREE.Mesh(new THREE.BoxGeometry(xt * 2 + 0.1, 0.07, 0.09), lam(P.chrome));
       frame.position.set(0, yt + 0.03, zT);
+      frame.name = 'windscreen-frame';
       grp.add(frame);
     }
 
@@ -744,6 +765,7 @@ class Boat {
       const hz = 3.15;
       const hatch = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.07, 1.1), lam(P.deckDk));
       hatch.position.set(0, Boat.deckAt(hz, 0) + 0.02, hz);
+      hatch.name = 'hatch';
       grp.add(hatch);
       const cz = 4.35;
       const cleat = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.10, 0.16), lam(P.chrome));
@@ -820,6 +842,7 @@ class Boat {
 
   // gentle cloth wave on the stern flag
   animateFlag(t) {
+    if (this.visualProfile === 'highland') BoatVisual.animate(this, t);
     const flag = this.mesh.userData.flag;
     if (!flag) return;
     const p = flag.geometry.attributes.position;

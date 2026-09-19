@@ -59,8 +59,15 @@ const Estate = (() => {
     box('paving',45,.2,55,0,21.99,3);
     box('gravel',11,.12,17,10,22.08,-10);box('gravel',12,.12,17,14,22.08,20);
     box('masonry',1,1.3,55,-23,22.65,3);
-    // A six-metre opening follows the lantern path through the east wall.
-    for(const [from,to] of [[-24.5,8],[14,30.5]])box('masonry',1,1.3,to-from,23,22.65,(from+to)/2);
+    // The lantern path leaves through a gateway in the east wall, cut exactly
+    // to its kerbs: piers either side and a threshold stone level with both.
+    const gate=EstateLayout.footpath.gate,gap=EstateLayout.footpath.width/2+.45;
+    for(const [from,to] of [[-24.5,gate.z-gap],[gate.z+gap,30.5]])box('masonry',1,1.3,to-from,gate.x,22.65,(from+to)/2);
+    for(const side of [-1,1]){
+      const z=gate.z+side*(gap+.5);
+      box('masonry',1.3,2.3,1.1,gate.x,23.15,z);box('masonry',1.5,.18,1.3,gate.x,24.39,z);box('masonry',.9,.12,.9,gate.x,24.54,z);
+    }
+    box('masonry',1.4,.2,gap*2,gate.x,22,gate.z);
     for(const x of [-14,14])box('masonry',22,1.4,1,x,22.7,31);
     // Gatehouse and connected causeway: five metres clear between towers.
     for(const x of [-5.5,5.5]){
@@ -88,22 +95,96 @@ const Estate = (() => {
     box('masonry',6,.8,22,-20,13.7,220,ang);
     for(const sign of [-1,1])box('masonry',.45,1.15,22,-20+Math.cos(ang)*sign*2.9,14.65,220-Math.sin(ang)*sign*2.9,ang);
     for(const dz of [-7,7])box('rock',4,8,1.8,-20+Math.sin(ang)*dz,10,220+Math.cos(ang)*dz,ang);
-    // Terrace and lantern path bend behind a low planted wall.
-    mesh(new THREE.CylinderGeometry(12,12.3,.6,48),'paving',48,13.75,-8);
-    for(let i=0;i<25;i++){const a=i/24*Math.PI;box('masonry',1.55,1,.6,48+Math.cos(a)*11.8,14.5,-8-Math.sin(a)*11.8,-a);}
-    for(let i=1;i<EstateLayout.path.length;i++){
-      const a=EstateLayout.path[i-1],b=EstateLayout.path[i],dx=b[0]-a[0],dy=b[1]-a[1],dz=b[2]-a[2],len=Math.hypot(dx,dy,dz);
-      const g=new THREE.BoxGeometry(4.8,.14,len);g.rotateX(-Math.atan2(dy,Math.hypot(dx,dz)));g.rotateY(Math.atan2(dx,dz));
-      mesh(g,'paving',(a[0]+b[0])/2,(a[1]+b[1])/2+.12,(a[2]+b[2])/2);
+    // Terrace, then the lantern walk down to it: flagstone steps set between
+    // castle-stone kerbs, with a planted retaining wall on the uphill bend.
+    const T=EstateLayout.terrace,TW=T.wall;
+    mesh(new THREE.CylinderGeometry(TW.inner+.02,TW.inner+.35,.6,72),'paving',T.x,T.y-.25,T.z);
+    const F=EstateLayout.footpath,half=F.width/2,rise=.16,flights=Math.round((F.grade(0)-F.grade(F.length))/rise);
+    const pathTufts=[],pathLanterns=[];
+    // Rows of [x,y,z,u,v]; each row runs along the path, columns across it.
+    function sheet(id,rows){
+      const pos=[],uvs=[];
+      for(let i=1;i<rows.length;i++)for(let j=1;j<rows[i].length;j++){
+        const a=rows[i-1][j-1],b=rows[i-1][j],c=rows[i][j-1],d=rows[i][j];
+        for(const v of [a,c,b,b,c,d]){pos.push(v[0],v[1],v[2]);uvs.push(v[3],v[4]);}
+      }
+      const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+      g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));g.computeVertexNormals();
+      if(!batches.has(id))batches.set(id,[]);batches.get(id).push(g);
     }
-    box('masonry',.7,1.5,13,39.5,17.4,20.5,.4);
+    const across=(s,o,y)=>{const p=F.sample(s);return [p.x+p.tz*o,y,p.z-p.tx*o];};
+    const spans=(from,to,step)=>{const out=[from];for(let s=from+step;s<to;s+=step)out.push(s);out.push(to);return out;};
+    // Each tread sits where the smooth grade is half a riser above or below it,
+    // so the walking grade never leaves the stone by more than 8cm.
+    const breaks=[];
+    for(let k=0;k<flights;k++){
+      const target=F.grade(0)-(k+.5)*rise;let lo=F.level,hi=F.rim;
+      for(let n=0;n<40;n++){const m=(lo+hi)/2;if(F.grade(m)>target)lo=m;else hi=m;}breaks.push((lo+hi)/2);
+    }
+    const start=F.nearest(gate.x+.6,gate.z).along,end=F.rim+.1,edge=half+.1;
+    for(let k=0;k<=flights;k++){
+      const from=k?breaks[k-1]:start,to=k<flights?breaks[k]:end,y=F.grade(0)-k*rise+.03;
+      sheet('paving',spans(from,to,.5).map(s=>[-edge,edge].map(o=>[...across(s,o,y),o/2.5,s/2.5])));
+      if(k<flights)sheet('masonry',[-edge,edge].map(o=>[y-rise,y].map(yy=>[...across(to,o,yy),o/1.5,yy/1.5])));
+    }
+    // Kerbs follow the smooth grade; on the uphill side one swells into a wall.
+    const kerbFrom=F.nearest(gate.x+.66,gate.z).along,kerbTo=F.rim-.2,smooth=t=>{t=U.clamp(t,0,1);return t*t*(3-2*t);};
+    const wallAt=s=>smooth((s-F.level-3)/2.5)*smooth((F.rim-1-s)/2.5),wallTop=(s,w)=>F.grade(s)+.18+.62*w;
+    for(const side of [-1,1]){
+      const wall=s=>side>0?wallAt(s):0;
+      const rows=spans(kerbFrom,kerbTo,.4).map(s=>{
+        const w=wall(s),g=F.grade(s),outer=half+.45+.3*w,top=wallTop(s,w)+.035*w*Math.sin(s*5.3)*Math.sin(s*2.1+side);
+        return {s,g,w,inner:half*side,outer:outer*side,top};
+      });
+      // Top, path-facing and outer faces, wound so each faces outward.
+      sheet('masonry',rows.map(r=>(side<0?[r.outer,r.inner]:[r.inner,r.outer]).map(o=>[...across(r.s,o,r.top),r.s/1.5,Math.abs(o)/1.5])));
+      sheet('masonry',rows.map(r=>(side<0?[r.top,r.g-.15]:[r.g-.15,r.top]).map(y=>[...across(r.s,r.inner,y),r.s/1.5,y/1.5])));
+      sheet('masonry',rows.map(r=>(side<0?[r.g-.45,r.top]:[r.top,r.g-.45]).map(y=>[...across(r.s,r.outer,y),r.s/1.5,y/1.5])));
+      for(const [r,dir] of [[rows[0],-1],[rows[rows.length-1],1]]){
+        const cols=dir>0?[r.g-.45,r.top]:[r.top,r.g-.45],ends=side<0?[r.outer,r.inner]:[r.inner,r.outer];
+        sheet('masonry',ends.map(o=>cols.map(y=>[...across(r.s,o,y),o/1.5,y/1.5])));
+      }
+      // Heather crowns the wall; a softer fringe spills down the open side.
+      for(const r of rows){
+        if(r.w>.8&&rng()<.75)pathTufts.push(across(r.s,(half+.2+.15*r.w)*side+rng.range(-.12,.12),r.top+.04));
+        if(side<0&&r.s>F.level-2&&rng()<.8){const p=across(r.s,-(half+.8+rng()*1.3),0);p[1]=EstateLayout.heightAt(p[0],p[2]);pathTufts.push(p);}
+      }
+    }
+    for(let s=F.level+1,i=0;s<F.rim-2;s+=6.5,i++){
+      const p=i%2?across(s,half+.62,wallTop(s,wallAt(s))):across(s,-(half+.95),0);
+      if(!(i%2))p[1]=EstateLayout.heightAt(p[0],p[2]);pathLanterns.push(p);
+    }
+    // The terrace: a stone border, an inner ring round the hearth tied to it
+    // by radial bands, and on the uphill arc a curved seat wall with coping.
+    for(const [a,b] of [[T.radius-.55,TW.inner+.02],[4.3,4.75]]){const g=new THREE.RingGeometry(a,b,96,1);g.rotateX(-Math.PI/2);mesh(g,'masonry',T.x,T.y+.062,T.z);}
+    for(let i=0;i<8;i++){const a=i/8*Math.PI*2+Math.PI/8,r=(4.75+T.radius-.55)/2;box('masonry',.28,.02,T.radius-.55-4.75,T.x+Math.cos(a)*r,T.y+.06,T.z+Math.sin(a)*r,Math.PI/2-a);}
+    const ring=(a,r,y,u,v)=>[T.x+Math.cos(a)*r,y,T.z+Math.sin(a)*r,u,v];
+    function arc(id,from,to,rin,rout,y0,y1){
+      const angles=spans(from,to,.02);
+      sheet(id,angles.map(a=>[rin,rout].map(r=>ring(a,r,y1,a*r/1.5,r/1.5))));
+      sheet(id,angles.map(a=>[y1,y0].map(y=>ring(a,rout,y,a*rout/1.5,y/1.5))));
+      sheet(id,angles.map(a=>[y0,y1].map(y=>ring(a,rin,y,a*rin/1.5,y/1.5))));
+      sheet(id,[rin,rout].map(r=>[y1,y0].map(y=>ring(from,r,y,r/1.5,y/1.5))));
+      sheet(id,[rin,rout].map(r=>[y0,y1].map(y=>ring(to,r,y,r/1.5,y/1.5))));
+    }
+    const seat=T.y+TW.height;
+    arc('masonry',TW.from,TW.to,TW.inner,TW.outer,T.y-.4,seat-.12);
+    arc('paving',TW.from-.004,TW.to+.004,TW.inner-.08,TW.outer+.08,seat-.12,seat);
+    for(const a of [TW.from-.05,TW.to+.05]){
+      const r=(TW.inner+TW.outer)/2,x=T.x+Math.cos(a)*r,z=T.z+Math.sin(a)*r;
+      box('masonry',1,1.5,1,x,T.y+.55,z,-a);box('paving',1.2,.14,1.2,x,T.y+1.37,z,-a);pathLanterns.push([x,T.y+1.44,z]);
+    }
+    for(const a of [.25,5.95]){pathLanterns.push([T.x+Math.cos(a)*11.75,T.y,T.z+Math.sin(a)*11.75]);}
+    for(let a=TW.from+.03;a<TW.to-.03;a+=.035)if(rng()<.7){
+      const r=TW.outer+.3+rng()*1.4,x=T.x+Math.cos(a)*r,z=T.z+Math.sin(a)*r;pathTufts.push([x,EstateLayout.heightAt(x,z),z]);
+    }
     for(const x of [-16,18]){box('timber',3,.15,.6,x,22.55,4);for(const sx of [-1,1])box('iron',.14,.6,.5,x+sx*1.2,22.25,4);}
     function lantern(x,y,z){
       box('iron',.12,2,.12,x,y+1,z);box('iron',.5,.1,.5,x,y+2.4,z);
       const glow=new THREE.Mesh(new THREE.BoxGeometry(.28,.42,.28),new THREE.MeshBasicMaterial({color:'#ffd497'}));glow.position.set(x,y+2.12,z);group.add(glow);
       if(!low&&lights.length<(medium?3:5)){const l=new THREE.PointLight('#ffbd73',1.4,16,2);l.position.set(x,y+2.2,z);group.add(l);lights.push(l);}
     }
-    for(const a of [[-4,22,42],[4,22,42],[-8,22,-19],[8,22,-19],...EstateLayout.path.map(p=>[p[0]+2.4,EstateLayout.heightAt(p[0]+2.4,p[2]),p[2]])])lantern(...a);
+    for(const a of [[-4,22,42],[4,22,42],[-8,22,-19],[8,22,-19],...pathLanterns])lantern(...a);
     // Basin-shaped terrain with authored flat areas and graded shoulders.
     // One graded surface: adaptive grid lines stay shared at detail boundaries.
     // Overlapping coarse and fine patches exposed cliffs at the road shoulders.
@@ -116,7 +197,7 @@ const Estate = (() => {
     const xs=axis(-800,800,-35,90,-280,420),zs=axis(-500,1200,-65,75,-100,650);
     const positions=[],uvs=[],colors=[],indices=[],c=new THREE.Color();
     for(let j=0;j<zs.length;j++)for(let i=0;i<xs.length;i++){
-      const x=xs[i],z=zs[j];positions.push(x,EstateLayout.heightAt(x,z)-.08,z);uvs.push(x/7,z/7);
+      const x=xs[i],z=zs[j],tr=Math.hypot(x-T.x,z-T.z),bed=F.nearest(x,z,2.45).distance<2.45||tr<12.4+.65*EstateLayout.terraceWall(Math.atan2(z-T.z,x-T.x))?.38:.08;positions.push(x,EstateLayout.heightAt(x,z)-bed,z);uvs.push(x/7,z/7);
       c.set('#c1c9aa').multiplyScalar(.86+.12*Math.sin(x*.021)*Math.sin(z*.018));colors.push(c.r,c.g,c.b);
       if(i&&j){const n=j*xs.length+i;indices.push(n-xs.length-1,n-1,n-xs.length,n-xs.length,n-1,n);}
     }
@@ -138,7 +219,7 @@ const Estate = (() => {
     for(let i=0;i<(low?1000:medium?2100:3600);i++){
       const center=woods[i%woods.length],a=rng()*Math.PI*2,rr=Math.sqrt(rng())*65;
       const x=center[0]+Math.cos(a)*rr,z=center[1]+Math.sin(a)*rr,r=EstateLayout.route.nearest(x,z);
-      if(r.distance<8||EstateLayout.walkable(x,z)||Math.abs(x)<40&&z<55||Math.hypot(x-48,z+8)<20||EstateLayout.lakes.some(l=>EstateLayout.basin(x,z,l)<1.14))continue;
+      if(r.distance<8||EstateLayout.walkable(x,z)||F.nearest(x,z,6).distance<6||Math.abs(x)<40&&z<55||Math.hypot(x-48,z+8)<20||EstateLayout.lakes.some(l=>EstateLayout.basin(x,z,l)<1.14))continue;
       if(Math.sin(x*.016)*Math.cos(z*.018)<-.1)continue;
       const key=Math.floor(x/100)+':'+Math.floor(z/100);if(!cells.has(key))cells.set(key,[]);
       cells.get(key).push([x,EstateLayout.heightAt(x,z),z,rng.range(5,14),rng.range(.7,1.4)]);
@@ -178,9 +259,10 @@ const Estate = (() => {
     const cover=[];
     for(let i=0;i<(low?300:1200);i++){
       const x=rng.range(-65,125),z=rng.range(-65,120);
-      if(EstateLayout.walkable(x,z)||Math.abs(x)<30&&z<40||EstateLayout.route.nearest(x,z).distance<3.5||EstateLayout.lakes.some(l=>EstateLayout.basin(x,z,l)<1.02))continue;
+      if(EstateLayout.walkable(x,z)||F.nearest(x,z,3.4).distance<3.4||Math.hypot(x-T.x,z-T.z)<13.3||Math.abs(x)<30&&z<40||EstateLayout.route.nearest(x,z).distance<3.5||EstateLayout.lakes.some(l=>EstateLayout.basin(x,z,l)<1.02))continue;
       cover.push([x,EstateLayout.heightAt(x,z),z]);
     }
+    cover.push(...pathTufts);
     const blades=[],bladeUV=[];
     for(let k=0;k<5;k++){const a=k*2.4,h=.32+k*.065,x=Math.cos(a)*.11,z=Math.sin(a)*.11;
       blades.push(x-.035,0,z,x+.035,0,z,x+Math.cos(a)*.14,h,z+Math.sin(a)*.14);bladeUV.push(0,0,.3,0,.15,1);}

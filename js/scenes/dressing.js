@@ -21,6 +21,7 @@ const Dressing = (() => {
   let draft = null;
   let back = 'play';
   let clock = 0, cycle = 0, dolly = 0;
+  let spin = 0, dragId = null, dragX = 0, dragT = 0;
 
   /* ---------------- the studio ---------------- */
 
@@ -96,9 +97,12 @@ const Dressing = (() => {
       Figure.setLocomotion(fig, beat === 'walk' ? 1.55 : 0, 0);
       Figure.setCheering(fig, beat === 'wave');
       Figure.setSpeaking(fig, false);
-      // the turntable only turns while they are walking, so the walk
-      // gets seen from every side and the idle stays readable
-      turntable.rotation.y += dt * (beat === 'walk' ? 0.55 : 0.12);
+      // the turntable only turns when you turn it: drag to spin, and a
+      // flick carries on a little and settles rather than stopping dead
+      if (dragId === null) {
+        turntable.rotation.y += spin * dt;
+        spin = U.damp(spin, 0, 4, dt);
+      }
       Figure.lookAt(fig, camera.position, { pitch: true });
       Figure.update(fig, dt, clock);
     }
@@ -122,13 +126,49 @@ const Dressing = (() => {
        walk them off the side of a narrow frame. */
     dolly = U.damp(dolly, beat === 'walk' ? 0 : 1, 2.2, dt);
     const dist = U.lerp(2.85, 1.95, dolly);
-    const camY = U.lerp(1.20, 1.42, dolly);
-    const aimY = U.lerp(0.96, 1.30, dolly);
+    const camY = U.lerp(1.14, 1.36, dolly);
+    const aimY = U.lerp(0.91, 1.25, dolly);
 
     const wide = camera.aspect > 1.2;
     camera.position.set(U.lerp(0.55, 0.40, dolly), camY, dist);
     camera.lookAt(wide ? U.lerp(0.66, 0.46, dolly) : 0, aimY, 0);
     Input.endFrame();
+  }
+
+  /* ---------------- dragging the turntable ----------------
+     Anywhere on the screen that is not the panel is a handle. A
+     horizontal drag is all we take: `touch-action: pan-y` leaves the
+     vertical to the page, which still scrolls on a short phone. */
+
+  const DRAG_RATE = 0.012;   // radians per pixel
+
+  function onDown(e) {
+    if (dragId !== null || !turntable) return;
+    if (e.button !== undefined && e.button !== 0) return;
+    if (e.target.closest && e.target.closest('.dress-inner')) return;
+    dragId = e.pointerId;
+    dragX = e.clientX;
+    dragT = performance.now();
+    spin = 0;
+  }
+
+  function onMove(e) {
+    if (e.pointerId !== dragId) return;
+    const dx = e.clientX - dragX;
+    const now = performance.now();
+    const dts = Math.max(0.001, (now - dragT) / 1000);
+    turntable.rotation.y += dx * DRAG_RATE;
+    spin = U.lerp(spin, (dx * DRAG_RATE) / dts, 0.5);
+    dragX = e.clientX;
+    dragT = now;
+  }
+
+  function onUp(e) {
+    if (e.pointerId !== dragId) return;
+    dragId = null;
+    // a drag that stopped before letting go should not fling
+    if (performance.now() - dragT > 90) spin = 0;
+    spin = U.clamp(spin, -12, 12);
   }
 
   /* ---------------- the controls ---------------- */
@@ -194,7 +234,9 @@ const Dressing = (() => {
     back = (data && data.from) || 'play';
     draft = Look.normalise(Look.get());
     clock = 0; cycle = 0; dolly = 0;
+    spin = 0; dragId = null;
     if (!view) build();
+    turntable.rotation.y = 0;
     Engine.setView(view, frame);
     dressFigure();
     el('dress-name').value = Look.getName();
@@ -231,6 +273,12 @@ const Dressing = (() => {
       syncSelects();
     };
     el('dress-name').addEventListener('change', () => Look.setName(el('dress-name').value));
+
+    const room = document.querySelector('[data-screen="dressing"]');
+    room.addEventListener('pointerdown', onDown);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
 
     Screens.register('dressing', { enter, exit });
   }

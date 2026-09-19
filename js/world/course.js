@@ -402,6 +402,7 @@ const CourseKit = (() => {
       if (treeSpots.length) group.add(buildTrees(treeSpots, rng));
     }
 
+    if (opts.visualProfile === 'highland') BoatScenery.cliffs(group);
     return group;
   }
 
@@ -557,8 +558,9 @@ const CourseKit = (() => {
       vertexColors: true, flatShading: true,
     }));
     mesh.name = 'rocks';
+    if (opts.visualProfile === 'highland') BoatScenery.surface(mesh, 'wet', 5);
 
-    const foam = buildFoamCollars(foamAt);
+    const foam = buildFoamCollars(foamAt, { visualProfile: opts.visualProfile });
     return { mesh, colliders, foam: foam.mesh, update: foam.update };
   }
 
@@ -582,12 +584,18 @@ const CourseKit = (() => {
 
   function buildFoamCollars(items, opts = {}) {
     if (!items.length) return { mesh: new THREE.Group(), update() {} };
-    const geo = new THREE.PlaneGeometry(2, 2);
+    const geo = new THREE.PlaneGeometry(2, 2, opts.visualProfile === 'highland' ? 3 : 1, opts.visualProfile === 'highland' ? 3 : 1);
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshBasicMaterial({
       map: foamTexture(), transparent: true, depthWrite: false,
       blending: THREE.NormalBlending, opacity: opts.opacity ?? 0.9,
     });
+    if (opts.visualProfile === 'highland') {
+      const fallback = mat.map; BoatMaterials.bind(mat, 'foam');
+      BoatMaterials.followWater(mat, .16);
+      mat.addEventListener('dispose', () => fallback.dispose());
+      mat.opacity *= .6;
+    }
     const mesh = new THREE.InstancedMesh(geo, mat, items.length);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.frustumCulled = false;
@@ -630,7 +638,7 @@ const CourseKit = (() => {
         });
       }
     }
-    return buildFoamCollars(spots, { opacity: 0.72 });
+    return buildFoamCollars(spots, { opacity: 0.72, visualProfile: opts.visualProfile });
   }
 
   /* =============== channel marker buoys =============== */

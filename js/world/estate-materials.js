@@ -40,12 +40,21 @@ const EstateMaterials = (() => {
   // Add surface detail to existing rigs without changing their chosen colours.
   function fabric(figure){
     if(!figure||!figure.userData.mats)return;
+    // a figure wearing the character atlas keeps its own weave, unless
+    // the atlas turns out not to be there
+    const own=figure.userData.figureTextured&&typeof FigureMaterials!=='undefined'
+      ?FigureMaterials.settled:Promise.resolve(false);
     const m=figure.userData.mats,entry=load('upholstery',GameState.data.settings.quality==='low');
     for(const key of ['coat','trim','glove','accent']){
       const material=m[key];if(!material)continue;let live=true;
       material.addEventListener('dispose',()=>live=false);
-      entry.ready.then(()=>{if(!live)return;material.map=entry.textures.color;material.bumpMap=entry.textures.bump;material.bumpScale=.003;material.needsUpdate=true;});
-      material.onBeforeCompile=shader=>{shader.fragmentShader=shader.fragmentShader.replace('#include <map_fragment>', '#ifdef USE_MAP\n diffuseColor.rgb *= .85 + .4 * texture2D(map, vMapUv).g;\n#endif');};
+      Promise.all([entry.ready,own]).then(([,atlas])=>{
+        if(!live||atlas)return;
+        material.map=entry.textures.color;material.bumpMap=entry.textures.bump;material.bumpScale=.003;
+        material.onBeforeCompile=shader=>{shader.fragmentShader=shader.fragmentShader.replace('#include <map_fragment>', '#ifdef USE_MAP\n diffuseColor.rgb *= .85 + .4 * texture2D(map, vMapUv).g;\n#endif');};
+        material.customProgramCacheKey=()=>'estate-fabric';
+        material.needsUpdate=true;
+      });
     }
   }
   function figureLOD(figure,camera){
@@ -54,7 +63,7 @@ const EstateMaterials = (() => {
     figure.userData.rig.head.traverse(o=>{
       if(!o.isMesh||!o.geometry)return;
       if(!o.geometry.boundingSphere)o.geometry.computeBoundingSphere();
-      if(o.geometry.boundingSphere.radius<.09)o.visible=!far;
+      if(o.geometry.boundingSphere.radius<.09&&!o.userData.keepLOD)o.visible=!far;
     });
   }
   function dress(root,classify){

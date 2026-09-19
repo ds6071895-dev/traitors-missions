@@ -28,35 +28,28 @@
    shelf, and the nose had edges you could count. The dressing room
    puts you two metres from all of that.
 
-   It is a face now. A smooth cranium with cheeks, a jaw and a chin
-   under it; eyes with a white, an iris and a pupil, and a lid that
-   rolls down over them to blink; ears; a nose with a bridge and a tip;
+   Then it was a face built like a real one — cranium, jaw, chin and
+   brow as separate balls, eyes with a white, an iris and a lid a
+   millimetre apart — and it looked like a stranger. The balls made a
+   lumpy egg and the layered eyes were a stare.
+
+   So it is stylised now, and on purpose. One smooth reshaped head;
+   two glossy dark eyes with a catchlight each and a blink that
+   squeezes them to a line; brows in the hair colour; a round nose;
    and a mouth that opens while its owner is speaking — which is how
    you tell, across a round table, who has the floor.
 
-   And then the proportions, which were the thing everyone could see
-   and nobody could name. Three faults, all of them at once:
+   The body went the same way. Anatomical proportions on flat-shaded
+   primitives read as a coat-hanger on a stick, so it is chunky: about
+   five and three-quarter heads tall, sloping shoulders, a deep torso,
+   thick limbs and big hands and feet. The skeleton below is a table of
+   metres at 1.72 and the figure is scaled to the height it was asked
+   for, so a `height` is the height you get.
 
-   - The figure was not the height it said it was. A `height` of 1.78
-     built something 2.23 metres tall, because the parts were sized by
-     eye and never added up. Everything framed against it — a 1.60
-     standing camera, a 1.22 seated one, Claudia's face at `y + 1.52` —
-     was therefore framed on a chest.
-   - The torso was one cylinder from the belt to the collar, and a
-     cylinder is as deep as it is wide. Front on it was narrow; from
-     the side it was the same narrow. There was no waist and no chest,
-     so there was no body — just a pipe with a coat colour.
-   - The coat did not hang. It started at the hip joint and went
-     upwards, which left boot-coloured legs running all the way to the
-     waist and a long tube above them.
-
-   So the skeleton below is a table of metres, every one of them a
-   fraction of 1.78, and the figure is scaled to the height it was
-   asked for at the end. The torso is three sections — chest, waist,
-   skirt — each flattened on Z, and the coat's hem is below the belt
-   where a hem goes. The head is 15% over life size and the shoulders
-   are a little broad, because flat-shaded primitives at anatomically
-   exact proportions read as a coat-hanger.
+   And it is closed. Every torso section has a top and a bottom, and
+   everything with an open edge — a collar, a cap peak, a head of hair
+   — is double-sided. The old sections were open tubes, so any camera
+   above head height looked straight down into a hollow body.
 
    Appearance is a `look` from `look.js`: enumerated choices resolved to
    colours before they arrive. `palette` is still accepted, because
@@ -80,10 +73,13 @@ const Figure = (() => {
      normal on twelve sides is a smooth normal on a nut. */
   const lam  = (col) => new THREE.MeshLambertMaterial({ color: col, flatShading: true });
   const lamS = (col) => new THREE.MeshLambertMaterial({ color: col });
+  const lamD = (col) => new THREE.MeshLambertMaterial({ color: col, flatShading: true,
+                                                        side: THREE.DoubleSide });
+  const lamSD = (col) => new THREE.MeshLambertMaterial({ color: col, side: THREE.DoubleSide });
 
   const PALETTES = {
     claudia: { coat: '#14161d', trim: '#8d1230', skin: '#e9c3a4', hair: '#241a16',
-               boot: '#0d0e12', glove: '#2a1016', accent: '#c9a227' },
+               boot: '#0d0e12', glove: '#2a1016', accent: '#c9a227', fabric: 'tweed' },
     green:   { coat: '#2f5d4a', trim: '#8fc0a0', skin: '#dfae86', hair: '#3b2a1e',
                boot: '#241f1a', glove: '#3a4a42', accent: '#9fd6b4' },
     rust:    { coat: '#7a3b28', trim: '#d59a6a', skin: '#f0cfb0', hair: '#6d4a2a',
@@ -97,239 +93,267 @@ const Figure = (() => {
     // a wetsuit, for the water: dark neoprene with a high-vis trim,
     // because a diver nobody can pick out of blue water is not a diver
     diver:   { coat: '#123044', trim: '#39e6ff', skin: '#e2b894', hair: '#221a15',
-               boot: '#0b1a26', glove: '#1c4358', accent: '#f2c14e' },
+               boot: '#0b1a26', glove: '#1c4358', accent: '#f2c14e', fabric: 'neoprene' },
   };
 
   const CAST_PALETTES = ['green', 'rust', 'slate', 'plum', 'ochre'];
 
-  const EYE_DARK  = '#171a1f';
-  const EYE_WHITE = '#efe9e0';   // never pure white; a real one is not
-  const EYE_IRIS  = '#4a3626';
-  const MOUTH_COL = '#43242a';
+  const EYE_DARK  = '#1c1f26';
+  const EYE_SHINE = '#f4f1ea';   // never pure white
+  const MOUTH_COL = '#5a2a30';
 
-  /* How far the lid is unrolled: nothing when the eye is open, all of
-     it when shut. Written down rather than inlined because the blink
-     reads them and so does the build. */
-  const LID_OPEN = 0.05;
-  const LID_SHUT = 1.00;
-  const MOUTH_SHUT = 0.26;       // the mouth's resting Y scale
+  /* How far a blink squeezes the eye: all the way to a line, rather
+     than to nothing, because a lid is still there when it is shut. */
+  const BLINK_SHUT = 0.08;
 
   /* ---------------- the skeleton ----------------
-     Every number below is metres at a height of 1.78, and the figure
-     is then scaled by whatever height it was actually asked for. That
-     matters more than it looks: the hill, the round table and the fire
-     are all built at human scale — a chair seat at 0.46, a table rim
-     at 0.74, a standing camera at 1.60 — and a figure that is not
-     actually the height it says it is has every one of those framings
-     slightly wrong, which is why Claudia used to be shot from the
-     collarbone up.
+     Every number below is metres at a height of 1.72, and the figure
+     is then scaled by whatever height it was actually asked for, so a
+     `height` is the height you get — the round table, the fire and the
+     cameras are all framed against it.
 
-     The proportions are close to a real body and then pushed two ways
-     on purpose: the head is a little large and the shoulders a little
-     broad, because a flat-shaded figure with anatomically correct
-     versions of both reads as a coat-hanger at any distance. */
+     The proportions are stylised on purpose and in one direction:
+     chunky. About five and three-quarter heads tall, a torso deeper
+     than a real one, sloping shoulders, thick limbs and big hands and
+     feet. A flat-shaded figure at anatomical proportions reads as a
+     coat-hanger on a stick at any distance — which is exactly what the
+     last version did — and a sturdy one reads as a person. */
 
-  const H0        = 1.78;      // the height every measurement here is of
-  const ANKLE     = 0.098;     // ankle joint, above the ground
-  const KNEE      = 0.534;
-  const HIP       = 0.952;     // and so the hip group's standing height
+  const H0        = 1.72;      // the height every measurement here is of
+  const ANKLE     = 0.090;     // ankle joint, above the ground
+  const KNEE      = 0.505;
+  const HIP       = 0.860;     // and so the hip group's standing height
 
   /* above the hips */
-  const SHOULDER  = 0.500;     // arm pivots, and the top of the torso
-  const HEAD_AT   = 0.545;     // the head group's origin, roughly the jaw
+  const SHOULDER  = 0.450;     // arm pivots sit just under this
+  const HEAD_AT   = 0.480;     // the head group's origin, just under the chin
 
-  const THIGH = HIP - KNEE;                 // 0.418
-  const SHIN  = KNEE - ANKLE;               // 0.436
+  const THIGH = HIP - KNEE;                 // 0.355
+  const SHIN  = KNEE - ANKLE;               // 0.415
 
-  /* Sitting is the same chain, and the numbers are not taste: put the
-     thigh out level and the shin straight down and there is exactly
-     one height the hips can be for the feet to reach the floor. The
-     old figure guessed 0.46, which folded the shins up under the seat
-     — invisible under a long coat at the round table, and wrong the
-     moment anybody sits anywhere else.
-
-     `SEAT_TILT` is a shade past level, because in a chair the knee
-     ends up slightly above the hip. That lands the hips 5cm over the
-     0.46 seat the round table builds, which is where a person is. */
+  /* Sitting is the same chain: thigh out level, shin straight down,
+     and there is exactly one height the hips can be for the feet to
+     reach the floor. `SEAT_TILT` is a shade past level, because in a
+     chair the knee ends up slightly above the hip. */
   const SEAT_TILT = -1.62;
   const SEAT_HIP  = ANKLE + SHIN + THIGH * Math.cos(SEAT_TILT);
-  const SEAT_DROP = HIP - SEAT_HIP;         // ≈ 0.439
+  const SEAT_DROP = HIP - SEAT_HIP;
 
-  /* Half-widths at girth 1. The torso is flattened on Z by `SQUASH`,
-     so the first number is half the *width* and the depth follows. */
-  const YOKE   = 0.252;        // across the shoulders
-  const CHEST  = 0.224;
-  const WAIST  = 0.196;
-  const HEM_J  = 0.214;        // a jacket stops at the hip
-  const HEM_C  = 0.300;        // a coat flares past it
-  const SQUASH = 0.66;
+  /* Half-widths at girth 1. Depth is width times `SQUASH`, and girth
+     reaches depth at a little over half strength — a broad build is
+     broad front and back as well, just not as much. */
+  const YOKE   = 0.270;        // across the shoulders, where the arms hang
+  const NECKLINE = 0.150;      // the top of the shoulder slope
+  const WAIST  = 0.235;
+  const HEM_J  = 0.250;        // a jacket stops at the hip
+  const HEM_C  = 0.310;        // a coat flares past it
+  const SQUASH = 0.76;
 
-  const HEAD_SCALE = 1.15;     // the head, over its anatomical size
+  /* The head, in its own group's metres: an ellipsoid centred `cy`
+     above the group origin, reshaped so the lower half comes in to a
+     jaw. Everything that sits on a head — hair, hats, a helmet, a dive
+     mask — is placed from these numbers rather than guessing. */
+  const HEAD = { cy: 0.215, rx: 0.140, ry: 0.150, rz: 0.140 };
 
   /* ---------------- pieces ---------------- */
 
-  /* The torso, and the two things it has to get right.
-
-     A cylinder is round, and a person is not: a chest is about twice
-     as wide as it is deep, and a figure built out of round sections is
-     a stack of pipes from every angle at once. `squash` flattens the
-     section on Z, and it is the single change that does most of the
-     work here.
-
-     The other is that it hangs. `bottom` and `top` are heights either
-     side of the hip joint, so a long coat has a hem *below* the waist
-     the way a coat does, rather than a cylinder that starts at the
-     belt and only ever goes up. */
+  /* A torso section. Closed at both ends: an open one is a hole the
+     size of the shoulders that any camera above head height looks
+     straight down into, and with single-sided faces the far wall of
+     the body is not there either. */
   function shellGeometry(rTop, rBot, bottom, top, squash) {
     const h = top - bottom;
-    const g = new THREE.CylinderGeometry(rTop, rBot, h, 22, 3, true);
+    const g = new THREE.CylinderGeometry(rTop, rBot, h, 22, 3, false);
     g.translate(0, bottom + h * 0.5, 0);
     g.scale(1, 1, squash);
     return g;
   }
 
-  function limb(rTop, rBot, len, seg = 12) {
+  function limb(rTop, rBot, len, seg = 14) {
     const g = new THREE.CylinderGeometry(rTop, rBot, len, seg);
     g.translate(0, -len * 0.5, 0);
     return g;
   }
 
-  function buildHair(style, M, head, g) {
-    const add = (mesh) => { head.add(mesh); return mesh; };
-    const cap = (r, sweep, y) => {
-      const m = new THREE.Mesh(
-        new THREE.SphereGeometry(r, 24, 16, 0, Math.PI * 2, 0, sweep), M.hair);
-      m.position.y = y;
-      return add(m);
-    };
-    if (style === 'bald') {
-      const stubble = cap(0.128 * g, Math.PI * 0.42, 0.118 * g);
-      stubble.scale.set(1, 0.55, 1);
-      return;
-    }
-    if (style === 'crop')  { cap(0.132 * g, Math.PI * 0.46, 0.122 * g); return; }
-    if (style === 'short') { cap(0.136 * g, Math.PI * 0.54, 0.118 * g); return; }
+  /* The head's surface, from a direction. One function, used to build
+     the head and then to put every feature on it — which is how the
+     eyes come to sit flush instead of floating or sinking. */
+  function headPoint(H, x, y, z, out) {
+    const l = Math.hypot(x, y, z) || 1;
+    x /= l; y /= l; z /= l;
+    const low = Math.max(0, -y);
+    const taper = 1 - 0.24 * low * low;                   // the jaw
+    const face = 1 - 0.07 * Math.max(0, z) * Math.max(0, z); // a flatter front
+    return (out || new THREE.Vector3()).set(
+      x * H.rx * taper, H.cy + y * H.ry, z * H.rz * taper * face);
+  }
 
+  function headNormal(H, x, y, z, out) {
+    const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
+    const d = new THREE.Vector3(x, y, z).normalize();
+    const up = Math.abs(d.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+    const t1 = new THREE.Vector3().crossVectors(up, d).normalize();
+    const t2 = new THREE.Vector3().crossVectors(d, t1);
+    const e = 1e-3;
+    headPoint(H, d.x, d.y, d.z, _a);
+    headPoint(H, d.x + t1.x * e, d.y + t1.y * e, d.z + t1.z * e, _b).sub(_a);
+    headPoint(H, d.x + t2.x * e, d.y + t2.y * e, d.z + t2.z * e, _c).sub(_a);
+    const n = (out || new THREE.Vector3()).crossVectors(_b, _c).normalize();
+    if (n.dot(d) < 0) n.negate();
+    return n;
+  }
+
+  function headGeometry(H) {
+    const g = new THREE.SphereGeometry(1, 32, 24);
+    const p = g.attributes.position, nrm = g.attributes.normal;
+    const v = new THREE.Vector3(), n = new THREE.Vector3();
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      headPoint(H, x, y, z, v);
+      headNormal(H, x, y, z, n);
+      p.setXYZ(i, v.x, v.y, v.z);
+      nrm.setXYZ(i, n.x, n.y, n.z);
+    }
+    g.computeBoundingSphere();
+    return g;
+  }
+
+  /* A group sitting on the head's surface at a direction, facing out
+     along the surface normal. `sink` pushes it in (negative lifts). */
+  function onHead(H, head, dir, sink = 0) {
+    const p = headPoint(H, dir[0], dir[1], dir[2]);
+    const n = headNormal(H, dir[0], dir[1], dir[2]);
+    const g = new THREE.Group();
+    g.position.copy(p).addScaledVector(n, -sink);
+    g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+    head.add(g);
+    return g;
+  }
+
+  /* Hair is a shell over the head's own ellipsoid, rolled back so the
+     hairline sits high at the front and low at the nape. `t` is its
+     thickness, `sweep` how far down it comes and `tilt` how far back
+     it is rolled. */
+  function buildHair(style, M, head, H) {
+    const add = (mesh) => { head.add(mesh); return mesh; };
+    const blob = (sx, sy, sz, x, y, z) => {
+      const m = add(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), M.hair));
+      m.scale.set(sx, sy, sz);
+      m.position.set(x, y, z);
+      return m;
+    };
+    const cap = (t, sweep, tilt) => {
+      const m = add(new THREE.Mesh(
+        new THREE.SphereGeometry(1, 28, 16, 0, Math.PI * 2, 0, sweep), M.hair));
+      m.scale.set(H.rx + t, H.ry + t, H.rz + t);
+      m.position.set(0, H.cy, -t * 0.25);
+      m.rotation.x = -tilt;
+      return m;
+    };
+    const side = H.rx * 0.97 + 0.012;
+
+    if (style === 'bald')  { cap(0.004, Math.PI * 0.40, 0.40); return; }
+    if (style === 'crop')  { cap(0.008, Math.PI * 0.45, 0.45); return; }
+    if (style === 'short') { cap(0.014, Math.PI * 0.48, 0.45); return; }
     if (style === 'bob') {
-      cap(0.142 * g, Math.PI * 0.60, 0.115 * g);
-      for (const side of [-1, 1]) {
-        const fall = add(new THREE.Mesh(
-          new THREE.SphereGeometry(0.060 * g, 16, 12), M.hair));
-        fall.scale.set(0.62, 1.85, 1.00);
-        fall.position.set(side * 0.100 * g, 0.030 * g, -0.008 * g);
-        fall.rotation.z = side * 0.05;
-      }
+      cap(0.018, Math.PI * 0.56, 0.72);
+      for (const s of [-1, 1]) blob(0.030, 0.100, 0.090, s * side, H.cy - 0.035, -0.022);
       return;
     }
     if (style === 'long') {
-      cap(0.144 * g, Math.PI * 0.62, 0.115 * g);
-      for (const side of [-1, 1]) {
-        const fall = add(new THREE.Mesh(
-          new THREE.SphereGeometry(0.058 * g, 16, 12), M.hair));
-        fall.scale.set(0.62, 2.85, 0.94);
-        fall.position.set(side * 0.102 * g, -0.040 * g, -0.010 * g);
-        fall.rotation.z = side * 0.06;
-      }
-      const back = add(new THREE.Mesh(
-        new THREE.SphereGeometry(0.100 * g, 18, 14), M.hair));
-      back.scale.set(0.98, 1.55, 0.42);
-      back.position.set(0, -0.020 * g, -0.092 * g);
+      cap(0.020, Math.PI * 0.58, 0.74);
+      for (const s of [-1, 1]) blob(0.030, 0.165, 0.092, s * side, H.cy - 0.085, -0.030);
+      blob(H.rx * 0.92, 0.170, 0.050, 0, H.cy - 0.085, -(H.rz * 0.86 + 0.010));
       return;
     }
     if (style === 'bun') {
-      cap(0.138 * g, Math.PI * 0.56, 0.118 * g);
-      const bun = add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.070 * g, 2), M.hair));
-      bun.position.set(0, 0.145 * g, -0.125 * g);
+      cap(0.014, Math.PI * 0.50, 0.45);
+      const bun = blob(0.058, 0.058, 0.058, 0, H.cy + 0.100, -(H.rz * 0.75 + 0.030));
+      bun.userData.metric = [0.30, 0.18];
       return;
     }
     if (style === 'tail') {
-      cap(0.138 * g, Math.PI * 0.54, 0.118 * g);
-      const tail = add(new THREE.Mesh(limb(0.048 * g, 0.026 * g, 0.30 * g, 14), M.hair));
-      tail.position.set(0, 0.10 * g, -0.128 * g);
-      tail.rotation.x = -0.55;
+      cap(0.014, Math.PI * 0.50, 0.45);
+      const tail = add(new THREE.Mesh(limb(0.044, 0.024, 0.28, 14), M.hair));
+      tail.position.set(0, H.cy + 0.060, -(H.rz + 0.004));
+      tail.rotation.x = 0.35;
       return;
     }
     if (style === 'braids') {
-      cap(0.140 * g, Math.PI * 0.56, 0.116 * g);
-      for (const side of [-1, 1]) {
-        const braid = add(new THREE.Mesh(limb(0.040 * g, 0.024 * g, 0.30 * g, 12), M.hair));
-        braid.position.set(side * 0.108 * g, 0.09 * g, -0.030 * g);
-        braid.rotation.z = side * 0.20;
-        braid.rotation.x = -0.12;
+      cap(0.016, Math.PI * 0.54, 0.66);
+      for (const s of [-1, 1]) {
+        const braid = add(new THREE.Mesh(limb(0.036, 0.022, 0.30, 12), M.hair));
+        braid.position.set(s * H.rx * 0.90, H.cy - 0.020, -0.040);
+        braid.rotation.z = s * 0.12;
+        braid.rotation.x = 0.10;
       }
     }
   }
 
-  function buildHat(style, M, head, g) {
+  /* Hats sit on the same ellipsoid, a little outside the thickest
+     hair, inside a group rolled with them where they are worn tilted. */
+  function buildHat(style, M, head, H) {
     if (!style || style === 'none') return null;
     const hat = new THREE.Group();
+    hat.position.y = H.cy;
     head.add(hat);
+    const out = 0.026;
+    const ex = H.rx + out, ey = H.ry + out, ez = H.rz + out;
+    const across = (y) => Math.sqrt(Math.max(0, 1 - (y / ey) * (y / ey)));
+
     if (style === 'beanie') {
+      hat.rotation.x = -0.12;
+      const sweep = Math.PI * 0.42;
       const c = new THREE.Mesh(
-        new THREE.SphereGeometry(0.148 * g, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.52),
-        M.accent);
-      c.position.y = 0.122 * g;
+        new THREE.SphereGeometry(1, 24, 14, 0, Math.PI * 2, 0, sweep), M.accent);
+      c.scale.set(ex, ey, ez);
       hat.add(c);
-      const band = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.150 * g, 0.150 * g, 0.048 * g, 22), M.trim);
-      band.position.y = 0.118 * g;
+      const lo = Math.cos(sweep) * ey - 0.010, hi = lo + 0.048;
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(
+        ex * across(hi) + 0.006, ex * across(lo) + 0.006, hi - lo, 24), M.trim);
+      band.position.y = (lo + hi) * 0.5;
+      band.scale.z = ez / ex;
       hat.add(band);
+      const pom = new THREE.Mesh(new THREE.SphereGeometry(0.036, 14, 10), M.trim);
+      pom.position.y = ey + 0.018;
+      hat.add(pom);
     } else if (style === 'flat') {
+      hat.rotation.x = 0.12;
+      const sweep = Math.PI * 0.5;
       const crown = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.150 * g, 0.140 * g, 0.062 * g, 20), M.accent);
-      // clear of the hair underneath it, which it was not
-      crown.position.y = 0.230 * g;
-      crown.rotation.x = -0.10;
+        new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, sweep), M.accent);
+      crown.scale.set(H.rx + 0.032, 0.150, H.rz + 0.040);
+      crown.position.y = 0.030;
       hat.add(crown);
-      const peak = new THREE.Mesh(
-        new THREE.BoxGeometry(0.20 * g, 0.020 * g, 0.135 * g), M.accent);
-      peak.position.set(0, 0.204 * g, 0.140 * g);
-      peak.rotation.x = -0.16;
+      const peak = new THREE.Mesh(new THREE.CylinderGeometry(
+        0.105, 0.105, 0.012, 16, 1, false, -Math.PI * 0.5, Math.PI), M.accent);
+      peak.scale.z = 0.78;
+      peak.position.set(0, 0.034, H.rz * 0.80);
+      peak.rotation.x = 0.10;
       hat.add(peak);
     } else if (style === 'wide') {
+      const at = 0.075;
       const crown = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.118 * g, 0.132 * g, 0.130 * g, 20), M.accent);
-      crown.position.y = 0.232 * g;
+        new THREE.CylinderGeometry(0.118, 0.150, 0.130, 20), M.accent);
+      crown.position.y = at + 0.065;
       hat.add(crown);
       const brim = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.255 * g, 0.255 * g, 0.018 * g, 26), M.accent);
-      brim.position.y = 0.172 * g;
+        new THREE.CylinderGeometry(0.260, 0.260, 0.014, 28), M.accent);
+      brim.position.y = at + 0.004;
       hat.add(brim);
+      const ribbon = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.144, 0.149, 0.026, 20), M.trim);
+      ribbon.position.y = at + 0.026;
+      hat.add(ribbon);
     } else if (style === 'band') {
-      const band = new THREE.Mesh(
-        new THREE.TorusGeometry(0.132 * g, 0.020 * g, 8, 26), M.accent);
-      band.position.y = 0.148 * g;
+      const at = 0.070;
+      const band = new THREE.Mesh(new THREE.TorusGeometry(
+        H.rx * Math.sqrt(1 - (at / H.ry) * (at / H.ry)) + 0.020, 0.016, 8, 28), M.accent);
+      band.position.y = at;
       band.rotation.x = Math.PI * 0.5;
       hat.add(band);
     }
     return hat;
-  }
-
-  function buildNeckwear(style, M, chest, y, g) {
-    if (!style || style === 'none') return;
-    if (style === 'scarf') {
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(0.085 * g, 0.038 * g, 10, 24), M.accent);
-      ring.position.y = y;
-      ring.rotation.x = Math.PI * 0.5;
-      chest.add(ring);
-      const tail = new THREE.Mesh(
-        new THREE.BoxGeometry(0.085 * g, 0.28 * g, 0.040 * g), M.accent);
-      tail.position.set(0.055 * g, y - 0.16 * g, 0.090 * g);
-      tail.rotation.z = 0.10;
-      chest.add(tail);
-    } else if (style === 'sash') {
-      const sash = new THREE.Mesh(
-        new THREE.BoxGeometry(0.098 * g, 0.62 * g, 0.030 * g), M.accent);
-      sash.position.set(0, y - 0.30 * g, 0.150 * g);
-      sash.rotation.z = 0.42;
-      chest.add(sash);
-    } else if (style === 'cowl') {
-      const cowl = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.135 * g, 0.105 * g, 0.150 * g, 22, 1, true), M.accent);
-      cowl.position.y = y - 0.02 * g;
-      chest.add(cowl);
-    }
   }
 
   /* ---------------- the figure ---------------- */
@@ -338,7 +362,7 @@ const Figure = (() => {
     const o = Object.assign({
       palette: null,
       look: null,
-      height: 1.78,
+      height: 1.72,
       long: true,          // a long coat, or a jacket and trousers
       hair: 'short',
       girth: 1,
@@ -358,19 +382,28 @@ const Figure = (() => {
       C = { coat: P.coat, trim: P.trim, skin: P.skin, hairColour: P.hair,
             boot: P.boot, glove: P.glove, accent: P.accent,
             hair: o.hair, hat: 'none', scarf: 'none',
+            fabric: P.fabric || 'waxed',
             height: o.height, girth: o.girth };
     }
 
+    /* Trim, accent and hair are double-sided: they are the materials
+       with open edges on them — a collar ring, a cap peak, the rim of a
+       head of hair — and single-sided, an open edge is a hole. */
     const M = {
-      coat: lam(C.coat), trim: lam(C.trim), boot: lam(C.boot),
-      glove: lam(C.glove), accent: lam(C.accent),
-      skin: lamS(C.skin), hair: lamS(C.hairColour),
-      white: lamS(EYE_WHITE), iris: lamS(EYE_IRIS), mouth: lamS(MOUTH_COL),
-      dark: lam(EYE_DARK),
+      coat: lam(C.coat), trim: lamD(C.trim), boot: lam(C.boot), legs: lam(C.boot),
+      glove: lam(C.glove), accent: lamD(C.accent), sash: lamD(C.accent),
+      skin: lamS(C.skin), hair: lamSD(C.hairColour),
+      eye: new THREE.MeshPhongMaterial({ color: EYE_DARK, shininess: 90,
+                                         specular: '#5a5f68' }),
+      shine: new THREE.MeshBasicMaterial({ color: EYE_SHINE }),
+      mouth: lamS(MOUTH_COL),
     };
 
-    const g = C.girth || 1;                    // lateral scale only
+    const g = C.girth || 1;                    // width
+    const gz = 1 + (g - 1) * 0.6;              // and depth, at a little over half
+    const SQ = SQUASH * gz / g;                // shell squash that gets there
     const s = (C.height || H0) / H0;
+    const zOf = (r) => r * SQUASH * gz;        // front of a section of half-width r
 
     const root = new THREE.Group();
     const hips = new THREE.Group();
@@ -379,334 +412,324 @@ const Figure = (() => {
 
     /* -------- legs --------
        Two joints each, which is the entire reason a walk is possible.
-       Under a long coat only the shins show, but the chain is the same
-       either way so nothing has to know which coat it is wearing.
-
-       They are deliberately thicker than a stick: a leg the width of
-       the arm above it is the classic way a figure made of cylinders
-       ends up looking starved. */
+       Thick on purpose: a leg the width of the arm above it is the
+       quickest way a figure made of cylinders ends up looking starved. */
     const legs = {};
-    const thighH = THIGH, shinH = SHIN;
     for (const [key, side] of [['l', -1], ['r', 1]]) {
       const pivot = new THREE.Group();
-      pivot.position.set(side * 0.092 * g, 0, 0);
+      pivot.position.set(side * 0.100 * g, 0, 0);
       hips.add(pivot);
 
-      const thigh = new THREE.Mesh(limb(0.101 * g, 0.079 * g, thighH, 14), M.boot);
+      const thigh = new THREE.Mesh(limb(0.108 * g, 0.088 * g, THIGH, 16), M.legs);
       pivot.add(thigh);
+      // a round top, so the leg turns in the hip rather than out of a cut
+      const seatBall = new THREE.Mesh(new THREE.SphereGeometry(0.108 * g, 16, 10), M.legs);
+      pivot.add(seatBall);
 
       const knee = new THREE.Group();
-      knee.position.y = -thighH;
+      knee.position.y = -THIGH;
       pivot.add(knee);
 
-      // a calf, then an ankle: a shin that tapers all the way down is
-      // the other half of the same starved look
-      const shin = new THREE.Mesh(limb(0.079 * g, 0.058 * g, shinH, 14), M.boot);
+      const kneeBall = new THREE.Mesh(new THREE.SphereGeometry(0.088 * g, 14, 10), M.legs);
+      knee.add(kneeBall);
+      const shin = new THREE.Mesh(limb(0.086 * g, 0.066 * g, SHIN, 16), M.legs);
       knee.add(shin);
-      const calf = new THREE.Mesh(
-        new THREE.SphereGeometry(0.072 * g, 14, 10), M.boot);
-      calf.scale.set(1, 1.35, 1.1);
-      calf.position.set(0, -shinH * 0.30, -0.014);
+      const calf = new THREE.Mesh(new THREE.SphereGeometry(0.078 * g, 14, 10), M.legs);
+      calf.scale.set(1, 1.35, 1.05);
+      calf.position.set(0, -SHIN * 0.30, -0.012);
       knee.add(calf);
 
       const ankle = new THREE.Group();
-      ankle.position.y = -shinH;
+      ankle.position.y = -SHIN;
       knee.add(ankle);
 
-      const foot = new THREE.Mesh(
-        new THREE.BoxGeometry(0.118 * g, 0.062, 0.245), M.boot);
-      foot.position.set(0, -0.066, 0.058);
+      // a chunky boot: a block with a rounded toe and a cuff above it
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.130 * g, 0.076, 0.230), M.boot);
+      foot.position.set(0, -0.052, 0.040);
       ankle.add(foot);
-      const toe = new THREE.Mesh(
-        new THREE.BoxGeometry(0.104 * g, 0.050, 0.070), M.boot);
-      toe.position.set(0, -0.062, 0.176);
+      const toe = new THREE.Mesh(new THREE.SphereGeometry(0.066 * g, 16, 10), M.boot);
+      toe.scale.set(1, 0.60, 1.05);
+      toe.position.set(0, -0.052, 0.150);
       ankle.add(toe);
-
-      const cuff = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.090 * g, 0.084 * g, 0.082, 16), M.trim);
-      cuff.position.y = -shinH + 0.052;
-      knee.add(cuff);
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(
+        0.082 * g, 0.078 * g, 0.120, 16), M.boot);
+      shaft.position.y = 0.012;
+      ankle.add(shaft);
 
       legs[key] = { pivot, knee, ankle, side };
     }
 
     /* -------- torso --------
-       Three sections rather than one tube, because the whole reason the
-       old figure read as a pole was that it was a single cylinder from
-       the belt to the collar: chest, then a waist that comes in, then
-       the skirt of the coat going back out. Every one of them is
-       flattened on Z, so the body has a front and a side. */
+       Four closed sections: the skirt of the jacket, a waist, a chest
+       that widens to the arms, and a sloping shoulder that comes back
+       in to the neck. Every one flattened on Z so the body has a front
+       and a side, and every one closed, so there is nowhere a camera
+       can see into it. */
     const spine = new THREE.Group();
     hips.add(spine);
 
     const chest = new THREE.Group();
     spine.add(chest);
 
-    const hem = (o.long ? HEM_C : HEM_J) * g;
-    const hemY = o.long ? -0.40 : -0.155;       // where the coat stops
-    const waistY = 0.115;                       // the narrowest point
+    const hem = o.long ? HEM_C : HEM_J;
+    const hemY = o.long ? -0.38 : -0.140;       // where the coat stops
+    const waistY = 0.100;                        // the narrowest point
+    const armY = SHOULDER - 0.060;               // widest, under the arms
+    const neckY = SHOULDER + 0.035;              // top of the shoulder slope
 
     const body = new THREE.Mesh(
-      shellGeometry(CHEST * g, WAIST * g, waistY, SHOULDER, SQUASH), M.coat);
+      shellGeometry(YOKE * g, WAIST * g, waistY, armY, SQ), M.coat);
     chest.add(body);
 
     const skirt = new THREE.Mesh(
-      shellGeometry(WAIST * g, hem, hemY, waistY, SQUASH), M.coat);
+      shellGeometry(WAIST * g, hem * g, hemY, waistY, SQ), M.coat);
     chest.add(skirt);
 
-    /* The shoulders. A cap over each one as well as the yoke across
-       them: an arm that leaves a flat wall is the other thing that
-       makes a primitive figure look assembled rather than built. */
     const yoke = new THREE.Mesh(
-      shellGeometry(YOKE * g, CHEST * g, SHOULDER - 0.135, SHOULDER + 0.030, SQUASH),
-      M.coat);
+      shellGeometry(NECKLINE * g, YOKE * g, armY, neckY, SQ), M.coat);
     chest.add(yoke);
 
     for (const side of [-1, 1]) {
-      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.088 * g, 16, 11), M.coat);
-      cap.scale.set(1.05, 0.92, 0.86);
-      cap.position.set(side * (YOKE - 0.082) * g, SHOULDER - 0.018, 0);
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.096 * g, 16, 11), M.coat);
+      cap.scale.set(1.0, 0.92, 0.92 * gz / g);
+      cap.position.set(side * (YOKE - 0.068) * g, SHOULDER - 0.050, 0);
       chest.add(cap);
     }
 
-    // the coat closes: a placket down the front and a belt across it
-    const lapel = new THREE.Mesh(
-      new THREE.BoxGeometry(0.078 * g, SHOULDER - hemY - 0.10, 0.030), M.trim);
-    lapel.position.set(0, (SHOULDER + hemY) * 0.5 + 0.05, CHEST * g * SQUASH * 0.94);
-    chest.add(lapel);
+    /* A strip down the front of a tapered section, lying on it. The
+       cylinder has a vertex exactly at the front, so a box tilted to
+       the taper touches the whole way down rather than floating off at
+       one end. */
+    const placket = (y0, r0, y1, r1, w, mat) => {
+      const z0 = zOf(r0 * g), z1 = zOf(r1 * g);
+      const len = Math.hypot(y1 - y0, z1 - z0);
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w * g, len, 0.022), mat);
+      m.position.set(0, (y0 + y1) * 0.5, (z0 + z1) * 0.5 + 0.006);
+      m.rotation.x = Math.atan2(z1 - z0, y1 - y0);
+      chest.add(m);
+      return m;
+    };
+    placket(waistY, WAIST, armY, YOKE, 0.072, M.trim);
+    placket(hemY + 0.02, hem, waistY, WAIST, 0.072, M.trim);
 
     const belt = new THREE.Mesh(
       shellGeometry((WAIST + 0.010) * g, (WAIST + 0.012) * g,
-                    waistY - 0.036, waistY + 0.036, SQUASH), M.boot);
+                    waistY - 0.034, waistY + 0.034, SQ), M.boot);
     chest.add(belt);
 
     const buckle = new THREE.Mesh(
-      new THREE.BoxGeometry(0.068 * g, 0.056, 0.028), M.accent);
-    buckle.position.set(0, waistY, WAIST * g * SQUASH + 0.012);
+      new THREE.BoxGeometry(0.068 * g, 0.056, 0.024), M.accent);
+    buckle.position.set(0, waistY, zOf((WAIST + 0.012) * g) + 0.010);
     chest.add(buckle);
 
     const collar = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.108 * g, 0.150 * g, 0.088, 20, 1, true), M.trim);
-    collar.position.y = SHOULDER + 0.062;
-    collar.scale.z = 0.82;
+      new THREE.CylinderGeometry(0.104 * g, 0.136 * g, 0.070, 22, 1, true), M.trim);
+    collar.position.y = neckY + 0.030;
+    collar.scale.z = SQ;
     chest.add(collar);
 
-    buildNeckwear(C.scarf, M, chest, SHOULDER + 0.040, g);
+    /* The front of the chest at a height, for anything worn on it: a
+       bib, a tank, a sash. Linear between the sections, because the
+       sections are. */
+    const frontZ = (y) => {
+      if (y <= waistY) {
+        const k = U.clamp((y - hemY) / (waistY - hemY), 0, 1);
+        return zOf(U.lerp(hem, WAIST, k) * g);
+      }
+      const k = U.clamp((y - waistY) / (armY - waistY), 0, 1);
+      return zOf(U.lerp(WAIST, YOKE, k) * g);
+    };
+
+    if (C.scarf === 'scarf') {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.100 * g, 0.036 * g, 10, 24), M.accent);
+      ring.position.y = neckY + 0.022;
+      ring.rotation.x = Math.PI * 0.5;
+      ring.scale.y = SQ;                        // y is depth, once it is lying down
+      chest.add(ring);
+      const tail = new THREE.Mesh(
+        new THREE.BoxGeometry(0.078 * g, 0.26, 0.034), M.accent);
+      tail.position.set(0.058 * g, SHOULDER - 0.110, frontZ(SHOULDER - 0.110) + 0.024);
+      tail.rotation.z = 0.08;
+      chest.add(tail);
+    } else if (C.scarf === 'sash') {
+      /* A band that goes round the body rather than a plank laid across
+         its front, which floated off both sides of a round chest. */
+      const tilt = 0.55;
+      const at = SHOULDER - 0.200;
+      const wrap = new THREE.Group();
+      wrap.position.y = at;
+      wrap.rotation.z = tilt;
+      chest.add(wrap);
+      // cut on the slant, a body's section is an ellipse that is longer
+      // along the slope by 1/cos of it and exactly as deep as before
+      const rx = (YOKE * 0.97 * g + 0.016) / Math.cos(tilt);
+      const band = new THREE.Mesh(
+        new THREE.CylinderGeometry(rx, rx, 0.075, 36, 1, true), M.sash);
+      band.scale.z = (zOf(YOKE * 0.97 * g) + 0.016) / rx;
+      wrap.add(band);
+    } else if (C.scarf === 'cowl') {
+      const cowl = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.130 * g, 0.150 * g, 0.140, 22, 1, true), M.accent);
+      cowl.position.y = neckY + 0.040;
+      cowl.scale.z = SQ;
+      chest.add(cowl);
+    }
 
     /* -------- arms --------
        Long enough that the fingertips reach mid-thigh, which is where
-       a hanging hand actually is and the easiest proportion in a
-       figure to get wrong. */
+       a hanging hand actually is, and thick enough to belong to the
+       body they hang off. */
     const arms = {};
-    const upperH = 0.300, foreH = 0.262;
+    const upperH = 0.270, foreH = 0.230;
     for (const [key, side] of [['l', -1], ['r', 1]]) {
       const pivot = new THREE.Group();
-      pivot.position.set(side * (YOKE - 0.055) * g, SHOULDER - 0.052, 0);
+      pivot.position.set(side * (YOKE - 0.062) * g, SHOULDER - 0.070, 0);
       chest.add(pivot);
 
-      const upper = new THREE.Mesh(limb(0.076 * g, 0.060 * g, upperH, 14), M.coat);
+      const upper = new THREE.Mesh(limb(0.084 * g, 0.070 * g, upperH, 16), M.coat);
       pivot.add(upper);
 
       const fore = new THREE.Group();
       fore.position.y = -upperH;
       pivot.add(fore);
 
-      const lower = new THREE.Mesh(limb(0.062 * g, 0.048 * g, foreH, 14), M.coat);
+      const lower = new THREE.Mesh(limb(0.070 * g, 0.058 * g, foreH, 16), M.coat);
       fore.add(lower);
 
-      const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.062 * g, 14, 10), M.coat);
-      elbow.scale.setScalar(0.98);
+      const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.070 * g, 14, 10), M.coat);
       fore.add(elbow);
 
       const cuff = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.058 * g, 0.055 * g, 0.066, 16), M.trim);
-      cuff.position.y = -foreH + 0.038;
+        new THREE.CylinderGeometry(0.064 * g, 0.062 * g, 0.060, 16), M.trim);
+      cuff.position.y = -foreH + 0.030;
       fore.add(cuff);
 
-      const hand = new THREE.Mesh(new THREE.IcosahedronGeometry(0.066, 2), M.glove);
-      hand.position.y = -foreH - 0.046;
-      hand.scale.set(0.95, 1.20, 0.78);
+      // a mitten of a hand: big, soft and round, the stylised way
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.060 * g, 16, 12), M.glove);
+      hand.position.y = -foreH - 0.048;
+      hand.scale.set(0.92, 1.18, 0.78);
       fore.add(hand);
+      const thumb = new THREE.Mesh(new THREE.SphereGeometry(0.024 * g, 10, 8), M.glove);
+      thumb.position.set(-side * 0.040 * g, -foreH - 0.030, 0.026);
+      fore.add(thumb);
 
       pivot.rotation.z = side * 0.085;
       arms[key] = { pivot, fore, hand, side };
     }
 
     /* -------- head --------
-       The face is the thing everybody looks at and it was six flat
-       boxes and a four-sided cone. Two eyes buried in the skull to the
-       iris, a brow that was a shelf of skin, and a nose you could
-       count the sides of — at any distance closer than a wide shot it
-       stopped reading as a person, which is exactly the distance the
-       dressing room puts you at.
-
-       So it is built properly now: a smooth cranium, cheeks and a
-       chin under it, eyes that are eyes — white, iris, pupil, and a
-       lid that comes down over them rather than a pupil squashing
-       flat — a nose with a bridge and a tip, ears, and a mouth that
-       opens when the person it belongs to is talking.
-
-       Everything here is still small and still cheap; there is no
-       texture and no skinning. The change is entirely in the shapes
-       being the right shapes, and in the skin being smooth-shaded
-       while the coat stays faceted. That contrast is doing real work:
-       a face wants curvature, a garment does not mind creases. */
+       One smooth, reshaped ellipsoid rather than five overlapping balls
+       — the old skull, jaw, chin and brow made a lumpy egg that read as
+       a stranger's face — with simple stylised features on it: two
+       glossy dark eyes with a catchlight each, brows in the hair
+       colour, a small round nose, ears, and a mouth that opens while
+       its owner is talking. There is no eye-white, iris and lid stacked
+       a millimetre apart any more; that stack was the stare. */
     const neck = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.068, 0.092, 0.098, 16), M.skin);
-    neck.position.y = SHOULDER + 0.036;
-    neck.scale.z = 0.88;
+      new THREE.CylinderGeometry(0.064, 0.074, 0.130, 16), M.skin);
+    neck.position.y = SHOULDER + 0.050;
+    neck.scale.z = 0.90;
     chest.add(neck);
 
     const head = new THREE.Group();
     head.position.y = HEAD_AT;
     chest.add(head);
 
-    /* `hd` scales every piece of the head together — including the
-       hair and the hat, which is why those two take it as an argument
-       rather than assuming 1. Girth only reaches the head at a
-       fraction of its strength: a broad build is broad in the
-       shoulders, not in the skull. */
-    const hd = HEAD_SCALE;
+    // girth reaches the skull only faintly: a broad build is broad in
+    // the shoulders, not in the head
     const hg = 1 + (g - 1) * 0.35;
+    const H = { cy: HEAD.cy, rx: HEAD.rx * hg, ry: HEAD.ry, rz: HEAD.rz };
 
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.124 * hd, 24, 18), M.skin);
-    skull.scale.set(0.95 * hg, 1.06, 1.00);
-    skull.position.y = 0.112 * hd;
+    const skull = new THREE.Mesh(headGeometry(H), M.skin);
+    skull.userData.metric = [0.90, 0.47];
     head.add(skull);
 
-    /* Cheeks and jaw, then the chin in front of them. Three overlapping
-       ellipsoids and no seam anywhere, because they are all the same
-       smooth material and Lambert does not care where one ends. */
-    const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.104 * hd, 20, 14), M.skin);
-    jaw.scale.set(0.94 * hg, 0.78, 0.96);
-    jaw.position.set(0, 0.052 * hd, 0.014 * hd);
-    head.add(jaw);
-
-    const chin = new THREE.Mesh(new THREE.SphereGeometry(0.050 * hd, 14, 10), M.skin);
-    chin.scale.set(0.92 * hg, 0.86, 0.86);
-    chin.position.set(0, 0.010 * hd, 0.058 * hd);
-    head.add(chin);
-
-    // a brow that only just breaks the surface: a shadow line, not a shelf
-    const brow = new THREE.Mesh(new THREE.SphereGeometry(0.100 * hd, 18, 12), M.skin);
-    brow.scale.set(1.02 * hg, 0.30, 0.62);
-    brow.position.set(0, 0.158 * hd, 0.058 * hd);
-    head.add(brow);
-
     for (const side of [-1, 1]) {
-      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.034 * hd, 12, 9), M.skin);
-      ear.scale.set(0.34, 1.00, 0.72);
-      ear.position.set(side * 0.115 * hd * hg, 0.104 * hd, 0.004 * hd);
-      head.add(ear);
+      const ear = onHead(H, head, [side, 0.02, -0.06], 0.006);
+      const lobe = new THREE.Mesh(new THREE.SphereGeometry(0.032, 12, 9), M.skin);
+      lobe.scale.set(0.70, 1.00, 0.36);
+      ear.add(lobe);
     }
 
-    /* The eyes, and this is where most of the work went.
-
-       An eyeball is a ball, so the obvious build is a sphere at the
-       front of the head. It does not work: the skull is an ellipsoid
-       and it curves away hard at exactly the width the eyes sit at, so
-       a sphere placed far enough forward for the iris to clear the
-       surface has its outer rim standing a centimetre proud of the
-       temple. That is what "the faces look weird" is. Burying it far
-       enough to fix that is what the old face did, and then only the
-       dark bead of the iris showed.
-
-       So the eye is an almond lying in the skull's own tangent plane
-       at that point — turned out along the curve, tipped up with it,
-       and set back into the surface by slightly less than its own
-       thickness. The whole rim then sits flush and only the middle of
-       the eye stands proud, by about four millimetres, which is what
-       an eye does.
-
-       Lying along the curve means the socket faces out by twenty-six
-       degrees, which is roughly what a real one does and would be a
-       wall-eyed stare if the iris were centred in it. It is not: the
-       iris is offset towards the nose by the amount that cancels it,
-       so the gaze reads straight ahead. Eyes have been drawn this way
-       for as long as faces have been drawn at all. */
-    const EYE_YAW   =  0.452;    // the skull's own outward normal, there
-    const EYE_PITCH = -0.107;
-    const eyes = {}, lids = {};
+    const EYE_X = 0.34, EYE_UP = 0.00;
+    const eyes = {}, blinks = [], brows = [];
     for (const [key, side] of [['l', -1], ['r', 1]]) {
-      const socket = new THREE.Group();
-      socket.position.set(side * (0.0490 * hg - 0.0018) * hd,
-                          0.1266 * hd, 0.1081 * hd);
-      socket.rotation.y = side * EYE_YAW;
-      socket.rotation.x = EYE_PITCH;
-      head.add(socket);
-
-      const white = new THREE.Mesh(new THREE.SphereGeometry(0.030 * hd, 18, 14), M.white);
-      white.scale.set(1, 0.627, 0.267);
-      socket.add(white);
-
-      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.0132 * hd, 16, 12), M.iris);
-      iris.scale.set(1, 1, 0.42);
-      iris.position.set(side * -0.0060 * hd, 0, 0.0062 * hd);
-      socket.add(iris);
-
-      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.0062 * hd, 12, 10), M.dark);
-      pupil.scale.set(1, 1, 0.42);
-      pupil.position.set(side * -0.0060 * hd, 0, 0.0098 * hd);
-      socket.add(pupil);
-
-      // one catchlight, which is the cheapest thing on this figure and
-      // the difference between eyes and holes
-      const shine = new THREE.Mesh(new THREE.SphereGeometry(0.0032 * hd, 8, 6), M.white);
-      shine.scale.set(1, 1, 0.40);
-      shine.position.set(side * -0.0094 * hd, 0.0042 * hd, 0.0118 * hd);
-      socket.add(shine);
-
-      /* The lid. A pivot along the top of the eye with a flap of skin
-         hanging from it, rolled up to nothing when open — so a blink
-         is a lid coming down, not the eyeball flattening and springing
-         back, which was the old one and was the tell that this was a
-         puppet. */
-      const lid = new THREE.Group();
-      lid.position.set(0, 0.0192 * hd, 0.0042 * hd);
-      lid.scale.y = LID_OPEN;
-      socket.add(lid);
-      const flap = new THREE.Mesh(new THREE.SphereGeometry(0.0330 * hd, 16, 12), M.skin);
-      flap.scale.set(1, 0.68, 0.24);
-      flap.position.set(0, -0.0224 * hd, 0.0024 * hd);
-      lid.add(flap);
-
+      const socket = onHead(H, head, [side * EYE_X, EYE_UP, 1], 0.005);
+      const blink = new THREE.Group();
+      socket.add(blink);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.028, 18, 14), M.eye);
+      eye.scale.set(0.76, 1.0, 0.36);
+      eye.userData.keepLOD = true;
+      blink.add(eye);
+      // one catchlight, from the same side on both, and it is the
+      // difference between eyes and holes
+      const shine = new THREE.Mesh(new THREE.SphereGeometry(0.0058, 8, 6), M.shine);
+      shine.scale.set(1, 1, 0.4);
+      shine.position.set(0.0072, 0.0100, 0.0088);
+      shine.userData.keepLOD = true;
+      blink.add(shine);
       eyes[key] = socket;
-      lids[key] = lid;
+      blinks.push(blink);
+
+      const bs = onHead(H, head, [side * 0.35, 0.33, 1], -0.003);
+      const brow = new THREE.Mesh(new THREE.CapsuleGeometry(0.0078, 0.034, 4, 8), M.hair);
+      brow.rotation.z = Math.PI * 0.5 - side * 0.12;
+      brow.scale.z = 0.6;
+      bs.add(brow);
+      brows.push(brow);
     }
 
-    /* A nose, rather than a cone with four sides you could count. */
-    const nose = new THREE.Group();
-    nose.position.set(0, 0.088 * hd, 0.098 * hd);
-    head.add(nose);
-    const bridge = new THREE.Mesh(new THREE.SphereGeometry(0.030 * hd, 14, 10), M.skin);
-    bridge.scale.set(0.60, 1.30, 1.10);
-    bridge.position.set(0, 0.026 * hd, -0.004 * hd);
-    nose.add(bridge);
-    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.026 * hd, 14, 10), M.skin);
-    tip.scale.set(0.90, 0.78, 1.05);
-    tip.position.set(0, 0, 0.014 * hd);
-    nose.add(tip);
+    const noseAt = onHead(H, head, [0, -0.20, 1], -0.006);
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.023, 14, 10), M.skin);
+    nose.scale.set(1.0, 0.82, 0.80);
+    noseAt.add(nose);
 
-    /* And a mouth, which is the one piece here that moves for a reason
-       other than looking alive: `setSpeaking` opens it, so the person
-       who currently has the floor is readable from across the room
-       without anybody having to read a label. */
-    const mouth = new THREE.Group();            // hinged along the top lip
-    mouth.position.set(0, 0.0398 * hd, 0.1005 * hd);
-    head.add(mouth);
-    const lips = new THREE.Mesh(new THREE.SphereGeometry(0.030 * hd, 16, 10), M.mouth);
-    lips.scale.set(1.05 * hg, MOUTH_SHUT, 0.42);
-    lips.position.y = -0.030 * MOUTH_SHUT * hd;
+    /* The mouth is hinged along its top edge, so opening it grows it
+       downwards the way a jaw does. */
+    const mouth = onHead(H, head, [0, -0.50, 1], 0.001);
+    const lips = new THREE.Mesh(new THREE.CapsuleGeometry(0.0085, 0.030, 4, 10), M.mouth);
+    lips.rotation.z = Math.PI * 0.5;
+    lips.scale.z = 0.5;
+    lips.position.y = -0.0085;
     mouth.add(lips);
 
-    buildHair(C.hair, M, head, hd);
-    const hat = buildHat(C.hat, M, head, hd);
+    buildHair(C.hair, M, head, H);
+    const hat = buildHat(C.hat, M, head, H);
+
+    /* Where a helmet or a mask goes, in head-group metres: the front of
+       the face at eye height and the eye line itself. */
+    const eyeP = headPoint(H, EYE_X, EYE_UP, 1);
+    const faceP = headPoint(H, 0, EYE_UP, 1);
+    const headDims = { cy: H.cy, rx: H.rx, ry: H.ry, rz: H.rz,
+                       eyeY: eyeP.y, faceZ: faceP.z };
+
+    /* -------- texture --------
+       The weave for each material, if the atlas is on this page at all.
+       Coat fabric is chosen per coat colour in `look.js`. */
+    let textured = false;
+    if (typeof FigureMaterials !== 'undefined') {
+      const F = FigureMaterials;
+      F.material(M.coat, C.fabric || 'waxed', 0.70);
+      F.material(M.trim, 'rib', 0.60);
+      F.material(M.legs, C.fabric === 'neoprene' ? 'neoprene' : 'twill', 0.55);
+      F.material(M.boot, 'leather', 0.50);
+      F.material(M.glove, 'suede', 0.55);
+      F.material(M.accent, 'cable', 0.65);
+      F.material(M.sash, 'tartan', 0.75);
+      F.material(M.hair, C.hair === 'braids' || C.hair === 'bun' ? 'wavy' : 'hair', 0.55);
+      F.material(M.skin, 'skin', 0.15);
+      textured = F.dress(root) && !F.failed;
+    }
 
     /* -------- state -------- */
     root.userData.rig = { hips, spine, chest, head, arms, legs, body, skull,
-                          eyes, lids, brow, mouth, hat, yoke };
+                          eyes, blinks, brows, mouth, hat, yoke,
+                          headDims, frontZ, backZ: (y) => -frontZ(y) };
     root.userData.mats = M;
     root.userData.h = C.height;
+    root.userData.girth = g;
+    root.userData.figureTextured = textured;
     root.userData.stand = hips.position.y;
     root.userData.seatDrop = SEAT_DROP;
     root.userData.phase = Math.random() * 6.283;
@@ -987,8 +1010,7 @@ const Figure = (() => {
     const shut = d.blink < 0 ? 1 : 0;
     if (d.blink < -0.11) d.blink = 2.2 + Math.random() * 4.5;
     d.lidNow = U.damp(d.lidNow, shut, 30, dt);
-    r.lids.l.scale.y = r.lids.r.scale.y =
-      LID_OPEN + (LID_SHUT - LID_OPEN) * d.lidNow;
+    for (const b of r.blinks) b.scale.y = 1 - (1 - BLINK_SHUT) * d.lidNow;
 
     /* The mouth opens while this person is talking. It is a small
        thing on a small mesh and it is the only way, across a table of
@@ -998,8 +1020,11 @@ const Figure = (() => {
          does rather than growing in both directions from the middle. */
       const flap = 0.5 + 0.5 * Math.sin(t * 11.5 + ph * 2.7)
                        + 0.35 * Math.sin(t * 19.3 + ph);
-      r.mouth.scale.y = 1 + sp * U.clamp(flap, 0, 1.2) * 1.15;
+      r.mouth.scale.y = 1 + sp * U.clamp(flap, 0, 1.2) * 1.6;
     }
+    // and the brows go up with it, a little, which is most of what
+    // makes a speaking face look like it means it
+    for (const b of r.brows) b.position.y = sp * (0.003 + 0.002 * Math.sin(t * 1.7 + ph));
 
     /* -------- arms --------
        One arm gestures while speaking, both counter-swing while
@@ -1103,7 +1128,7 @@ const Figure = (() => {
   // a stable palette per player, so the same name is the same coat
   function paletteFor(index) { return CAST_PALETTES[index % CAST_PALETTES.length]; }
 
-  return { build, update, setSeated, setSpeaking, setLocomotion, setAiming,
+  return { build, update, setSeated, HEAD, setSpeaking, setLocomotion, setAiming,
            setSwim, setSwimming,
            setCheering, flinch, lookAt, dispose, paletteFor,
            setHolding, throwNow, throwProgress, handAt, headAt, THROW_AT,

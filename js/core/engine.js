@@ -121,7 +121,7 @@ const Engine = (() => {
       for (const mm of mats) {
         for (const k in mm) {
           const v = mm[k];
-          if (v && v.isTexture && !(v.userData && (v.userData.estateShared || v.userData.shootoutShared))) v.dispose();
+          if (v && v.isTexture && !(v.userData && (v.userData.estateShared || v.userData.shootoutShared || v.userData.boatShared))) v.dispose();
         }
         mm.dispose();
       }

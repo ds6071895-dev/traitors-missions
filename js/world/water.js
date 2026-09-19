@@ -39,6 +39,8 @@ const Water = (() => {
 
   const uniforms = {
     uTime:      { value: 0 },
+    uHighland:  { value: 0 },
+    uDetail:    { value: 1 },
     uSunDir:    { value: new THREE.Vector3(0.42, 0.36, -0.83).normalize() },
     uSunCol:    { value: new THREE.Color('#fff0c4') },
     uDeep:      { value: new THREE.Color('#04304d') },
@@ -110,7 +112,7 @@ const Water = (() => {
 
   const FRAG = `
     uniform vec3  uSunDir, uSunCol, uDeep, uShallow, uCrest, uSky, uFog;
-    uniform float uFogNear, uFogFar, uTime;
+    uniform float uFogNear, uFogFar, uTime, uHighland, uDetail;
     varying vec3  vWorld;
     varying vec3  vNormal;
     varying float vCrest;
@@ -136,7 +138,15 @@ const Water = (() => {
       // they are enormous, and faceting would read as broken geometry — so the
       // further away a fragment is, the more it trusts the analytic normal.
       float near = 1.0 - smoothstep(90.0, 1100.0, vDist);
-      vec3 n = normalize(mix(smoothN, facet, near * 0.62));
+      vec3 n = normalize(mix(smoothN, facet, near * mix(0.62, 0.08, uHighland)));
+      if (uHighland > 0.5) {
+        vec2 p = vWorld.xz;
+        float detail = near * uDetail * (1.0 - smoothstep(30.0, 190.0, vDist));
+        vec2 ripples = vec2(sin(p.x * 2.3 + p.y * 1.4 + uTime * 2.6),
+                            cos(p.y * 2.8 - p.x * 1.1 - uTime * 2.0));
+        ripples += .45 * vec2(sin(p.y * 6.1 + uTime * 3.7), cos(p.x * 5.3 - uTime * 4.1));
+        n = normalize(n + vec3(ripples.x, 0.0, ripples.y) * .022 * detail);
+      }
 
       /* From below this is a ceiling, not a sea. Both normals above were
          forced upward, which would light the underside as if it were the
@@ -170,16 +180,17 @@ const Water = (() => {
 
       col *= 0.58 + 0.74 * diff;
       col = mix(col, uSky, clamp(fres, 0.0, 1.0) * 0.42);
-      col += uSunCol * spec * 2.4;
+      col += uSunCol * spec * mix(2.4, 1.05, uHighland);
 
       // glitter: fine broken highlights riding the surface
       float gl = vnoise(vWorld.xz * 1.7 + uTime * 0.6) * vnoise(vWorld.xz * 0.9 - uTime * 0.35);
       float glint = pow(max(dot(n, H), 0.0), 26.0) * smoothstep(0.55, 1.0, gl);
-      col += uSunCol * glint * 1.4 * near;
+      col += uSunCol * glint * mix(1.4, .45, uHighland) * near;
 
       // whitecaps: steep facets near the top of a swell
       float foam = smoothstep(0.09, 0.30, slope) * smoothstep(0.28, 0.80, vCrest);
       foam *= 0.55 + 0.45 * vnoise(vWorld.xz * 0.8 + uTime * 0.25);
+      foam *= mix(1.0, smoothstep(.28, .76, vnoise(vWorld.xz * 2.4 + uTime * .4)), uHighland);
       col = mix(col, vec3(0.94, 0.99, 1.0), clamp(foam, 0.0, 1.0) * 0.92);
 
       float fog = smoothstep(uFogNear, uFogFar, vDist);
@@ -207,7 +218,13 @@ const Water = (() => {
 
   let mat, near, mid, far, group;
 
-  function build(scene) {
+  function setVisualProfile(profile = null) {
+    uniforms.uHighland.value = profile === 'highland' ? 1 : 0;
+    uniforms.uDetail.value = profile === 'highland' && GameState.settings.quality === 'low' ? .25 : 1;
+  }
+
+  function build(scene, opts = {}) {
+    setVisualProfile(opts.visualProfile);
     if (group) { Engine.disposeObject(group); group = null; }
     // a fresh scene starts from calm defaults; the mission dials it up after
     setSeaState(DEFAULT_SEA);
@@ -259,7 +276,7 @@ const Water = (() => {
       return m;
     };
 
-    near = square(nearGeo, 0, 0);
+    near = square(opts.visualProfile === 'highland' ? {...nearGeo, seg: GameState.settings.quality === 'low' ? 156 : GameState.settings.quality === 'medium' ? 220 : nearGeo.seg} : nearGeo, 0, 0);
     mid = ring(midGeo, -0.05, -1);
     far = ring(farGeo, -0.10, -2);
 
@@ -385,6 +402,6 @@ const Water = (() => {
   }
 
   return { build, update, follow, sampleHeight, sampleSurface, uniforms, setFog,
-           setSeaState, setPalette, seaState, DEFAULTS,
+           setSeaState, setPalette, setVisualProfile, seaState, DEFAULTS, surfaceShader: COMMON,
            get time() { return time; } };
 })();

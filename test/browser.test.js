@@ -45,7 +45,12 @@ const { createServer } = require('../server');
     await b.evaluate(code => Party.join(code, { name: 'Bo' }), code);
     await c.evaluate(code => Party.join(code, { name: 'Cy' }), code);
     for (const page of pages) {
+      // Keep Boat Race's sustained mix running while exercising real voice.
+      await page.addScriptTag({url:origin+'/js/boat/feedback.js'});
       await page.evaluate(() => {
+        AudioBus.resume();
+        window.boatAudio=BoatFeedback.audio();
+        boatAudio.set({speed:45,tune:{boostTop:70},throttleIn:1,airborne:false,boosting:true,landed:0,impact:0});
         VoiceChat.init(); VoiceChat.listen();
         window.audioFrames = 0;
         const send = Party.room.sendAudio;
@@ -58,7 +63,7 @@ const { createServer } = require('../server');
       await page.waitForFunction(id => VoiceChat.level(id) > 0.02, hostId, { timeout: 10000 });
       assert.equal(await page.evaluate(() => VoiceChat.available), false, 'receive without enabling own mic');
     }
-    console.log('PASS: microphone capture and audible playback reach both guests via the server');
+    console.log('PASS: microphone capture and audible playback reach both guests with Boat Race engine/water/wind/boost audio playing');
     await a.evaluate(() => VoiceChat.setMuted(true));
     await a.waitForTimeout(200);
     const mutedCount = await a.evaluate(() => audioFrames);
@@ -93,7 +98,7 @@ const { createServer } = require('../server');
     assert.deepEqual(errors, []);
   } finally {
     for (const page of pages) {
-      await page.evaluate(() => { Party.leave(); VoiceChat.stop(); toneContext.close(); }).catch(() => {});
+      await page.evaluate(() => { Party.leave(); VoiceChat.stop(); if(window.boatAudio)boatAudio.stop(); toneContext.close(); }).catch(() => {});
     }
     await browser.close();
     await app.close();

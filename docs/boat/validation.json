@@ -1,0 +1,44 @@
+{
+  "date": "2026-09-19",
+  "baselineCommit": "5d9ad9797265216000806a4f4ace29c8228ee6e8",
+  "commands": {
+    "npm test": "passed: all 22 standard suites",
+    "THREE_TEST_ASSET=<r160> npm test": "passed: standard suites plus 100 main ski descents and 12 branch/snow descents",
+    "npm run test:boat-render": "passed",
+    "npm run test:browser": "passed: voice with concurrent Boat Race audio; three-player mission lifecycles"
+  },
+  "renderErrors": [],
+  "renderer": "SwiftShader; correctness and resource measurements only",
+  "browser": "153.0.8010.12",
+  "host": {
+    "platform": "linux",
+    "cpu": "12th Gen Intel(R) Core(TM) i3-1215U"
+  },
+  "repeatEntryMemory": [
+    {
+      "geometries": 138,
+      "textures": 56
+    },
+    {
+      "geometries": 138,
+      "textures": 56
+    },
+    {
+      "geometries": 138,
+      "textures": 56
+    },
+    {
+      "geometries": 138,
+      "textures": 56
+    },
+    {
+      "geometries": 138,
+      "textures": 56
+    }
+  ],
+  "devicePerformance": {
+    "acceleratedLaptop": "not measured",
+    "physicalPhone": "not measured",
+    "targets": "60 fps integrated-GPU laptop / 30 fps mid-range phone; unverified"
+  }
+}

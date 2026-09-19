@@ -352,7 +352,7 @@ The briefing screen is where a run is chosen. Nothing about it is fixed:
   repainted. The Night Run card still outranks the dial: it was chosen on purpose and
   paid for.
 - **The modifier** is a hand of three cards dealt from the seed, of which you keep one or
-  none. Fog Bank, Riptide, Glass Cannon, Cold Engine, Closing In, Tight Rings… each one
+  none. Fog Bank, Riptide, Glass Cannon, Closing In, Tight Rings… each one
   bends the rules and multiplies everything you earn. A shared seed deals a shared hand.
 - **The ghost** is your own best run on that exact setup — same seed, same mode, same
   modifier — replayed beside you with a live split. Anything else would be lying about
@@ -1625,3 +1625,18 @@ down while a rotation is banked — at full strength they are most of a radian, 
 swallow the whole landing tolerance and make a completed roll impossible to put down. The
 camera only follows a fraction of the roll, too: a horizon that spins with the hull is a
 landing you cannot read.
+
+### Boat Race Highland presentation
+
+Boat Race opts into the presentation modules in `js/boat/`: marine material atlas,
+classic speedboat details, coastal landmarks, scalable foam and spray, and layered audio.
+Its simulation and course/scoring owners remain unchanged. The shared water and course
+builders retain their original appearance unless the Highland profile is selected.
+Both game and OS reduced-motion settings suppress cosmetic camera and flash effects.
+
+Run `npm run test:boat-render` for the rendered regression suite. Open
+[the local review gallery](docs/boat/review.html) for matching before/after views and
+recordings; [implementation and validation notes](docs/boat/review.md) include asset
+provenance, measurements and reproduction commands. The gallery is a local development
+artifact, outside the game server's public-file allowlist. SwiftShader captures establish
+correctness; physical laptop and phone FPS targets still need device measurements.

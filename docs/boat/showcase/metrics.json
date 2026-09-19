@@ -1,0 +1,98 @@
+{
+  "errors": [],
+  "metrics": [
+    {
+      "name": "cockpit",
+      "calls": 48,
+      "triangles": 178288,
+      "memory": {
+        "geometries": 82,
+        "textures": 39
+      }
+    },
+    {
+      "name": "watchtower",
+      "calls": 73,
+      "triangles": 528271,
+      "memory": {
+        "geometries": 95,
+        "textures": 42
+      }
+    },
+    {
+      "name": "lighthouse",
+      "calls": 76,
+      "triangles": 578689,
+      "memory": {
+        "geometries": 98,
+        "textures": 42
+      }
+    },
+    {
+      "name": "landing",
+      "calls": 158,
+      "triangles": 605529,
+      "memory": {
+        "geometries": 144,
+        "textures": 43
+      }
+    },
+    {
+      "name": "surf",
+      "calls": 237,
+      "triangles": 843189,
+      "memory": {
+        "geometries": 147,
+        "textures": 43
+      }
+    },
+    {
+      "name": "airborne",
+      "calls": 235,
+      "triangles": 843165,
+      "memory": {
+        "geometries": 147,
+        "textures": 43
+      }
+    },
+    {
+      "name": "impact",
+      "calls": 235,
+      "triangles": 842421,
+      "memory": {
+        "geometries": 148,
+        "textures": 43
+      }
+    },
+    {
+      "name": "finish",
+      "calls": 239,
+      "triangles": 841701,
+      "memory": {
+        "geometries": 148,
+        "textures": 43
+      }
+    },
+    {
+      "name": "failure",
+      "calls": 240,
+      "triangles": 843181,
+      "memory": {
+        "geometries": 148,
+        "textures": 43
+      }
+    }
+  ],
+  "video": {
+    "frames": 90,
+    "fixedStep": 0.016666666666666666,
+    "duration": 3,
+    "renderer": "SwiftShader",
+    "cpuSubmitMs": {
+      "min": 3.2000000001862645,
+      "mean": 6.466666666692537,
+      "max": 20.200000000186265
+    },
+    "note": "CPU submission timing, not GPU or device FPS; frames encoded at 30 fps for playback."
+  }
+}

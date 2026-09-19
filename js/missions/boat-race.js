@@ -301,16 +301,21 @@ class BoatRaceMission {
     // ---- weather first: the mountain haze is baked against the fog colour,
     // ---- so the sky has to know what time it is before it is built ----
     const applied = Conditions.apply(this.cond);
+    BoatScenery.atmosphere(this.cond);
+    document.body.classList.add('boat-race-active');
     const fog = (this.mod && this.mod.fog) || applied.time.fog;
     const wFog = (this.mod && this.mod.waterFog) || applied.time.waterFog;
     scene.fog = new THREE.Fog(Sky.PALETTE.fog, fog.near, fog.far);
     scene.add(Conditions.lights(this.cond));
+    this.environmentMap = BoatScenery.environment(scene, this.cond);
 
     // ---- world ----
-    Sky.build(scene, U.makeRng(this.seed + 7));
-    Water.build(scene);
+    const sky = Sky.build(scene, U.makeRng(this.seed + 7));
+    BoatScenery.sky(scene, sky);
+    Water.build(scene, { visualProfile: 'highland' });
     // Water.build resets to calm, so the sea state has to go on afterwards
     Conditions.apply(this.cond);
+    BoatScenery.atmosphere(this.cond);
     Water.setFog(wFog.near, wFog.far, Sky.PALETTE.fog);
 
     // The shape of the channel is part of the seed too: a short tight gully
@@ -336,19 +341,19 @@ class BoatRaceMission {
     const avoid = this.hoops.map(h => ({ x: h.x, z: h.z, r: h.radius + 14 }));
 
     this.cliffs = CourseKit.buildCliffs(this.path, U.makeRng(this.seed + 11), {
-      stride: 1, baseHeight: 30, heightVary: 52, trees: true,
+      stride: 1, baseHeight: 30, heightVary: 52, trees: true, visualProfile: 'highland',
     });
     scene.add(this.cliffs);
 
     const rocks = CourseKit.buildRocks(this.path, U.makeRng(this.seed + 23), {
-      count: C.rockCount, avoid, detail: 2,
+      count: C.rockCount, avoid, detail: 2, visualProfile: 'highland',
     });
     this.rocks = rocks.mesh;
     this.colliders = rocks.colliders;
     this.rockFoam = rocks.update;
     scene.add(this.rocks, rocks.foam);
 
-    this.shoreFoam = CourseKit.buildShoreFoam(this.path, { spacing: 17 });
+    this.shoreFoam = CourseKit.buildShoreFoam(this.path, { spacing: BoatMaterials.low() ? 28 : 17, visualProfile: 'highland' });
     scene.add(this.shoreFoam.mesh);
 
     this.buoys = CourseKit.buildBuoys(this.path, { spacing: 135 });
@@ -358,9 +363,11 @@ class BoatRaceMission {
     this.startGate = this._buildGateArch(6, '#22d3ee', 'START');
     this.finishGate = this._buildGateArch(this.path.total - 22, '#ffd166', 'FINISH');
     scene.add(this.startGate, this.finishGate);
+    BoatScenery.equipment(this);
+    this.landmarks = BoatScenery.landmarks(this);
 
     // ---- boat ----
-    this.boat = new Boat({ tune: (this.mod && this.mod.tune) || {} });
+    this.boat = new Boat({ visualProfile: 'highland', tune: (this.mod && this.mod.tune) || {} });
     scene.add(this.boat.group);
     const p0 = this.path.at(0);
     this.boat.reset(p0.point.x, p0.point.z, Math.atan2(p0.tangent.x, p0.tangent.z));
@@ -370,7 +377,13 @@ class BoatRaceMission {
     if (this.opts.ghost) this._buildGhost();
 
     // ---- fx ----
-    this.fx = new FXSystem(scene, camera, document.getElementById('world-labels'));
+    this.fx = new FXSystem(scene, camera, document.getElementById('world-labels'), { sprayMax: BoatMaterials.low() ? 280 : 850, sparkMax: BoatMaterials.low() ? 90 : 220, wake: { conform: true, segments: BoatMaterials.low() ? 64 : 128, life: 4.5 } });
+    this.presentation = new BoatFeedback(scene, this.seed, this.cond);
+    const sprayMat = this.fx.spray.points.material;
+    let liveSpray = true; sprayMat.addEventListener('dispose', () => { liveSpray = false; });
+    BoatMaterials.load('spray').ready.then(e => { if (liveSpray && e.texture) sprayMat.uniforms.uMap.value = e.texture; });
+    const fireRing = this.fx.rings.fire.bind(this.fx.rings);
+    this.fx.rings.fire = (...args) => { if (!BoatMaterials.reduced()) fireRing(...args); };
 
     this.world = { colliders: this.colliders, path: this.path, hint: -1, _frame: {} };
 
@@ -390,6 +403,10 @@ class BoatRaceMission {
     this._camPos = new THREE.Vector3().copy(this.boat.pos).add(new THREE.Vector3(0, 10, -24));
     this._camLook = new THREE.Vector3().copy(this.boat.pos);
     this._camRoll = 0;
+    this.boat.group.position.copy(this.boat.pos);
+    this.boat.group.rotation.y = this.boat.heading;
+    this._updateHoopVisuals(0, 0);
+    this.buoys.update();
 
     return { scene, camera };
   }
@@ -561,8 +578,8 @@ class BoatRaceMission {
 
     // gold is still the ring against the rocks; violet is the home stretch,
     // so the stretch that pays double is one you can see coming
-    const idle = risk ? '#f5b625' : (final ? '#b98cff' : '#25e0f5');
-    const glowIdle = risk ? '#ffca4d' : (final ? '#c9a4ff' : '#39e6ff');
+    const idle = risk ? '#e9b45a' : '#5abcbf';
+    const glowIdle = risk ? '#ffca4d' : '#72d8dc';
     const group = new THREE.Group();
     const ring = new THREE.Mesh(K.ring,
       new THREE.MeshLambertMaterial({
@@ -614,17 +631,17 @@ class BoatRaceMission {
     for (const side of [-1, 1]) {
       const post = new THREE.CylinderGeometry(0.55, 1.0, C.hoopHeight, 14);
       post.translate(side * (radius + 0.9), -C.hoopHeight / 2, 0);
-      parts.push(paint(post, '#e5133f'));
+      parts.push(paint(post, '#667b78'));
       const float = new THREE.IcosahedronGeometry(2.3, 2);
       float.translate(side * (radius + 1.6), -C.hoopHeight, 0);
-      parts.push(paint(float, '#ffd166'));
+      parts.push(paint(float, '#ac9771'));
     }
     for (let b = 0; b < 8; b++) {
       const a = (b / 8) * Math.PI * 2 + Math.PI / 8;
       const bl = new THREE.BoxGeometry(0.5, 1.7, 0.5);
       bl.rotateZ(a - Math.PI / 2);
       bl.translate(Math.cos(a) * (radius + 1.1), Math.sin(a) * (radius + 1.1), 0);
-      parts.push(paint(bl, '#ffd166'));
+      parts.push(paint(bl, '#bda471'));
     }
     return Sky.mergeGeometries(parts);
   }
@@ -633,13 +650,13 @@ class BoatRaceMission {
     const c = document.createElement('canvas');
     c.width = 1024; c.height = 256;
     const g = c.getContext('2d');
-    g.fillStyle = color; g.fillRect(0, 0, 1024, 256);
-    g.fillStyle = 'rgba(0,0,0,0.18)';
-    for (let i = 0; i < 1024; i += 128) g.fillRect(i, 0, 64, 256);
-    g.fillStyle = 'rgba(255,255,255,0.22)';
-    g.fillRect(0, 0, 1024, 18); g.fillRect(0, 238, 1024, 18);
-    g.fillStyle = '#12202e';
-    g.font = 'bold 148px system-ui, sans-serif';
+    g.fillStyle = '#1b3035'; g.fillRect(0, 0, 1024, 256);
+    g.fillStyle = color;
+    g.fillRect(0, 0, 1024, 9); g.fillRect(0, 247, 1024, 9);
+    g.fillStyle = '#c3a16b';
+    for (const x of [28, 954]) { g.fillRect(x, 36, 42, 184); }
+    g.fillStyle = '#ece6d2';
+    g.font = '600 136px system-ui, sans-serif';
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(text, 512, 136);
     const t = new THREE.CanvasTexture(c);
@@ -698,7 +715,7 @@ class BoatRaceMission {
         hull: coat, hullLo: coat, stripe: accent, stripe2: accent,
         bottom: '#1d2b34', bottomLo: '#16222a',
         deck: '#cfd9e2', deckDk: '#9fb0bd', accent, glass: '#e8fbff',
-      });
+      }, 'highland', 'peer');
       const group = new THREE.Group();
       group.add(mesh);
       group.visible = false;
@@ -817,7 +834,7 @@ class BoatRaceMission {
       hull: '#9fe9ff', hullLo: '#7fd3ef', stripe: '#39e6ff', stripe2: '#1ea8c9',
       bottom: '#1d5f7d', bottomLo: '#164a63', deck: '#bff0ff', deckDk: '#93d8ec',
       accent: '#d8f6ff', glass: '#e8fbff',
-    });
+    }, 'highland', 'ghost');
     // one shared translucent treatment, so the ghost reads as information
     // rather than as a second boat you might crash into
     mesh.traverse(o => {
@@ -938,14 +955,22 @@ class BoatRaceMission {
   updateEnvironment(dt, t, camera) {
     Sky.update(dt, camera.position, t);
     Water.update(dt);
+    Water.follow(camera.position.x, camera.position.z);
+    this.boat.group.position.y = Water.sampleHeight(this.boat.pos.x, this.boat.pos.z) + this.boat.tune.draft;
+    this.boat.animateFlag(t);
+    this._updateHoopVisuals(dt, t);
+    this.buoys.update();
+    this.shoreFoam.update(dt);
+    this.presentation.update(dt, this.boat);
   }
 
   start() {
     Input.setTouchMode('drive');
     this.state = this.party ? 'waiting' : 'countdown';
     this.countdown = 3.999;
-    this.engineSnd = AudioBus.engine();
+    this.engineSnd = BoatFeedback.audio();
     this.ambSnd = AudioBus.ambience();
+    this.ambSnd.set(.12);
     this._lastBeep = 4;
     Screens.show('hud');
     this._setCenter('', '');
@@ -1064,10 +1089,17 @@ class BoatRaceMission {
     if (this.engineSnd) this.engineSnd.stop();
     if (this.ambSnd) this.ambSnd.stop();
     if (this.fx) this.fx.dispose();
+    if (this.presentation) this.presentation.dispose();
+    document.body.classList.remove('boat-race-active', 'boat-reduced-motion');
     for (const g of this._hoopGeos || []) g.dispose();
     if (this._hoopFrameMat) this._hoopFrameMat.dispose();
+    if (this.environmentMap) this.environmentMap.dispose();
     Engine.disposeObject(this.scene);
     Sky.resetPreset();
+    Water.setVisualProfile();
+    Water.setPalette(Water.DEFAULTS);
+    Water.setSeaState({ swell: 1, chop: 1, wind: 0 });
+    Water.setFog(340, 3600, Sky.PALETTE.fog);
     this.scene = null;
     if (this.hud) {
       // these three live outside the screens, so nothing else will hide
@@ -1127,6 +1159,7 @@ class BoatRaceMission {
     this.boat.reset(p0.point.x, p0.point.z, Math.atan2(p0.tangent.x, p0.tangent.z));
     this._prevPos.copy(this.boat.pos);
     this.fx.wake.clear();
+    this.presentation.clear();
     this.fx.labels.clear();
     this._setCenter('', '');
   }
@@ -1135,7 +1168,7 @@ class BoatRaceMission {
 
   update(rawDt, t) {
     if (!this.scene) return;
-    if (Engine.isPaused()) return;
+    if (Engine.isPaused()) { if (this.engineSnd) this.engineSnd.set(this.boat, true); return; }
 
     if (Input.pressed('pause') && this.state === 'racing') {
       this._pause();
@@ -1167,7 +1200,7 @@ class BoatRaceMission {
       ? {
           throttle: Input.throttle(),
           steer: Input.steer(),
-          boost: Input.held('boost') && !(this.flags.noBoost && !this.boat.airborne),
+          boost: Input.held('boost'),
         }
       : { throttle: 0, steer: 0, boost: false };
 
@@ -1219,6 +1252,7 @@ class BoatRaceMission {
     if (this.shoreFoam) this.shoreFoam.update(dt);
     this._spawnFx(dt);
     this.fx.update(dt);
+    this.presentation.update(dt, this.boat);
     this._updateCamera(rawDt);
     Sky.update(dt, this.camera.position, t);
     this._updateAudio();
@@ -1242,7 +1276,7 @@ class BoatRaceMission {
     }
     if (this.countdown <= 0) {
       this.state = 'racing';
-      this.boat.boost = this.flags.noBoost ? 0 : 1;
+      this.boat.boost = 1;
       // the "burn it early" card measures the meter going down, so the
       // first frame of the race must not read as a meter already spent
       this._prevBoost = this.boat.boost;
@@ -1432,13 +1466,13 @@ class BoatRaceMission {
 
     this.fovKick = Math.min(this.fovKick + (perfect || h.risk ? 7.0 : 4.0), 14);
     this._flash(perfect || h.risk ? 0.34 : 0.18, h.risk ? '#ffb020' : (perfect ? '#ffd166' : '#7dfcd0'));
-    AudioBus.play(perfect || h.risk ? 'perfect' : 'hoop', { combo: this.combo });
+    AudioBus.play('boat-cue', { kind: h.risk ? 'risk' : perfect ? 'perfect' : 'safe' });
     AudioBus.play('whoosh', { amount: 0.6 + this.boat.speed01 * 0.7 });
     Input.haptic(perfect ? 24 : 12);
 
     // sparks through the ring
     const c = new THREE.Color(h.risk ? '#ffb020' : (perfect ? '#ffd166' : '#7dfcd0'));
-    const n = perfect || h.risk ? 52 : 30;
+    const n = BoatMaterials.reduced() ? 0 : BoatMaterials.low() ? 12 : perfect || h.risk ? 32 : 18;
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const rr = h.radius * (0.7 + Math.random() * 0.4);
@@ -1607,7 +1641,7 @@ class BoatRaceMission {
   _confetti() {
     const b = this.boat;
     const cols = ['#ffd166', '#e5133f', '#3ddc84', '#39e6ff', '#ffffff'];
-    for (let i = 0; i < 220; i++) {
+    for (let i = 0, n = BoatMaterials.reduced() ? 0 : BoatMaterials.low() ? 55 : 120; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = 6 + Math.random() * 22;
       const c = new THREE.Color(cols[(Math.random() * cols.length) | 0]);
@@ -1700,6 +1734,7 @@ class BoatRaceMission {
   }
 
   _pause() {
+    if (this.engineSnd) this.engineSnd.set(this.boat, true);
     Engine.setPaused(true);
     document.getElementById('pause-restart').hidden = !!this.party;
     Screens.show('pause');
@@ -1728,18 +1763,18 @@ class BoatRaceMission {
       h.group.rotation.x = -Math.atan2(this._surf.nz, this._surf.ny) * 0.2;
       if (h.state === 'pending') {
         const beat = h.risk ? 4.6 : (h.final ? 3.8 : 3);
-        const pulse = 1.1 + Math.sin(t * beat + h.gate.index) * (h.risk ? 0.45 : 0.3);
+        const pulse = BoatMaterials.reduced() ? .65 : .65 + Math.sin(t * beat + h.gate.index) * .12;
         h.ring.material.emissiveIntensity = pulse;
         h.lamp.material.emissiveIntensity = 0.8 + pulse;
-        h.glow.material.opacity = 0.14 + pulse * 0.11;
-        const s = (1 + Math.sin(t * beat + h.gate.index) * 0.012) * shrink;
+        h.glow.material.opacity = 0.025 + pulse * 0.025;
+        const s = (1 + (BoatMaterials.reduced() ? 0 : Math.sin(t * beat + h.gate.index) * 0.005)) * shrink;
         h.group.scale.setScalar(s);
       } else if (h.flash > 0) {
         h.flash = Math.max(0, h.flash - dt * 1.6);
-        h.ring.material.emissiveIntensity = 0.7 + h.flash * 2.6;
-        h.lamp.material.emissiveIntensity = 0.7 + h.flash * 2.6;
-        h.glow.material.opacity = 0.08 + h.flash * 0.36;
-        h.group.scale.setScalar(1 + h.flash * 0.06);
+        h.ring.material.emissiveIntensity = BoatMaterials.reduced() ? .65 : .7 + h.flash * .7;
+        h.lamp.material.emissiveIntensity = BoatMaterials.reduced() ? .8 : .7 + h.flash;
+        h.glow.material.opacity = BoatMaterials.reduced() ? .03 : .04 + h.flash * .12;
+        h.group.scale.setScalar(1 + (BoatMaterials.reduced() ? 0 : h.flash * 0.025));
       }
     }
   }
@@ -1785,7 +1820,7 @@ class BoatRaceMission {
     if (tk.spins) names.push(tk.spins > 1 ? `${tk.spins}× SPIN` : 'SPIN');
     this.fx.labels.add(names.join(' + ') + '  ' + U.money(amount), at,
       { className: 'perfect', life: 1.7, rise: 13 });
-    AudioBus.play('perfect', { combo: Math.min(this.combo + spins, 8) });
+    AudioBus.play('boat-cue', { kind: 'landing' });
     this._flash(0.3, '#ffd166');
     this.fovKick = Math.min(this.fovKick + 6, 16);
   }
@@ -1793,6 +1828,7 @@ class BoatRaceMission {
   _spawnFx(dt) {
     const b = this.boat;
     const sp = b.speed;
+    this.fx.sparks.points.visible = !BoatMaterials.reduced();
     const fx = Math.sin(b.heading), fz = Math.cos(b.heading);
     const rx = fz, rz = -fx;
     const H = Boat.HULL;
@@ -1808,15 +1844,15 @@ class BoatRaceMission {
         this._tmpV.set(b.pos.x - fx * 5.4, b.pos.y + 0.4, b.pos.z - fz * 5.4),
         new THREE.Quaternion().setFromEuler(new THREE.Euler(0, b.heading, 0)),
         1.5, 16, 0.45, '#7ff3ff');
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < (BoatMaterials.low() ? 8 : 16); i++) {
         this.fx.sparks.emit(
           b.pos.x - fx * 5.6 + (Math.random() - 0.5) * 2, b.pos.y + 0.4,
           b.pos.z - fz * 5.6 + (Math.random() - 0.5) * 2,
           -fx * (14 + Math.random() * 16) + (Math.random() - 0.5) * 7,
           1 + Math.random() * 5,
           -fz * (14 + Math.random() * 16) + (Math.random() - 0.5) * 7,
-          0.7 + Math.random() * 1.0, 0.35 + Math.random() * 0.3,
-          { r: 0.55, g: 0.95, b: 1 });
+          0.2 + Math.random() * 0.3, 0.2 + Math.random() * 0.2,
+          { r: 0.22, g: 0.4, b: 0.42 });
       }
     }
 
@@ -1889,8 +1925,8 @@ class BoatRaceMission {
         b.pos.z - fz * 6.0 + (Math.random() - 0.5) * 1.4,
         -fx * 12 + (Math.random() - 0.5) * 5, 1 + Math.random() * 3,
         -fz * 12 + (Math.random() - 0.5) * 5,
-        0.6 + Math.random() * 0.9, 0.28 + Math.random() * 0.24,
-        { r: 0.55, g: 0.95, b: 1 });
+        0.10 + Math.random() * 0.2, 0.18 + Math.random() * 0.12,
+        { r: 0.18, g: 0.3, b: 0.32 });
     }
 
     // a rolling hull throws a corkscrew of spray off its own rotation
@@ -1930,7 +1966,7 @@ class BoatRaceMission {
           this.money += bonus;
           this.fx.labels.add(`AIR!  ${U.money(bonus)}`, this._tmpV.copy(b.pos).setY(b.pos.y + 4),
             { className: 'air', life: 1.4, rise: 10 });
-          AudioBus.play('perfect', { combo: 2 });
+          AudioBus.play('boat-cue', { kind: 'surf' });
           this._flash(0.2, '#7dfcd0');
         }
         this._scoreTrick(b.lastTrick);
@@ -1969,15 +2005,19 @@ class BoatRaceMission {
   _updateCamera(dt) {
     const b = this.boat;
     const cam = this.camera;
+    const reduced = BoatMaterials.reduced();
+    const portrait = cam.aspect < .8;
+    if (reduced) { this.camPush = 0; this.camDip = 0; this.shake = 0; this.fovKick = 0; }
 
     // pull back and drop as you go faster
     const sp01 = U.clamp(b.speed / b.tune.topSpeed, 0, 1.4);
     this.camPush = U.damp(this.camPush, 0, 2.6, dt);
     this.camDip = U.damp(this.camDip, 0, 4.5, dt);
-    const dist = U.lerp(14.5, 20.5, U.clamp(sp01, 0, 1)) + this.camPush * 3.0;
-    const height = U.lerp(5.2, 6.8, U.clamp(sp01, 0, 1)) + (b.airborne ? 2.2 : 0) - this.camDip;
+    const dist = U.lerp(portrait ? 22 : 16.5, portrait ? 28 : 22, U.clamp(sp01, 0, 1)) + this.camPush * 1.2;
+    const height = U.lerp(portrait ? 8.5 : 6.8, portrait ? 10 : 8.2, U.clamp(sp01, 0, 1)) + (b.airborne ? 1.4 : 0) - this.camDip * .45;
 
-    const fx = Math.sin(b.heading), fz = Math.cos(b.heading);
+    const finishAngle = this.state === 'finished' && !reduced ? .36 : 0;
+    const fx = Math.sin(b.heading + finishAngle), fz = Math.cos(b.heading + finishAngle);
     const want = this._tmpV.set(
       b.pos.x - fx * dist, b.pos.y + height, b.pos.z - fz * dist);
 
@@ -1992,7 +2032,8 @@ class BoatRaceMission {
 
     // look a little ahead of the bow so corners open up early
     const lookAhead = 12 + sp01 * 18;
-    const lx = b.pos.x + fx * lookAhead, lz = b.pos.z + fz * lookAhead;
+    const anticipation = reduced ? 0 : U.clamp(b.yawVel * 3, -2, 2);
+    const lx = b.pos.x + fx * lookAhead + fz * anticipation, lz = b.pos.z + fz * lookAhead - fx * anticipation;
     const ly = b.pos.y + 3.0 + (b.airborne ? 1.2 : 0);
     this._camLook.x = U.damp(this._camLook.x, lx, 7.5, dt);
     this._camLook.y = U.damp(this._camLook.y, ly, 6, dt);
@@ -2003,12 +2044,12 @@ class BoatRaceMission {
     // shake: event shake, plus a constant fine rattle once you're really moving
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt * 2.2);
-      const s = this.shake * this.shake * 1.7;
+      const s = this.shake * this.shake * .16;
       cam.position.x += (Math.random() - 0.5) * s;
       cam.position.y += (Math.random() - 0.5) * s;
       cam.position.z += (Math.random() - 0.5) * s;
     }
-    const rattle = U.smoothstep(0.55, 1.25, sp01) * (b.boosting ? 0.16 : 0.09) * (b.airborne ? 0.2 : 1);
+    const rattle = (reduced ? 0 : .3) * U.smoothstep(0.55, 1.25, sp01) * (b.boosting ? 0.16 : 0.09) * (b.airborne ? 0.2 : 1);
     if (rattle > 0.001) {
       cam.position.x += (Math.random() - 0.5) * rattle;
       cam.position.y += (Math.random() - 0.5) * rattle;
@@ -2018,15 +2059,14 @@ class BoatRaceMission {
     // bank the camera a touch with the boat — sells the turn. A barrel roll
     // only leans the camera a fraction of the way round, or the horizon
     // would spin and the landing would be unreadable.
-    const airLean = b.airborne ? U.wrapAngle(b.roll) * 0.12 : 0;
-    this._camRoll = U.damp(this._camRoll, -b.roll * (b.airborne ? 0 : 0.30) - airLean
-                           - b.yawVel * 0.11, 5, dt);
+    const airLean = !reduced && b.airborne ? U.wrapAngle(b.roll) * 0.018 : 0;
+    this._camRoll = reduced ? 0 : U.damp(this._camRoll, -b.roll * (b.airborne ? 0 : .035) - airLean - b.yawVel * .025, 5, dt);
     cam.rotateZ(this._camRoll);
 
     // FOV: speed + boost + hoop punch
     this.fovKick = U.damp(this.fovKick, 0, 4.5, dt);
-    const targetFov = this.baseFov + sp01 * 13 + (b.boosting ? 8 : 0) + this.fovKick;
-    cam.fov = U.damp(cam.fov, targetFov, 7, dt);
+    const targetFov = this.baseFov + (reduced ? 0 : sp01 * 5 + (b.boosting ? 2 : 0) + this.fovKick * .18);
+    cam.fov = reduced ? this.baseFov : U.damp(cam.fov, targetFov, 4, dt);
     cam.updateProjectionMatrix();
   }
 
@@ -2034,11 +2074,11 @@ class BoatRaceMission {
     if (!this.engineSnd) return;
     const b = this.boat;
     const sp01 = U.clamp(b.speed / b.tune.boostTop, 0, 1);
-    this.engineSnd.set(sp01, Math.max(0, b.throttleIn) + (b.boosting ? 0.4 : 0),
-      b.airborne ? 1 : 0);
+    this.engineSnd.set(b);
   }
 
   _flash(amount, color) {
+    if (BoatMaterials.reduced()) return;
     const f = this.hud.flash;
     f.style.background = color;
     f.style.opacity = String(U.clamp(amount, 0, 0.6));
@@ -2055,6 +2095,7 @@ class BoatRaceMission {
 
   _updateHud(dt) {
     const h = this.hud, b = this.boat;
+    document.body.classList.toggle('boat-reduced-motion', BoatMaterials.reduced());
     const kn = Math.round(b.speed * 1.94384);       // m/s -> knots
     h.speed.textContent = kn;
     h.speedBar.style.width = U.clamp(b.speed / b.tune.boostTop, 0, 1) * 100 + '%';
@@ -2102,7 +2143,7 @@ class BoatRaceMission {
 
     // speed vignette + surf glow
     const sp01 = U.clamp((b.speed - 20) / (b.tune.boostTop - 20), 0, 1);
-    h.vignette.style.opacity = String(sp01 * 0.85);
+    h.vignette.style.opacity = String(BoatMaterials.reduced() ? 0 : sp01 * 0.3);
     h.vignette.classList.toggle('boost', b.boosting);
     // written every frame, not only while surfing: the opacity is inline,
     // so it wins over the stylesheet, and a badge that is only ever turned

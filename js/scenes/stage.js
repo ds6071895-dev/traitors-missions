@@ -79,8 +79,6 @@ const Stage = (() => {
        so the camera looking at her also looks out over the glen behind
        her. Every framing in every scene depends on that. */
     const claudia = Figure.build({ palette: 'claudia', height: 1.74, hair: 'long' });
-    // Keep the fringe above the eyes in close welcome and pouch shots.
-    claudia.userData.rig.head.traverse(mesh=>{const g=mesh.geometry;if(mesh.material===claudia.userData.mats.hair&&g&&g.type==='SphereGeometry'&&g.parameters.thetaLength<Math.PI){const radius=g.parameters.radius;g.dispose();mesh.geometry=new THREE.SphereGeometry(radius,24,16,0,Math.PI*2,0,Math.PI*.48);}});
     const cPos = V(0, 0, -3.4);
     cPos.y = land.heightAt(cPos.x, cPos.z);
     claudia.position.copy(cPos);

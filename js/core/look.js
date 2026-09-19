@@ -35,17 +35,19 @@ const Look = (() => {
     { id: 'bald',   name: 'Shaved' },
   ];
 
+  /* Each coat is a cloth as well as a colour: the weave comes from the
+     character atlas (`figure-materials.js`) and never changes the hue. */
   const COAT = [
-    { name: 'Moss',    coat: '#2f5d4a', trim: '#8fc0a0' },
-    { name: 'Rust',    coat: '#7a3b28', trim: '#d59a6a' },
-    { name: 'Slate',   coat: '#3b4757', trim: '#9fb4c9' },
-    { name: 'Plum',    coat: '#4c2a4e', trim: '#c095c4' },
-    { name: 'Ochre',   coat: '#7d6524', trim: '#dcc06a' },
-    { name: 'Ink',     coat: '#1b2028', trim: '#5d6b7e' },
-    { name: 'Bracken', coat: '#5a4326', trim: '#b79a6a' },
-    { name: 'Heather', coat: '#54406b', trim: '#a794c4' },
-    { name: 'Bone',    coat: '#cfc6b4', trim: '#7a6f5c' },
-    { name: 'Loch',    coat: '#1f4a58', trim: '#79bccb' },
+    { name: 'Moss',    coat: '#2f5d4a', trim: '#8fc0a0', fabric: 'tweed' },
+    { name: 'Rust',    coat: '#7a3b28', trim: '#d59a6a', fabric: 'waxed' },
+    { name: 'Slate',   coat: '#3b4757', trim: '#9fb4c9', fabric: 'quilted' },
+    { name: 'Plum',    coat: '#4c2a4e', trim: '#c095c4', fabric: 'fleece' },
+    { name: 'Ochre',   coat: '#7d6524', trim: '#dcc06a', fabric: 'corduroy' },
+    { name: 'Ink',     coat: '#1b2028', trim: '#5d6b7e', fabric: 'quilted' },
+    { name: 'Bracken', coat: '#5a4326', trim: '#b79a6a', fabric: 'tweed' },
+    { name: 'Heather', coat: '#54406b', trim: '#a794c4', fabric: 'fleece' },
+    { name: 'Bone',    coat: '#cfc6b4', trim: '#7a6f5c', fabric: 'waxed' },
+    { name: 'Loch',    coat: '#1f4a58', trim: '#79bccb', fabric: 'waxed' },
   ];
 
   const ACCENT = ['#f2c14e', '#d81e40', '#3fe0ff', '#7dfcd0', '#ef7d3a',
@@ -66,12 +68,15 @@ const Look = (() => {
     { id: 'cowl',  name: 'Cowl' },
   ];
 
+  /* A narrower spread of heights and a wider one of girth than a
+     real crowd has: the figures are stylised chunky, and a tall thin
+     option on top of that is a stick with a coat on. */
   const BUILD = [
-    { id: 'slight', name: 'Slight', height: 1.68, girth: 0.92 },
-    { id: 'lean',   name: 'Lean',   height: 1.75, girth: 0.97 },
-    { id: 'solid',  name: 'Solid',  height: 1.80, girth: 1.06 },
-    { id: 'tall',   name: 'Tall',   height: 1.88, girth: 1.00 },
-    { id: 'broad',  name: 'Broad',  height: 1.83, girth: 1.14 },
+    { id: 'slight', name: 'Slight', height: 1.62, girth: 0.96 },
+    { id: 'lean',   name: 'Lean',   height: 1.68, girth: 1.00 },
+    { id: 'solid',  name: 'Solid',  height: 1.72, girth: 1.10 },
+    { id: 'tall',   name: 'Tall',   height: 1.78, girth: 1.04 },
+    { id: 'broad',  name: 'Broad',  height: 1.74, girth: 1.20 },
   ];
 
   /* The rows the dressing room walks. Keeping them as data means the
@@ -127,6 +132,7 @@ const Look = (() => {
       hairColour: HAIR_COLOUR[o.hairColour],
       coat: coat.coat,
       trim: coat.trim,
+      fabric: coat.fabric,
       accent: ACCENT[o.accent],
       hat: HAT[o.hat].id,
       scarf: SCARF[o.scarf].id,

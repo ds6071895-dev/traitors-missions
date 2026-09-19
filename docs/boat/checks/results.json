@@ -1,0 +1,392 @@
+{
+  "delayed": {
+    "unbound": true,
+    "ready": true
+  },
+  "baseline": "Exact equality: 600 fixed steps, wave normals/heights, path, widths, colliders, safe/risk gates",
+  "shared": {
+    "same": true,
+    "rng": true,
+    "defaultFlat": true,
+    "profileSmooth": true,
+    "reset": true
+  },
+  "ownership": {
+    "shared": true,
+    "survives": true,
+    "bounded": true
+  },
+  "modes": [
+    {
+      "mode": "prize",
+      "modId": null,
+      "started": true,
+      "score": true,
+      "timing": true,
+      "hitStop": true,
+      "trick": true,
+      "paused": true,
+      "restarted": true,
+      "finished": true,
+      "failed": true
+    },
+    {
+      "mode": "prize",
+      "modId": "shrink",
+      "started": true,
+      "score": true,
+      "timing": true,
+      "hitStop": true,
+      "trick": true,
+      "paused": true,
+      "restarted": true,
+      "finished": true,
+      "failed": true
+    },
+    {
+      "mode": "prize",
+      "modId": "riptide",
+      "started": true,
+      "score": true,
+      "timing": true,
+      "hitStop": true,
+      "trick": true,
+      "paused": true,
+      "restarted": true,
+      "finished": true,
+      "failed": true
+    },
+    {
+      "mode": "prize",
+      "modId": "noboost",
+      "started": true,
+      "score": true,
+      "timing": true,
+      "hitStop": true,
+      "trick": true,
+      "paused": true,
+      "restarted": true,
+      "finished": true,
+      "failed": true
+    },
+    {
+      "mode": "prize",
+      "modId": "glasscannon",
+      "started": true,
+      "score": true,
+      "timing": true,
+      "hitStop": true,
+      "trick": true,
+      "paused": true,
+      "restarted": true,
+      "finished": true,
+      "failed": true
+    },
+    {
+      "mode": "trial",
+      "modId": null,
+      "started": true,
+      "score": true,
+      "timing": true,
+      "hitStop": true,
+      "trick": true,
+      "paused": true,
+      "restarted": true,
+      "finished": true,
+      "failed": true
+    },
+    {
+      "mode": "trial",
+      "modId": "shrink",
+      "started": true,
+      "score": true,
+      "timing": true,
+      "hitStop": true,
+      "trick": true,
+      "paused": true,
+      "restarted": true,
+      "finished": true,
+      "failed": true
+    },
+    {
+      "mode": "trial",
+      "modId": "riptide",
+      "started": true,
+      "score": true,
+      "timing": true,
+      "hitStop": true,
+      "trick": true,
+      "paused": true,
+      "restarted": true,
+      "finished": true,
+      "failed": true
+    },
+    {
+      "mode": "trial",
+      "modId": "noboost",
+      "started": true,
+      "score": true,
+      "timing": true,
+      "hitStop": true,
+      "trick": true,
+      "paused": true,
+      "restarted": true,
+      "finished": true,
+      "failed": true
+    },
+    {
+      "mode": "trial",
+      "modId": "glasscannon",
+      "started": true,
+      "score": true,
+      "timing": true,
+      "hitStop": true,
+      "trick": true,
+      "paused": true,
+      "restarted": true,
+      "finished": true,
+      "failed": true
+    }
+  ],
+  "ghost": {
+    "pos": [
+      1,
+      2,
+      2
+    ],
+    "time": 0.15000000000000002,
+    "transparent": true
+  },
+  "renders": [
+    {
+      "phone": false,
+      "time": "dawn",
+      "calls": 224,
+      "triangles": 579432,
+      "memory": {
+        "geometries": 137,
+        "textures": 41
+      },
+      "wake": 24,
+      "safe": "#5abcbf",
+      "risk": "#e9b45a"
+    },
+    {
+      "phone": false,
+      "time": "noon",
+      "calls": 224,
+      "triangles": 579432,
+      "memory": {
+        "geometries": 137,
+        "textures": 41
+      },
+      "wake": 24,
+      "safe": "#5abcbf",
+      "risk": "#e9b45a"
+    },
+    {
+      "phone": false,
+      "time": "dusk",
+      "calls": 224,
+      "triangles": 579432,
+      "memory": {
+        "geometries": 137,
+        "textures": 41
+      },
+      "wake": 24,
+      "safe": "#5abcbf",
+      "risk": "#e9b45a"
+    },
+    {
+      "phone": false,
+      "time": "night",
+      "calls": 225,
+      "triangles": 579432,
+      "memory": {
+        "geometries": 138,
+        "textures": 41
+      },
+      "wake": 24,
+      "safe": "#5abcbf",
+      "risk": "#e9b45a"
+    },
+    {
+      "phone": false,
+      "time": "squall",
+      "calls": 225,
+      "triangles": 579432,
+      "memory": {
+        "geometries": 138,
+        "textures": 41
+      },
+      "wake": 24,
+      "safe": "#5abcbf",
+      "risk": "#e9b45a"
+    },
+    {
+      "phone": true,
+      "time": "dawn",
+      "calls": 191,
+      "triangles": 285836,
+      "memory": {
+        "geometries": 130,
+        "textures": 54
+      },
+      "wake": 22,
+      "safe": "#5abcbf",
+      "risk": "#e9b45a"
+    },
+    {
+      "phone": true,
+      "time": "noon",
+      "calls": 191,
+      "triangles": 285844,
+      "memory": {
+        "geometries": 130,
+        "textures": 54
+      },
+      "wake": 24,
+      "safe": "#5abcbf",
+      "risk": "#e9b45a"
+    },
+    {
+      "phone": true,
+      "time": "dusk",
+      "calls": 191,
+      "triangles": 285844,
+      "memory": {
+        "geometries": 130,
+        "textures": 54
+      },
+      "wake": 24,
+      "safe": "#5abcbf",
+      "risk": "#e9b45a"
+    },
+    {
+      "phone": true,
+      "time": "night",
+      "calls": 192,
+      "triangles": 285844,
+      "memory": {
+        "geometries": 131,
+        "textures": 54
+      },
+      "wake": 24,
+      "safe": "#5abcbf",
+      "risk": "#e9b45a"
+    },
+    {
+      "phone": true,
+      "time": "squall",
+      "calls": 192,
+      "triangles": 285796,
+      "memory": {
+        "geometries": 131,
+        "textures": 54
+      },
+      "wake": 12,
+      "safe": "#5abcbf",
+      "risk": "#e9b45a"
+    }
+  ],
+  "repeat": [
+    {
+      "geometries": 138,
+      "textures": 56
+    },
+    {
+      "geometries": 138,
+      "textures": 56
+    },
+    {
+      "geometries": 138,
+      "textures": 56
+    },
+    {
+      "geometries": 138,
+      "textures": 56
+    },
+    {
+      "geometries": 138,
+      "textures": 56
+    }
+  ],
+  "reduced": [
+    {
+      "fov": 62,
+      "roll": 0,
+      "shake": 0,
+      "flash": "0",
+      "hitStop": 0.07,
+      "timeScaleTarget": 0.35
+    },
+    {
+      "fov": 62,
+      "roll": 0,
+      "shake": 0,
+      "flash": "0",
+      "hitStop": 0.07,
+      "timeScaleTarget": 0.35
+    }
+  ],
+  "keyboard": {
+    "throttle": 1,
+    "steer": 1,
+    "boost": true
+  },
+  "touch": {
+    "steer": 0.6730769230769231,
+    "throttle": 0.6730769230769231,
+    "boost": true,
+    "overflow": false
+  },
+  "peers": {
+    "count": 2,
+    "names": [
+      "Bo",
+      "Cy"
+    ],
+    "family": true,
+    "colors": [
+      "d81e40",
+      "7dfcd0"
+    ],
+    "poseKeys": [
+      "x",
+      "y",
+      "z",
+      "h",
+      "p",
+      "r",
+      "s",
+      "b",
+      "v"
+    ]
+  },
+  "fallback": {
+    "errors": true,
+    "deadUnbound": true,
+    "calls": 224
+  },
+  "audio": {
+    "nodes": 18,
+    "ready": true
+  },
+  "transition": {
+    "profile": 0,
+    "palette": "04304d",
+    "sea": {
+      "swell": 1,
+      "chop": 1,
+      "wind": 0
+    },
+    "classRemoved": true
+  },
+  "errors": [],
+  "browser": "153.0.8010.12",
+  "renderer": "SwiftShader; correctness and resource measurements only",
+  "host": {
+    "platform": "linux",
+    "cpu": "12th Gen Intel(R) Core(TM) i3-1215U"
+  }
+}

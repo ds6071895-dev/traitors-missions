@@ -3,7 +3,7 @@ const MissionCinematics = (() => {
   const V=(x,y,z)=>new THREE.Vector3(x,y,z);
   function forMission(id,m){
     let arrival,pickup,target,heightAt,name;
-    if(!m._estateDressed&&id!=='ski'){
+    if(!m._estateDressed&&id!=='ski'&&id!=='boat-race'){
       m._estateDressed=true;
       const root=id==='shootout'?m.forest.group:m.scene;
       EstateMaterials.dress(root,o=>{
@@ -23,7 +23,7 @@ const MissionCinematics = (() => {
       heightAt=(x,z)=>{ray.set(V(x,1000,z),V(0,-1,0));const hit=ray.intersectObjects(surfaces,false)[0];return hit?hit.point.y:2;};
       const pad=frame=>{const x=frame.point.x+frame.tangent.z*(frame.half+35),z=frame.point.z-frame.tangent.x*(frame.half+35);return V(x,heightAt(x,z)+.15,z);};
       arrival=pad(start);pickup=pad(end);
-      target=V(start.point.x,1,start.point.z).add(V(start.tangent.x*50,0,start.tangent.z*50));name='The waterside launch';
+      target=m.boat.pos.clone().add(V(0,1,0));name='The Highland launch';
     }else if(id==='shootout'){
       heightAt=(x,z)=>m.forest.walkAt(x,z);arrival=V(0,heightAt(0,19),19);pickup=arrival.clone();target=V(0,heightAt(0,0)+2,0);name='The woodland clearing';
     }else if(id==='dive'){
@@ -38,6 +38,7 @@ const MissionCinematics = (() => {
     return {arrival,pickup,target,heightAt,name,
       handover:{position:(m._camPos||m.camera.position).clone(),look:(m._camLook||target).clone()},
       view(progress,reduced=false){const p=reduced?.35:progress;
+        if(id==='boat-race'){const b=m.boat.pos;return {position:b.clone().add(V(18-p*8,9-p*3,14-p*20)),look:b.clone().add(V(0,1,2+p*12))};}
         return {position:arrival.clone().add(V(35-p*26,32-p*20,42-p*26)),look:target.clone().lerp(arrival,.35*p)};},
       update(dt,t,camera){m.updateEnvironment(dt,t,camera);}
     };

@@ -50,7 +50,11 @@ const { createServer } = require('../server');
       const ray = new THREE.Raycaster();
       stage.land.group.updateMatrixWorld(true);
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }));
-      for (const point of EstateLayout.path.slice(1)) {
+      // Follow the paving itself: its curve bends away from the straight lines between anchors.
+      const f = EstateLayout.footpath, stops = [];
+      for (let s = 3; s < f.length; s += 3) { const p = f.sample(s); stops.push([p.x, p.y, p.z]); }
+      stops.push(EstateLayout.path[EstateLayout.path.length - 1]);
+      for (const point of stops) {
         let frames = 0;
         while (Math.hypot(point[0] - stage.rig.pos.x, point[2] - stage.rig.pos.z) > .15 && frames++ < 500) {
           const before = stage.rig.pos.clone();

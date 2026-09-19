@@ -2256,7 +2256,10 @@ select.nav-on{outline-offset:2px}
   align-items:center; justify-content:flex-end; overflow-y:auto;
   background:linear-gradient(90deg, rgba(6,16,28,0) 0%, rgba(6,16,28,.10) 42%,
                                     rgba(6,16,28,.78) 74%, rgba(6,16,28,.92) 100%);
+  cursor:grab;
 }
+.screen.dressing:active{cursor:grabbing}
+.dress-inner{cursor:auto}
 .dress-inner{
   width:min(420px,100%); display:flex; flex-direction:column; gap:14px; margin:auto 0;
 }

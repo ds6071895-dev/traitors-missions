@@ -130,6 +130,7 @@ class WakeRibbon {
        had that problem. */
     this.heightAt = opts.heightAt || ((x, z) => Water.sampleHeight(x, z));
     this.lift = opts.lift ?? 0.10;
+    this.conform = opts.conform === true;
     this.tint = new THREE.Color(opts.color || '#ffffff');
     this.alpha = opts.alpha ?? 0.24;
     // three vertices per sample (left / centre / right) so the ribbon can
@@ -187,7 +188,8 @@ class WakeRibbon {
       const y = this.heightAt(si.x, si.z) + this.lift;
       const set = (v, dx) => {
         this.posArr[v * 3] = si.x + si.rx * dx;
-        this.posArr[v * 3 + 1] = y;
+        this.posArr[v * 3 + 1] = this.conform
+          ? this.heightAt(si.x + si.rx * dx, si.z + si.rz * dx) + this.lift : y;
         this.posArr[v * 3 + 2] = si.z + si.rz * dx;
         this.colArr[v * 4] = this.tint.r;
         this.colArr[v * 4 + 1] = this.tint.g;

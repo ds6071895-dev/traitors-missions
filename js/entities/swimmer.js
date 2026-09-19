@@ -257,11 +257,19 @@ class Swimmer {
     });
     const fin = lam(paint.fin || '#f2c14e');
 
-    const mask = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.09, 0.05), glass);
-    mask.position.set(0, 0.015, 0.105);
+    // placed from the head the figure has, so the mask is on the face
+    // at eye height rather than wherever the last head's eyes were
+    const H = rig.headDims || Figure.HEAD;
+    const eyeY = H.eyeY !== undefined ? H.eyeY : H.cy;
+    const faceZ = H.faceZ !== undefined ? H.faceZ : H.rz;
+    const mask = new THREE.Mesh(new THREE.BoxGeometry(H.rx * 1.55, 0.085, 0.05), glass);
+    mask.position.set(0, eyeY, faceZ + 0.008);
     rig.head.add(mask);
-    const strap = new THREE.Mesh(new THREE.BoxGeometry(0.215, 0.035, 0.185), suit);
-    strap.position.set(0, 0.02, 0.01);
+    const strap = new THREE.Mesh(new THREE.CylinderGeometry(
+      H.rx + 0.012, H.rx + 0.012, 0.034, 20, 1, true),
+      lam(paint.suit || '#123044', { side: THREE.DoubleSide }));
+    strap.position.y = eyeY + 0.004;
+    strap.scale.z = (H.rz + 0.012) / (H.rx + 0.012);
     rig.head.add(strap);
 
     for (const key of ['l', 'r']) {
@@ -276,7 +284,7 @@ class Swimmer {
     // a tank on the yoke, because the breath bar has to be a thing you
     // can see on the other two divers as well as read on your own HUD
     const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.40, 10), suit);
-    tank.position.set(0, 0.30, -0.14);
+    tank.position.set(0, 0.26, (rig.backZ ? rig.backZ(0.26) : -0.14) - 0.045);
     if (rig.chest) rig.chest.add(tank);
   }
 

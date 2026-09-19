@@ -40,11 +40,6 @@ const Modifiers = (() => {
       flags: { oneCrash: true },
     },
     {
-      id: 'noboost', name: 'Cold Engine', icon: '○', payout: 1.35,
-      blurb: 'No boost. Every metre of speed has to come off a wave.',
-      flags: { noBoost: true },
-    },
-    {
       id: 'hairtrigger', name: 'Hair Trigger', icon: '⟳', payout: 1.20,
       blurb: 'A twitchier, looser hull. Quicker through the gates, harder to hold.',
       tune: { turnRate: 2.35, gripLambda: 2.1 },

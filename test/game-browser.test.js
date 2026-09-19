@@ -28,6 +28,8 @@ const { createServer } = require('../server');
       });
       await page.goto(origin);
       await page.evaluate(() => {
+        // This suite tests multiplayer lifecycle; tutorials have their own suite.
+        Tutorial.setOff(true);
         Engine.renderer.setPixelRatio(0.25);
         // This suite checks game/network lifecycle, not GPU performance. Keep
         // real scene construction and frame updates, but avoid drawing three
