@@ -303,7 +303,11 @@ const Show = (() => {
     el('verdict-total').textContent = U.money(GameState.prizePot);
 
     Screens.show('verdict');
-    if (won) AudioBus.play('reveal-faithful');
+    /* The band that played the verdict carries on under the panel as
+       the credits, for as long as anybody sits with it. With no band
+       playing, the old chime still marks a win. */
+    const V = Music.verdictCue(o);
+    if (!Music.sectionAll(V.credits, { at: 'bar', glide: 3 }) && won) AudioBus.play('reveal-faithful');
   }
 
   /* ---------------- the reckoning ----------------

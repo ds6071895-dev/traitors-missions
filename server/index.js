@@ -34,7 +34,7 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
     if (name === '/') name = '/index.html';
     // Never serve server code, tests, node_modules, git, or deployment secrets.
     const parts = name.split('/');
-    const publicFile = ['/index.html', '/dialogue-editor.html'].includes(name)
+    const publicFile = ['/index.html', '/dialogue-editor.html', '/jukebox.html'].includes(name)
       || /^\/(js|css|assets)\//.test(name);
     if (!publicFile || parts.some(p => p.startsWith('.')) || name.includes('\\')) {
       res.writeHead(404); return res.end();

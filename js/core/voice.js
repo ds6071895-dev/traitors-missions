@@ -11,7 +11,8 @@
    - Speak a sentence at a time. Queueing short utterances puts real
      pauses at full stops, which is most of the difference between
      reading and presenting — and it sidesteps Chrome's habit of
-     truncating anything past about fifteen seconds.
+     truncating anything past about fifteen seconds, without the
+     pause/resume nudge that swallows words on half the platforms.
    - Never let the show depend on it. No synthesiser, muted, a refused
      gesture, a voice that fires no events: every one of those falls
      through to subtitles held for a readable time, and the scene above
@@ -29,7 +30,8 @@ const Voice = (() => {
   let chosenURI = null;
   let muted = false;
   let token = 0;              // bumps on cancellation to orphan old callbacks
-  let live = null;            // { resolve, timer, keepalive }
+  let live = null;            // { resolve, timer }
+  let held = null;            // the utterance in the air — see `next`
   let started = false;
 
   const dom = {};
@@ -105,8 +107,16 @@ const Voice = (() => {
 
   /* ---------------- speaking ---------------- */
 
-  // a readable hold, for when there is no voice or it is muted
-  const readTime = (text) => Math.min(9000, 1100 + String(text).length * 44);
+  /* How long the line takes out loud, which is also how long it is held
+     for a player with no voice or muted: one clock for everybody. It has
+     to be honest. A synthesiser at 0.94 speaks at about sixty
+     milliseconds a character plus a breath between sentences, and a
+     clock shorter than that cancels her mid-word. */
+  const readTime = (text, rate = 0.94) => {
+    const body = String(text);
+    const breaks = sentences(body).length;
+    return Math.min(24000, 900 + (body.length * 60 + breaks * 260) / (rate || 1));
+  };
 
   // full stops, question marks and the em dashes she actually pauses on
   function sentences(text) {
@@ -121,16 +131,17 @@ const Voice = (() => {
     const l = live;
     live = null;
     if (l.timer) clearTimeout(l.timer);
-    if (l.keepalive) clearInterval(l.keepalive);
     resolve();
   }
 
   /* Always resolves, exactly once, whatever the browser does. */
   function say(text, opts = {}) {
     const t = ++token;
-    if (live) { const l = live; live = null; if (l.timer) clearTimeout(l.timer);
-                if (l.keepalive) clearInterval(l.keepalive); l.resolve(); }
-    if (supported) { try { synth.cancel(); } catch (e) {} }
+    if (live) { const l = live; live = null; if (l.timer) clearTimeout(l.timer); l.resolve(); }
+    // Chrome drops or clips an utterance spoken in the same tick as a
+    // cancel that interrupted something, so a busy synthesiser gets a beat
+    let busy = false;
+    if (supported) { try { busy = synth.speaking || synth.pending; synth.cancel(); } catch (e) {} }
 
     const body = String(text || '').trim();
     show(opts.speaker || '', body);
@@ -138,7 +149,7 @@ const Voice = (() => {
 
     return new Promise((resolve) => {
       const done = () => settle(t, resolve);
-      live = { resolve, timer: null, keepalive: null };
+      live = { resolve, timer: null };
 
       /* Speech engines and installed voices have wildly different
          `onend` timing. Resolve the beat on one text-derived clock on
@@ -146,7 +157,7 @@ const Voice = (() => {
          clock. This is what keeps subtitles, cameras and public actions
          together when one player has a neural voice and another has no
          speech synthesis at all. */
-      const duration = readTime(body);
+      const duration = readTime(body, opts.rate === undefined ? 0.94 : opts.rate);
 
       /* `silent` is not a fallback, it is a choice: your own line at the
          table is read, not performed, because hearing yourself dubbed by
@@ -164,18 +175,11 @@ const Voice = (() => {
       const parts = sentences(body);
       let i = 0, finished = false;
 
-      // The same deadline is used with or without a synthesiser.
-      live.timer = setTimeout(() => {
-        if (t !== token) return;
-        try { synth.cancel(); } catch (e) {}
-        done();
-      }, duration);
-
-      // Chrome stops speaking after ~15s unless nudged
-      live.keepalive = setInterval(() => {
-        if (t !== token) return;
-        try { if (synth.speaking && !synth.paused) { synth.pause(); synth.resume(); } } catch (e) {}
-      }, 7000);
+      /* The same deadline is used with or without a synthesiser. It ends
+         the beat but does not cut the sentence she is in the middle of:
+         nothing further is queued once `live` is gone, and the next line
+         cancels whatever is left. */
+      live.timer = setTimeout(done, duration);
 
       const next = () => {
         if (t !== token || !live || finished) return;
@@ -188,9 +192,12 @@ const Voice = (() => {
         u.volume = opts.volume === undefined ? 1 : opts.volume;
         u.onend = () => { if (t === token) setTimeout(next, 190); };
         u.onerror = () => { if (t === token) setTimeout(next, 60); };
+        // Chrome garbage-collects an utterance nothing holds, and its
+        // `onend` never fires — which silently drops every later sentence
+        held = u;
         try { synth.speak(u); } catch (e) { setTimeout(next, 30); }
       };
-      next();
+      if (busy) setTimeout(next, 80); else next();
     });
   }
 
@@ -202,7 +209,6 @@ const Voice = (() => {
     if (live) {
       const l = live; live = null;
       if (l.timer) clearTimeout(l.timer);
-      if (l.keepalive) clearInterval(l.keepalive);
       l.resolve();
     }
   }

@@ -78,18 +78,26 @@ const Reveal = (() => {
     const fire = o.fire || (stage && stage.fire) || null;
 
     AudioBus.play('fire-whoosh', { big: true });
-    AudioBus.play(role === 'traitor' ? 'reveal-traitor' : 'reveal-faithful');
     Input.haptic(T.haptic);
 
-    if (o.music) {
-      /* Whatever ducked the score on the way in is only part way back.
-         Undo it first — a reveal landing while the band fades up lands
-         on nothing — then straight to top gear with no glide, because
-         a crossfade is a thing you notice. */
-      o.music.duck(0.95, 0.18);
-      o.music.setGear(3, 0.15);
-      o.music.setProgression(T.progression);
-      o.music.stinger('reveal');
+    const band = o.music && o.music.ok;
+    if (!band) AudioBus.play(role === 'traitor' ? 'reveal-traitor' : 'reveal-faithful');
+
+    if (band) {
+      /* The band *is* the reveal. Whatever silenced or ducked it on the
+         way in is lifted by the stinger itself; then the colour's own
+         hit, in the key the band is in. A score that knows what comes
+         after a reveal (the fire does: a triumph, a lament, or back to
+         waiting) is told which, and it goes there with no glide —
+         a crossfade is a thing you notice. Any other score gets the old
+         move: top gear and the colour's chords. */
+      o.music.stinger('reveal-' + role);
+      const next = o.after !== undefined ? o.after : (role === 'traitor' ? 'afterTraitor' : 'afterFaithful');
+      if (!(next && o.music.section && o.music.section(next, { at: 'now', glide: 2.5 }))) {
+        o.music.duck(0.95, 0.18);
+        o.music.setGear(3, 0.15);
+        o.music.setProgression(T.progression);
+      }
     }
 
     let embers = null, settle = null;

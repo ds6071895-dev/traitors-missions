@@ -95,6 +95,8 @@ class HillScene {
             : 'Nobody else is told. Find the Traitor — if there is one.',
           tone: role === 'traitor' ? 'traitor' : 'faithful',
         }),
+        // and a sting that only you hear: a braam, or bells
+        then: () => { if (this.music) this.music.stinger('role-' + (role === 'traitor' ? 'traitor' : 'faithful'), { at: 'beat' }); },
         wait: 1.5 },
       ...speak(role === 'traitor' ? 'roleTraitor' : 'roleFaithful'),
       { card: null, wait: 0.5 },

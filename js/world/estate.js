@@ -196,8 +196,14 @@ const Estate = (() => {
     };
     const xs=axis(-800,800,-35,90,-280,420),zs=axis(-500,1200,-65,75,-100,650);
     const positions=[],uvs=[],colors=[],indices=[],c=new THREE.Color();
+    // The hill stands ~.7m proud of the paving right behind the seat wall, and
+    // one grid cell interpolates that rise back under the stone. Every vertex
+    // within a cell of the wall is held below the paving, and the wall hides it.
+    const reach=(low?2.5:1.5)*.8;
     for(let j=0;j<zs.length;j++)for(let i=0;i<xs.length;i++){
-      const x=xs[i],z=zs[j],tr=Math.hypot(x-T.x,z-T.z),bed=F.nearest(x,z,2.45).distance<2.45||tr<12.4+.65*EstateLayout.terraceWall(Math.atan2(z-T.z,x-T.x))?.38:.08;positions.push(x,EstateLayout.heightAt(x,z)-bed,z);uvs.push(x/7,z/7);
+      const x=xs[i],z=zs[j],tr=Math.hypot(x-T.x,z-T.z),pad=tr<12.4+reach*EstateLayout.terraceWall(Math.atan2(z-T.z,x-T.x));
+      const bed=F.nearest(x,z,2.45).distance<2.45||pad?.38:.08,h=EstateLayout.heightAt(x,z);
+      positions.push(x,(pad?Math.min(h,T.y):h)-bed,z);uvs.push(x/7,z/7);
       c.set('#c1c9aa').multiplyScalar(.86+.12*Math.sin(x*.021)*Math.sin(z*.018));colors.push(c.r,c.g,c.b);
       if(i&&j){const n=j*xs.length+i;indices.push(n-xs.length-1,n-1,n-xs.length,n-xs.length,n-1,n);}
     }

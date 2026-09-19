@@ -782,7 +782,10 @@ js/
     engine.js         renderer, main loop, the active view, GPU disposal
     input.js          named actions (throttle/steer/boost/…), keyboard + mouse + touch
     audio.js          procedural Web Audio; sounds are registered recipes
-    music.js          the runtime score: a step sequencer and three profiles
+    music.js          the conductor: look-ahead sequencer, sections, stingers, silence
+    music/mix.js      the room (a generated convolution reverb), the master bus, the seating
+    music/instruments.js  the orchestra: strings, pizzicato, brass, choir, drums, bells, piano
+    music/cues.js     the score as data: the theme, the chords, every cue and stinger
     state.js          persistent save: prize pot, mission records, ghosts, settings
     screens.js        DOM screen stack + fade transitions
     missions.js       mission registry and lifecycle
@@ -1481,6 +1484,56 @@ AudioBus.play('gong', { pitch: 2 });
 
 No audio files anywhere; it's all synthesised at runtime.
 
+### The score
+
+The music is one theme in D minor, arranged for every room in the night. There are
+still no audio files: `music/instruments.js` builds a string ensemble, pizzicato, brass,
+a formant choir, timpani and taiko, FM bells and a piano out of oscillators. Each score
+plays into its own convolution reverb (the impulse response is generated at load) and
+then through a shared saturator, compressor and limiter.
+
+A cue in `music/cues.js` is a set of named **sections**. A section is a tempo, a chord
+loop and some layers, and each layer is an instrument, a one-bar velocity pattern and a
+rule for which chord tone to play. Scenes call sections by name:
+
+```js
+const m = Music.finale();                          // opens on 'arrival'
+m.section('ballot', { at: 'bar', fill: true });    // switch on the next bar, cymbal into it
+m.stinger('name', { at: 'beat', n: 2 });           // a hit on the next beat you will hear
+m.setKey(1);                                       // up a semitone from the next bar
+m.silence(true);                                   // true silence; the next stinger lifts it
+m.speakerDuck(true);                               // step back whenever a microphone is loud
+```
+
+`setGear(i)` still works everywhere and means `sections[gears[i]]`, so every mission
+kept its call sites. The Dive still holds 96 BPM in every section, and its grid now also
+survives a pause.
+
+The fire is scored stage by stage:
+
+| Moment | Section |
+| --- | --- |
+| The loch, and Claudia opening | `arrival`: a fifth on the low strings, the theme on piano, then cello |
+| The rules and the warning | `warn`, with a timpani roll into the warning |
+| Thirty seconds each | `floor`: pizzicato and a heartbeat under the talking, ducked whenever anybody speaks. Each new speaker adds a layer |
+| The ballot | `ballot`: the sixteenth-note cello ostinato, taiko, and horns quoting the theme |
+| "My vote is for…" | `names`: stop-time, with one hit per name, each a step higher |
+| She asks for the pouch | `pouch` (and `lastPouches`, a semitone higher each pouch) |
+| The held beat | `held`: a heart and a low D, with a Shepard riser climbing through the wind-up |
+| The throw | `silence()`: the riser and the band are cut at the release |
+| The answer | the `reveal-traitor` or `reveal-faithful` stinger, then `afterTraitor` or `afterFaithful` |
+| The verdict | `verdictWin`, `verdictLoss` or `verdictTraitor`: the whole theme, eight bars |
+| The verdict panel | `creditsWin`, `creditsLoss` or `creditsTraitor`, for as long as anyone stays |
+
+The boat race has a score now too: a count-in the band plays with the lights, and four
+gears that follow the boat's speed.
+
+**Listening.** Open `/jukebox.html` on the dev server. It has every cue, section and
+stinger on a button, plus controls for intensity, key, muffle and speaker ducking.
+**Play the fire** runs the finale's whole arc in about two minutes. `test/music.test.js`
+checks the arithmetic, the grid, the budget, the key and that every name the game asks
+for exists, but only a person can tell whether the result sounds good.
+
 ### Adding a line, or a beat
 
 All the prose is in `js/scenes/claudia-lines.js`. A set is a list of takes; a take is a
@@ -1549,6 +1602,7 @@ useful message if anything reaches for it.
 | `transport.test.js` | A host and a guest in one process on a fake wire, including a guest that connects late and a guest that tries to vote as somebody else |
 | `swim.test.js` | The Dive's feel as arithmetic: the shaped impulse, the chain against `topSpeed`/`flowTop`, frame-rate independence at 20 fps and 120, the dive profile that tuned every air constant, and the shore — a diver at rest floating, ground above the tideline being standable, the leap off the bank, and the body being pitched the way it is travelling |
 | `look.test.js` | That nothing you can put in localStorage produces a figure with no coat on |
+| `music.test.js` | The score, played into a recording AudioContext. It checks that notes land on the grid, sections change on bar lines, the Dive's beat survives a pause and the owl stays inside the voice budget. It walks a whole night at the fire in order, checks that every stinger and section the game names exists and that the theme sits on its chords, and refuses what a browser would throw on |
 | `aim-assist.test.js` | The whole licence of the touch aim assist: it never turns a still thumb, never turns more than a third as far as the thumb did, never aims at the intercept, and never helps you onto a dove |
 | `touchguard.test.js` | The zoom guard both ways round — a pinch refused at 1x, and the same pinch *allowed* once the page has zoomed, which is the only way back from an iPad stuck at 2x — plus the exemption that keeps a control's second press: the task chip asks twice, and the double-tap guard was eating the press that confirms it |
 | `touchpad.test.js` | The touch controls, pressed. It builds the overlays out of `index.html` itself and runs `input.js` against them on five machines — a phone, a bare iPad, an iPad in a keyboard case, a laptop with a touchscreen and a plain desktop — then taps KICK, drags to look, pushes the sticks and checks the aim works on a browser with no pointer lock. It also holds the two stacking facts nothing else can see: that every mission HUD is a screen the thumb sheets are allowed under, and that the Traitor's task button is *above* the full-screen sheet that used to swallow every tap on it |

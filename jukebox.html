@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Score Jukebox</title>
+  <!--
+    A listening room for the score. Not part of the game and not loaded by
+    index.html: it loads the audio bus and the music files on their own, so
+    every cue, section and stinger can be played, compared and tuned by ear
+    without playing a night to reach it. "Play the fire" runs the finale's
+    whole arc, compressed to about two minutes.
+  -->
+  <style>
+    :root { --bg: #0d0f14; --panel: #161a22; --line: #2a3140; --ink: #e8e3d8; --dim: #8c93a3;
+            --gold: #d9b45a; --red: #e5133f; --green: #3ddc84; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink);
+           font: 15px/1.45 Georgia, 'Times New Roman', serif; }
+    main { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+    h1 { font-weight: normal; letter-spacing: .12em; text-transform: uppercase; font-size: 22px;
+         color: var(--gold); margin: 0 0 4px; }
+    p.sub { color: var(--dim); margin: 0 0 20px; }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+              padding: 14px; margin-bottom: 14px; }
+    h2 { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim);
+         font-weight: normal; margin: 0 0 10px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    button { background: #1f2531; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+             padding: 7px 11px; font: inherit; font-size: 14px; cursor: pointer; }
+    button:hover { border-color: var(--gold); }
+    button.on { background: var(--gold); color: #111; border-color: var(--gold); }
+    button.big { font-size: 16px; padding: 10px 16px; }
+    button.red { border-color: var(--red); }
+    button.green { border-color: var(--green); }
+    label { color: var(--dim); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+    input[type=range] { width: 160px; }
+    select { background: #1f2531; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+             padding: 6px; font: inherit; }
+    #status { font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--dim);
+              white-space: pre-wrap; }
+    #script { font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--gold); min-height: 1.4em; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Score Jukebox</h1>
+  <p class="sub">Every cue, section and stinger in the game, played by the real engine. Start the audio first.</p>
+
+  <section>
+    <div class="row">
+      <button id="start" class="big green">Start audio</button>
+      <button id="fire" class="big">Play the fire</button>
+      <button id="stop" class="big red">Stop</button>
+    </div>
+    <div id="script"></div>
+  </section>
+
+  <section>
+    <h2>Cue</h2>
+    <div class="row" id="cues"></div>
+  </section>
+
+  <section>
+    <h2>Sections (switch on the next bar)</h2>
+    <div class="row" id="sections"></div>
+  </section>
+
+  <section>
+    <h2>Stingers</h2>
+    <div class="row" id="stingers"></div>
+    <div class="row" style="margin-top:10px">
+      <label>land <select id="at"><option value="">now</option><option value="beat">next beat</option>
+        <option value="bar">next bar</option></select></label>
+      <label>n <input id="n" type="number" value="0" min="0" max="8" style="width:56px"></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Controls</h2>
+    <div class="row">
+      <label>intensity <input id="int" type="range" min="0" max="1.5" step="0.05" value="1"><span id="intv">1.00</span></label>
+      <label>key <select id="key"></select></label>
+      <label>muffle <input id="muf" type="range" min="0" max="1" step="0.05" value="0"></label>
+      <label>music bus <input id="vol" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="riser">Riser (3.4s)</button>
+      <button id="cut">Cut riser</button>
+      <button id="silence">Silence</button>
+      <button id="duck">Duck (as Claudia)</button>
+      <button id="talk">Player talking</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Now</h2>
+    <div id="status">—</div>
+  </section>
+</main>
+
+<script>
+  // enough of a VoiceChat for the "player talking" toggle to be heard
+  window.VoiceChat = { talking: false, loudest() { return this.talking ? 'you' : null; } };
+</script>
+<script src="js/core/util.js"></script>
+<script src="js/core/audio.js"></script>
+<script src="js/core/music/mix.js"></script>
+<script src="js/core/music/instruments.js"></script>
+<script src="js/core/music/cues.js"></script>
+<script src="js/core/music.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let score = null, cue = 'finale', riser = null, run = 0;
+
+  const btn = (label, fn, cls) => {
+    const b = document.createElement('button');
+    b.textContent = label; if (cls) b.className = cls;
+    b.addEventListener('click', fn);
+    return b;
+  };
+
+  function ensure() {
+    AudioBus.resume();
+    return AudioBus.ready;
+  }
+
+  function play(c, section) {
+    if (!ensure()) return;
+    if (score && score.cueName === c && section) {
+      score.section(section, { at: 'bar', glide: 2 });
+      return;
+    }
+    if (score) score.stop(0.6);
+    score = Music.play(c, section ? { section } : {});
+    cue = c;
+    score.setIntensity(+$('int').value);
+    paintSections();
+  }
+
+  function paintCues() {
+    const root = $('cues'); root.innerHTML = '';
+    for (const c of Object.keys(Music.CUES)) {
+      root.appendChild(btn(c, () => { cue = c; play(c); paintCues(); }, c === cue ? 'on' : ''));
+    }
+  }
+
+  function paintSections() {
+    const root = $('sections'); root.innerHTML = '';
+    for (const s of Object.keys(Music.CUES[cue].sections)) {
+      const S = Music.CUES[cue].sections[s];
+      root.appendChild(btn(s + ' · ' + S.bpm, () => play(cue, s),
+        score && score.sectionName === s ? 'on' : ''));
+    }
+  }
+
+  function paintStingers() {
+    const root = $('stingers'); root.innerHTML = '';
+    for (const k of Object.keys(Music.STINGERS)) {
+      root.appendChild(btn(k, () => {
+        if (!ensure()) return;
+        if (!score) play(cue);
+        score.stinger(k, { at: $('at').value || undefined, n: +$('n').value });
+      }));
+    }
+  }
+
+  for (let k = -3; k <= 5; k++) {
+    const o = document.createElement('option');
+    o.value = k; o.textContent = (k > 0 ? '+' : '') + k; if (!k) o.selected = true;
+    $('key').appendChild(o);
+  }
+
+  $('start').onclick = () => { ensure(); };
+  $('stop').onclick = () => { run++; Music.stopAll(0.5); score = null; $('script').textContent = ''; paintSections(); };
+  $('int').oninput = () => { $('intv').textContent = (+$('int').value).toFixed(2); if (score) score.setIntensity(+$('int').value); };
+  $('key').onchange = () => { if (score) score.setKey(+$('key').value); };
+  $('muf').oninput = () => { if (score) score.setMuffle(+$('muf').value, 0.2); };
+  $('vol').oninput = () => { ensure(); AudioBus.setVolume('music', +$('vol').value); };
+  $('riser').onclick = () => { if (!score) play(cue); if (riser) riser.stop(); riser = score.riser(3.4); };
+  $('cut').onclick = () => { if (riser) { riser.stop(); riser = null; } };
+  $('silence').onclick = (e) => {
+    if (!score) return;
+    score.silence(!score.silent);
+    e.target.classList.toggle('on', score.silent);
+  };
+  $('duck').onclick = () => { if (score) score.duck(0.45, 2.5); };
+  $('talk').onclick = (e) => {
+    VoiceChat.talking = !VoiceChat.talking;
+    if (score) score.speakerDuck(VoiceChat.talking || score.speakDuck);
+    e.target.classList.toggle('on', VoiceChat.talking);
+  };
+
+  /* The fire, compressed: every section of the finale in the order a
+     night reaches them, with the stingers where the scene fires them. */
+  $('fire').onclick = async () => {
+    if (!ensure()) return;
+    const me = ++run;
+    Music.stopAll(0.3);
+    cue = 'finale'; paintCues();
+    score = Music.finale();
+    const m = score;
+    const say = (t) => { $('script').textContent = t; paintSections(); };
+    const wait = (s) => new Promise(r => setTimeout(r, s * 1000));
+    const live = () => me === run;
+    const steps = [
+      [() => say('The loch. Claudia opens the fire.'), 10],
+      [() => { say('The rules, and the warning.'); m.section('warn', { glide: 3 }); }, 5],
+      [() => m.stinger('warn', { at: 'beat' }), 5],
+      [() => { say('The floor — first speaker.'); m.section('floor', { at: 'bar', glide: 3 });
+               m.setIntensity(0.7); m.speakerDuck(true); }, 8],
+      [() => { say('The floor — second speaker.'); m.setIntensity(0.9); m.stinger('floor-next', { at: 'bar' }); }, 7],
+      [() => { say('The floor — third speaker.'); m.setIntensity(1.1); m.stinger('floor-next', { at: 'bar' }); }, 7],
+      [() => { say('The ballot.'); m.speakerDuck(false); m.section('ballot', { at: 'bar', fill: true });
+               m.setIntensity(1); }, 5],
+      [() => { say('Votes coming in.'); m.stinger('vote', { at: 'beat', n: 0 }); }, 1.4],
+      [() => m.stinger('vote', { at: 'beat', n: 1 }), 1.4],
+      [() => m.stinger('vote', { at: 'beat', n: 2 }), 5],
+      [() => { say('"My vote is for…"'); m.section('names', { at: 'beat', glide: 0.6 }); }, 2],
+      [() => m.stinger('name', { n: 0 }), 2.2],
+      [() => m.stinger('name', { n: 1 }), 2.2],
+      [() => m.stinger('name', { n: 2 }), 3],
+      [() => { say('She asks for the pouch.'); m.section('pouch', { at: 'bar', glide: 2 }); }, 8],
+      [() => { say('The held beat.'); m.section('held', { at: 'now', glide: 0.3 }); riser = m.riser(2.15); }, 2.15],
+      [() => { say('The throw. Silence.'); if (riser) riser.stop(); m.silence(true); }, 0.85],
+      [() => { say('TRAITOR.'); m.stinger('reveal-traitor'); m.section('afterTraitor', { at: 'now', glide: 2.5 }); }, 10],
+      [() => { say('The verdict: the Faithful win.'); m.setKey(0); m.stinger('win');
+               m.section('verdictWin', { at: 'bar', glide: 2 }); }, 26],
+      [() => { say('Credits, under the verdict panel.'); m.section('creditsWin', { at: 'bar', glide: 3 }); }, 20],
+    ];
+    for (const [fn, dur] of steps) {
+      if (!live()) return;
+      fn();
+      await wait(dur);
+    }
+    if (live()) say('Done.');
+  };
+
+  setInterval(() => {
+    if (!score || !score.ok) { $('status').textContent = AudioBus.ready ? 'nothing playing' : 'audio not started'; return; }
+    $('status').textContent = [
+      'cue       ' + score.cueName,
+      'section   ' + score.sectionName,
+      'bpm       ' + score.bpm.toFixed(1),
+      'key       ' + (score.key > 0 ? '+' : '') + score.key,
+      'intensity ' + score.intensity.toFixed(2),
+      'voices    ' + score.voices,
+      'silent    ' + score.silent,
+    ].join('\n');
+  }, 200);
+
+  paintCues(); paintSections(); paintStingers();
+})();
+</script>
+</body>
+</html>

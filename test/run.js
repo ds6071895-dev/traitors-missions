@@ -9,7 +9,7 @@ const suites = ['performance.test.js', 'travel.test.js', 'session.test.js', 'pri
                 'transport.test.js', 'mission-net.test.js', 'look.test.js',
                 'turn.test.js', 'party.test.js', 'retry.test.js', 'websocket.test.js',
                 'mission-server.test.js', 'mission-party.test.js',
-                'bots.test.js', 'tutorial.test.js'];
+                'bots.test.js', 'tutorial.test.js', 'music.test.js'];
 
 if (process.env.THREE_TEST_ASSET) suites.push('descent.test.js');
 

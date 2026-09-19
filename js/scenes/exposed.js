@@ -52,7 +52,8 @@ const Exposed = (() => {
       /* The pause before the name. Everything else in this file is
          words; this is the one beat that is only silence, and it is
          the one doing the work. */
-      { shot: onThem, wait: 2.2 },
+      { shot: onThem, wait: 2.2,
+        then: () => { if (scene.music && scene.music.section) scene.music.section('held', { at: 'beat', glide: 0.5 }); } },
       ...speak('exposeName', { name }, [onThem, onThem]),
 
       {

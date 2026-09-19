@@ -69,7 +69,12 @@ AudioBus.define('fire-whoosh', (ctx, dest, o = {}) => {
 
 /* The answer: a low horn for a traitor, a bright bell for a faithful.
    Both now sit on top of a sub drop, because the colour arrives as a
-   physical event and a chord alone does not have a floor. */
+   physical event and a chord alone does not have a floor.
+
+   These are the answer for a room with no band in it. When a score is
+   playing, the reveal is its stinger instead (`reveal-traitor` and
+   `reveal-faithful` in `music/cues.js`), in the key the band is in —
+   these two are pitched in A and C and would fight it. */
 
 const fireSubDrop = (ctx, dest, t, from, to, dur, peak) => {
   const o = ctx.createOscillator();
@@ -142,67 +147,10 @@ AudioBus.define('reveal-faithful', (ctx, dest) => {
   fireSubDrop(ctx, dest, t, 160, 65, 2.4, 0.30);
 });
 
-/* The riser. Started when she winds up and left to climb until the
-   pouch lands: a noise sweep going up under a saw doing the same, and
-   the whole point of it is that it is cut off rather than resolved. */
-AudioBus.define('pouch-riser', (ctx, dest, o = {}) => {
-  const t = ctx.currentTime;
-  const dur = o.dur || 4.0;
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.16, t + dur * 0.75);
-  g.gain.exponentialRampToValueAtTime(0.30, t + dur);
-  g.connect(dest);
-
-  const n = AudioBus.noiseSource();
-  let bp = null;
-  if (n) {
-    bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass'; bp.Q.value = 5.5;
-    bp.frequency.setValueAtTime(320, t);
-    bp.frequency.exponentialRampToValueAtTime(7200, t + dur);
-    n.connect(bp); bp.connect(g);
-    n.start(t); n.stop(t + dur + 0.6);
-  }
-  const osc = ctx.createOscillator();
-  osc.type = 'sawtooth';
-  osc.frequency.setValueAtTime(41.2, t);
-  osc.frequency.exponentialRampToValueAtTime(330, t + dur);
-  const og = ctx.createGain(); og.gain.value = 0.22;
-  const lp = ctx.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.setValueAtTime(400, t);
-  lp.frequency.exponentialRampToValueAtTime(4000, t + dur);
-  osc.connect(lp); lp.connect(og); og.connect(g);
-  osc.start(t); osc.stop(t + dur + 0.6);
-
-  return {
-    // cut, not faded: the silence is the point
-    stop() {
-      const tt = ctx.currentTime;
-      g.gain.cancelScheduledValues(tt);
-      g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), tt);
-      g.gain.exponentialRampToValueAtTime(0.0001, tt + 0.07);
-      try { if (n) n.stop(tt + 0.12); osc.stop(tt + 0.12); } catch (e) {}
-    },
-  };
-});
-
-AudioBus.define('heartbeat', (ctx, dest) => {
-  const t = ctx.currentTime;
-  for (const [at, amp] of [[0, 0.30], [0.21, 0.20]]) {
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(78, t + at);
-    o.frequency.exponentialRampToValueAtTime(34, t + at + 0.16);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t + at);
-    g.gain.exponentialRampToValueAtTime(amp, t + at + 0.015);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.26);
-    o.connect(g); g.connect(dest);
-    o.start(t + at); o.stop(t + at + 0.3);
-  }
-});
+/* The riser and the heartbeat used to live here as sound effects on
+   their own timers. They are in the band now (`music/instruments.js`,
+   `shepard` and `heartbeat`), so they land on its beat and are cut with
+   it at the release. */
 
 AudioBus.define('vote-in', (ctx, dest, o = {}) => {
   const t = ctx.currentTime;
@@ -230,9 +178,8 @@ class FinaleScene {
     this._offNet = null;
     this._alive = true;
     this._pouch = null;
-    this._heart = 0;
-    this._heartOn = false;
     this._riser = null;
+    this._after = null;
     this._embers = null;
     this._hand = new THREE.Vector3();
   }
@@ -255,14 +202,23 @@ class FinaleScene {
   start() {
     Scenes.Cine.on(true);
     Scenes.Cine.bars(false);
-    this.music = Music.verdict();
-    if (this.music) this.music.setGear(0, 3);
+    /* The fire has its own score, and every stage of the night below
+       calls a section of it by name — see `music/cues.js`. It opens on
+       the loch: a fifth on the low strings and the theme on a piano. */
+    this.music = Music.finale();
     this.wind = AudioBus.wind();
     if (this.wind) this.wind.set(0.14);
 
     // the tally has to land vote by vote, so it is driven by events
     this._offNet = Net.on((e) => {
-      if (e.type === 'vote') { AudioBus.play('vote-in', { index: this._tallyCount++ }); this._paintTally(); }
+      if (e.type === 'vote') {
+        // a vote is a string stab in the key, one chord tone higher
+        // each time; the old blip is for a night with no band
+        const n = this._tallyCount++;
+        if (this.music && this.music.ok) this.music.stinger('vote', { at: 'beat', n });
+        else AudioBus.play('vote-in', { index: n });
+        this._paintTally();
+      }
       else if (e.type === 'tally') this._paintTally();
     });
     this._tallyCount = 0;
@@ -335,6 +291,7 @@ class FinaleScene {
         }
         if (e.type !== 'floor') return;
         RoomUI.showFloor(current);
+        this._floorTurn(current.playerId);
         if (this.stage) {
           this.stage.setShot('on:' + e.playerId);
           this.stage.setSpeaking(e.playerId);
@@ -344,6 +301,7 @@ class FinaleScene {
       if (floor && floor.done) { finish(true); return; }
       if (floor && floor.playerId) {
         RoomUI.showFloor(floor);
+        this._floorTurn(floor.playerId);
         if (this.stage) {
           this.stage.setShot('on:' + floor.playerId);
           this.stage.setSpeaking(floor.playerId);
@@ -354,6 +312,21 @@ class FinaleScene {
                  30000 * (Session.alive().length + 1));
     });
   }
+
+  /* A new voice has the floor. The first one gets the underscore as it
+     is; each after that gets a bell on the bar line and one more layer,
+     so the third speaker is talking over a room that has noticed. */
+  _floorTurn(playerId) {
+    if (!playerId || playerId === this._floorWho) return;
+    this._floorWho = playerId;
+    const n = ++this._floorN;
+    if (!this.music) return;
+    this.music.setIntensity(0.7 + 0.2 * (n - 1));
+    if (n > 1) this.music.stinger('floor-next', { at: 'bar' });
+  }
+
+  // a section of the fire's score, by name
+  _cue(name, o) { if (this.music) this.music.section(name, o); }
 
   /* ---------------- waiting on the session ---------------- */
 
@@ -407,8 +380,11 @@ class FinaleScene {
     if (!this._alive) return;
     await this._say('fireOpen', { pot: U.money(s.pot) }, 'wide');
     if (!this._alive) return;
+    this._cue('warn', { glide: 3 });
     await this._say('fireRules', {}, 'claudia');
     if (!this._alive) return;
+    // a timpani roll into the warning, landing on a beat
+    if (this.music) this.music.stinger('warn', { at: 'beat' });
     await this._say('fireWarn', {}, 'claudiaTight');
 
     let guard = 0;
@@ -429,8 +405,12 @@ class FinaleScene {
      the only question left is who, and the floor moved here with it:
      everyone talks, then everyone names. */
   async _name() {
-    if (this.music) this.music.setGear(Math.min(2, 1 + this._round()), 3);
     const revote = Session.state.finale.nameRound > 0;
+    if (revote) {
+      // nobody knows, and the harmony does not either
+      this._cue('ballot', { at: 'bar' });
+      if (this.music) { this.music.setIntensity(1.1); this.music.stinger('tie', { at: 'beat' }); }
+    }
     await this._say(revote ? 'voteNameTie' : 'voteName', {}, 'players');
     if (!this._alive || Session.state.finale.stage !== 'name') return;
 
@@ -439,12 +419,24 @@ class FinaleScene {
        floor and goes straight back to the ballot. */
     if (!revote) {
       RoomUI.showBoard(Session.state.debrief);
+      /* The floor: plucked, low, and ducking under anybody who talks.
+         Every new speaker pushes it up a notch — see `_floorTurn`. */
+      this._floorWho = null;
+      this._floorN = 0;
+      this._cue('floor', { at: 'bar', glide: 3 });
+      if (this.music) { this.music.setIntensity(0.7); this.music.speakerDuck(true); }
       await this._say('floorOpen', {}, 'players');
       if (!this._alive) return;
       await this._floorRound();
+      if (this.music) this.music.speakerDuck(false);
       RoomUI.hideBoard();
       if (!this._alive || Session.state.finale.stage !== 'name') return;
     }
+
+    /* The ballot. The cello goes to sixteenths on the next bar line,
+       with a cymbal swelling into it. */
+    this._cue('ballot', { at: 'bar', fill: !revote });
+    if (this.music && !revote) this.music.setIntensity(1);
 
     this._tallyCount = 0;
     const you = Session.state.players.find(p => p.local);
@@ -470,7 +462,9 @@ class FinaleScene {
      Each contestant says exactly one name, in seat order, before the
      tally resolves and Claudia takes the selected person's role pouch. */
   async _names() {
-    let guard = 0;
+    // stop-time: a tremolo and a heart, and one hit per name
+    this._cue('names', { at: 'beat', glide: 0.6 });
+    let guard = 0, said = 0;
     while (this._alive && guard++ < 8
            && Session.state.phase === 'finale'
            && Session.state.finale.stage === 'names') {
@@ -486,8 +480,12 @@ class FinaleScene {
         line: { text: 'My vote is for ' + (target.local ? 'you' : target.name) + '.',
                 speaker: voter.name, who: voter.id,
                 pitch: voice.pitch, rate: voice.rate },
-        hold: 0.65,
+        hold: 0,
       }], this);
+      if (!this._alive) return;
+      // the name has been said: it lands, a step higher than the last
+      if (this.music) this.music.stinger('name', { n: said++ });
+      await Scenes.wait(0.65);
       if (!this._alive) return;
 
       await Scenes.barrier('name-' + this._round() + '-'
@@ -514,6 +512,8 @@ class FinaleScene {
       reveal: (role) => this._setFor(
         role === 'traitor' ? 'revealTraitor' : 'revealFaithful', target),
       action: { type: 'reveal' },
+      // a Traitor caught is a triumph; a Faithful burned is a lament
+      after: (role) => role === 'traitor' ? 'afterTraitor' : 'afterFaithful',
     });
     if (!this._alive) return;
 
@@ -528,7 +528,7 @@ class FinaleScene {
      how many are left and it is the thing that will be a server. */
   async _pouches() {
     const f = Session.state.finale;
-    if (this.music) { this.music.setGear(2, 2); }
+    this._cue('lastPouches', { at: 'bar', glide: 2 });
     await this._say(f.reason === 'final-two' || f.reason === 'you-burned'
                     ? 'finalTwoReveal' : 'endPouches', {}, 'claudiaSide');
 
@@ -547,6 +547,16 @@ class FinaleScene {
           role === 'traitor' ? 'finalTraitor' : 'finalFaithful', target),
         action: { type: 'pouch' },
         salt: st.opened.length + 1,
+        /* Every pouch a semitone higher than the last, and the last one
+           held the longest — the night is climbing to the verdict. The
+           suspense only resolves on the last pouch: a Faithful opened
+           before it goes straight back to waiting. The last pouch drives
+           into the verdict whatever it is — a Faithful there means no
+           Traitor survived, and that is not a lament. */
+        section: 'lastPouches',
+        key: st.opened.length,
+        last,
+        after: () => last ? 'afterTraitor' : 'lastPouches',
       });
       if (!this._alive) return;
       await Scenes.wait(0.7);
@@ -562,6 +572,10 @@ class FinaleScene {
     const claudia = this.stage.claudia;
 
     const salt = spec.salt | 0;
+
+    // she asks for it: tremolo strings, and the choir on "oo"
+    if (this.music && spec.key != null) this.music.setKey(spec.key);
+    this._cue(spec.section || 'pouch', { at: 'bar', glide: 2 });
 
     // she asks for it, and it comes to her
     await this._say(spec.intro, { name: target.name }, 'on:' + target.id, salt);
@@ -587,16 +601,17 @@ class FinaleScene {
     await Scenes.barrier(ceremonyKey + '-throw');
     if (!this._alive) return this._abort();
 
-    /* The held beat. The score drops to a pulse, the subtitle goes, the
-       riser starts, and the camera creeps in on the fire — four things
-       all saying the same thing, which is that nothing else is going to
-       happen until this does. */
+    /* The held beat. The band drops to a heart and a low D, the
+       subtitle goes, a riser starts climbing, and the camera creeps in
+       on the fire — four things all saying the same thing, which is
+       that nothing else is going to happen until this does. The last
+       pouch of the night is held longest. */
     Voice.clear();
-    if (this.music) { this.music.setGear(0, 0.5); this.music.duck(0.07, 4.2); }
-    this._heartOn = true;
-    this._riser = AudioBus.play('pouch-riser', { dur: 3.4 });
+    const hold = spec.last ? 2.4 : 1.5;
+    this._cue('held', { at: 'now', glide: 0.3 });
+    this._riser = this.music ? this.music.riser(hold + Figure.THROW_AT * 0.95) : null;
     this.stage.setCinematic(true, 'fireTight', { speed: 0.32 });
-    await Scenes.wait(1.5);
+    await Scenes.wait(hold);
     if (!this._alive) return this._abort();
 
     // the throw itself, with the pouch leaving her hand at the release
@@ -607,6 +622,12 @@ class FinaleScene {
     if (!this._alive) return this._abort();
 
     this._throwPouch();
+    /* The release. The riser is cut and the band with it — true
+       silence, not a duck — so the only sounds in the second before
+       the answer are the pouch in the air and the fire. The reveal
+       stinger is what ends it. */
+    this._endHeldBeat();
+    if (this.music) this.music.silence(true);
     AudioBus.play('pouch-toss');
     Figure.setHolding(claudia, false);
     // down in the grass, looking up the flame, for what comes out of it
@@ -614,6 +635,7 @@ class FinaleScene {
     await Scenes.wait(0.85);
 
     // the answer
+    this._after = spec.after || null;
     const role = await this._burn(spec.action, target.id);
     if (!this._alive) return this._abort();
 
@@ -634,13 +656,13 @@ class FinaleScene {
      ceremony abandoned part way through — and a riser left climbing
      after a scene has gone is the one that would be noticed. */
   _endHeldBeat() {
-    this._heartOn = false;
     if (this._riser) { try { this._riser.stop(); } catch (e) {} this._riser = null; }
   }
 
   // a ceremony that will not be finishing: stop everything it started
   _abort() {
     this._endHeldBeat();
+    if (this.music) this.music.silence(false);
     this._clearPouch();
     if (this.stage) this.stage.setCinematic(false);
   }
@@ -689,6 +711,7 @@ class FinaleScene {
       role,
       stage: this.stage,
       music: this.music,
+      after: this._after ? this._after(role) : undefined,
       playerId: e && e.playerId,
     });
     this._embers = out.embers;
@@ -712,9 +735,14 @@ class FinaleScene {
     const o = Session.state.outcome;
     if (!o) return;
     this._closeVote();
+    /* The verdict is the whole theme, eight bars, in whichever of three
+       versions the night earned: a hymn, a lament, or the Traitor's
+       anthem. Back in D for it, whatever the pouches climbed to. */
     if (this.music) {
-      this.music.setGear(o.won ? 2 : 1, 2);
-      this.music.setProgression(o.won ? 'hymn' : 'dread');
+      const V = Music.verdictCue(o);
+      this.music.setKey(0);
+      this.music.stinger(V.sting);
+      this.music.section(V.section, { at: 'bar', glide: 2 });
     }
 
     const set = o.reason === 'you-burned' ? 'lostBurned'
@@ -863,12 +891,6 @@ class FinaleScene {
     this.stage.update(dt);
     this._updatePouch(dt);
     this._updateEmbers(dt);
-
-    // the held beat, made audible
-    if (this._heartOn) {
-      this._heart -= dt;
-      if (this._heart <= 0) { AudioBus.play('heartbeat'); this._heart = 1.05; }
-    }
 
     /* The fire cools back to firelight after a reveal. It holds the
        colour for a beat first — a column that starts shrinking while

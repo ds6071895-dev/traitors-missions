@@ -971,6 +971,7 @@ class BoatRaceMission {
     this.engineSnd = BoatFeedback.audio();
     this.ambSnd = AudioBus.ambience();
     this.ambSnd.set(.12);
+    this._startMusic();
     this._lastBeep = 4;
     Screens.show('hud');
     this._setCenter('', '');
@@ -988,6 +989,36 @@ class BoatRaceMission {
         this._setCenter('', '');
       });
     }
+  }
+
+  /* The score. It opens on a low tremolo while the lights count down,
+     plays the count with them, and drops the band on GO. After that the
+     gear follows the boat — see `_updateMusic`. */
+  _startMusic() {
+    if (this.music) this.music.stop(0.3);
+    this.music = Music.boat();
+    this._musicGear = -1;
+    this._musicDownT = 0;
+  }
+
+  _updateMusic(dt) {
+    const m = this.music;
+    if (!m || this.state !== 'racing') return;
+    const b = this.boat;
+    /* Faster is louder. Boost and the home stretch are always the top
+       of the band; dropping a gear has to be earned for a few seconds,
+       or every wobble through a ring would be a key change. */
+    let want = b.speed01 < 0.45 ? 0 : b.speed01 < 0.8 ? 1 : b.speed01 < 1.05 ? 2 : 3;
+    if (b.boosting) want = 3;
+    if (this._inStretch) want = Math.max(2, want);
+    if (want > this._musicGear) {
+      this._musicGear = want; this._musicDownT = 0;
+      m.setGear(want, 1.2);
+    } else if (want < this._musicGear) {
+      this._musicDownT += dt;
+      if (this._musicDownT > 3) { this._musicGear = want; this._musicDownT = 0; m.setGear(want, 2); }
+    } else this._musicDownT = 0;
+    m.setIntensity(U.clamp(0.72 + Math.min(this.combo, 8) * 0.04 + (this._inStretch ? 0.2 : 0), 0, 1.3));
   }
 
   /* Finishing is the one thing every client has to agree about, and it
@@ -1088,6 +1119,7 @@ class BoatRaceMission {
     clearTimeout(this._stretchT);
     if (this.engineSnd) this.engineSnd.stop();
     if (this.ambSnd) this.ambSnd.stop();
+    if (this.music) { this.music.stop(0.8); this.music = null; }
     if (this.fx) this.fx.dispose();
     if (this.presentation) this.presentation.dispose();
     document.body.classList.remove('boat-race-active', 'boat-reduced-motion');
@@ -1143,6 +1175,7 @@ class BoatRaceMission {
     this.hitStop = 0; this.timeScale = 1; this.timeScaleTarget = 1;
     this.camDip = 0; this.camPush = 0; this.shake = 0;
     this._lastBeep = 4;
+    this._startMusic();
     this.ghostT = 0; this.ghostDelta = null; this._ghostScan = 0;
     this.rec = { x: [], y: [], z: [], yaw: [], s: [] };
     this._recAcc = 0;
@@ -1168,7 +1201,12 @@ class BoatRaceMission {
 
   update(rawDt, t) {
     if (!this.scene) return;
-    if (Engine.isPaused()) { if (this.engineSnd) this.engineSnd.set(this.boat, true); return; }
+    if (Engine.isPaused()) {
+      if (this.engineSnd) this.engineSnd.set(this.boat, true);
+      if (this.music) this.music.setPaused(true);
+      return;
+    }
+    if (this.music) this.music.setPaused(false);
 
     if (Input.pressed('pause') && this.state === 'racing') {
       this._pause();
@@ -1256,6 +1294,7 @@ class BoatRaceMission {
     this._updateCamera(rawDt);
     Sky.update(dt, this.camera.position, t);
     this._updateAudio();
+    this._updateMusic(rawDt);
     this._updateHud(rawDt);
   }
 
@@ -1266,9 +1305,15 @@ class BoatRaceMission {
       this._lastBeep = n;
       if (n > 0) {
         AudioBus.play('countdown', {});
+        if (this.music) this.music.stinger('count', { n });
         this._setCenter(String(n), '', 'count');
       } else {
         AudioBus.play('countdown', { go: true });
+        if (this.music) {
+          this.music.stinger('go');
+          this.music.setGear(0, 0.1);
+          this._musicGear = 0;
+        }
         this._setCenter('GO!', '', 'go');
         this.fovKick = 10;
         setTimeout(() => this._setCenter('', ''), 700);
@@ -1297,6 +1342,7 @@ class BoatRaceMission {
     this._flash(0.28, '#b98cff');
     this.fovKick = Math.min(this.fovKick + 8, 16);
     AudioBus.play('perfect', { combo: 6 });
+    if (this.music) this.music.stinger('boost', { at: 'beat' });
     clearTimeout(this._stretchT);
     this._stretchT = setTimeout(() => {
       if (this.state === 'racing') this._setCenter('', '');
@@ -1467,6 +1513,7 @@ class BoatRaceMission {
     this.fovKick = Math.min(this.fovKick + (perfect || h.risk ? 7.0 : 4.0), 14);
     this._flash(perfect || h.risk ? 0.34 : 0.18, h.risk ? '#ffb020' : (perfect ? '#ffd166' : '#7dfcd0'));
     AudioBus.play('boat-cue', { kind: h.risk ? 'risk' : perfect ? 'perfect' : 'safe' });
+    if (this.music && (perfect || h.risk)) this.music.stinger('perfect');
     AudioBus.play('whoosh', { amount: 0.6 + this.boat.speed01 * 0.7 });
     Input.haptic(perfect ? 24 : 12);
 
@@ -1625,6 +1672,12 @@ class BoatRaceMission {
     const medal = this._medalFor(trial ? finalTime : earned);
 
     AudioBus.play('finish');
+    if (this.music) {
+      // a fanfare for a win or a solo run; something smaller for a place
+      this.music.stinger(this.stats.place > 1 ? 'finish-low' : 'finish');
+      this.music.setGear(0, 2);
+      this.music.setIntensity(0.6);
+    }
     this._setCenter('COURSE COMPLETE',
       trial ? U.clockTime(finalTime) : U.money(earned), 'go');
     // a long slow exhale over the line
@@ -1661,6 +1714,11 @@ class BoatRaceMission {
     this.stats.of = this.peers.size + 1;
     this.stats.finished = false;
     AudioBus.play('miss');
+    if (this.music) {
+      this.music.stinger('fail');
+      this.music.setGear(0, 2);
+      this.music.setIntensity(0.5);
+    }
     this._setCenter(headline || "TIME'S UP", '', 'bad');
     this.timeScaleTarget = 0.5;
     // half the rings still count — unless you took the modifier that says
@@ -1837,6 +1895,7 @@ class BoatRaceMission {
     if (b.boostStarted) {
       AudioBus.play('boostpop');
       AudioBus.play('boost');
+      if (this.music) this.music.stinger('boost');
       this.fovKick = Math.min(this.fovKick + 8, 16);
       this.camPush = 1;
       this.shake = Math.min(this.shake + 0.30, 1.2);
