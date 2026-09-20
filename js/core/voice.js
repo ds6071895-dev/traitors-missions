@@ -31,7 +31,7 @@ const Voice = (() => {
   let muted = false;
   let token = 0;              // bumps on cancellation to orphan old callbacks
   let live = null;            // { resolve, timer }
-  let held = null;            // the utterance in the air — see `next`
+  let held = [];              // the utterances of the line in the air — see `next`
   let started = false;
 
   const dom = {};
@@ -107,15 +107,38 @@ const Voice = (() => {
 
   /* ---------------- speaking ---------------- */
 
+  /* The hand-off between one sentence and the next. It is a full stop,
+     so it is charged for in `readTime` below rather than being time the
+     clock does not know about. */
+  const GAP = 190;
+
   /* How long the line takes out loud, which is also how long it is held
      for a player with no voice or muted: one clock for everybody. It has
-     to be honest. A synthesiser at 0.94 speaks at about sixty
-     milliseconds a character plus a breath between sentences, and a
-     clock shorter than that cancels her mid-word. */
+     to be honest, and honest here means erring long. The beat ends when
+     this says it does and the *next* line opens with `synth.cancel()`,
+     so a clock that is a word short takes that word off the end of the
+     line — which is exactly what it sounded like.
+
+     Installed voices are not one speed. Across the neural ones a
+     character is somewhere between fifty-five and seventy-two
+     milliseconds at rate 1, and the old sixty was the middle of that
+     range: right on average, and therefore short on half the lines.
+     Sixty-eight is the slow end, which is the number this wants. The
+     rest is what happens either side of the words — the wait before the
+     first phoneme, the breath an engine leaves at a full stop on top of
+     our own hand-off, and a margin so the deadline lands after the last
+     word rather than on it. */
+  const MS_PER_CHAR = 68;   // at rate 1, the slowest voice rather than the mean
+  const OVERHEAD = 820;     // speak() to first phoneme, plus the busy beat
+  const BREATH = 250;       // what the engine itself leaves at a full stop
+  const TAIL = 260;         // margin: the deadline lands after her, not on her
+
   const readTime = (text, rate = 0.94) => {
     const body = String(text);
-    const breaks = sentences(body).length;
-    return Math.min(24000, 900 + (body.length * 60 + breaks * 260) / (rate || 1));
+    const gaps = Math.max(0, sentences(body).length - 1);
+    return Math.min(26000, OVERHEAD + TAIL
+                         + (body.length * MS_PER_CHAR) / (rate || 1)
+                         + gaps * (GAP + BREATH));
   };
 
   // full stops, question marks and the em dashes she actually pauses on
@@ -174,6 +197,7 @@ const Voice = (() => {
 
       const parts = sentences(body);
       let i = 0, finished = false;
+      held = [];
 
       /* The same deadline is used with or without a synthesiser. It ends
          the beat but does not cut the sentence she is in the middle of:
@@ -190,12 +214,24 @@ const Voice = (() => {
         u.rate = opts.rate === undefined ? 0.94 : opts.rate;
         u.pitch = opts.pitch === undefined ? 1.0 : opts.pitch;
         u.volume = opts.volume === undefined ? 1 : opts.volume;
-        u.onend = () => { if (t === token) setTimeout(next, 190); };
-        u.onerror = () => { if (t === token) setTimeout(next, 60); };
+        /* One hand-off per utterance, whichever event arrives. Engines
+           differ on whether a cancelled or failed sentence gets `onend`
+           as well as `onerror`, and two hand-offs from one sentence
+           queue two more behind it — at which point the one in the
+           middle is spoken over and lost. */
+        const advance = (ms) => {
+          if (u._handed) return;
+          u._handed = true;
+          if (t === token) setTimeout(next, ms);
+        };
+        u.onend = () => advance(GAP);
+        u.onerror = () => advance(60);
         // Chrome garbage-collects an utterance nothing holds, and its
-        // `onend` never fires — which silently drops every later sentence
-        held = u;
-        try { synth.speak(u); } catch (e) { setTimeout(next, 30); }
+        // `onend` never fires — which silently drops every later
+        // sentence. Hold the whole line, not just the newest of it:
+        // the one still speaking is the one that must not be collected.
+        held.push(u);
+        try { synth.speak(u); } catch (e) { advance(30); }
       };
       if (busy) setTimeout(next, 80); else next();
     });

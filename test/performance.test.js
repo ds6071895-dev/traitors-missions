@@ -70,6 +70,63 @@ test('voice capture skips silence and timestamps speech for stale-packet rejecti
     deadline.fn(); await finished; nextSentence.fn();
     assert.equal(spoken.length, 1);
   });
+  await atest('a line is given longer than the slowest voice needs to finish it', async () => {
+    /* The beat ends on this clock and the next line opens with a
+       cancel, so a deadline that lands before the synthesiser has
+       finished takes the last word off. Seventy-two milliseconds a
+       character at rate 1 is the slow end of the installed voices;
+       nothing the show says may outrun it. */
+    const SLOWEST = 72;        // ms a character at rate 1, the slowest voice
+    const FULL_STOP = 190 + 250;   // our hand-off, and the breath the engine adds
+    const timers = [];
+    const voice = { voiceURI: 'local', name: 'Kate', lang: 'en-GB' };
+    const ctx = H.load(['js/core/voice.js'], {
+      GameState: { settings: {} }, SpeechSynthesisUtterance: class {},
+      document: { getElementById: () => null, addEventListener() {} }, addEventListener() {},
+      setTimeout(fn, ms) { timers.push(ms); return timers.length; }, clearTimeout() {},
+      setInterval() { return 1; }, clearInterval() {},
+      speechSynthesis: { getVoices: () => [voice], addEventListener() {},
+        speak() {}, cancel() {} },
+    });
+    ctx.Voice.init();
+
+    const lines = ['Time.', 'That is your thirty.', 'Alexander. The room is yours.',
+                   'Half a minute each, and then I want a decision.',
+                   'I watched Alexander the whole way through that mission. I did not like what I saw.'];
+    for (const line of lines) {
+      timers.length = 0;
+      ctx.Voice.say(line, { rate: 0.94 });
+      const deadline = Math.max(...timers);
+      const sentences = line.split(/(?<=[.!?…])\s+/).length;
+      const spoken = line.length * SLOWEST / 0.94 + (sentences - 1) * FULL_STOP;
+      assert.ok(deadline > spoken,
+        'deadline ' + Math.round(deadline) + 'ms cuts ' + Math.round(spoken) + 'ms of speech: ' + line);
+    }
+  });
+  await atest('an utterance that ends and errors only hands off once', async () => {
+    /* Two hand-offs from one sentence queue two more behind it, and
+       the one in the middle is spoken over and lost. */
+    const timers = new Map(), spoken = [];
+    let id = 0;
+    const voice = { voiceURI: 'local', name: 'Kate', lang: 'en-GB' };
+    const ctx = H.load(['js/core/voice.js'], {
+      GameState: { settings: {} }, SpeechSynthesisUtterance: class {},
+      document: { getElementById: () => null, addEventListener() {} }, addEventListener() {},
+      setTimeout(fn, ms) { timers.set(++id, { fn, ms }); return id; }, clearTimeout(n) { timers.delete(n); },
+      setInterval() { return 1; }, clearInterval() {},
+      speechSynthesis: { getVoices: () => [voice], addEventListener() {},
+        speak(u) { spoken.push(u); }, cancel() {} },
+    });
+    ctx.Voice.init(); timers.clear();
+    ctx.Voice.say('One. Two. Three.');
+    assert.equal(spoken.length, 1);
+    spoken[0].onend();
+    spoken[0].onerror();            // some engines send both
+    const handoffs = [...timers.values()].filter(timer => timer.ms === 190 || timer.ms === 60);
+    assert.equal(handoffs.length, 1, 'one sentence scheduled ' + handoffs.length + ' hand-offs');
+    handoffs[0].fn();
+    assert.equal(spoken.length, 2, 'the second sentence was queued once');
+  });
   await atest('voice capture backlog is discarded after a main-thread stall', async () => {
     const nodes = [], sent = [];
     let audio;

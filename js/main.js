@@ -63,6 +63,59 @@ const Game = (() => {
     Sky.resetPreset();
   }
 
+  /* ---------------- the overture ----------------
+     The front of house has a score. It runs across every menu screen
+     — the door, the lobby, the mission party, the dressing room, the
+     mission list and the briefing — rather than one of them, because
+     they are walls of the same room and a theme that restarted every
+     time you pressed Back is a jingle, not a title.
+
+     It opens on the theme alone and lifts into the full anthem one
+     pass in, on a bar line, behind a reverse cymbal. Anything that is
+     not a menu — a mission, the night, a pause over either — stops
+     it, and whatever is down there starts its own.
+
+     Nothing can begin before the browser has seen a gesture, so `kick`
+     asks again once there is an audio context to ask with. */
+
+  const MENU_SCREENS = new Set(['play', 'lobby', 'mparty', 'dressing', 'title', 'brief']);
+  /* Four bars of `gate` at 84bpm is 11.4 seconds, which is one whole
+     statement of the theme. Ask a beat and a half early: the switch
+     waits for the bar line either way, and the reverse cymbal needs
+     that much runway to arrive on it. */
+  const OVERTURE_LIFT = 10000;
+
+  let overture = null, overtureLift = null;
+
+  function stopOverture(fade = 0.9) {
+    if (overtureLift) { clearTimeout(overtureLift); overtureLift = null; }
+    if (!overture) return;
+    overture.stop(fade);
+    overture = null;
+  }
+
+  function startOverture() {
+    // `Show.end` stops every live score; if ours went with it, let go
+    if (overture && !Music.live.has(overture)) overture = null;
+    if (overture || !AudioBus.ready) return;
+    const score = Music.title();
+    if (!score || !score.ok) return;
+    overture = score;
+    overtureLift = setTimeout(() => {
+      overtureLift = null;
+      if (overture === score) score.section('anthem', { at: 'bar', glide: 2.5, fill: true });
+    }, OVERTURE_LIFT);
+  }
+
+  /* The one rule, and every screen change and every mute goes through
+     it. Muting stops the band rather than turning it down: a sequencer
+     booking forty notes a bar into a master gain at zero is the most
+     expensive silence in the game. */
+  function syncOverture(id = Screens.current) {
+    if (MENU_SCREENS.has(id) && !AudioBus.muted) startOverture();
+    else stopOverture();
+  }
+
   /* ---------------- pre-race setup ----------------
      The briefing panel is where a run is *chosen*: which channel, which
      mode, which modifier. Everything it shows comes from the mission's own
@@ -922,11 +975,14 @@ const Game = (() => {
       Voice.setMuted(GameState.settings.muted);
       Voice.refresh();
       renderVoices();
+      // the first gesture is also the first moment the band may play
+      syncOverture();
     };
     window.addEventListener('pointerdown', kick, { once: true });
     window.addEventListener('keydown', kick, { once: true });
 
     /* screens */
+    Screens.onShow(syncOverture);
     Screens.register('play', { enter: () => renderPlay() });
     Screens.register('title', {
       enter: () => renderMissionList(),
@@ -1014,7 +1070,7 @@ const Game = (() => {
       const m = AudioBus.toggleMute();
       GameState.settings.muted = m; GameState.save();
       Voice.setMuted(m);
-      syncMute(m); syncMuteChip();
+      syncMute(m); syncMuteChip(); syncOverture();
     };
 
     /* ---- the verdict ---- */
@@ -1090,7 +1146,7 @@ const Game = (() => {
       // the browser will not let speech through the audio graph, so it
       // has to be muted by hand or Claudia talks over a muted game
       Voice.setMuted(m);
-      syncMute(m); syncMuteChip();
+      syncMute(m); syncMuteChip(); syncOverture();
     };
     syncMute(GameState.settings.muted);
 

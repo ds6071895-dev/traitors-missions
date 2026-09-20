@@ -224,6 +224,24 @@ test('the owl at full fury stays inside the voice budget', () => {
   ok(worst > 30, 'suspiciously quiet owl: ' + worst);
 });
 
+test('the title overture lifts into its anthem and stays inside the budget', () => {
+  const { Music, ac } = load();
+  const s = Music.play('title', { section: 'gate' });
+  ok(s.ok, 'the overture did not start');
+  let quiet = 0;
+  run([s], ac, 12, () => { quiet = Math.max(quiet, s.voices); });
+  eq(s.sectionName, 'gate', 'the overture does not promote itself');
+  ok(quiet > 4, 'suspiciously empty gate: ' + quiet);
+
+  // what `main.js` does a pass in
+  s.section('anthem', { at: 'bar', glide: 2.5, fill: true });
+  let loud = 0;
+  run([s], ac, 60, () => { loud = Math.max(loud, s.voices); });
+  eq(s.sectionName, 'anthem', 'the lift never landed');
+  ok(loud > quiet, 'the anthem is no bigger than the gate: ' + loud + ' vs ' + quiet);
+  ok(loud <= 130, 'live voices peaked at ' + loud);
+});
+
 /* ---------------- silence, keys, talk ---------------- */
 
 test('silence books nothing, and a stinger ends it', () => {

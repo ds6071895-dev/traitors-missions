@@ -346,6 +346,51 @@ const MusicCues = (() => {
     },
   };
 
+  /* ---------------- the front door ----------------
+     The title. The hill states the theme; this one *announces* it.
+     Same four bars, played as an overture: `gate` is the tune alone
+     on a piano with a harp and the celli under it, and `anthem` is
+     what happens when the horns, the choir and two drums arrive and
+     the harmony opens out into the full eight bars.
+
+     It is the first thing anybody hears, so it earns the brass rather
+     than opening with it — `main.js` lifts the section a pass in, on
+     a bar line, behind a reverse cymbal. It loops there; a menu is
+     allowed to be a wall of sound, it is not allowed to end. */
+  const TITLE = {
+    level: 0.66, room: 'cathedral', reverb: 0.42,
+    gears: ['gate', 'anthem'],
+    sections: {
+      gate: { bpm: 84, prog: 'fire', duckLift: 0.3, talkDuck: 0.3, layers: [
+        L('piano', 'piano', { motif: 'theme', oct: 3, gain: 0.8 }),
+        L('harp', 'harp', { pat: vel('X.5.6.5.X.5.6.5.'), pick: ARP8_P, oct: 3, gain: 0.45 }),
+        L('celli', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain',
+          gain: 0.6, fam: 'cello' }),
+        L('pad', 'strings', { pat: HALF, pick: 'chord', oct: 3, len: 8, art: 'sustain',
+          gain: 0.34, voices: 2 }),
+        L('timp', 'timpani', { pat: vel('X.............7.'), pick: 'root', oct: 1, gain: 0.34,
+          when: b => b % 2 === 1 }),
+      ]},
+
+      /* Eight bars, because an anthem needs somewhere to go: the
+         theme over the first four and its answer over the second,
+         with the ostinato underneath the whole way. */
+      anthem: { bpm: 84, prog: 'fate', duckLift: 0.3, talkDuck: 0.3, layers: [
+        L('horn', 'brass', { motif: 'fate', oct: 2, gain: 0.8 }),
+        L('violins', 'strings', { motif: 'fate', oct: 3, art: 'sustain', fam: 'hiStr', gain: 0.6 }),
+        L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'ah', gain: 0.5 }),
+        L('ost', 'strings', { pat: OST8_V, pick: OST8_P, oct: 1, art: 'spic', gain: 0.7,
+          fam: 'cello' }),
+        L('celli', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain',
+          gain: 0.7, fam: 'cello' }),
+        L('harp', 'harp', { pat: vel('X.5.6.5.X.5.6.5.'), pick: ARP8_P, oct: 4, gain: 0.3 }),
+        L('taiko', 'taiko', { pat: vel('X.....6.X.6...7.'), gain: 0.62 }),
+        L('timp', 'timpani', { pat: vel('X.......X...X.X.'), pick: 'root', oct: 1, gain: 0.42 }),
+        L('crash', 'crash', { pat: BAR1, gain: 0.5, when: b => b % 4 === 0 }),
+      ]},
+    },
+  };
+
   /* ---------------- the journey ----------------
      The theme in six-eight, rolling like a boat does. The way home is
      the same tune with half the players gone. */
@@ -610,8 +655,8 @@ const MusicCues = (() => {
   };
 
   const CUES = {
-    finale: FINALE, ceremony: CEREMONY, journey: JOURNEY, stage: STAGE, boss: BOSS,
-    dive: DIVE, descent: DESCENT, boat: BOAT,
+    title: TITLE, finale: FINALE, ceremony: CEREMONY, journey: JOURNEY, stage: STAGE,
+    boss: BOSS, dive: DIVE, descent: DESCENT, boat: BOAT,
   };
 
   /* ---------------- stingers ----------------

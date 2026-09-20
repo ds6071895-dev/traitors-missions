@@ -1042,7 +1042,7 @@ cent on top of the grass.
 those fixes: score the OS voice list rather than taking the first one (and let the player
 override, because what is installed varies wildly); speak one sentence per utterance, so
 there are real pauses at full stops and Chrome's fifteen-second truncation never bites;
-rate 0.92 and duck the score under every line.
+rate 0.94 and duck the score under every line.
 
 And never depend on it. No synthesiser, muted, or a voice that fires no events: all of
 them use the same text-derived subtitle clock, and the scene above cannot tell the
@@ -1050,6 +1050,17 @@ difference. A system voice is presentation rather than timing; `Voice.say()` res
 that common deadline, exactly once, whatever the browser does. Your own line at the round
 table is deliberately silent — being dubbed by the host's voice in your own mouth is worse
 than reading it.
+
+That clock has to err *long*. The beat ends when it says so and the next line opens with
+a `synth.cancel()`, so a deadline a word short takes that word off the end — which is
+what a line that "skipped a word near the end" actually was. Installed voices run
+anywhere between about fifty-five and seventy-two milliseconds a character at rate 1;
+`readTime` is built on the slow end of that rather than the middle of it, and charges
+separately for the wait before the first phoneme, the hand-off between sentences and the
+breath the engine leaves at a full stop. Each utterance also hands off exactly once,
+whichever of `onend` and `onerror` arrives, and every utterance of the line is held until
+the line is over — two hand-offs from one sentence queue two more behind it and the one
+in the middle is spoken over and lost.
 
 ### Scenes are beat lists
 
@@ -1527,6 +1538,14 @@ The fire is scored stage by stage:
 
 The boat race has a score now too: a count-in the band plays with the lights, and four
 gears that follow the boat's speed.
+
+The menus have one as well. `title` is the theme played as an overture: `gate` states it
+on a piano with a harp and the celli under it, and one full pass later `main.js` lifts
+the score into `anthem` — the horns, the choir, two drums and the harmony opened out to
+the full eight bars — on a bar line, behind a reverse cymbal. It runs across the front
+door, the lobby, the dressing room, the mission list and the briefing rather than any
+one of them, because a theme that restarted every time you pressed Back would be a
+jingle; anything that is not a menu stops it and starts its own.
 
 **Listening.** Open `/jukebox.html` on the dev server. It has every cue, section and
 stinger on a button, plus controls for intensity, key, muffle and speaker ducking.

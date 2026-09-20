@@ -543,6 +543,9 @@ const Music = (() => {
   const boss = () => play('boss');
   // the hunt between owls: lighter, with a horn from the trees
   const stage = () => play('stage');
+  /* the front door: an overture that starts as the theme and becomes
+     an anthem when the caller lifts it — see `main.js` */
+  const title = () => play('title', { section: 'gate' });
   // the hill: the main title
   const ceremony = () => play('ceremony');
   /* The dive. It has to be a factory rather than `new Music.Score`: a
@@ -578,7 +581,7 @@ const Music = (() => {
   const DIVE_GEARS = sectionsOf('dive').map(n => CUES.dive.sections[n]);
   const GEARS = sectionsOf('boss').map(n => CUES.boss.sections[n]);
 
-  return { journey, boss, stage, ceremony, verdict, finale, dive, descent, boat, play,
+  return { title, journey, boss, stage, ceremony, verdict, finale, dive, descent, boat, play,
            duckAll, stopAll, pauseAll, sectionAll, stingerAll, verdictCue,
            Score, SILENT, GEARS, DIVE_GEARS, SKI_GEARS, PROGRESSIONS, STINGERS, CUES,
            get live() { return LIVE; } };
