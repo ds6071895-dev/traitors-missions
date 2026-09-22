@@ -1880,6 +1880,10 @@ class DiveMission {
   }
 
   start() {
+    this._previousPixelRatio = Engine.renderer.getPixelRatio();
+    const applyResolution = () => Engine.renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio || 1, this.graphics.resolution));
+    applyResolution(); this._offResolution = Engine.onResize(applyResolution);
     Input.setMouseAim(true);
     Input.setTouchMode('swim');
     this._aimOn = true;
@@ -2003,6 +2007,8 @@ class DiveMission {
        cobalt trench water in the attract screen, the boat race and
        every mission after it. */
     if (this._rig) { this._rig.restore(); this._rig = null; }
+    if (this._offResolution) { this._offResolution(); this._offResolution = null; }
+    if (this._previousPixelRatio !== undefined) Engine.renderer.setPixelRatio(this._previousPixelRatio);
     Water.setPalette(Water.DEFAULTS);
     Water.setFog(340, 3600, Sky.PALETTE.fog);
     Water.setSeaState({ swell: 1, chop: 1, wind: 0 });

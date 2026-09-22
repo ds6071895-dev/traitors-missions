@@ -13,10 +13,13 @@
 ------------------------------------------------------------------ */
 const DivePresentation = (() => {
   const presets = {
-    // pixels are the engine's job (its budget already reads the quality)
-    low:    { rings: 84,  sectors: 128, shadow: 0    },
-    medium: { rings: 120, sectors: 168, shadow: 1024 },
-    high:   { rings: 150, sectors: 208, shadow: 2048 },
+    /* The pixel ratio is set here, as the Descent sets its own. The
+       engine's budget alone rendered the loch below native on any
+       high-DPI screen, and its slow-frame fallback halves it for good
+       after one compile stall on the way in. */
+    low:    { rings: 84,  sectors: 128, shadow: 0,    resolution: 1   },
+    medium: { rings: 120, sectors: 168, shadow: 1024, resolution: 1.5 },
+    high:   { rings: 150, sectors: 208, shadow: 2048, resolution: 2   },
   };
 
   function resolve(q) {

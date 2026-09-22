@@ -61,6 +61,10 @@ const Engine = (() => {
     // Reduce GPU work after sustained slow frames; keep DOM text full resolution.
     if (average > 1 / 28 && resolutionScale > .5) {
       resolutionScale = Math.max(.5, resolutionScale * .8); resize();
+    } else if (average < 1 / 50 && resolutionScale < 1) {
+      // and give it back once the stall has passed, or one shader
+      // compile leaves every mission after it at half resolution
+      resolutionScale = Math.min(1, resolutionScale * 1.25); resize();
     }
   }
 
@@ -107,7 +111,11 @@ const Engine = (() => {
       updaters.forEach(fn => fn(d, elapsed));
       if (onFrame) onFrame(d, elapsed, paused ? 0 : wallDt / steps);
     }
-    if (view) renderer.render(view.scene, view.camera);
+    if (view) {
+      renderer.render(view.scene, view.camera);
+      // a second pass a mission draws over its own frame (the Descent's rear view)
+      if (view.after) view.after(renderer);
+    }
   }
 
   // handy for missions: dispose an entire subtree's GPU resources

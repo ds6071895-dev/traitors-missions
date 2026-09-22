@@ -38,7 +38,8 @@ const DiveMaterials = (() => {
   function texture(id) {
     if (!Object.hasOwn(TILES, id)) id = 'sand';
     if (!maps[id]) {
-      const size = low() ? 128 : 256;
+      // the sheet's cells are ~310 px; 256 threw a fifth of that away
+      const size = low() ? 128 : 512;
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = size;
       const cx = canvas.getContext('2d');

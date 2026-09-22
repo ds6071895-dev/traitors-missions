@@ -564,7 +564,7 @@ class SkiMission {
 
     this._camPos.copy(this.skier.pos).add(new THREE.Vector3(0, 8, -14));
     this._camLook.copy(this.skier.pos);
-    return { scene, camera };
+    return { scene, camera, after: (renderer) => this._renderMirror(renderer) };
   }
 
   /* -------- colliders, indexed down the hill -------- */
@@ -796,79 +796,93 @@ class SkiMission {
   /* -------- the wall of snow --------
      One card deals this and it changes the shape of every decision on
      the mountain: with it behind you a shortcut stops being greed and
-     becomes arithmetic. It is a plane, a rolling cloud and a noise —
-     no collision, no physics, and no way to fight it. You are either
-     in front of it or the run is over. */
+     becomes arithmetic. The rule is still one number — `avZ` — with no
+     collision and no way to fight it: you are either in front of it or
+     the run is over. Everything you see and hear of it is
+     `SkiAvalanche`; this is the part that is gameplay, and the part
+     that puts it on your screen. */
   _buildAvalanche(scene) {
-    const face = this.face;
-    const W = face.edge * 2.4;
-    const group = new THREE.Group();
-    const wallMat = new THREE.MeshBasicMaterial({
-      color: '#eef7ff', transparent: true, opacity: 0.88,
-      side: THREE.DoubleSide, depthWrite: false, fog: true,
-    });
-    const wall = new THREE.Mesh(new THREE.PlaneGeometry(W, 260), wallMat);
-    wall.position.y = 70;
-    group.add(wall);
-    // a rolling front, so it reads as snow moving rather than a curtain
-    const lumps = [];
-    const lumpGeo = new THREE.IcosahedronGeometry(20, 1);
-    const lumpMat = new THREE.MeshLambertMaterial({
-      color: '#ffffff', flatShading: true, transparent: true, opacity: 0.95,
-    });
-    const lumpMesh = new THREE.InstancedMesh(lumpGeo, lumpMat, 90);
-    const d = new THREE.Object3D();
-    const lrng = U.makeRng(this.seed + 909);
-    for (let i = 0; i < 90; i++) {
-      const it = { x: lrng.range(-W * 0.48, W * 0.48), y: lrng.range(-4, 46),
-                   z: lrng.range(-56, 22), s: lrng.range(0.5, 1.9),
-                   sp: lrng.range(0.5, 1.6), ph: lrng() * U.TAU };
-      lumps.push(it);
-      d.position.set(it.x, it.y, it.z);
-      d.scale.setScalar(it.s);
-      d.updateMatrix();
-      lumpMesh.setMatrixAt(i, d.matrix);
-    }
-    lumpMesh.instanceMatrix.needsUpdate = true;
-    lumpMesh.frustumCulled = false;
-    group.add(lumpMesh);
-    group.visible = false;
-    scene.add(group);
-    this.avalanche = { group, wall, lumpMesh, lumps, d, geos: [wall.geometry, lumpGeo],
-                       mats: [wallMat, lumpMat] };
+    this.avalanche = SkiAvalanche.build(scene, this.face, { quality: this.opts.quality, seed: this.seed });
   }
 
   _updateAvalanche(dt) {
     if (!this.avOn || !this.avalanche) return;
     const C = this.C;
-    if (this.state === 'running') {
+    const running = this.state === 'running';
+    if (running) {
       this.avZ += (C.avSpeed + this.elapsed * C.avAccel) * dt;
     }
     const a = this.avalanche;
-    const face = this.face;
-    const z = this.avZ;
-    a.group.visible = z > -220 && z < this.skier.pos.z + 260;
-    if (!a.group.visible) return;
-    a.group.position.set(face.cxAt(z), face.heightAt(face.cxAt(z), z), z);
-    for (let i = 0; i < a.lumps.length; i++) {
-      const it = a.lumps[i];
-      it.ph += dt * it.sp * 2.2;
-      a.d.position.set(it.x + Math.sin(it.ph) * 5, it.y + Math.cos(it.ph * 0.7) * 6, it.z);
-      a.d.rotation.set(it.ph * 0.4, it.ph * 0.25, 0);
-      a.d.scale.setScalar(it.s * (1 + Math.sin(it.ph * 0.6) * 0.14));
-      a.d.updateMatrix();
-      a.lumpMesh.setMatrixAt(i, a.d.matrix);
+    const s = this.skier;
+    const wasReleased = a.released;
+    a.update(dt, this.avZ, running, this.camera, s.pos);
+    if (a.released && !wasReleased) {
+      // the slab letting go, three hundred metres up
+      AudioBus.play('avRelease');
+      this.shake = Math.max(this.shake, 0.55);
+      if (!this.avRumble) this.avRumble = SkiAvalanche.rumble();
     }
-    a.lumpMesh.instanceMatrix.needsUpdate = true;
 
-    const gap = this.skier.pos.z - z;
+    const gap = s.pos.z - this.avZ;
     this.avGap = gap;
-    if (this.state === 'running') {
+    const near = a.released ? U.clamp(1 - gap / 320, 0, 1) : 0;
+    if (this.avRumble) this.avRumble.set(this.state === 'failed' ? 0.4 : near);
+
+    // the white-out: it closes in from the edges over the last hundred metres
+    const veil = this._avBuried ? 0.92 : U.clamp((110 - gap) / 110, 0, 1) ** 1.6 * 0.8;
+    this._avVeil = U.damp(this._avVeil || 0, a.released ? veil : 0, veil > (this._avVeil || 0) ? 6 : 1.5, dt);
+    if (this.hud.avVeil) this.hud.avVeil.style.opacity = this._avVeil.toFixed(3);
+
+    if (running) {
       // it announces itself before it arrives, in the two channels a
       // player is already using: the screen shakes and the band climbs
-      if (gap < 130) this.shake = Math.max(this.shake, U.clamp((130 - gap) / 130, 0, 1) * 0.8);
-      if (gap <= 0) this._fail('BURIED');
+      if (gap < 160) this.shake = Math.max(this.shake, U.clamp((160 - gap) / 160, 0, 1) ** 1.3 * 0.95);
+      // and the powder blast runs ahead of the wall and past the camera
+      if (gap < 90) {
+        const k = 1 - U.clamp(gap / 90, 0, 1);
+        this._avBlastAcc = (this._avBlastAcc || 0) + dt * (10 + k * 70);
+        const cam = this.camera.position;
+        while (this._avBlastAcc >= 1) {
+          this._avBlastAcc -= 1;
+          const sp = s.speed + 14 + Math.random() * 22;
+          this.fx.spray.emit(
+            cam.x + (Math.random() - 0.5) * 26, cam.y + (Math.random() - 0.3) * 12, cam.z - 4 - Math.random() * 10,
+            (Math.random() - 0.5) * 4, 1 + Math.random() * 3, sp,
+            1.2 + Math.random() * 2.2, 0.5 + Math.random() * 0.8, MountainKit.COL.snowLit);
+        }
+      }
+      if (gap <= 0) {
+        AudioBus.play('avBury');
+        this._avBuried = true;
+        this._fail('BURIED');
+      }
     }
+  }
+
+  /* The rear camera, drawn after the frame into the box under the
+     AVALANCHE bar. The box is DOM, so it lays itself out; this only
+     reads where it ended up. It skips the shadow pass, which the main
+     frame has already paid for. */
+  _renderMirror(renderer) {
+    const a = this.avalanche, el = this.hud && this.hud.avMirror;
+    if (!a || !a.mirrorCam || !el || !this.avOn || !a.released || this.state === 'idle') return;
+    const r = el.getBoundingClientRect();
+    if (r.width < 8 || r.height < 8) return;
+    const size = renderer.getSize(this._mirrorSize || (this._mirrorSize = new THREE.Vector2()));
+    const cam = a.aimMirror(this.skier.pos, r.width / r.height);
+    const y = size.y - r.bottom;
+    const auto = renderer.shadowMap.autoUpdate;
+    renderer.shadowMap.autoUpdate = false;
+    // the sky dome is a unit sphere worn by the camera, so this one borrows it
+    Sky.update(0, cam.position, this._skyT || 0);
+    renderer.setScissorTest(true);
+    renderer.setScissor(r.left, y, r.width, r.height);
+    renderer.setViewport(r.left, y, r.width, r.height);
+    renderer.render(this.scene, cam);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, size.x, size.y);
+    renderer.shadowMap.autoUpdate = auto;
+    Sky.update(0, this.camera.position, this._skyT || 0);
   }
 
   /* -------- the other two -------- */
@@ -1138,6 +1152,7 @@ class SkiMission {
       chute: q('sk-chute'), chuteName: q('sk-chute-name'),
       chuteGain: q('sk-chute-gain'), chuteArrow: q('sk-chute-arrow'),
       slide: q('sk-avalanche'), slideBar: q('sk-avalanche-bar'),
+      avMirror: q('sk-av-mirror'), avVeil: q('sk-av-veil'),
       center: q('sk-center'), setup: q('sk-setup'),
       vignette: q('sk-vignette'), flash: q('sk-flash'), lines: q('sk-lines'),
       pop: q('sk-pop'), popFill: q('sk-pop-fill'),
@@ -1159,6 +1174,7 @@ class SkiMission {
     }
     if (h.ghost) h.ghost.classList.toggle('show', !!this.ghost);
     if (h.slide) h.slide.classList.toggle('show', !!this.avOn);
+    if (h.slide) h.slide.classList.toggle('mirror', !!(this.avOn && this.avalanche && this.avalanche.mirrorCam));
   }
 
   /* =================== lifecycle =================== */
@@ -1325,6 +1341,7 @@ class SkiMission {
       { x: Math.cos(this.cond.windDir || 0) * 0.6, z: Math.sin(this.cond.windDir || 0) * 0.6 });
     this._updateCamera(rawDt);
     Sky.update(dt, this.camera.position, t);
+    this._skyT = t;
     this._updateAudio(rawDt);
     this._updateHud(rawDt);
   }
@@ -2489,10 +2506,8 @@ class SkiMission {
       for (const g of arch.userData.geos || []) g.dispose();
       for (const m of arch.userData.mats || []) m.dispose();
     }
-    if (this.avalanche) {
-      for (const g of this.avalanche.geos) g.dispose();
-      for (const m of this.avalanche.mats) m.dispose();
-    }
+    if (this.avalanche) { this.avalanche.dispose(); this.avalanche = null; }
+    if (this.avRumble) { this.avRumble.stop(); this.avRumble = null; }
     Engine.disposeObject(this.scene);
     Sky.resetPreset();
     this.scene = null;
@@ -2510,7 +2525,8 @@ class SkiMission {
       if (this.hud.air) this.hud.air.classList.remove('show');
       if (this.hud.chute) this.hud.chute.classList.remove('show');
       if (this.hud.pop) this.hud.pop.classList.remove('show');
-      if (this.hud.slide) this.hud.slide.classList.remove('show');
+      if (this.hud.slide) this.hud.slide.classList.remove('show', 'mirror');
+      if (this.hud.avVeil) this.hud.avVeil.style.opacity = 0;
       if (this.hud.setup) this.hud.setup.innerHTML = '';
       this._setCenter('', '');
     }
@@ -2548,6 +2564,9 @@ class SkiMission {
     this._curChute = null;
     this._chutePrompt = null;
     this.avZ = this.C.avStart;
+    if (this.avalanche) this.avalanche.reset();
+    if (this.avRumble) { this.avRumble.stop(); this.avRumble = null; }
+    this._avVeil = 0; this._avBuried = false;
     this.ghostT = 0;
     this.ghostDelta = null;
     this.rec = { x: [], y: [], z: [], yaw: [], s: [], spin: [], pitch: [], roll: [], stance: [], times: [] };
