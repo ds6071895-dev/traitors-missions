@@ -107,6 +107,31 @@ class Swimmer {
     pitchClamp:   1.35,   // ~77 degrees; you cannot swim straight up forever
     scull:        3.4,    // m/s^2 of hands-only drift, for lining a chest up
 
+    /* --- three more verbs, every one of them gated on an input or a
+       world the mission has to hand in, so a swimmer nobody asks for
+       them from is exactly the swimmer it always was. ---
+
+       Streamline: hold the kick instead of tapping it. Arms locked,
+       no thrust, a fraction of the drag — the Descent's tuck. It is
+       what makes a glide a decision: how long do you hold the line
+       before you break it for a stroke, and does that stroke land on
+       the beat? */
+    streamDrag:   0.32,   // fraction of the glide's drag while streamlined
+    streamTurn:   0.50,   // ...and of its steering
+    /* Flare: spread everything and stop. The Descent's check. For cave
+       mouths, hatches and walls, and for sitting on the brakes above a
+       chest instead of overshooting it. It costs breath: fighting the
+       water is work. */
+    flareDrag:    7.5,    // m/s^2 of extra deceleration
+    flareTurn:    1.7,    // ...and how much sharper you turn with it out
+    flareAir:     0.014,  // fraction of the bar per second it costs
+    /* The chop: extra drag near the surface, scaled by
+       whatever the loch hands in as `world.chop` and fading out over the
+       top three metres. Zero in still water, which is every test in the
+       suite that predates it. */
+    surfaceDrag:  1.2,    // m/s^2 at chop 1
+    surfaceTop:   0.24,   // ...and the speed ceiling is divided by 1 + this x chop
+
     // --- the beat lock ---
     window:       0.12,   // +/- seconds around the beat that counts as on-beat
     flowGain:     0.34,   // flow added per on-beat stroke
@@ -240,6 +265,9 @@ class Swimmer {
     this._up = new THREE.Vector3(0, 1, 0);
     this._right = new THREE.Vector3(1, 0, 0);
     this._lat = new THREE.Vector3();
+    this._cur = new THREE.Vector3();     // the water's velocity, filled by the world
+    this._turnK = 1;
+    this.streamlined = false; this.flaring = false; this.inCurrent = 0;
     this._e = new THREE.Euler();
   }
 
@@ -407,7 +435,14 @@ class Swimmer {
     // ---- attitude: the body swings towards the aim, slower at speed
     const sp0 = v.length();
     const fast = U.clamp(sp0 / T.flowTop, 0, 1);
-    const auth = (this.kickT > 0 ? T.kickTurn : 1) * U.lerp(1, T.turnLowSpeed, fast);
+    /* The two held verbs, resolved once per step. Neither applies on
+       your feet, in the air or mid-kick: streamlining *is* not kicking,
+       and a flare is something you do in water. */
+    const swimming = !this.onFoot && !this.aloft;
+    this.streamlined = swimming && !!c.stream && this.kickT <= 0 && !c.flare;
+    this.flaring = swimming && !!c.flare;
+    this._turnK = this.streamlined ? T.streamTurn : this.flaring ? T.flareTurn : 1;
+    const auth = (this.kickT > 0 ? T.kickTurn : 1) * U.lerp(1, T.turnLowSpeed, fast) * this._turnK;
 
     const dYaw = U.wrapAngle(this.yawAim - this.yaw);
     const maxYaw = T.turnRate * auth;
@@ -515,14 +550,37 @@ class Swimmer {
       v.y += (T.buoyancy + lift + T.carryBuoy * this.carried + sink) * h;
     }
 
+    /* ---- the water is moving, sometimes.
+       Everything from here to the carve works on your velocity *through*
+       the water rather than over the ground: take the current out, drag
+       and grip what is left, put the current back. A diver who stops
+       kicking in a tide race is carried at the race's speed, and one who
+       kicks in it goes faster than any stroke could take them — with no
+       special case anywhere below, and nothing at all when the world
+       hands in no current. */
+    const cur = !this.aloft && world && world.currentAt
+      ? world.currentAt(this.pos, this._cur) : null;
+    const flowing = !!cur && (cur.x || cur.y || cur.z);
+    if (flowing) v.sub(cur);
+    this.inCurrent = flowing ? (cur.k || 1) : 0;
+
     // ---- drag, with the boat's soft ceiling on top of it
     let spd = v.length();
     if (spd > 1e-4) {
-      const lam = this.aloft
+      let lam = this.aloft
         ? T.airDrag
         : (this.kickT > 0 ? T.kickDrag : T.glideDrag) + T.carryDrag * this.carried;
-      const quad = T.quadDrag * (this.aloft ? T.jumpDrag : 1);
-      const top = U.lerp(T.topSpeed, T.flowTop, this.flow);
+      if (this.streamlined) lam *= T.streamDrag;
+      if (this.flaring) lam += T.flareDrag;
+      /* The chop has hold of the top three metres, not just a head that is
+         out: a lid that only applied to `up` left a band half a metre
+         under it with no chop and no race, which is where everybody
+         would have swum home. */
+      const chop = !this.aloft && world && world.chop
+        ? world.chop * (1 - U.smoothstep(0.5, 3.0, this.depth)) : 0;
+      lam += T.surfaceDrag * chop;
+      const quad = T.quadDrag * (this.aloft ? T.jumpDrag : 1) * (this.streamlined ? T.streamDrag : 1);
+      const top = U.lerp(T.topSpeed, T.flowTop, this.flow) / (1 + T.surfaceTop * chop);
       const over = this.aloft ? 0 : Math.max(0, spd - top);
       const next = Math.max(0, spd - (lam + quad * spd * spd + over * 8) * h);
       v.multiplyScalar(next / spd);
@@ -542,6 +600,8 @@ class Swimmer {
       const recovered = (latBefore - latBefore * keep) * T.carve;
       v.copy(this._lat).addScaledVector(this._fwd, vf + recovered);
     }
+    if (flowing) v.add(cur);
+    if (this.flaring) this.air = Math.max(0, this.air - T.flareAir * h);
 
     // ---- move
     this.pos.addScaledVector(v, h);

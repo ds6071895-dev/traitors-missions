@@ -124,6 +124,8 @@ class DiveMission {
     carryMax:    4,        // chests in hand before you must surface
     grabRange:   3.0,      // metres; grabbing is automatic inside this
     flowMoney:   0.55,     // extra fraction of value at full chain
+    sweepSpeed:  7.0,      // m/s through a chest that counts as not stopping for it
+    sweepMoney:  1.20,     // ...and what taking one that way is worth
     /* Surfacing is not banking. Everything you come up with has to be
        carried back to the shingle and put on the pile, and until it is
        on the pile it is not money — it is four chests in the hands of
@@ -198,6 +200,8 @@ class DiveMission {
       modId: opts.modId || null,
       ghost: opts.ghost !== false,
       daily: seed === U.dailySeed(),
+      quality: typeof DivePresentation !== 'undefined'
+        ? DivePresentation.resolve(opts.quality) : 'medium',
     };
   }
 
@@ -293,6 +297,10 @@ class DiveMission {
       surfaceTime: 0, submergedTime: 0,
       maxOtherDeepest: 0, maxOtherBanked: 0, maxOtherPeakCarry: 0,
       otherTrips: 0, finished: false, topOfField: false,
+      /* The tide. How much of the night was spent riding a race home,
+         how many breaths were taken under a roof, how many chests were
+         taken at speed without stopping, and what the flood paid. */
+      raceTime: 0, pocketBreaths: 0, sweeps: 0, floodBanked: 0,
     };
   }
 
@@ -423,6 +431,13 @@ class DiveMission {
     this._paletteAt = undefined;
     this._skyOn = undefined;
     this._camRoll = 0;
+    /* The tide. Per run, because a restart is still water again. */
+    this.stage = DiveTide.STAGES[0];
+    this._stageSaid = null;
+    this._inPocket = false;
+    this._raceK = 0;           // how much of a race you are in, damped, for the HUD
+    this._toldRace = false;
+    this._streamT = 0;         // how long the kick has been held down
     this.stats = DiveMission.freshStats();
     if (this.music) { this.music.stop(0.4); this.music = null; }
   }
@@ -448,6 +463,8 @@ class DiveMission {
     Water.build(scene);
     this.applied = DiveConditions.apply(this.cond);
     scene.add(DiveConditions.lights(this.cond));
+    this.graphics = DivePresentation.presets[this.opts.quality];
+    this._rig = DivePresentation.lights(scene, this.graphics);
 
     /* There is a sky now, and there has to be. The mission used to be
        built on the assumption that the camera never left the water, so
@@ -467,10 +484,22 @@ class DiveMission {
 
     this.reef = ReefKit.build(scene, U.makeRng(this.seed + 3), {
       radius: C.reefRadius,
-      rocks: 54,
       kelp: this.flags.shoal ? 520 : 620,
       shafts: 9,
+      floorRings: this.graphics.rings,
+      floorSectors: this.graphics.sectors,
     });
+    /* Shadow: the solid things cast, and the ground and the solid things
+       catch it. Nothing that sways casts — the shadow pass would draw
+       the kelp where it was, not where the current has put it. */
+    if (this.graphics.shadow) {
+      this.reef.group.traverse(o => {
+        if (!o.isMesh) return;
+        if (['seabed', 'rocks', 'wreck', 'caves'].includes(o.name)) o.receiveShadow = true;
+        if (['rocks', 'wreck', 'caves'].includes(o.name)) o.castShadow = true;
+      });
+    }
+    this._fogCap = ReefKit.maxFogFar(C.reefRadius);
     /* Where the land is, and the two points on it the whole mission
        hangs off: the shingle you jump from, and the tideline in front
        of it that counts as ashore. */
@@ -529,11 +558,26 @@ class DiveMission {
       paint: { suit: '#123044', fin: '#f2c14e' },
     });
     scene.add(this.swimmer.group);
+    if (this.graphics.shadow) this.swimmer.group.traverse(o => { if (o.isMesh) o.castShadow = true; });
     this._placeAshore();
 
+    /* ---- the tide: three races off the seed, and the stage off the
+       clock. See `js/dive/tide.js` for why the way home is the mission. */
+    this.tide = DiveTide.build(this.seed, C.reefRadius, this.shore.ang);
+    this.feedback = DiveFeedback.build(scene, this.tide, this.reef, this.graphics);
     this.world = {
       heightAt: this.reef.heightAt,
-      surfaceAt: (x, z) => Water.sampleHeight(x, z),
+      /* The sea — or, under a roof while the ebb holds, the air trapped
+         against the rock. The swimmer cannot tell them apart, which is
+         the point: it floats, gasps and breathes in a pocket exactly as
+         it does under the sky. */
+      surfaceAt: (x, z) => {
+        const p = DiveTide.pocketAt(this.caves, this.stage, x, z);
+        return p === null ? Water.sampleHeight(x, z) : p;
+      },
+      currentAt: (pos, out) => DiveTide.currentAt(this.tide, this.stage,
+                                                  pos.x, pos.y, pos.z, 0, out),
+      chop: this.stage.chop,
       colliders: this.reef.colliders,
       radius: C.reefRadius,
       /* The one line that makes a cave a cave. Everything else about
@@ -678,6 +722,8 @@ class DiveMission {
       color: this.C.holds.colour, flatShading: true,
       emissive: this.C.holds.colour, emissiveIntensity: 1.05,
     }));
+    // banded timber under the paint: a chest, not a glowing brick
+    for (const m of this._chestMats) DiveMaterials.patch(m, 'timber', 0.7);
     this._glowTex = Sky.glowTexture('rgba(255,255,255,0.95)', 'rgba(255,220,140,0.45)');
   }
 
@@ -1821,6 +1867,7 @@ class DiveMission {
       }
     }
     if (h.timeLabel) h.timeLabel.textContent = this.mode === 'deep' ? 'Down' : 'Time';
+    this._shownStage = null;
   }
 
   /* =================== lifecycle =================== */
@@ -1955,6 +2002,7 @@ class DiveMission {
        puts its palette back*. A dive that does not restore it leaves
        cobalt trench water in the attract screen, the boat race and
        every mission after it. */
+    if (this._rig) { this._rig.restore(); this._rig = null; }
     Water.setPalette(Water.DEFAULTS);
     Water.setFog(340, 3600, Sky.PALETTE.fog);
     Water.setSeaState({ swell: 1, chop: 1, wind: 0 });
@@ -2021,6 +2069,7 @@ class DiveMission {
 
     this._readControls(dt);
     this.swimmer.update(dt, this._ctl, this.world);
+    this._tickTide(dt, t);
     this._afterSwim(dt);
     this._tickCave(dt);
     this._tickHolds(dt);
@@ -2030,6 +2079,7 @@ class DiveMission {
     this._updateDepth(dt);
     this._updateMusic(dt);
     this.reef.update(dt, this.camera.position);
+    if (this._rig) this._rig.follow(this.swimmer.pos);
     Sky.update(dt, this.camera.position, t);
     this._tickPile(dt, t);
     this._tickDrop(dt, t);
@@ -2082,6 +2132,16 @@ class DiveMission {
     // let go of anything: they are cargo until they are back
     if (this.out) { c.yaw = 0; c.pitch = 0; c.move.x = 0; c.move.y = 0; }
     c.stroke = live && this.state === 'live' && !this.out && Input.held('fire');
+    /* Held rather than tapped, the kick becomes a streamline: a fifth
+       of a second of holding it is the difference between the two, which
+       is longer than any tap and shorter than anybody notices waiting. */
+    this._streamT = c.stroke ? this._streamT + dt : 0;
+    c.stream = this._streamT > 0.2;
+    /* Back on the stick is the flare, and it takes the stick with it:
+       a backwards scull was a nudge nobody used, and a brake is the
+       thing a cave mouth or a hatch actually asks you for. */
+    c.flare = live && !this.out && !this.swimmer.onFoot && c.move.y < -0.55;
+    if (c.flare) c.move.y = 0;
     c.beat = this.flags.noBeat ? null : this._beatNow();
   }
 
@@ -2260,8 +2320,9 @@ class DiveMission {
        the reef knows how deep you went — but the gold in your hands is
        still gold in your hands, in open water, in front of two people,
        for as long as it takes you to swim it home. */
-    if (sw.up) {
-      // a trip ends when you get your head out, whether or not you got anything
+    if (sw.up && !this._inPocket) {
+      // a trip ends when you get your head out, whether or not you got
+      // anything — out, under the sky: a breath under a roof is half-time
       if (this.inTrip && this.tripDeepest > 3) this._endTrip();
     } else if (!this.inTrip && depth > 3) {
       this.inTrip = true; this.tripDeepest = depth; this.tripTook = 0;
@@ -2282,6 +2343,73 @@ class DiveMission {
     // Buddy Line: two divers inside five metres share a bar, which turns
     // the whole mission into a conversation about who is next to whom
     if (this.flags.sharedAir) this._buddyAir(dt);
+  }
+
+  /* =================== the tide ===================
+
+     The clock's half of `js/dive/tide.js`: which stage the run is in,
+     whether your head is in a pocket or in the sky, and whether the
+     water you are in is taking you home. */
+  _tickTide(dt, t) {
+    const sw = this.swimmer, st = this.stats;
+    const live = this.state === 'live';
+    // the tide stops with the bell, where it was; before the start it is still
+    const stage = DiveTide.stageAt(live || this.state === 'finished' ? this.elapsed : 0,
+                                   this.C.runTime);
+    // every frame, not on the change: a restart puts the stage back to
+    // still water without ever passing through a change
+    this.world.chop = stage.chop;
+    if (stage !== this.stage) {
+      const was = this.stage;
+      this.stage = stage;
+      /* The flood coming in over a pocket you are breathing in is the
+         one moment in the mission the roof takes the air back. It does
+         not take it all: you keep what is in your lungs, and the door
+         is where it always was. */
+      if (was.pockets && !stage.pockets && this._inCave) {
+        this._banner('THE POCKET IS GONE', 'Out the way you came in, on the breath you have', 'bad');
+      }
+    }
+    if (live && this._stageSaid !== stage.id) {
+      this._stageSaid = stage.id;
+      if (stage.id !== 'still' || this.elapsed < 1) {
+        this._banner(stage.title, stage.line, stage.id === 'flood' ? 'perfect' : 'good');
+      }
+      if (stage.id !== 'still') {
+        if (this.music) this.music.stinger('boon');
+        AudioBus.play('dv-tier', { tier: stage.id === 'flood' ? 2 : 1 });
+        this.camKick = Math.min(this.camKick + 0.6, 1.8);
+      }
+    }
+
+    // ---- the pocket
+    const pocket = stage.pockets && !!this._inCave && sw.up && !sw.onFoot
+      && DiveTide.pocketAt(this.caves, stage, sw.pos.x, sw.pos.z) !== null;
+    if (pocket && !this._inPocket && live) {
+      st.pocketBreaths++;
+      if (st.pocketBreaths === 1) {
+        this._banner('AIR', 'A breath under the roof. The door has not moved', 'good');
+      }
+    }
+    this._inPocket = pocket;
+
+    // ---- the races
+    const k = sw.inCurrent || 0;
+    this._raceK = U.damp(this._raceK, k, 4, dt);
+    if (k > 0.3 && !sw.up && live && !this.out) {
+      st.raceTime += dt;
+      /* A race is a rhythm of its own: riding one holds the chain the
+         way landing strokes on the beat does, and feeds it a little, so
+         the best line home is also the one that arrives in the flow. */
+      sw.chainIdle = 0;
+      sw.flow = Math.min(1, sw.flow + 0.10 * dt);
+      if (!this._toldRace && stage.race >= 1) {
+        this._toldRace = true;
+        this._banner('TIDE RACE', 'Kick with it. Nothing in the loch gets you home faster', 'good');
+      }
+    }
+
+    if (this.feedback) this.feedback.update(dt, t, stage, this.camera.position, sw, this._raceK);
   }
 
   /* =================== the caves ===================
@@ -2342,14 +2470,19 @@ class DiveMission {
                    are carrying anything or not, which is what makes
                    breaking one a *decision* rather than a bonus on top
                    of a good run. */
-                + this._din;
+                + this._din
+                // ...and the flood, which is the loch itself getting louder
+                + this.stage.din;
 
     /* ...and what makes you not worth the swim. A head out of the
        water, feet on the sand, or the first couple of metres under it:
        the shallows are safe, and they are safe *visibly*, so the swim
        home with four chests is a swim towards somewhere nothing
        follows you. */
-    const safe = !live || this.out || sw.up || sw.onFoot || sw.depth < 3.0;
+    // (a pocket is not the shallows: your head is out, but you are
+    // twenty metres down in a room with one door and a shark on it)
+    const safe = !live || this.out || (sw.up && !this._inPocket) || sw.onFoot
+               || (sw.depth < 3.0 && !this._inPocket);
 
     this.sharks.update(dt, {
       diver: live ? sw.pos : null,
@@ -2399,6 +2532,10 @@ class DiveMission {
     }
     if (kind === 'fend') {
       this.stats.fended++;
+      // turning an animal is the best-timed kick in the mission, and it
+      // feeds the chain like one
+      this.swimmer.flow = Math.min(1, this.swimmer.flow + 0.35);
+      this.swimmer.chainIdle = 0;
       AudioBus.play('dv-fend');
       this.camKick = Math.min(this.camKick + 0.9, 1.8);
       this.fx.rings.fire(this._tmpV.copy(sh.pos), this.camera.quaternion,
@@ -2654,6 +2791,20 @@ class DiveMission {
   _takeChest(c) {
     const sw = this.swimmer;
     c.mult = 1 + this.C.flowMoney * sw.flow;
+    /* The clean sweep: a chest taken at speed, without stopping for it.
+       Auto-grab means taking one was never a skill; taking one *well*
+       now is — plan the line, arrive fast, and it pays and feeds the
+       chain. Stopping on top of it and picking it up still works. */
+    const sweep = !!sw.speed && sw.speed > this.C.sweepSpeed && !sw.onFoot;
+    if (sweep) {
+      c.mult *= this.C.sweepMoney;
+      sw.flow = Math.min(1, sw.flow + 0.25);
+      sw.chainIdle = 0;
+      if (this.stats) this.stats.sweeps++;
+      if (this.fx) this.fx.labels.add('CLEAN', this._tmpV.copy(sw.pos), { life: 0.7, rise: 3 });
+    }
+    // ...and the flood, which pays for what it costs
+    if (this.stage) c.mult *= this.stage.pay;
     this.carry.push(c);
     this.tripTook++;
     sw.carried = this.carry.length;
@@ -2781,6 +2932,7 @@ class DiveMission {
       this._throwOnPile(c, i, cash);
     });
     this.money += total;
+    if (this.stage && this.stage.id === 'flood') this.stats.floodBanked += total;
     this.haul++;
     this.bestHaul = Math.max(this.bestHaul, this.haul);
     this.stats.bestHaul = this.bestHaul;
@@ -3131,7 +3283,11 @@ class DiveMission {
     const b = ReefKit.bandAt(camDepth, this._band);
     const fog = this.scene.fog;
     // visibility is a property of the water; it does not dim the air
-    const far = b.far * U.lerp(this.vis, 1, b.air);
+    /* ...and never past the rim. `maxFogFar` is the furthest any fog
+       can reach from anywhere a diver can be and still hide the edge of
+       the floor; the bands sit well inside it, and this is what keeps a
+       future palette edit from reopening the hole the loch used to have. */
+    const far = Math.min(b.far * U.lerp(this.vis, 1, b.air), this._fogCap || Infinity);
     fog.color.lerp(b.colour, 1 - Math.exp(-5 * dt));
     fog.near = U.damp(fog.near, b.near, 5, dt);
     fog.far = U.damp(fog.far, far, 5, dt);
@@ -3300,6 +3456,14 @@ class DiveMission {
         ? U.clockTime(this.elapsed)
         : Math.ceil(this.timeLeft);
       h.time.classList.toggle('low', this.mode === 'salvage' && this.timeLeft <= 20);
+    }
+    /* The clock's label is the tide, because the tide is what the
+       clock now means: a third of the run is still, a third is the ebb
+       and the last third is the flood. */
+    if (h.timeLabel && this.stage && this._shownStage !== this.stage.id) {
+      this._shownStage = this.stage.id;
+      h.timeLabel.textContent = this.stage.name;
+      h.timeLabel.classList.toggle('flood', this.stage.id === 'flood');
     }
     /* The compass.
 
@@ -4219,7 +4383,9 @@ Missions.register({
     + 'jump, and in the water it has a beat — land it in the window and you swim faster, '
     + 'breathe cheaper and get paid more. Land trip after trip without drowning and the '
     + 'haul pays more every time, which is exactly what makes the next one harder to '
-    + 'walk away from.',
+    + 'walk away from. And the tide turns twice: the ebb opens tide races along the floor '
+    + 'that carry you home and leaves air under every cave roof; the flood takes the air '
+    + 'back and pays a third more for everything.',
   icon: '03',
   maxPrize: 96000,
   players: '1-3',
@@ -4257,8 +4423,23 @@ Missions.register({
       + 'back in rather than wading out.',
     '<b>Gold is heavy on land too.</b> A full carry walks at half speed. The trip up the '
       + 'beach is the slowest part of a rich trip and the fastest part of a poor one.',
-    '<b>Swim home on the surface.</b> Your bar refills up there and the water is thinner, '
-      + 'so the fast way back from the trench is straight up first and along after.',
+    '<b>The way home is along the floor.</b> The surface runs a chop that gets worse all '
+      + 'run. Three tide races run shoreward along the bottom — chevrons on the sand and '
+      + 'silt streaming over them. Kick down one and nothing is faster; it is also the '
+      + 'whole way home under water, on the breath you came up with.',
+    '<b>The tide turns twice.</b> Still water first: learn the reef. Then the ebb: the races '
+      + 'open and every cave holds a pocket of air under its roof. Then the flood: the '
+      + 'pockets go, and every chest is worth a third again.',
+    '<b>Breathe under the roof.</b> During the ebb the middle of every cave has air in it — '
+      + 'you can see the shimmer from the door. Come up into it and you breathe. When the '
+      + 'flood comes in, it is gone, whoever is in there.',
+    '<b>Hold the kick to streamline.</b> Tap <kbd>Space</kbd> to stroke; hold it and you '
+      + 'lock out — no thrust, a fraction of the drag. Hold the line, then break it for a '
+      + 'stroke on the beat.',
+    '<b>Pull back to brake.</b> <kbd>S</kbd> flares: you stop hard and turn sharp. It costs '
+      + 'a little air. It is what a cave mouth and a hatch are for.',
+    '<b>Take them without stopping.</b> A chest taken at speed is a clean sweep: it pays a '
+      + 'fifth more and feeds the chain. Plan the line through the tier.',
     '<b>The haul is the real score.</b> Every trip you land without blacking out makes '
       + 'the next one worth more, up to a fifth again. Drowning does not just cost you '
       + 'what is in your hands, it costs you the run you had going.',
@@ -4296,8 +4477,9 @@ Missions.register({
       + 'mark above that are the only warm things in the loch, and none of them care how '
       + 'deep you are or how thick the water is. If you can see it, you know the way home.',
   ],
-  keys: ['<kbd>Space</kbd> kick / jump', '<kbd>Mouse</kbd> steer',
-         '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> scull / walk'],
+  keys: ['<kbd>Space</kbd> kick / jump', 'hold <kbd>Space</kbd> streamline',
+         '<kbd>Mouse</kbd> steer', '<kbd>S</kbd> brake',
+         '<kbd>W</kbd><kbd>A</kbd><kbd>D</kbd> scull / walk'],
 
   /* The columns the boat argues about afterwards. Every card in this
      deck moves one of these, and every card's alibi moves another the

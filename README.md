@@ -519,10 +519,13 @@ for three seconds while they decide.
 | --- | --- |
 | Steer | mouse (click once to lock the pointer) |
 | Kick | `Space` (or `LMB`) |
-| Scull | `W` `A` `S` `D` — a nudge, for lining a chest up |
+| Streamline | hold `Space` — no thrust, a third of the drag |
+| Brake | `S` — flare and stop hard; costs a little air |
+| Scull | `W` `A` `D` — a nudge, for lining a chest up |
 | Pause | `Esc` / `P` |
 
-Touch works: a sculling stick and one big KICK pad.
+Touch works: a sculling stick (pull it back to brake) and one big KICK pad (hold it to
+streamline).
 
 ### The whole mission is one rule
 
@@ -585,12 +588,57 @@ what the air arithmetic in `test/swim.test.js` asserts.
 The round-trip figures are the dive itself. The *swim home* is on top of them, and it
 is what the shore added: the trench rim sits about a hundred and eighty metres out, so
 a trench trip is another fifteen to forty seconds of surface swimming before any of it
-is money. Your bar refills up there, so the fast way back is straight up and then
-along.
+is money. That swim is where the tide comes in — see below: the surface is the slow way
+home, and the fast one is along the floor.
 
 And the surface interval is real: a shelf trip is back in the water in a second and a
 half, a trench trip has to float for five, in front of everybody. It is the only thing
 that stops the deep being the answer to every question.
+
+### The way home is the mission
+
+The surface used to be the fast, safe way home — the bar refilled, nothing could reach
+you, and there was nothing to do but hold the button for thirty seconds. Now it is the
+slow one. The loch runs a **chop** that adds drag and lowers the speed ceiling for anybody
+with their head out, and it gets worse all run.
+
+The fast way is along the bottom. Every seed cuts three **tide races** — lanes of water
+running shoreward from the trench rim to the shelf, drawn as chevrons crawling along the
+sand with silt streaming over them. The swimmer's drag works on its speed *through* the
+water, so kick in one and you go faster than any stroke can take you on its own. Nothing
+runs above four metres, so every trip home is a choice between the chop — slower, safe,
+breathing, in front of everybody — and the floor: a fifth to a quarter quicker from the trench rim,
+but loaded, on the breath you came up with, and inside shark range. (Streamlining down a
+race is the *slow* way to use one: it is time under water that empties the bar.) *"I lost it on the way back"* is now the commonest sentence at the
+fire.
+
+### The tide turns twice
+
+| | still water, 0:00–1:00 | the ebb, 1:00–2:00 | the flood, 2:00–3:00 |
+| --- | --- | --- | --- |
+| the races | barely running | open | stronger again |
+| the chop | light | heavy | heavier |
+| the caves | a roof | **air under every roof** | the air floods, whoever is in there |
+| the money | as it is | as it is | a third more on every chest |
+| the animals | as they are | louder water | they can taste it |
+
+In the ebb the middle of every cave holds a pocket of air under its roof — you can see the
+shimmer from the door. Come up into it and you breathe, float and gasp as if under the
+sky; it does not end your trip, and it is not the shallows, so the shark on the door can
+still come in. When the flood arrives the pocket goes, and the cave is what it always was.
+The stages are thirds of the run, so Spring Tide's short run turns the tide faster.
+
+### Three more ways to move
+
+- **Streamline** — hold the kick. Arms locked, no thrust, a third of the drag and half the
+  steering. It makes a glide a decision: how long do you hold the line before you break it
+  for a stroke, and does that stroke land on the beat?
+- **Brake** — pull back. You flare, stop in a body length or two and turn sharp, and it
+  costs breath. Cave mouths and hatches are what it is for.
+- **The clean sweep** — take a chest at more than seven metres a second and it pays a
+  fifth more and feeds the chain. Stopping on top of one still works; it just pays less.
+
+The chain is now fed by riding a race and by turning a shark, not only by the beat.
 
 ### The shore
 
@@ -1258,6 +1306,18 @@ out of the water is simply a body that falls. And there is a sky, which there co
 be before: `Sky.setVisible(false)` turns it off underwater, because the dome sets
 `fog:false` on purpose and would otherwise paint a bright band along the top of the
 fogged reef rim.
+
+### The loch has an edge nobody can see
+
+The floor used to stop 295 m out to sea, which clear water and every breath of air could
+see past — the ground at the back of the loch simply was not there. It now reaches seven
+reef radii on every bearing, falls away past the trench instead of lying flat, and carries
+a skirt; and `ReefKit.maxFogFar` makes the rule arithmetic: no fog band in any water may
+see further than the floor reaches from the worst place a diver can stand, and the test
+suite checks every band in every water against it. Its surfaces take grain from one
+16-tile atlas (`js/dive/materials.js`, prompt in `assets/dive/loch-materials.prompt.txt`)
+spliced into the same caustic program, and a fill light and a shadow-only sun give the
+facets something to separate on. Details in `docs/dive/IMPLEMENTATION.md`.
 
 ### A cave is a function, not a mesh
 

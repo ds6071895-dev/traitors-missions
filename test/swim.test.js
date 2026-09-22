@@ -31,6 +31,7 @@ class V3 {
   copy(v) { return this.set(v.x, v.y, v.z); }
   clone() { return new V3(this.x, this.y, this.z); }
   add(v) { this.x += v.x; this.y += v.y; this.z += v.z; return this; }
+  sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
   addScaledVector(v, s) { this.x += v.x * s; this.y += v.y * s; this.z += v.z * s; return this; }
   multiplyScalar(s) { this.x *= s; this.y *= s; this.z *= s; return this; }
   dot(v) { return this.x * v.x + this.y * v.y + this.z * v.z; }
@@ -736,6 +737,84 @@ test('a walk costs no air at all — the beach is where you breathe', () => {
   sw.air = 0.25;
   walk(sw, world, 3, { x: 0, y: 1 }, { strokeAt: 1.0 });
   ok(sw.air > 0.95, 'walking ashore did not fill the bar: ' + sw.air.toFixed(3));
+});
+
+section('the tide: three new verbs, and water that moves');
+
+/* Every one of these is gated on something the mission hands in — a
+   held kick, a pulled-back stick, a current, a chop — so everything
+   above this line is the swimmer it always was. These are the four
+   promises the new verbs make, as arithmetic. */
+
+// a glide after one kick, with the given controls held all the way
+function glideWith(extra, world) {
+  const sw = diver(noAir);
+  swim(sw, { secs: T.kickTime, strokes: (t) => (t < 0 ? 0 : null) });
+  const x0 = sw.pos.z;
+  swim(sw, { secs: 4.0, strokes: () => null, world,
+             aim: (s, t, ctl) => Object.assign(ctl, extra) });
+  return { dist: sw.pos.z - x0, speed: sw.speed, sw };
+}
+
+test('holding the line carries a glide much further than letting it go', () => {
+  const loose = glideWith({});
+  const held = glideWith({ stream: true });
+  ok(held.dist > loose.dist * 1.2,
+     'streamlining went ' + held.dist.toFixed(1) + 'm against ' + loose.dist.toFixed(1) + 'm');
+  ok(held.speed > loose.speed * 1.5, 'and kept only ' + held.speed.toFixed(2) + ' m/s');
+});
+
+test('a flare stops you inside a body length or two, and costs breath', () => {
+  const coast = glideWith({});
+  const sw = diver({ airStroke: 0, airDrain: 0 });
+  swim(sw, { secs: T.kickTime, strokes: (t) => (t < 0 ? 0 : null) });
+  const z0 = sw.pos.z, a0 = sw.air;
+  swim(sw, { secs: 2.0, strokes: () => null, aim: (s, t, ctl) => { ctl.flare = true; } });
+  ok(sw.pos.z - z0 < coast.dist * 0.45,
+     'a flare still travelled ' + (sw.pos.z - z0).toFixed(1) + 'm');
+  ok(sw.speed < 0.4, 'and left you moving at ' + sw.speed.toFixed(2) + ' m/s');
+  ok(sw.air < a0, 'braking was free');
+});
+
+test('a diver who stops kicking in a race goes where the race goes', () => {
+  const race = { x: 6.5, y: 0, z: 0, k: 1 };
+  const world = Object.assign(sea(), {
+    currentAt: (p, out) => { out.x = race.x; out.y = 0; out.z = 0; out.k = 1; return out; },
+  });
+  const sw = diver(noAir);
+  swim(sw, { secs: 6, strokes: () => null, world });
+  const vx = sw.vel.x;
+  ok(Math.abs(vx - race.x) < 0.5, 'drifted at ' + vx.toFixed(2) + ' m/s in a 6.5 m/s race');
+  ok(sw.inCurrent > 0.9, 'and did not know it was in one');
+  // ...and kicking with it beats anything a stroke can do on its own
+  const fast = diver(noAir);
+  swim(fast, { secs: 6, world, strokes: every(SPB), aim: (s) => { s.yawAim = Math.PI / 2; } });
+  ok(fast.vel.x > T.topSpeed, 'kicking down a race topped out at ' + fast.vel.x.toFixed(2));
+});
+
+test('the chop makes the surface the slow way home', () => {
+  const run = (chop) => {
+    const sw = diver(noAir);
+    sw.place(0, T.surfaceY, 0, 0);
+    const world = Object.assign(sea(), { chop });
+    const z0 = sw.pos.z;
+    swim(sw, { secs: 6, strokes: every(SPB), world });
+    return sw.pos.z - z0;
+  };
+  const calm = run(0), rough = run(1.6);
+  // ...and ducking a metre under it is not a way round it
+  const under = (() => {
+    const sw = diver(noAir);
+    sw.place(0, -1.2, 0, 0);
+    const world = Object.assign(sea(), { chop: 1.6 });
+    const z0 = sw.pos.z;
+    swim(sw, { secs: 6, strokes: every(SPB), world, aim: (s) => { s.pitchAim = 0; } });
+    return sw.pos.z - z0;
+  })();
+  ok(under < calm * 0.85, 'a metre under the chop went ' + under.toFixed(1) + 'm, nearly as far as still water');
+  ok(rough < calm * 0.78,
+     'six seconds on the surface went ' + rough.toFixed(1) + 'm in the flood against '
+     + calm.toFixed(1) + 'm in still water');
 });
 
 report();

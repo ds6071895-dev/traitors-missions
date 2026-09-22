@@ -1135,6 +1135,9 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .dv-chain-bar.full{background:linear-gradient(90deg,var(--mint),#fff); box-shadow:0 0 14px rgba(125,252,208,.9)}
 
 .dv-clock{text-align:center; min-width:120px}
+/* the tide's name on the clock; the flood is the one worth shouting */
+.dv-clock .hud-label{transition:color .6s}
+.dv-clock .hud-label.flood{color:#ffd166; text-shadow:0 0 12px rgba(255,209,102,.55)}
 .dv-time{font-family:var(--display); font-size:clamp(26px,3.6vw,44px); line-height:1;
   color:var(--paper); text-shadow:0 2px 0 rgba(4,12,22,.5)}
 .dv-time.low{color:#ff8fa3; text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 26px rgba(255,84,112,.6);

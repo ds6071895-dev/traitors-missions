@@ -145,6 +145,7 @@ const Game = (() => {
       modId: saved.modId || null,
       ghost: saved.ghost !== false,
       ...(def.id === 'ski' ? { section: saved.section || null, quality: saved.quality || 'medium', reducedMotion: saved.reducedMotion !== false, motion: saved.motion || null } : {}),
+      ...(def.id === 'dive' ? { quality: saved.quality || GameState.settings.quality || 'medium' } : {}),
     };
   }
 
@@ -189,7 +190,7 @@ const Game = (() => {
       modeWrap.appendChild(b);
     }
     document.getElementById('setup-mode-note').textContent = p.mode.blurb;
-    for (const id of ['ski-setup-extra', 'ski-setup-section', 'ski-fav']) {
+    for (const id of ['ski-setup-extra', 'ski-setup-section', 'ski-fav', 'dive-setup-extra']) {
       const old = document.getElementById(id); if (old) old.remove();
     }
     /* The Descent has more to set than any other mission, and it used to
@@ -288,6 +289,23 @@ const Game = (() => {
       });
 
       document.getElementById('brief-setup').appendChild(extra);
+    }
+
+    /* The loch is the one scene in the game whose cost is set by how far
+       you can see, so it gets the same Graphics choice the mountain has. */
+    if (setupDef.id === 'dive') {
+      const block = document.createElement('div');
+      block.className = 'setup-block'; block.id = 'dive-setup-extra';
+      const head = document.createElement('div'); head.className = 'setup-head'; head.textContent = 'Graphics';
+      const seg = document.createElement('div'); seg.className = 'seg';
+      for (const [id, name] of [['low', 'Low'], ['medium', 'Med'], ['high', 'High']]) {
+        const b = document.createElement('button');
+        b.className = 'seg-btn' + (id === (setup.quality || 'medium') ? ' on' : '');
+        b.textContent = name; b.onclick = () => setSetup({ quality: id });
+        seg.appendChild(b);
+      }
+      block.append(head, seg);
+      document.getElementById('brief-setup').appendChild(block);
     }
 
 

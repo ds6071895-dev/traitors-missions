@@ -88,8 +88,13 @@ const ReefKit = (() => {
        be *above* the water: the ramp has to keep going once your head is
        out or breaking the surface changes nothing on screen, which is
        precisely the bug that made a gasp look like drowning. */
+    /* The air band closes inside the land's own reach (`FLOOR_REACH`).
+       It used to open to 2600 m over a hillside that stopped at 1026, so
+       every breath showed you the edge of the world: the coast ending
+       in mid-air along the beach and nothing at all behind the hill.
+       A highland sea loch at noon is hazy anyway. */
     { id: 'air',    at: 3,
-      fog: '#c8ebff', near: 240, far: 2600, caustic: 0.00, vignette: 0.00, air: 1 },
+      fog: '#c8ebff', near: 110, far: 1000, caustic: 0.00, vignette: 0.00, air: 1 },
     { id: 'shelf',  at: 0,
       fog: '#5fe6e0', near: 22, far: 260, caustic: 1.00, vignette: 0.00, air: 0 },
     { id: 'wreck',  at: -22,
@@ -246,8 +251,15 @@ const ReefKit = (() => {
                 * U.smoothstep(0.18, 0.5, Math.abs(along) / R + 0.2)
                 * (1 - U.smoothstep(0.72, 1.0, t));
 
-      // nothing on this reef is deeper than a diver can come back from
-      const sea = Math.max(ramp + dune + heads + cut, -52);
+      /* Nothing on this reef is deeper than a diver can come back from —
+         but past the rim the loch keeps going. It used to stop falling at
+         the trench and lie as a dead-flat plate out to the edge of the
+         mesh, which is exactly the "ground" nobody could see past. Out
+         here the floor slopes away into the deep water instead, and the
+         clamp still holds everywhere a chest can be. */
+      const abyss = U.smoothstep(1.04, 3.2, r / R) * 74
+                  * (1 - U.smoothstep(-260, -90, e));   // not off the far beaches
+      const sea = Math.max(ramp + dune + heads + cut, -52) - abyss;
       if (w <= 0) return sea;
 
       /* ---- and then the shore takes over.
@@ -284,16 +296,24 @@ const ReefKit = (() => {
   function causticMaterial(uniforms, opts = {}) {
     const mat = new THREE.MeshLambertMaterial(Object.assign(
       { vertexColors: true, flatShading: opts.flat !== false }, opts.mat || {}));
+    /* The atlas, when this material has a recipe in `DiveMaterials`.
+       It goes into *this* patch rather than a second one, because this
+       function assigns `onBeforeCompile` outright and a wrapper would
+       either replace the caustics or be replaced by them. */
+    const tiles = opts.tiles && typeof DiveMaterials !== 'undefined'
+      ? DiveMaterials.chunk(opts.tiles) : null;
     const key = 'caus' + (opts.gain || 1).toFixed(2) + (opts.sway ? 's' + opts.sway : '')
-              + (opts.swash ? 'w' + opts.swash : '');
+              + (opts.swash ? 'w' + opts.swash : '') + (tiles ? '|' + tiles.key : '');
     mat.onBeforeCompile = (sh) => {
+      if (tiles) Object.assign(sh.uniforms, tiles.uniforms);
       sh.uniforms.uCausT = uniforms.time;
       sh.uniforms.uCausGain = uniforms.caustic;
       sh.uniforms.uCurrent = uniforms.current;
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', `#include <common>
           uniform float uCausT; uniform vec3 uCurrent;
-          varying vec3 vReefPos; varying float vUpFacing;`)
+          varying vec3 vReefPos; varying float vUpFacing;
+          varying vec3 vReefN; varying vec3 vReefLocal;`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
           #ifdef USE_INSTANCING
             vec3 iPos = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
@@ -311,13 +331,17 @@ const ReefKit = (() => {
             cw = modelMatrix * instanceMatrix * vec4(transformed, 1.0);
           #endif
           vReefPos = cw.xyz;
-          vUpFacing = max(normalize(mat3(modelMatrix) * objectNormal).y, 0.0);`)
+          vReefLocal = transformed;
+          vReefN = normalize(mat3(modelMatrix) * objectNormal);
+          vUpFacing = max(vReefN.y, 0.0);`)
         .replace(/SWAY_HI/g, (opts.sway || 1).toFixed(2))
         .replace(/SWAY_GAIN/g, (opts.swayGain || 1).toFixed(2));
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', `#include <common>
           uniform float uCausT; uniform float uCausGain;
           varying vec3 vReefPos; varying float vUpFacing;
+          varying vec3 vReefN; varying vec3 vReefLocal;
+          ${tiles ? tiles.decl : ''}
           float rhash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
           float rnoise(vec2 p){
             vec2 i = floor(p), f = fract(p);
@@ -326,6 +350,8 @@ const ReefKit = (() => {
             float c = rhash(i + vec2(0.0, 1.0)), d = rhash(i + vec2(1.0, 1.0));
             return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
           }`)
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          ${tiles ? tiles.apply : ''}`)
         .replace('#include <dithering_fragment>', `#include <dithering_fragment>
           {
             /* Two crossed fields at different speeds. One is a texture;
@@ -360,23 +386,40 @@ const ReefKit = (() => {
 
   /* =============== the seabed mesh =============== */
 
+  /* How far the floor reaches, as a multiple of the reef radius, on
+     every bearing. It used to be 1.55 seaward and 5.4 inland, which put
+     the end of the world 295 m out to sea and ~390 m along the beach —
+     inside the fog of clear water, and nowhere near outside the fog of
+     the air. One reach all the way round, and the fog is held inside it
+     by `maxFogFar`, so the edge is a thing no camera can be shown.
+     Seven radii is what lets the air band stay a kilometre deep: the
+     hill is still there when you come up for breath. */
+  const FLOOR_REACH = 7;
+
+  /* The furthest a fog may reach and still hide the rim, for a diver
+     who can be up to `swimR` metres from the middle. The swimmer is
+     pushed back from `radius` over twenty metres, so that is where the
+     worst case stands. Asserted in the test suite against every water. */
+  function maxFogFar(radius, swimR = radius + 20) {
+    return (radius * FLOOR_REACH - swimR) * 0.9;
+  }
+
   function buildFloor(heightAt, rng, o) {
-    const RINGS = 62, SECTORS = 104;
+    // quality sets the grid; the shape of it is the same at every tier
+    const RINGS = o.floorRings || 120, SECTORS = o.floorSectors || 168;
     const pos = [], col = [];
     const c = new THREE.Color();
     const fog = new THREE.Color(Sky.look ? Sky.look.fog : '#c8ebff');
-    const sh = o.shore || shoreFor(0);
+    const REACH = o.radius * FLOOR_REACH;
 
-    /* How far the disc reaches on a given bearing. Seaward it only has
-       to out-run the fog; inland it has to carry an entire hillside, so
-       it reaches five times as far that way. One mesh covers both,
-       which is what keeps the tideline a single continuous surface
-       rather than two sheets fighting over the same metre of sand. */
-    const reachAt = (a) => {
-      const inland = Math.max(0, Math.sin(a) * sh.nx + Math.cos(a) * sh.nz);
-      return o.radius * U.lerp(1.55, 5.4, Math.pow(inland, 1.15));
-    };
-    const radiusAt = (t, a) => reachAt(a) * (t * t * 0.78 + t * 0.22);
+    /* Where ring `t` sits. Just over half the rings go on the reef
+       itself (out to 1.1 × radius), evenly, because that is where every
+       chest, cave and camera is; the rest ease out to the rim, where a
+       triangle is only ever seen through a hundred metres of haze. */
+    const REEF_T = 0.55, REEF_R = o.radius * 1.1;
+    const radiusAt = (t) => t <= REEF_T
+      ? REEF_R * (t / REEF_T)
+      : REEF_R + (REACH - REEF_R) * Math.pow((t - REEF_T) / (1 - REEF_T), 1.6);
 
     /* ---- underwater paint: pale sand on the shelf, going green-grey as
        it falls away, with coral picked out on the shallow humps ---- */
@@ -468,8 +511,10 @@ const ReefKit = (() => {
 
     const P = (t, k) => {
       const a = (k / SECTORS) * Math.PI * 2;
-      const jr = 1 + (noise2(t * 977, k, 3) * 0.5) * 0.18;
-      const r = radiusAt(t, a) * jr;
+      /* A little jitter so the rings never read as rings — and none at
+         all on the rim, where it used to turn the edge into a saw. */
+      const jr = 1 + (noise2(t * 977, k, 3) * 0.5) * 0.12 * (1 - U.smoothstep(0.8, 0.97, t));
+      const r = radiusAt(t) * jr;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       return { x, z, y: heightAt(x, z) };
     };
@@ -529,6 +574,25 @@ const ReefKit = (() => {
       }
     }
 
+    /* The skirt: one more ring, straight down from the rim, painted to
+       the haze. The fog is held inside the rim, so nobody should ever
+       see it — it is here so that if a camera ever does, what it finds
+       is a wall falling away into weather rather than a razor edge with
+       the sky under it. */
+    const skirt0 = pos.length / 3;
+    const rimCol = new THREE.Color();
+    for (let k = 0; k < SECTORS; k++) {
+      const p = grid[RINGS][k];
+      pos.push(p.x * 1.01, p.y - 220, p.z * 1.01);
+      rimCol.fromArray(col, (RINGS * SECTORS + k) * 3).lerp(fog, 0.8);
+      col.push(rimCol.r, rimCol.g, rimCol.b);
+    }
+    for (let k = 0; k < SECTORS; k++) {
+      const k2 = (k + 1) % SECTORS;
+      const A = at(RINGS, k), B = at(RINGS, k2), C = skirt0 + k, D = skirt0 + k2;
+      idx.push(A, D, C, A, B, D);
+    }
+
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
@@ -577,6 +641,8 @@ const ReefKit = (() => {
       if (!ok) continue;
 
       const y = heightAt(x, z);
+      // coral heads belong in the water, not half way up the machair
+      if (o.coral && y > -2) continue;
       const g = new THREE.IcosahedronGeometry(r, 1);
       const p = g.attributes.position;
       const ls = lumps(rng);
@@ -1124,7 +1190,7 @@ const ReefKit = (() => {
       // does not grow above the tideline
       const y = heightAt(x, z);
       if (y > -2.4) continue;
-      if (rng() > U.clamp(1 - U.smoothstep(-16, -40, y), 0.06, 1)) continue;
+      if (rng() > U.clamp(1 - U.smoothstep(-16, -40, y), 0.16, 1)) continue;
       spots.push({ x, z, y, s: rng.range(0.8, 2.0), rot: rng() * 6.28, kind: i % geos.length });
     }
     return { geos, spots };
@@ -1189,6 +1255,7 @@ const ReefKit = (() => {
 
   const FAN_COLOURS = ['coralViolet', 'coral', 'coralPink', 'coralTeal',
                        'coralGold', 'coralLime'];
+  const DEEP_FANS = ['coralViolet', 'coralTeal', 'coralPink'];
 
   function buildFans(heightAt, rng, o) {
     const geos = [];
@@ -1199,9 +1266,15 @@ const ReefKit = (() => {
       const r = U.lerp(o.r0, o.r1, Math.sqrt(rng()));
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       const y = heightAt(x, z);
-      if (y > -4 || y < -50) continue;
-      spots.push({ x, z, y, s: rng.range(1.6, 4.4), rot: rng() * 6.28,
-                   kind: i % geos.length, hue: FAN_COLOURS[(rng() * 6) | 0] });
+      if (y > -4 || y < -64) continue;
+      /* The trench used to have none — it rejected everything under
+         fifty metres, so the richest water in the loch was bare sand.
+         Down there they grow bigger and colder. */
+      const deep = y < -36;
+      spots.push({ x, z, y, s: rng.range(1.6, 4.4) * (deep ? 1.3 : 1), rot: rng() * 6.28,
+                   kind: i % geos.length,
+                   hue: deep ? DEEP_FANS[(rng() * DEEP_FANS.length) | 0]
+                             : FAN_COLOURS[(rng() * 6) | 0] });
     }
     return { geos, spots };
   }
@@ -1248,6 +1321,11 @@ const ReefKit = (() => {
     { diffuse: '#ff5fae', glow: '#ff2f9c' },
     { diffuse: '#4ff6ff', glow: '#00d8ff' },
     { diffuse: '#ffd166', glow: '#ff9b1f' },
+    /* The deep one. The trench is the brightest thing in the loch on
+       the depth ramp and was the emptiest on the floor; this is the
+       only light down there, so it is the one colour that reads
+       against cobalt. */
+    { diffuse: '#9aa8ff', glow: '#4a6bff' },
   ];
 
   function buildAnemones(heightAt, rng, o) {
@@ -1259,9 +1337,11 @@ const ReefKit = (() => {
       const r = U.lerp(o.r0, o.r1, Math.sqrt(rng()));
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       const y = heightAt(x, z);
-      if (y > -5 || y < -52) continue;
-      spots.push({ x, z, y, s: rng.range(0.8, 2.1), rot: rng() * 6.28,
-                   kind: (rng() * geos.length) | 0, hue: (rng() * ANEMONE.length) | 0 });
+      if (y > -5 || y < -64) continue;
+      const deep = y < -36 && rng() < 0.7;
+      spots.push({ x, z, y, s: rng.range(0.8, 2.1) * (deep ? 1.4 : 1), rot: rng() * 6.28,
+                   kind: (rng() * geos.length) | 0,
+                   hue: deep ? 3 : (rng() * 3) | 0 });
     }
     /* And a handful inside every cave, which is the only lighting a
        cave gets. They are placed against the rim rather than in the
@@ -1332,8 +1412,11 @@ const ReefKit = (() => {
     const treeMat = ForestKit.windMaterial(uniforms, 0.5, 13.0, 0.85);
     mats.push(treeMat);
     const trees = [];
+    /* Drawn from the landward half-turn only: half of a full disc is
+       sea, and every sample spent there was a tree the hill never got. */
+    const landA = o.shore ? Math.atan2(o.shore.nz, o.shore.nx) : 0;
     for (let i = 0; i < o.trees * 9 && trees.length < o.trees; i++) {
-      const a = rng() * TAU;
+      const a = o.shore ? landA + (rng() - 0.5) * Math.PI * 1.2 : rng() * TAU;
       const r = U.lerp(14, R, Math.sqrt(rng()));
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       const y = heightAt(x, z);
@@ -1390,6 +1473,7 @@ const ReefKit = (() => {
     /* ---- and the boulders the beach is made of. Flat-shaded, sunk into
        the shingle, and the only thing on the shore with a collider. ---- */
     const rockMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    if (typeof DiveMaterials !== 'undefined') DiveMaterials.patch(rockMat, 'granite', 3);
     mats.push(rockMat);
     const rockGeos = [];
     const colliders = [];
@@ -1747,14 +1831,14 @@ const ReefKit = (() => {
   function build(scene, rng, opts = {}) {
     const o = Object.assign({
       radius: 190,
-      rocks: 54,
+      rocks: 90,
       kelp: 620,
       /* The paint. Both of these are pure dressing and both of them
          are worth more per instance than anything else in the file:
          the loch reads as a *reef* rather than as a lit seabed almost
          entirely because of the fans. */
-      fans: 300,
-      anemones: 230,
+      fans: 460,
+      anemones: 320,
       /* Six, not three. The caves are the best decision in the mission
          and for most of a run nobody was making it, because with three
          of them in a two-hundred-metre loch you could work the trench
@@ -1763,7 +1847,7 @@ const ReefKit = (() => {
       wrecks: 3,
       shafts: 13,
       motes: 460,
-      trees: 900,
+      trees: 1300,
       grass: 1500,
       boulders: 70,
     }, opts);
@@ -1809,7 +1893,7 @@ const ReefKit = (() => {
     // ---- the floor. Smooth-shaded: a surface this big rendered as
     // flat facets reads as broken geometry rather than as style.
     const floorGeo = buildFloor(heightAt, rng, o);
-    const floorMat = causticMaterial(uniforms, { gain: 1.0, flat: false, swash: 1.0 });
+    const floorMat = causticMaterial(uniforms, { gain: 1.0, flat: false, swash: 1.0, tiles: 'floor' });
     geos.push(floorGeo); mats.push(floorMat);
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.name = 'seabed';
@@ -1827,7 +1911,7 @@ const ReefKit = (() => {
     const wAt = wrecks.list.length ? wrecks.list[0].at
                                    : { x: 0, z: 0, y: heightAt(0, 0) };
     if (wrecks.geo) {
-      const wreckMat = causticMaterial(uniforms, { gain: 0.7 });
+      const wreckMat = causticMaterial(uniforms, { gain: 0.7, tiles: 'wreck' });
       geos.push(wrecks.geo); mats.push(wreckMat);
       const wreckMesh = new THREE.Mesh(wrecks.geo, wreckMat);
       wreckMesh.name = 'wreck';
@@ -1844,7 +1928,7 @@ const ReefKit = (() => {
         wrecks.list.map(w => ({ x: w.at.x, z: w.at.z, r: w.length * 0.9 }))),
     });
     if (caves.geo) {
-      const caveMat = causticMaterial(uniforms, { gain: 0.28 });
+      const caveMat = causticMaterial(uniforms, { gain: 0.28, tiles: 'cave' });
       geos.push(caves.geo); mats.push(caveMat);
       const cm = new THREE.Mesh(caves.geo, caveMat);
       cm.name = 'caves';
@@ -1853,13 +1937,13 @@ const ReefKit = (() => {
 
     // ---- rock and coral heads
     const rocks = buildRocks(heightAt, rng, {
-      count: o.rocks, r0: 18, r1: o.radius * 0.98, size: [3.2, 9.5], coral: true,
+      count: o.rocks, r0: 18, r1: o.radius * 1.5, size: [3.2, 9.5], coral: true,
       avoid: [{ x: 0, z: 0, r: 16 }].concat(
         wrecks.list.map(w => ({ x: w.at.x, z: w.at.z, r: w.length * 0.7 })),
         caves.list.map(c => ({ x: c.x, z: c.z, r: c.R + 8 }))),
     });
     if (rocks.geo) {
-      const rockMat = causticMaterial(uniforms, { gain: 0.75 });
+      const rockMat = causticMaterial(uniforms, { gain: 0.75, tiles: 'rock' });
       geos.push(rocks.geo); mats.push(rockMat);
       const rm = new THREE.Mesh(rocks.geo, rockMat);
       rm.name = 'rocks';
@@ -1867,9 +1951,9 @@ const ReefKit = (() => {
     }
 
     // ---- kelp
-    const kelp = buildKelp(heightAt, rng, { count: o.kelp, r0: 10, r1: o.radius * 0.85 });
+    const kelp = buildKelp(heightAt, rng, { count: o.kelp, r0: 10, r1: o.radius * 1.05 });
     const kelpMat = causticMaterial(uniforms, {
-      gain: 0.45, sway: 4.0, swayGain: 2.4,
+      gain: 0.45, sway: 4.0, swayGain: 2.4, tiles: 'kelp',
       mat: { side: THREE.DoubleSide },
     });
     mats.push(kelpMat);
@@ -1889,9 +1973,9 @@ const ReefKit = (() => {
     /* ---- the fans. Same sway uniform as the kelp and a per-instance
        tint off the palette, so a hundred pounds of colour costs one
        draw call and no new shader. ---- */
-    const fans = buildFans(heightAt, rng, { count: o.fans, r0: 12, r1: o.radius * 0.96 });
+    const fans = buildFans(heightAt, rng, { count: o.fans, r0: 12, r1: o.radius * 1.3 });
     const fanMat = causticMaterial(uniforms, {
-      gain: 0.55, sway: 2.6, swayGain: 1.5,
+      gain: 0.55, sway: 2.6, swayGain: 1.5, tiles: 'fan',
       mat: { side: THREE.DoubleSide },
     });
     mats.push(fanMat);
@@ -1911,7 +1995,7 @@ const ReefKit = (() => {
        that make their own light. Three meshes, because emissive is a
        material uniform: see `ANEMONE`. ---- */
     const anem = buildAnemones(heightAt, rng, {
-      count: o.anemones, r0: 12, r1: o.radius * 0.96, caves: caves.list,
+      count: o.anemones, r0: 12, r1: o.radius * 1.3, caves: caves.list,
     });
     const anemMats = ANEMONE.map(a => new THREE.MeshLambertMaterial({
       color: a.diffuse, vertexColors: true, flatShading: true,
@@ -1945,8 +2029,8 @@ const ReefKit = (() => {
 
     // ---- and the half of it you can stand on
     const land = buildLand(heightAt, rng, {
-      reach: o.radius * 3.4, trees: o.trees, grass: o.grass,
-      boulders: o.boulders, landing: shore.landing,
+      reach: o.radius * (FLOOR_REACH - 0.2), trees: o.trees, grass: o.grass,
+      boulders: o.boulders, landing: shore.landing, shore,
     });
     group.add(land.group);
 
@@ -2009,7 +2093,8 @@ const ReefKit = (() => {
     };
   }
 
-  return { build, COL, BANDS, WET, SPECIES, ANEMONE, bandAt, shoreFor, makeFloor,
+  return { build, COL, BANDS, WET, SPECIES, ANEMONE, FLOOR_REACH, maxFogFar, CAVE_ROOF,
+           bandAt, shoreFor, makeFloor,
            buildFloor, causticMaterial, buildRocks, buildWreck, buildWrecks,
            buildKelp, buildLand,
            buildShafts, buildShoal, buildCaves, buildFans, buildAnemones };

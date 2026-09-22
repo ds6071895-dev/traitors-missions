@@ -57,7 +57,7 @@ const stubs = {
 
 const ctx = H.load(['js/core/util.js', 'js/core/missions.js', 'js/world/conditions.js',
                     'js/missions/agendas.js', 'js/missions/shootout-rounds.js',
-                    'js/world/forest.js', 'js/world/reef.js', 'js/entities/swimmer.js',
+                    'js/world/forest.js', 'js/world/reef.js', 'js/dive/tide.js', 'js/entities/swimmer.js',
                     'js/missions/boat-race.js', 'js/missions/shootout.js',
                     'js/missions/dive-twists.js', 'js/missions/dive.js',
                     'js/world/mountain.js', 'js/ski/tricks.js', 'js/ski/scoring.js', 'js/ski/progression.js', 'js/ski/course.js', 'js/ski/surfaces.js', 'js/ski/presentation.js', 'js/entities/skier.js',
@@ -753,6 +753,114 @@ test('every seed puts a beach at the origin with the loch in front of it', () =>
     // and the hill behind it has to actually be a hill
     ok(at(400) > 120, 'seed ' + seed + ' has no highland behind the beach');
   }
+});
+
+/* The loch used to end on screen. The floor stopped 295 m out to sea
+   while clear water fogged at 338 m and the air at 2600 m, so every seed
+   with good visibility — and every breath — showed you the rim with the
+   sky under it. The rule is now arithmetic: no band, in no water, may
+   see further than the floor reaches from the worst place a diver can
+   be. A palette edit that breaks it fails here rather than on a phone. */
+test('no fog in any water can see past the edge of the floor', () => {
+  const RK = ctx.ReefKit, R = DV.CONFIG.reefRadius;
+  const cap = RK.maxFogFar(R);
+  const swimR = R + 20;                     // the swimmer is turned back by here
+  ok(R * RK.FLOOR_REACH - swimR > cap, 'the cap leaves no margin for the rim');
+  for (const w of ctx.DiveConditions.WATERS) {
+    for (const b of RK.BANDS) {
+      const far = b.far * (b.air ? 1 : w.vis);
+      ok(far <= cap, w.id + ' / ' + b.id + ' fogs at ' + far.toFixed(0)
+         + 'm, past the ' + cap.toFixed(0) + 'm the floor can hide');
+    }
+  }
+});
+
+test('past the rim the loch falls away, and nowhere a chest can be', () => {
+  const R = DV.CONFIG.reefRadius;
+  for (let seed = 1; seed <= 200; seed++) {
+    const shore = ctx.ReefKit.shoreFor((seed * 0.7913) % (Math.PI * 2));
+    const h = ctx.ReefKit.makeFloor(U.makeRng(seed), { radius: R, shore });
+    const a = shore.ang + Math.PI;           // straight out to sea
+    const at = (r) => h(Math.sin(a) * r, Math.cos(a) * r);
+    // no dead plate: the far water is well below the trench floor
+    ok(at(R * 2.6) < at(R * 1.1) - 20,
+       'seed ' + seed + ' lies flat past the trench: ' + at(R * 1.1).toFixed(1)
+       + ' -> ' + at(R * 2.6).toFixed(1));
+  }
+});
+
+section('the dive — the tide');
+
+/* The rework's rules, as arithmetic over the seed and the clock. The
+   renderer draws them in `DiveFeedback`; nothing there can move them. */
+test('the tide turns twice, on thirds of whatever the run is', () => {
+  const DT = ctx.DiveTide;
+  const at = (e, rt) => DT.stageAt(e, rt).id;
+  ok(at(0) === 'still' && at(59) === 'still', 'the first minute is not still water');
+  ok(at(61) === 'ebb' && at(119) === 'ebb', 'the second minute is not the ebb');
+  ok(at(121) === 'flood' && at(500) === 'flood', 'the last minute is not the flood');
+  ok(at(45, 120) === 'ebb', 'a shorter run does not move the tide with it');
+  const [sl, eb, fl] = DT.STAGES;
+  ok(sl.race < eb.race && eb.race < fl.race, 'the races do not build');
+  ok(sl.chop < eb.chop && eb.chop < fl.chop, 'the surface does not get worse');
+  ok(!sl.pockets && eb.pockets && !fl.pockets, 'only the ebb holds air under the roofs');
+  ok(fl.pay > 1 && sl.pay === 1 && eb.pay === 1, 'only the flood pays extra');
+});
+
+test('the races run home along the floor, and never on the surface', () => {
+  const DT = ctx.DiveTide, R = DV.CONFIG.reefRadius, ebb = DT.STAGES[1];
+  const out = {};
+  for (let seed = 1; seed <= 300; seed++) {
+    const shore = ctx.ReefKit.shoreFor((seed * 0.7913) % (Math.PI * 2));
+    const t = DT.build(seed, R, shore.ang);
+    ok(t.lanes.length === DT.RACE.lanes, 'seed ' + seed + ' lost a race');
+    // the same seed is the same races, on every client
+    const again = DT.build(seed, R, shore.ang);
+    ok(again.lanes[1].x0 === t.lanes[1].x0, 'seed ' + seed + ' races are not a function of it');
+    for (const l of t.lanes) {
+      // it starts out to sea and ends near the beach
+      const inward = -(l.x0 * shore.nx + l.z0 * shore.nz);
+      ok(inward > R * 0.3, 'seed ' + seed + ' has a race that starts on the land side');
+      // ...and in the middle of it, twenty metres down, it is pulling you ashore
+      const mx = (l.x0 + l.x1) / 2, mz = (l.z0 + l.z1) / 2;
+      DT.currentAt(t, ebb, mx, -20, mz, 0, out);
+      // home is the landing, a few metres up the beach from the origin
+      const hx = shore.nx * shore.landAt - mx, hz = shore.nz * shore.landAt - mz;
+      const hl = Math.hypot(hx, hz);
+      ok((out.x * hx + out.z * hz) / hl > DT.RACE.speed * 0.9,
+         'seed ' + seed + ' has a race that is not taking you home');
+      DT.currentAt(t, ebb, mx, -1, mz, 0, out);
+      ok(out.x === 0 && out.z === 0, 'seed ' + seed + ' runs a race on the surface');
+    }
+  }
+});
+
+test('a pocket is under the roof, above the floor, and only while the ebb holds', () => {
+  const DT = ctx.DiveTide, R = DV.CONFIG.reefRadius;
+  const [slack, ebb, flood] = DT.STAGES;
+  let n = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const shore = ctx.ReefKit.shoreFor((seed * 1.37) % (Math.PI * 2));
+    const h = ctx.ReefKit.makeFloor(U.makeRng(seed), { radius: R, shore });
+    // a cave as `buildCaves` records one, stood on this floor
+    const x = -shore.nx * R * 0.7, z = -shore.nz * R * 0.7, H = 9, Rc = 13;
+    const cave = { x, z, R: Rc, H, floorY: h(x, z) };
+    const caves = { list: [cave] };
+    const y = DT.pocketAt(caves, ebb, x, z);
+    ok(y !== null, 'seed ' + seed + ' has no air in the middle of a cave at the ebb');
+    const roof = cave.floorY + H * ctx.ReefKit.CAVE_ROOF(DT.POCKET_R);
+    // the diver floats half a metre under the pocket's skin and has to
+    // fit under the rock: a body's radius and a hand's width of air
+    ok(y + ctx.Swimmer.TUNE.surfaceY + ctx.Swimmer.TUNE.bodyRadius < roof,
+       'seed ' + seed + ' puts the pocket through its own roof');
+    ok(y > cave.floorY + 3, 'seed ' + seed + ' puts the pocket on the floor');
+    ok(DT.pocketAt(caves, slack, x, z) === null && DT.pocketAt(caves, flood, x, z) === null,
+       'seed ' + seed + ' holds air outside the ebb');
+    ok(DT.pocketAt(caves, ebb, x + Rc * 0.9, z) === null,
+       'seed ' + seed + ' holds air out at the rim, where the roof is lowest');
+    n++;
+  }
+  ok(n === 40, 'not every seed was checked');
 });
 
 section('the dive — the briefing, before anything is built');
