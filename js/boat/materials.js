@@ -49,7 +49,7 @@ const BoatMaterials = (() => {
     const before=mat.onBeforeCompile,key=mat.customProgramCacheKey();
     mat.onBeforeCompile=shader=>{
       before.call(mat,shader);
-      for(const k of ['uTime','uWaveDir','uWaveParam'])shader.uniforms[k]=Water.uniforms[k];
+      for(const k of ['uWaveTime','uWaveDir','uWaveParam'])shader.uniforms[k]=Water.uniforms[k];
       shader.vertexShader=Water.surfaceShader+shader.vertexShader;
       shader.vertexShader=shader.vertexShader.replace('#include <project_vertex>',`
         vec4 waterWorld=modelMatrix*instanceMatrix*vec4(transformed,1.0);

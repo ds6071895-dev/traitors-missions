@@ -181,11 +181,14 @@ const MissionNet = (() => {
      position and a quaternion, an archer sends a position and a yaw.
      This file does not care, which is why it can serve both. */
 
-  function pose(dt, make) {
+  /* `rate` lets a mission that moves faster than walking pace ask for
+     more; the remainder is carried rather than dropped, so the sends
+     land on a steady beat instead of wherever the frames happen to. */
+  function pose(dt, make, rate = RATE) {
     if (!live) return;
     acc += dt;
-    if (acc < RATE) return;
-    acc = 0;
+    if (acc < rate) return;
+    acc = Math.min(acc - rate, rate);
     const p = make();
     if (!p) return;
     Party.post('sync', { k: 'pose', m: missionId, p, n: Date.now() });

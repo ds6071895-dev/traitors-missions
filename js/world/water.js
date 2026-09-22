@@ -29,7 +29,14 @@ const Water = (() => {
   const DEFAULT_SEA = { swell: 1, chop: 1, wind: 0 };
   const sea = Object.assign({}, DEFAULT_SEA);
 
+  /* Two clocks. `time` moves the swell — the Gerstner field the boat
+     and every ring ride on — and is the one a shared race drives from a
+     common start (`setWaveTime`), so three machines see the same crest
+     under the same boat. `ripple` is only the shimmer and foam in the
+     fragment shader, so it just runs, and the water stays alive while
+     the swell is held. */
   let time = 0;
+  let ripple = 0;
   // One surface, three shells: a fine square under the boat and two polar
   // annuli that carry it out to the horizon. They butt up against each other
   // instead of stacking, so there is no overlapping-sheet seam.
@@ -39,6 +46,7 @@ const Water = (() => {
 
   const uniforms = {
     uTime:      { value: 0 },
+    uWaveTime:  { value: 0 },
     uHighland:  { value: 0 },
     uDetail:    { value: 1 },
     uSunDir:    { value: new THREE.Vector3(0.42, 0.36, -0.83).normalize() },
@@ -58,7 +66,7 @@ const Water = (() => {
 
   const COMMON = `
     #define NW ${W.length}
-    uniform float uTime;
+    uniform float uWaveTime;
     uniform vec2  uWaveDir[NW];
     uniform vec4  uWaveParam[NW]; // k, amp, q, phase
 
@@ -72,7 +80,7 @@ const Water = (() => {
         vec2  dir = uWaveDir[i];
         float k = uWaveParam[i].x, a = uWaveParam[i].y;
         float q = uWaveParam[i].z, ph = uWaveParam[i].w;
-        float th = k * dot(dir, p) + uTime * ph;
+        float th = k * dot(dir, p) + uWaveTime * ph;
         float s = sin(th), c = cos(th);
         d.x += q * a * dir.x * c;
         d.z += q * a * dir.y * c;
@@ -297,7 +305,17 @@ const Water = (() => {
     far.position.x = x; far.position.z = z;
   }
 
-  function update(dt) { time += dt; uniforms.uTime.value = time; }
+  function update(dt) {
+    time += dt; ripple += dt;
+    uniforms.uTime.value = ripple;
+    uniforms.uWaveTime.value = time;
+  }
+
+  // pin the swell to an agreed clock; the shimmer is left alone
+  function setWaveTime(t) {
+    time = t;
+    uniforms.uWaveTime.value = t;
+  }
 
   /* ---------------- CPU side: identical maths ---------------- */
 
@@ -402,6 +420,6 @@ const Water = (() => {
   }
 
   return { build, update, follow, sampleHeight, sampleSurface, uniforms, setFog,
-           setSeaState, setPalette, setVisualProfile, seaState, DEFAULTS, surfaceShader: COMMON,
+           setSeaState, setPalette, setWaveTime, setVisualProfile, seaState, DEFAULTS, surfaceShader: COMMON,
            get time() { return time; } };
 })();

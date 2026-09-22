@@ -63,6 +63,9 @@ class BoatRaceMission {
     grazeMoney: 150,
     grazeStep: 0.5,
     ghostRate: 0.1,         // 10 Hz is plenty for a boat this size
+    // a party's poses: quicker than MissionNet's default, because a boat
+    // at sixty knots covers four metres between two of those
+    poseRate: 1 / 20,
   };
 
   static MODES = {
@@ -235,6 +238,7 @@ class BoatRaceMission {
        a collision is a desync with a splash on it, and racing wheel to
        wheel does not need one to work. */
     this.party = !!opts.party;
+    this._seaEpoch = null;        // performance.now() at the shared start
     this.roster = (opts.players || []).filter(p => !p.local);
     this.meId = ((opts.players || []).find(p => p.local) || {}).id || 'you';
     this.agenda = opts.agenda || null;
@@ -377,13 +381,16 @@ class BoatRaceMission {
     if (this.opts.ghost) this._buildGhost();
 
     // ---- fx ----
-    this.fx = new FXSystem(scene, camera, document.getElementById('world-labels'), { sprayMax: BoatMaterials.low() ? 280 : 850, sparkMax: BoatMaterials.low() ? 90 : 220, wake: { conform: true, segments: BoatMaterials.low() ? 64 : 128, life: 4.5 } });
+    this.fx = new FXSystem(scene, camera, document.getElementById('world-labels'), { sprayMax: BoatMaterials.low() ? 280 : 850, sparkMax: BoatMaterials.low() ? 140 : 380, wake: { conform: true, segments: BoatMaterials.low() ? 64 : 128, life: 4.5 } });
     this.presentation = new BoatFeedback(scene, this.seed, this.cond);
     const sprayMat = this.fx.spray.points.material;
     let liveSpray = true; sprayMat.addEventListener('dispose', () => { liveSpray = false; });
     BoatMaterials.load('spray').ready.then(e => { if (liveSpray && e.texture) sprayMat.uniforms.uMap.value = e.texture; });
     const fireRing = this.fx.rings.fire.bind(this.fx.rings);
     this.fx.rings.fire = (...args) => { if (!BoatMaterials.reduced()) fireRing(...args); };
+
+    this.boostFx = new BoatBoost(scene, this.boat.group, this.fx, '#7ff3ff');
+    this._dressPeers(scene);
 
     this.world = { colliders: this.colliders, path: this.path, hint: -1, _frame: {} };
 
@@ -727,39 +734,204 @@ class BoatRaceMission {
          way out rather than at the length of a clearing. */
       const tag = Nametag.make(p.name, { accent, near: 220, far: 900 });
       scene.add(tag);
-      this.peers.set(p.id, { group, tag, name: p.name, s: 0, boost: 1, speed: 0,
-                             seen: false });
+      this.peers.set(p.id, { group, tag, accent, name: p.name, s: 0, boost: 1, speed: 0,
+                             seen: false, snaps: [], gap: null, jit: 0, ivl: this.C.poseRate * 1000,
+                             delay: 0.12, err: new THREE.Vector3(), errH: 0,
+                             base: null, wake: null, boostFx: null, sprayAcc: 0 });
     }
   }
 
+  // the wake and the afterburner each other boat trails; built once the
+  // mission's fx exist, which is after the hulls
+  _dressPeers(scene) {
+    for (const peer of this.peers.values()) {
+      peer.wake = new WakeRibbon(scene, {
+        conform: true, segments: BoatMaterials.low() ? 40 : 80, life: 3.6,
+      });
+      peer.boostFx = new BoatBoost(scene, peer.group, this.fx, peer.accent);
+    }
+  }
+
+  /* What goes on the wire. Beyond the transform: the sender's own clock
+     (`t`), so a pose is placed at the moment it was *taken* rather than
+     the moment the network got round to delivering it; the velocity,
+     so the curve between two poses bends the way the boat was actually
+     going; and the height above the sea (`dy`) rather than a bare y,
+     because the sea is shared (see `_tickSea`) and a boat drawn on
+     *our* swell at its own ride height sits on our water exactly. */
   _sendPose() {
     const b = this.boat;
     const f = this.world.lastFrame;
+    const r2 = (v) => Math.round(v * 100) / 100;
     return {
-      x: b.pos.x, y: b.pos.y, z: b.pos.z,
-      h: b.heading, p: b.pitch, r: b.roll,
+      t: Math.round(performance.now()),
+      x: r2(b.pos.x), y: r2(b.pos.y), z: r2(b.pos.z),
+      vx: r2(b.vel.x), vz: r2(b.vel.y),
+      dy: r2(b.pos.y - Water.sampleHeight(b.pos.x, b.pos.z)),
+      h: r2(b.heading), p: r2(b.pitch), r: r2(b.roll),
       s: f ? f.s : 0, b: b.boost, v: b.speed,
+      bo: b.boosting ? 1 : 0, a: b.airborne ? 1 : 0,
     };
+  }
+
+  /* Every pose is filed against *our* clock at the moment its sender
+     took it: their timestamp plus the smallest gap between the two
+     clocks the link has shown so far. The quickest packet is the
+     truest one, so a slow packet slots in where it belongs instead of
+     where it landed — that difference is the stutter. */
+  _takePeerPose(id, p) {
+    const peer = this.peers.get(id);
+    if (!peer || !p) return;
+    const now = performance.now();
+    const sent = typeof p.t === 'number' ? p.t : now;
+    const gap = now - sent;
+    if (peer.gap === null || gap < peer.gap) peer.gap = gap;
+    peer.jit = U.lerp(peer.jit, gap - peer.gap, 0.12);
+    const at = sent + peer.gap;
+    const last = peer.snaps[peer.snaps.length - 1];
+    if (last && at <= last.at) return;             // overtaken by a newer one
+    if (last) peer.ivl = U.lerp(peer.ivl, U.clamp(at - last.at, 10, 500), 0.1);
+    peer.snaps.push({ at, p });
+    if (peer.snaps.length > 20) peer.snaps.shift();
+    peer.s = p.s || 0;
+    peer.boost = p.b === undefined ? 1 : p.b;
+    peer.speed = p.v || 0;
+  }
+
+  /* Where a pose puts a boat at local time `at`, carrying on along its
+     velocity for a quarter of a second past the newest one we have. */
+  _peerAhead(snap, at, out) {
+    const p = snap.p;
+    const e = U.clamp((at - snap.at) / 1000, 0, 0.25);
+    out.x = p.x + (p.vx || 0) * e;
+    out.z = p.z + (p.vz || 0) * e;
+    out.dy = p.dy;
+    out.y = p.y;
+    out.h = p.h; out.p = p.p; out.r = p.r;
+    out.bo = p.bo; out.a = p.a;
+    return out;
+  }
+
+  // a Hermite curve between two poses, steered by their velocities, so a
+  // boat carving a corner is drawn carving it rather than cutting it
+  _peerBetween(A, B, at, out) {
+    const a = A.p, b = B.p;
+    const span = Math.max(1, B.at - A.at);
+    const u = U.clamp((at - A.at) / span, 0, 1);
+    const T = span / 1000;
+    if (a.vx !== undefined && b.vx !== undefined) {
+      const u2 = u * u, u3 = u2 * u;
+      const h00 = 2 * u3 - 3 * u2 + 1, h10 = u3 - 2 * u2 + u;
+      const h01 = -2 * u3 + 3 * u2, h11 = u3 - u2;
+      out.x = h00 * a.x + h10 * T * a.vx + h01 * b.x + h11 * T * b.vx;
+      out.z = h00 * a.z + h10 * T * a.vz + h01 * b.z + h11 * T * b.vz;
+    } else {
+      out.x = U.lerp(a.x, b.x, u);
+      out.z = U.lerp(a.z, b.z, u);
+    }
+    out.dy = a.dy === undefined || b.dy === undefined ? undefined : U.lerp(a.dy, b.dy, u);
+    out.y = U.lerp(a.y, b.y, u);
+    out.h = U.angLerp(a.h, b.h, u);
+    out.p = U.lerp(a.p, b.p, u);
+    out.r = U.lerp(a.r, b.r, u);
+    const near = u < 0.5 ? a : b;
+    out.bo = near.bo; out.a = near.a;
+    return out;
   }
 
   _updatePeers(dt) {
     if (!this.party) return;
     MissionNet.update(dt);
+    const now = performance.now();
+    const top = this.boat.tune.topSpeed;
+    const raw = this._peerRaw || (this._peerRaw = {});
+    const old = this._peerOld || (this._peerOld = {});
     for (const [id, peer] of this.peers) {
-      const iv = MissionNet.at(id);
-      if (!iv) { peer.group.visible = false; Nametag.hide(peer.tag); continue; }
-      const a = iv.a, b = iv.b, k = iv.k;
+      const sn = peer.snaps;
+      if (!sn.length || !MissionNet.seen(id)) {
+        peer.group.visible = false; Nametag.hide(peer.tag);
+        if (peer.boostFx) peer.boostFx.update(dt, { x: 0, y: 0, z: 0, heading: 0, boosting: false, airborne: true });
+        if (peer.wake) peer.wake.update(dt);
+        continue;
+      }
       peer.seen = true;
       peer.group.visible = true;
-      peer.group.position.set(U.lerp(a.x, b.x, k), U.lerp(a.y, b.y, k),
-                              U.lerp(a.z, b.z, k));
-      Nametag.show(peer.tag, peer.group.position.x, peer.group.position.y + 2.9,
-                   peer.group.position.z, this.camera);
-      peer.group.rotation.set(U.lerp(a.p, b.p, k), U.angLerp(a.h, b.h, k),
-                              U.lerp(a.r, b.r, k), 'YXZ');
-      peer.s = b.s || 0;
-      peer.boost = b.b === undefined ? 1 : b.b;
-      peer.speed = b.v || 0;
+
+      /* Drawn a little in the past — one send interval plus whatever
+         the link's lateness has been lately — so there is nearly always
+         a pose on either side of the moment being drawn. The delay
+         drifts rather than jumps, and the clock-gap estimate is let
+         creep upward so a link that got slower is re-learnt. */
+      peer.gap += dt * 2;
+      const want = U.clamp(peer.ivl + peer.jit * 2.5 + 25, 80, 320) / 1000;
+      peer.delay = U.damp(peer.delay, want, 1.5, dt);
+      const at = now - peer.delay * 1000;
+
+      let j = 0;
+      while (j < sn.length && sn[j].at <= at) j++;
+      let base = null;
+      if (j === 0) this._peerAhead(sn[0], sn[0].at, raw);
+      else if (j === sn.length) { base = sn[sn.length - 1]; this._peerAhead(base, at, raw); }
+      else this._peerBetween(sn[j - 1], sn[j], at, raw);
+
+      /* The curve is continuous by construction. The one seam is a late
+         pose ending a stretch of running ahead on velocity: the boat
+         was guessed somewhere and is now known to be somewhere else.
+         That difference is eased out over a few frames, not drawn. */
+      if (peer.base && peer.base !== base) {
+        this._peerAhead(peer.base, at, old);
+        peer.err.x += old.x - raw.x;
+        peer.err.z += old.z - raw.z;
+        peer.errH += U.angLerp(raw.h, old.h, 1) - raw.h;
+      }
+      peer.base = base;
+      const ease = Math.exp(-9 * dt);
+      peer.err.multiplyScalar(ease);
+      peer.errH *= ease;
+      if (peer.err.lengthSq() > 30 * 30) { peer.err.set(0, 0, 0); peer.errH = 0; }
+
+      const x = raw.x + peer.err.x, z = raw.z + peer.err.z;
+      const sea = Water.sampleHeight(x, z);
+      const y = raw.dy === undefined ? raw.y : sea + raw.dy;
+      const h = raw.h + peer.errH;
+      peer.group.position.set(x, y, z);
+      peer.group.rotation.set(raw.p, h, raw.r, 'YXZ');
+      Nametag.show(peer.tag, x, y + 2.9, z, this.camera);
+
+      const airborne = !!raw.a;
+      const lit = peer.boostFx.update(dt, { x, y, z, heading: h, boosting: !!raw.bo, airborne, water: sea });
+      // the thump carries, if they lit it right beside you
+      if (lit && Math.hypot(x - this.boat.pos.x, z - this.boat.pos.z) < 70) AudioBus.play('boostpop');
+      this._peerWake(peer, dt, x, y, z, h, airborne, top);
+    }
+  }
+
+  // foam behind them and spray off the bow, a lighter version of our own
+  _peerWake(peer, dt, x, y, z, h, airborne, top) {
+    const fx = Math.sin(h), fz = Math.cos(h);
+    const rx = fz, rz = -fx;
+    const sp = peer.speed || 0;
+    const s01 = U.clamp(sp / top, 0, 1.6);
+    if (!airborne && sp > 0.5) {
+      peer.wake.push(x + fx * Boat.HULL.sternZ, z + fz * Boat.HULL.sternZ, rx, rz,
+                     1.5 + s01 * 1.7, U.clamp(sp / 14, 0, 1));
+    }
+    peer.wake.update(dt);
+    const dx = x - this.boat.pos.x, dz = z - this.boat.pos.z;
+    if (airborne || sp < 4 || BoatMaterials.reduced() || dx * dx + dz * dz > 260 * 260) return;
+    peer.sprayAcc += (2 + s01 * 18) * dt;
+    while (peer.sprayAcc >= 1) {
+      peer.sprayAcc -= 1;
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const zc = 2.4 + Math.random() * 1.6;
+      const ox = fx * zc + rx * side * (Boat.beamAt(zc) + 0.5);
+      const oz = fz * zc + rz * side * (Boat.beamAt(zc) + 0.5);
+      this.fx.spray.emit(
+        x + ox, y - 0.3, z + oz,
+        rx * side * (6 + Math.random() * 8) + fx * sp * 0.22,
+        2.2 + Math.random() * 3 + s01 * 3,
+        rz * side * (6 + Math.random() * 8) + fz * sp * 0.22,
+        0.55 + Math.random() * 0.8, 0.3 + Math.random() * 0.34);
     }
   }
 
@@ -954,7 +1126,7 @@ class BoatRaceMission {
 
   updateEnvironment(dt, t, camera) {
     Sky.update(dt, camera.position, t);
-    Water.update(dt);
+    this._tickSea(dt);
     Water.follow(camera.position.x, camera.position.z);
     this.boat.group.position.y = Water.sampleHeight(this.boat.pos.x, this.boat.pos.z) + this.boat.tune.draft;
     this.boat.animateFlag(t);
@@ -978,17 +1150,38 @@ class BoatRaceMission {
     if (this.party) {
       MissionNet.attach('boat-race');
       this._offEvents = MissionNet.on('event', (d, from) => this._onPeerEvent(d, from));
+      this._offPose = MissionNet.on('pose', (id, p) => this._takePeerPose(id, p));
       this._agendaCheckpoint();
       RoomUI.showAgenda();
       this._setCenter('READY', 'Waiting for everybody…', 'count');
       MissionNet.waitForStart().then(() => {
         if (!this.scene || this.state !== 'waiting') return;
+        this._seaEpoch = performance.now();
         this.state = 'countdown';
         this.countdown = 3.999;
         this._lastBeep = 4;
         this._setCenter('', '');
       });
     }
+  }
+
+  /* The sea, in a shared race, is not allowed to be anybody's own.
+
+     The swell is a pure function of time, and every machine used to
+     keep its own — seconds since that page happened to load, slowed
+     further by every hit-stop and finish-line exhale on that machine
+     alone. So the crest under one boat was a trough under the same
+     boat on the next screen, and peers sat in or floated over water
+     that was not there. In a party the swell is instead pinned to one
+     clock that all three start together: held still until the host
+     releases the gate, then wall-clock seconds since it did. Wall
+     clock, not frame time, so a dropped frame or a hit-stop cannot
+     knock one client's sea out of step. The ripples keep their own
+     time, so a held swell still shimmers. */
+  _tickSea(dt) {
+    Water.update(dt);
+    if (!this.party) return;
+    Water.setWaveTime(this._seaEpoch == null ? 0 : (performance.now() - this._seaEpoch) / 1000);
   }
 
   /* The score. It opens on a low tremolo while the lights count down,
@@ -1113,6 +1306,7 @@ class BoatRaceMission {
   dispose() {
     clearTimeout(this._reportT);
     if (this._offEvents) { this._offEvents(); this._offEvents = null; }
+    if (this._offPose) { this._offPose(); this._offPose = null; }
     RoomUI.hideAgenda();
     if (this.party) RoomUI.hideField();
     clearTimeout(this._flashT);
@@ -1192,6 +1386,7 @@ class BoatRaceMission {
     this.boat.reset(p0.point.x, p0.point.z, Math.atan2(p0.tangent.x, p0.tangent.z));
     this._prevPos.copy(this.boat.pos);
     this.fx.wake.clear();
+    if (this.boostFx) this.boostFx.reset();
     this.presentation.clear();
     this.fx.labels.clear();
     this._setCenter('', '');
@@ -1225,7 +1420,7 @@ class BoatRaceMission {
       dt = rawDt * this.timeScale;
     }
 
-    Water.update(dt);
+    this._tickSea(dt);
     Water.follow(this.boat.pos.x, this.boat.pos.z);
 
     if (this.state === 'countdown') this._updateCountdown(rawDt);
@@ -1282,7 +1477,7 @@ class BoatRaceMission {
        driver crossed the line — and the line is exactly where three
        people are looking at each other. */
     if (this.party && this.state !== 'idle' && this.state !== 'waiting') {
-      MissionNet.pose(rawDt, () => this._sendPose());
+      MissionNet.pose(rawDt, () => this._sendPose(), this.C.poseRate);
     }
 
     this.buoys.update();
@@ -1415,19 +1610,34 @@ class BoatRaceMission {
         const ix = U.lerp(px, cx, a), iy = U.lerp(py, cy, a), iz = U.lerp(pz, cz, a);
         const rx = -gate.nz, rz = gate.nx;
 
-        // score every ring on the plane, then keep the best pass: a risk
-        // ring always outranks the safe one it shares a gate with
+        /* Score every ring on the plane, then keep the best pass.
+
+           The test used to be the boat's centre point inside the ring, so
+           a hull that was visibly half through the hoop scored nothing.
+           It is now the hull: any of it inside the ring's opening counts.
+           A ring the centre is truly inside still beats one the hull only
+           grazes, so the graze allowance can never steal a pass from the
+           ring beside it — and within each of those, a risk ring outranks
+           the safe one it shares a gate with. */
+        const beam = Boat.HULL.halfBeam, top = 2.2, keel = 0.64;
         let best = null;
         for (const h of gate.rings) {
           const dLat = (ix - h.x) * rx + (iz - h.z) * rz;
           const dVert = iy - h.pos.y;
-          if (Math.hypot(dLat, dVert) >= h.radius) continue;
+          // the point of the hull's box (beam wide, keel to cabin top)
+          // nearest the ring's centre, and whether it is in the opening
+          const nLat = Math.max(0, Math.abs(dLat) - beam);
+          const nVert = dVert < 0 ? Math.min(0, dVert + top) : Math.max(0, dVert - keel);
+          if (Math.hypot(nLat, nVert) >= h.radius - 0.4) continue;
+          const inside = Math.hypot(dLat, dVert) < h.radius;
           // centring is measured against the ring's sweet spot — roughly
           // where a hull actually rides through it
           const sweet = Math.hypot(dLat, (dVert + h.height * 0.62) * 0.7);
-          if (!best) best = { h, sweet };
-          else if (h.risk !== best.h.risk) { if (h.risk) best = { h, sweet }; }
-          else if (sweet < best.sweet) best = { h, sweet };
+          const cand = { h, sweet, inside };
+          if (!best) best = cand;
+          else if (inside !== best.inside) { if (inside) best = cand; }
+          else if (h.risk !== best.h.risk) { if (h.risk) best = cand; }
+          else if (sweet < best.sweet) best = cand;
         }
         if (best) this._hitRing(best.h, best.sweet);
         else {
@@ -1891,28 +2101,22 @@ class BoatRaceMission {
     const rx = fz, rz = -fx;
     const H = Boat.HULL;
 
-    // ---- boost ignition -------------------------------------------------
+    // ---- boost ----------------------------------------------------------
+    // the jet, the streak and the shockwave are `BoatBoost`, the same one
+    // the other two boats wear; what is only yours is the kick in the seat
+    this.boostFx.update(dt, {
+      x: b.pos.x, y: b.pos.y, z: b.pos.z, heading: b.heading,
+      boosting: b.boosting, airborne: b.airborne, water: b.lastWaveY,
+    });
     if (b.boostStarted) {
       AudioBus.play('boostpop');
       AudioBus.play('boost');
       if (this.music) this.music.stinger('boost');
-      this.fovKick = Math.min(this.fovKick + 8, 16);
+      this.fovKick = Math.min(this.fovKick + 9, 17);
       this.camPush = 1;
-      this.shake = Math.min(this.shake + 0.30, 1.2);
-      this.fx.rings.fire(
-        this._tmpV.set(b.pos.x - fx * 5.4, b.pos.y + 0.4, b.pos.z - fz * 5.4),
-        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, b.heading, 0)),
-        1.5, 16, 0.45, '#7ff3ff');
-      for (let i = 0; i < (BoatMaterials.low() ? 8 : 16); i++) {
-        this.fx.sparks.emit(
-          b.pos.x - fx * 5.6 + (Math.random() - 0.5) * 2, b.pos.y + 0.4,
-          b.pos.z - fz * 5.6 + (Math.random() - 0.5) * 2,
-          -fx * (14 + Math.random() * 16) + (Math.random() - 0.5) * 7,
-          1 + Math.random() * 5,
-          -fz * (14 + Math.random() * 16) + (Math.random() - 0.5) * 7,
-          0.2 + Math.random() * 0.3, 0.2 + Math.random() * 0.2,
-          { r: 0.22, g: 0.4, b: 0.42 });
-      }
+      this.shake = Math.min(this.shake + 0.34, 1.2);
+      this._flash(0.2, '#7ff3ff');
+      Input.haptic(20);
     }
 
     // ---- takeoff --------------------------------------------------------

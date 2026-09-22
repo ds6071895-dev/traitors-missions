@@ -18,11 +18,9 @@
    money. A card that changed a fifth thing would be a card for a
    different game.
 
-   The one that is not like the others is Avalanche. Every other card
-   makes the run harder to do *well*. That one makes it harder to do
-   slowly — which turned out to be the only pressure this mission did
-   not already have, because a skier who is frightened simply stops
-   trying things, and nothing else in the deck punishes that.
+   Avalanche used to be in this deck. It was taken out of the draw;
+   `SkiAvalanche` and the mission's `flags.avalanche` path are still
+   there, dormant, and nothing deals the card any more.
 ------------------------------------------------------------------ */
 const SkiTwists = (() => {
 
@@ -116,12 +114,6 @@ const SkiTwists = (() => {
       blurb: 'The meter bleeds twice as fast. There is no coasting on this '
            + 'run — only working, or falling down the ladder.',
       config: { flowDecay: 0.19 },
-    },
-    {
-      id: 'avalanche', name: 'Avalanche', icon: '⛰', payout: 1.92,
-      blurb: 'The top of the mountain is coming down behind you. It does not '
-           + 'get tired and it does not take the corners.',
-      flags: { avalanche: true },
     },
     {
       id: 'purse', name: 'Purse Strings', icon: '£', payout: 1.00,
