@@ -43,6 +43,8 @@ const GameState = (() => {
         if (parsed && parsed.version === VERSION) data = Object.assign(fresh(), parsed);
       }
     } catch (e) { /* corrupt or unavailable storage — start fresh */ }
+    if (removeTwistedRecords()) save();
+    loadGhosts();
     return data;
   }
 
@@ -86,12 +88,44 @@ const GameState = (() => {
     return { record: rec, isBest };
   }
 
-  /* ---------------- per-course records ----------------
-     A time set on the Cold Kraken in a storm at night with Glass Cannon
-     running is not comparable to anything else, so a record is keyed by
-     the whole setup: mode, seed and modifier. ------------------------- */
+  /* Keep the original untwisted key format so existing records survive. */
 
-  const runKey = (mode, seed, modId) => `${mode}:${seed}:${modId || 'none'}`;
+  const runKey = (mode, seed) => `${mode}:${seed}:none`;
+
+  function untwistedKey(id, key) {
+    if (id === 'ski') {
+      try { const parts = JSON.parse(key); return Array.isArray(parts) && parts[3] === null; }
+      catch (e) { return false; }
+    }
+    return /^(prize|trial|gauntlet|salvage|deep):\d+:none(?::boss)?$/.test(key);
+  }
+
+  function removeTwistedRecords() {
+    let changed = false;
+    for (const [id, rec] of Object.entries(data.missions || {})) {
+      if (!rec) continue;
+      const runs = rec.runs || {};
+      for (const key of Object.keys(runs)) {
+        if (untwistedKey(id, key)) continue;
+        delete runs[key]; changed = true;
+      }
+      if (rec.best && (rec.best.modId || rec.best.modName || (rec.best.key && !untwistedKey(id, rec.best.key)))) {
+        const candidates = Object.values(runs).map(run => run && run.best).filter(Boolean);
+        rec.best = candidates.reduce((best, run) => !best || (run.earned || 0) > (best.earned || 0) ? run : best, null);
+        changed = true;
+      }
+      for (const result of [rec.best, ...Object.values(runs).map(run => run && run.best)]) {
+        if (!result) continue;
+        for (const field of ['modId', 'modName']) {
+          if (Object.hasOwn(result, field)) { delete result[field]; changed = true; }
+        }
+      }
+    }
+    for (const setup of Object.values((data.settings || {}).setups || {})) {
+      if (setup && Object.hasOwn(setup, 'modId')) { delete setup.modId; changed = true; }
+    }
+    return changed;
+  }
 
   function runRecord(id, key) {
     const rec = missionRecord(id);
@@ -129,6 +163,13 @@ const GameState = (() => {
     if (ghosts) return ghosts;
     try { ghosts = JSON.parse(localStorage.getItem(GHOST_KEY)) || {}; }
     catch (e) { ghosts = {}; }
+    let changed = false;
+    for (const fullKey of Object.keys(ghosts)) {
+      const cut = fullKey.indexOf('|');
+      if (cut < 0 || untwistedKey(fullKey.slice(0, cut), fullKey.slice(cut + 1))) continue;
+      delete ghosts[fullKey]; changed = true;
+    }
+    if (changed) try { localStorage.setItem(GHOST_KEY, JSON.stringify(ghosts)); } catch (e) {}
     return ghosts;
   }
 

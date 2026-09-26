@@ -41,13 +41,12 @@ const stubs = {
                 attach: noop, update: noop },
   GameState: { recordRun: () => ({ isBest: false }), getGhost: () => null,
                saveGhost: noop, runKey: () => 'k', logEvent: noop,
-               runRecord: () => ({ best: null, runs: 0 }), data: {} },
+               runRecord: () => ({ best: null, runs: 0 }), data: {}, settings: {} },
   ForestConditions: { describe: () => '' },
   Water: { setPalette: noop, setFog: noop, setSeaState: noop, DEFAULTS: {},
            sampleHeight: () => 0, build: noop, update: noop, follow: noop },
   Sky: { setPreset: noop, resetPreset: noop, PALETTE: { fog: '#fff' },
          mergeGeometries: () => ({}), glowTexture: () => ({}) },
-  // The real thing rather than a one-hour stub: `SkiTwists` names hours
   // by id, and a stub that only knows about midday cannot tell a typo
   // from a card that works.
   Engine: { disposeObject: noop, isPaused: () => false, setPaused: noop },
@@ -59,9 +58,9 @@ const ctx = H.load(['js/core/util.js', 'js/core/missions.js', 'js/world/conditio
                     'js/missions/agendas.js', 'js/missions/shootout-rounds.js',
                     'js/world/forest.js', 'js/world/reef.js', 'js/dive/tide.js', 'js/entities/swimmer.js',
                     'js/missions/boat-race.js', 'js/missions/shootout.js',
-                    'js/missions/dive-twists.js', 'js/missions/dive.js',
+                    'js/missions/dive.js',
                     'js/world/mountain.js', 'js/ski/tricks.js', 'js/ski/scoring.js', 'js/ski/progression.js', 'js/ski/course.js', 'js/ski/surfaces.js', 'js/ski/presentation.js', 'js/entities/skier.js',
-                    'js/missions/ski-twists.js', 'js/missions/ski.js'], stubs);
+                    'js/missions/ski.js'], stubs);
 const BR = ctx.BoatRaceMission;
 const SH = ctx.ShootoutMission;
 const DV = ctx.DiveMission;
@@ -97,6 +96,26 @@ test('a mission switched off is unavailable through every route', () => {
      'the menu and full-game planner cannot see it');
   eq(ctx.Missions.launch('off-test'), null,
      'a stale button or invitation cannot launch it');
+});
+
+test('legacy twist IDs do not change any mission preview or run', () => {
+  for (const Mission of [BR, SH, DV, SK]) {
+    const ordinary = Mission.preview({ seed: 4242 });
+    const legacy = Mission.preview({ seed: 4242, modId: 'glasscannon' });
+    eq(legacy.cond, ordinary.cond, Mission.name + ' conditions');
+    eq(legacy.payout, ordinary.payout, Mission.name + ' payout');
+    eq(legacy.key, ordinary.key, Mission.name + ' record key');
+    if (Mission === SK) {
+      const oldConditions = Mission.preview({ seed: 4242, modId: 'avalanche',
+        conditions: { snow: 'ice', time: 'night' } });
+      eq(oldConditions.cond, ordinary.cond, 'legacy ski conditions cannot restore a twist');
+    }
+
+    ok(!('modId' in legacy.opts), Mission.name + ' removes the legacy ID');
+    ok(!('hand' in legacy), Mission.name + ' has no card hand');
+    ok(!('modId' in Mission.normalise({ seed: 4242, modId: 'glasscannon' })),
+       Mission.name + ' normalisation removes the legacy ID');
+  }
 });
 
 section('boat race — the counters the deck reads');
@@ -869,14 +888,13 @@ section('the dive — the briefing, before anything is built');
    whatever the user has typed. It has to answer with the full key set
    or the briefing renders holes. */
 test('the briefing survives junk and answers with everything', () => {
-  const KEYS = ['opts', 'mod', 'cond', 'name', 'conditionText', 'hand', 'mode',
+  const KEYS = ['opts', 'cond', 'name', 'conditionText', 'mode',
                 'payout', 'key', 'record', 'bestText', 'hasGhost', 'tiers'];
   for (const opts of [{}, { seed: 'nonsense' }, { seed: -4 }, { seed: 1e18 },
                       { mode: 'nope' }, { modId: 'nothing' },
                       { seed: 7, mode: 'deep', modId: 'cold' }]) {
     const p = DV.preview(opts);
     for (const k of KEYS) ok(k in p, 'preview(' + JSON.stringify(opts) + ') has no ' + k);
-    ok(p.hand.length === 3, 'a hand is three cards');
     ok(p.payout > 0, 'a payout is a number');
     ok(p.mode && p.mode.id, 'a mode is always resolved');
   }
@@ -885,31 +903,9 @@ test('the briefing survives junk and answers with everything', () => {
 test('a run repeats exactly, and a different seed does not', () => {
   const a = DV.preview({ seed: 4242, mode: 'salvage' });
   const b = DV.preview({ seed: 4242, mode: 'salvage' });
-  eq(a.hand.map(c => c.id), b.hand.map(c => c.id), 'the same seed deals the same hand');
   eq(a.name, b.name, 'and the same loch');
   const c = DV.preview({ seed: 4243, mode: 'salvage' });
-  ok(c.name !== a.name || c.hand[0].id !== a.hand[0].id, 'a different seed is a different run');
-});
-
-test('every twist is a bag of overrides and nothing else', () => {
-  const ALLOWED = new Set(['id', 'name', 'icon', 'payout', 'blurb',
-                           'config', 'tune', 'cond', 'flags']);
-  const seen = new Set();
-  for (const t of ctx.DiveTwists.DECK) {
-    ok(!seen.has(t.id), 'duplicate twist id ' + t.id);
-    seen.add(t.id);
-    for (const k in t) ok(ALLOWED.has(k), t.id + ' carries code, not overrides: ' + k);
-    ok(typeof t.payout === 'number' && t.payout > 0, t.id + ' has no payout');
-    ok(t.blurb && t.blurb.length > 20, t.id + ' does not say what it does');
-    // a tune override has to name a dial the swimmer actually has, or
-    // it is a card that silently does nothing
-    for (const k in (t.tune || {})) {
-      ok(k in ctx.Swimmer.TUNE, t.id + ' tunes something the diver has not got: ' + k);
-    }
-    for (const k in (t.config || {})) {
-      ok(k in DV.CONFIG, t.id + ' overrides a config key that does not exist: ' + k);
-    }
-  }
+  ok(c.name !== a.name || c.conditionText !== a.conditionText, 'a different seed changes the run');
 });
 
 /* ==================================================================
@@ -1259,35 +1255,5 @@ test('a cliff has a landing under it, not a wall', () => {
   }
   ok(worstStep < 0.9, 'and there is no step in it: worst ' + worstStep.toFixed(2) + 'm');
 });
-
-section('the descent — the twists');
-
-test('every card names something that exists', () => {
-  for (const t of ctx.SkiTwists.DECK) {
-    ok(t.id && t.name && t.blurb, 'a card needs all three: ' + t.id);
-    ok(t.payout >= 1 || t.flags, t.id + ' has to be worth taking');
-    for (const k in (t.tune || {})) {
-      ok(k in ctx.Skier.TUNE, t.id + ' tunes a dial the skier has not got: ' + k);
-    }
-    for (const k in (t.config || {})) {
-      ok(k in SK.CONFIG, t.id + ' overrides a config key that does not exist: ' + k);
-    }
-    if (t.cond && t.cond.snow) {
-      ok(ctx.SkiConditions.byId(t.cond.snow), t.id + ' names snow that does not exist');
-    }
-    if (t.cond && t.cond.time) {
-      ok(ctx.Conditions.TIMES.some(x => x.id === t.cond.time),
-         t.id + ' names an hour that does not exist');
-    }
-  }
-});
-
-test('the hand is three distinct cards and the seed owns it', () => {
-  const a = SK.hand(4242), b = SK.hand(4242), c = SK.hand(99);
-  eq(a.map(x => x.id), b.map(x => x.id), 'the same seed deals the same hand');
-  eq(new Set(a.map(x => x.id)).size, 3, 'three distinct cards');
-  ok(a.map(x => x.id).join() !== c.map(x => x.id).join(), 'a different seed deals differently');
-});
-
 
 if (require.main === module) H.report();

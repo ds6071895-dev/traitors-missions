@@ -155,7 +155,7 @@ const Show = (() => {
   }
   function missionOptions(){
     const s=Session.state,m=s.missions[s.missionAt];
-    return {seed:m.seed,mode:m.mode,modId:m.modId,tod:'auto',ghost:false,
+    return {seed:m.seed,mode:m.mode,tod:'auto',ghost:false,
       party:!solo&&typeof Party!=='undefined'&&Party.connected,host:isHost,
       players:s.players.map(p=>({id:p.id,name:p.name,look:p.look,local:!!p.local,alive:p.alive,seat:p.seat})),
       agenda:Session.myAgenda()};

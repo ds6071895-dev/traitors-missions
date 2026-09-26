@@ -211,12 +211,7 @@ const Session = (() => {
 
   const stepIndexOf = (part) => RUN.findIndex(s => s.part === part);
 
-  /* ---------------- the run plan ----------------
-     Generic on purpose: any mission that registers with a `create` and
-     a setup deck joins the rotation without this file learning its name.
-     The twist is drawn from the mission's *own* hand — the same three
-     cards the briefing screen would have offered you, except tonight
-     you do not get to choose. */
+  /* ---------------- the run plan ---------------- */
 
   function planMissions(seed) {
     const r = rngFor(SALT.missions, seed);
@@ -232,25 +227,7 @@ const Session = (() => {
       const missionSeed = r.int(1, 0x7ffffff) >>> 0;
       const mode = def.modes ? Object.keys(def.modes)[0] : null;
 
-      let modId = null, modName = null, modBlurb = null, payout = 1, modFlags = null;
-      if (def.setup && typeof def.preview === 'function') {
-        try {
-          const p = def.preview({ seed: missionSeed, mode, tod: 'auto', modId: null, ghost: false });
-          const hand = (p && p.hand) || [];
-          if (hand.length) {
-            const card = hand[Math.floor(r() * hand.length)];
-            modId = card.id; modName = card.name; modBlurb = card.blurb;
-            payout = card.payout || 1;
-            /* The twist's own flags, kept with the plan. The agenda deck
-               reads them, so a night with no boost is never the night
-               somebody is dealt "spend your whole boost meter". */
-            modFlags = card.flags || null;
-          }
-        } catch (e) { /* a mission that cannot preview simply gets no twist */ }
-      }
-
       out.push({ id: def.id, name: def.name, seed: missionSeed, mode,
-                 modId, modName, modBlurb, modFlags, payout,
                  earned: null, completed: null, done: false });
     }
     return out;

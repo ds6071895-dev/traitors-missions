@@ -27,6 +27,6 @@ const SkiProgression = (() => {
     save(d); return added;
   }
   function favourite(seed) { const d = read(); d.favourites = [...new Set([...d.favourites, seed])].slice(-30); return save(d); }
-  function daily(day = U.dailySeed()) { return ['prize', 'trial', 'freestyle'].map((mode, i) => ({ seed: (day + i * 104729) >>> 0, mode, tod: 'day', daily: true, modId: null, rulesVersion: 2 })); }
+  function daily(day = U.dailySeed()) { return ['prize', 'trial', 'freestyle'].map((mode, i) => ({ seed: (day + i * 104729) >>> 0, mode, tod: 'day', daily: true, rulesVersion: 2 })); }
   return { read, save, complete, favourite, daily, challenges, rewards };
 })();

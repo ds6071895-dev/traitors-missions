@@ -349,17 +349,10 @@ The briefing screen is where a run is chosen. Nothing about it is fixed:
 - **The hour** is its own dial: **Auto**, **Day** or **Night**. On Auto the clock moves on
   an hour every run — dawn, midday, last light, moonlight, round again — so racing the
   same channel twice in a row is two different drives rather than the same afternoon
-  repainted. The Night Run card still outranks the dial: it was chosen on purpose and
-  paid for.
-- **The modifier** is a hand of three cards dealt from the seed, of which you keep one or
-  none. Fog Bank, Riptide, Glass Cannon, Closing In, Tight Rings… each one
-  bends the rules and multiplies everything you earn. A shared seed deals a shared hand.
-- **The ghost** is your own best run on that exact setup — same seed, same mode, same
-  modifier — replayed beside you with a live split. Anything else would be lying about
-  where you are.
+  repainted.
+- **The ghost** is your own best run on that course and mode, replayed beside you with a live split.
 
-Each setup keeps its own record and its own medal, because a storm at night with Glass
-Cannon running is not comparable to anything else. Medals are worked out from par for the
+Each setup keeps its own record and medal. Medals are worked out from par for the
 channel you actually drew: **Bronze**, **Silver**, **Gold**, **Author**.
 
 ### A run has a shape
@@ -434,7 +427,7 @@ in a single block.
 
 ### The bow does not aim for you
 
-Arrows are real projectiles — gravity 16 m/s², drag, and a wind that the Gale twist makes
+Arrows are real projectiles — gravity 16 m/s², drag, and a wind that conditions make
 you feel. There is no snap, magnetic cone or hidden interception correction: every arrow
 leaves in the exact direction of the crosshair. Hold your breath and a small intercept
 mark appears for nearby quarry only if you deliberately chose the lower-paying **Steady
@@ -488,15 +481,12 @@ without a line of text — that the thing you just did worked. `ShootoutMission.
 is the whole fight as a four-entry table; its flight is spread across the boss behaviours
 in `js/entities/flyers.js`, including circling, diving, crossing sweeps, summons and rage.
 
-### Rounds and twists are data
+### Rounds are data
 
 `js/missions/shootout-rounds.js` holds sixteen round archetypes — spawn table, cadence,
 arc, duration, and one rule that bends the scoring. A run always opens gently, always
 gets a bonus round in the middle third, always ends with the owl, and draws the rest by
 difficulty tier from the seed, so "Rowan Deep, 8812" is one specific run and not a genre.
-`shootout-twists.js` is a sixteen-card deck in exactly the same declarative shape as
-`modifiers.js`, so the briefing screen renders either without knowing which game it is
-looking at.
 
 ---
 
@@ -768,7 +758,7 @@ Air hoops are hung in space off the end of a kicker and they are *opportunities*
 gates: sailing past one on the snow because you did not take that jump is a line choice,
 not a fumble. They are not placed by eye either. Each kicker is asked what it would throw
 a skier of ordinary speed — the speed where drag balances gravity on that pitch — and the
-hoop goes on the arc that produces. So a twist that makes every lip half again as big
+hoop goes on the arc that produces. A larger lip
 moves every hoop with it, for free.
 
 ### The mountain is a pure function of (x, z)
@@ -869,10 +859,8 @@ js/
   missions/
     agendas.js        the Traitor's secret tasks, each with a public tell
                       and a way out of it
-    modifiers.js      the pre-race card deck — declarative rule-benders
     boat-race.js      Mission 01
     shootout-rounds.js  the rounds a Shootout is built from, as data
-    shootout-twists.js  the Shootout's own card deck
     shootout.js       Mission 02
   scenes/
     claudia-lines.js  every spoken line in the show, as data
@@ -1436,9 +1424,8 @@ the rest happens on its own.
 
 It also joins the PLAY rotation on its own. A night draws one mission from whatever is
 registered and unlocked — four are, so a night is a different one of them — takes
-the first of your `modes` as its money mode, and deals one card from your own
-`preview().hand` as the night's twist. A mission gets announced by Claudia, twisted and
-scored inside a night without knowing that any of that exists.
+the first of your `modes` as its money mode. Claudia announces the mission and
+it is scored inside a night without the mission knowing that any of that exists.
 
 If it is a mission a Traitor could sabotage, give it a deck in `agendas.js` keyed by the
 same `id`. `mission-stats.test.js` will then hold you to it: every field a card reads has
@@ -1460,7 +1447,7 @@ medals: MyMission.MEDALS,                     // [null, bronze, silver, gold, au
 
 `preview()` has to work without touching the GPU — it runs on every keystroke in the
 seed box — so it must answer from the seed alone: the course's name, its conditions, the
-hand of modifiers, the payout multiplier, the record key and whether a ghost exists.
+payout multiplier, the record key and whether a ghost exists.
 `main.js` only ever renders what `preview()` returns, so it never learns what a sea state
 is.
 
@@ -1530,21 +1517,6 @@ the same with how clear the water is, and takes no time-of-day option at all: th
 is always noon on purpose, and the one thing that block exists to guarantee is that the
 water is never dark. Both hand the light rig straight back to `Conditions.lights`, so
 there is only ever one description of what noon looks like.
-
-### Modifiers are data, not code
-
-A card in `modifiers.js` is a bag of overrides — `config`, `tune`, `cond`, `fog`, `flags`,
-`payout` — and the mission is the only thing that knows how to race. Most new cards are
-four lines:
-
-```js
-{ id: 'fog', name: 'Fog Bank', icon: '≡', payout: 1.40,
-  blurb: 'You will see the next gate about a second before you have to commit.',
-  fog: { near: 60, far: 620 }, waterFog: { near: 40, far: 560 } },
-```
-
-`flags` is the escape hatch for behaviour that cannot be expressed as a constant
-(`oneCrash`, `riptide`, `shrinkRings`, `allRisk`); the mission checks for those by name.
 
 ### Adding a sound
 
@@ -1621,7 +1593,7 @@ puts a real pause at every full stop, so a line written as one long clause is a 
 delivered in a rush. Takes are drawn from the run seed, so a second night is not a
 recital of the first and a shared seed is still a shared night.
 
-`{name}`, `{mission}`, `{twist}` and `{pot}` are filled by the caller.
+`{name}`, `{mission}` and `{pot}` are filled by the caller.
 
 The `TABLE` and `YOU` lists in that file are no longer read by the game. They were the
 bots' script, and then briefly a menu of things you could say to each other; a list of
@@ -1652,9 +1624,9 @@ Your look and your name are yours and do persist: `traitors.look.v1` and
 everything else here — a corrupt or unavailable store is not an error, it is a fresh
 look.
 
-Per-course records live under `missions[id].runs`, keyed `mode:seed:modifier` by
-`GameState.runKey()`, because that whole triple is what a time or a score is a record
-*of*. `recordRun()` asks the mode's own `better()` even about the very first run — a `b`
+Per-course records live under `missions[id].runs`. Boat, Shootout and Dive retain the
+`mode:seed:none` key format so existing untwisted records still work. Ski retains its
+JSON key with a null card slot and the course conditions. `recordRun()` asks the mode's own `better()` even about the very first run — a `b`
 of `null` means "nothing to beat", which is not the same as "anything beats it", or a
 time trial abandoned after twelve seconds would set a twelve-second time.
 

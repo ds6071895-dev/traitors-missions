@@ -115,7 +115,7 @@ const SkiCourse = (() => {
     for (const l of layers) for (let i = 0; i < l.length; i += 2) r = Math.max(r, Math.hypot(l[i] - x, l[i + 1] - z));
     return { kind: 'rock', x, z, r, y0, band, layers };
   }
-  function key(mode, seed, mod, conditions) { return JSON.stringify([RULES, mode, seed, mod || null,
+  function key(mode, seed, conditions) { return JSON.stringify([RULES, mode, seed, null,
     Object.keys(conditions).sort().map(k => [k, conditions[k]])]); }
   function makeFace(seed, top = 1180) {
     return MountainKit.makeFace(U.makeRng((seed ^ 0x51a3f7) >>> 0), { top, authored: order(seed) });

@@ -100,7 +100,7 @@
   (() => {
     'use strict';
     const STORAGE_KEY = 'traitors.claudia-script-editor.v1';
-    const VARIABLE_DEFAULTS = { name:'Alex', mission:'The Highland Run', twist:'Double or Nothing', twistBlurb:'Every prize is doubled, but every mistake costs twice as much.', pot:'£12,000', count:'3' };
+    const VARIABLE_DEFAULTS = { name:'Alex', mission:'The Highland Run', pot:'£12,000', count:'3' };
     const clone = value => JSON.parse(JSON.stringify(value));
     const original = { sets:clone(ClaudiaLines.SETS), table:clone(ClaudiaLines.TABLE), you:clone(ClaudiaLines.YOU) };
     let data = loadDraft() || clone(original);

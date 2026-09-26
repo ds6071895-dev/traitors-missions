@@ -44,11 +44,7 @@ class SkiMission {
     rampScale: 1,
     rampBoost: 1,            // how hard the pads on them push
 
-    /* ---- the park ----
-       Two things that are not the mountain, and the only two dials
-       that matter about them: how far apart they are. Every one of them
-       is off by default in exactly one card and doubled in another,
-       which is the deck's whole job. */
+    // ---- the park ----
     padSpacing: 34,          // boost pads, which is the densest thing on the hill
     spinnerSpacing: 240,
     spinnerScale: 1,
@@ -143,10 +139,6 @@ class SkiMission {
     finishBonus: 3400,
     timeBonusPerSecond: 145,
 
-    // ---- the wall of snow, if a card dealt one ----
-    avStart: -300,
-    avSpeed: 27.5,
-    avAccel: 0.10,
 
     ghostRate: 0.1,
   };
@@ -220,27 +212,18 @@ class SkiMission {
       mode: SkiMission.MODES[opts.mode] ? opts.mode : 'prize',
       section: SkiCourse.catalog.some(s => s.id === opts.section) ? opts.section : null,
       rulesVersion: SkiCourse.RULES,
-      conditions: opts.conditions || null,
+      conditions: Object.hasOwn(opts, 'modId') ? null : (opts.conditions || null),
       quality: SkiPresentation.presets[opts.quality] ? opts.quality : 'medium',
       reducedMotion: opts.reducedMotion !== false,
       motion: Object.fromEntries(['shake', 'roll', 'speed', 'flashes'].map(k => [k, opts.motion ? opts.motion[k] === true : opts.reducedMotion === false])),
       tod: SkiMission.TOD.some(t => t.id === opts.tod) ? opts.tod : 'auto',
-      modId: opts.modId || null,
       ghost: opts.ghost !== false,
       daily: seed === U.dailySeed(),
     };
   }
 
-  // the same seed always deals the same three cards
-  static hand(seed) {
-    return SkiTwists.draw(U.makeRng((seed ^ 0x6b43a9f1) >>> 0), 3);
-  }
 
-  static configFor(mod) {
-    const C = Object.assign({}, SkiMission.CONFIG);
-    if (mod && mod.config) Object.assign(C, mod.config);
-    return C;
-  }
+  static configFor() { return Object.assign({}, SkiMission.CONFIG); }
 
   static autoTime() {
     const cur = GameState.settings.skiTime;
@@ -252,24 +235,21 @@ class SkiMission {
     GameState.save();
   }
 
-  /* The snow is the seed's to choose and the hour is not. A card that
-     names either still outranks both, because that one was picked on
-     purpose and paid for. */
-  static conditionsFor(o, mod) {
+  /* Snow comes from the seed; the hour comes from the setup. */
+  static conditionsFor(o) {
     if (o.conditions) return { ...o.conditions };
     const base = SkiConditions.forSeed(o.seed);
     const time = o.tod === 'night' ? 'night'
                : o.tod === 'day' ? Conditions.dayTime(base.time)
                : (o.daily ? 'day' : SkiMission.autoTime());
-    return Object.assign(base, { time }, (mod && mod.cond) || {});
+    return Object.assign(base, { time });
   }
 
   // everything the setup screen needs, without touching the GPU
   static preview(opts) {
     const o = SkiMission.normalise(opts);
-    const mod = SkiTwists.byId(o.modId);
-    const cond = SkiMission.conditionsFor(o, mod);
-    const key = SkiCourse.key(o.mode, o.seed, o.modId, cond);
+    const cond = SkiMission.conditionsFor(o);
+    const key = SkiCourse.key(o.mode, o.seed, cond);
     const rec = GameState.runRecord('ski', key);
     /* The running order, worked out from the seed alone. It is the
        single most useful thing the briefing can show, because the
@@ -278,13 +258,11 @@ class SkiMission {
     const face = SkiCourse.makeFace(o.seed, SkiMission.CONFIG.top);
     return {
       opts: o,
-      mod,
       cond,
       name: U.courseName(o.seed),
       conditionText: SkiConditions.describe(cond),
-      hand: SkiMission.hand(o.seed),
       mode: SkiMission.MODES[o.mode],
-      payout: SkiConditions.payout(cond) * (mod ? mod.payout : 1),
+      payout: SkiConditions.payout(cond),
       key,
       record: rec,
       route: face.sections.map(s => s.name),
@@ -307,15 +285,13 @@ class SkiMission {
     this.seed = this.opts.seed;
     this.mode = this.opts.mode;
     this.modeDef = SkiMission.MODES[this.mode];
-    this.mod = SkiTwists.byId(this.opts.modId);
-    this.flags = Object.assign({}, this.mod && this.mod.flags);
-    this.C = SkiMission.configFor(this.mod);
-    this.cond = SkiMission.conditionsFor(this.opts, this.mod);
+    this.C = SkiMission.configFor();
+    this.cond = SkiMission.conditionsFor(this.opts);
     this.snow = SkiConditions.resolve(this.cond).snow;
-    this.payout = SkiConditions.payout(this.cond) * (this.mod ? this.mod.payout : 1);
+    this.payout = SkiConditions.payout(this.cond);
     this.courseName = U.courseName(this.seed);
     this.opts.conditions = { ...this.cond };
-    this.key = SkiCourse.key(this.mode, this.seed, this.opts.modId, this.cond);
+    this.key = SkiCourse.key(this.mode, this.seed, this.cond);
     this.ledger = new SkiScoring(this.mode); this.carveMetres = 0;
     this.graphics = SkiPresentation.presets[this.opts.quality];
 
@@ -385,9 +361,6 @@ class SkiMission {
     this._curChute = null;
     this._chuteEnterZ = 0;
 
-    // ---- the wall of snow, if a card dealt one ----
-    this.avZ = this.C.avStart;
-    this.avOn = !!this.flags.avalanche;
 
     this._tmpV = new THREE.Vector3();
     this._tmpV2 = new THREE.Vector3();
@@ -421,7 +394,7 @@ class SkiMission {
     // ---- the light first: the haze on the far peaks is baked into
     // ---- vertex colours against the fog colour of the hour ----
     const applied = SkiConditions.apply(this.cond);
-    const fog = (this.mod && this.mod.fog) || applied.time.fog;
+    const fog = applied.time.fog;
     scene.fog = new THREE.Fog(Sky.PALETTE.fog, fog.near * 0.75, fog.far * 0.92);
     scene.add(SkiConditions.lights(this.cond));
     scene.add(new THREE.HemisphereLight('#d8efff', '#7698bb', this.cond.time === 'night' ? .5 : .55));
@@ -500,7 +473,7 @@ class SkiMission {
     scene.add(this.startArch, this.finishArch);
 
     // ---- the skier ----
-    const feel = Object.assign({}, (this.mod && this.mod.tune) || {});
+    const feel = {};
     const progress = SkiProgression.read();
     const cosmetic = progress.equipped;
     const unlocked = cosmetic >= 0 && cosmetic < 12 && SkiProgression.challenges.filter(c => c.reward === cosmetic).every(c => progress.done.includes(c.id));
@@ -531,14 +504,13 @@ class SkiMission {
       },
     });
 
-    // ---- falling snow, if the hour or the card asked for any ----
+    // ---- falling snow from the hour and snow conditions ----
     const flakes = this.cond.flakes || (this.snow.id === 'powder' ? 0.7 : 0);
     this.snowfall = flakes > 0
       ? MountainKit.buildSnowfall(scene, Math.round(700 * flakes),
           { size: 0.42 + flakes * 0.12, opacity: 0.45 + flakes * 0.18 })
       : null;
 
-    if (this.avOn) this._buildAvalanche(scene);
 
     this.world = { face: this.face, surfaces: this.surfaces, colliders: [] };
     this.targets = this._computeTargets();
@@ -564,7 +536,7 @@ class SkiMission {
 
     this._camPos.copy(this.skier.pos).add(new THREE.Vector3(0, 8, -14));
     this._camLook.copy(this.skier.pos);
-    return { scene, camera, after: (renderer) => this._renderMirror(renderer) };
+    return { scene, camera };
   }
 
   /* -------- colliders, indexed down the hill -------- */
@@ -600,8 +572,7 @@ class SkiMission {
      would throw a skier of ordinary speed, the ballistic arc is solved,
      and the hoop goes at three quarters of the way to the apex — near
      enough the top that a weak launch drops under it, far enough short
-     that a big one does not sail over. Which means a card that makes
-     every kicker bigger moves every hoop with it, for free. */
+     that a big one does not sail over. */
 
   _buildGates() {
     const C = this.C;
@@ -641,8 +612,7 @@ class SkiMission {
              lin·v + quad·v² = g·grade/(1+grade²)
 
          and the hoop goes on the ballistic arc that speed produces. It
-         costs one square root per kicker, once, and it means a card
-         that makes every lip bigger moves every hoop with it for free. */
+         costs one square root per kicker, once. */
       const grade = face.gradeAt(lipZ);
       const pull = Skier.TUNE.gravity * grade / (1 + grade * grade);
       const A = Skier.TUNE.tuckDrag, B = Skier.TUNE.linDrag;
@@ -791,98 +761,6 @@ class SkiMission {
     group.userData = { geos: [postGeo, bar.geometry, banner.geometry],
                        mats: [mat, banner.material] };
     return group;
-  }
-
-  /* -------- the wall of snow --------
-     One card deals this and it changes the shape of every decision on
-     the mountain: with it behind you a shortcut stops being greed and
-     becomes arithmetic. The rule is still one number — `avZ` — with no
-     collision and no way to fight it: you are either in front of it or
-     the run is over. Everything you see and hear of it is
-     `SkiAvalanche`; this is the part that is gameplay, and the part
-     that puts it on your screen. */
-  _buildAvalanche(scene) {
-    this.avalanche = SkiAvalanche.build(scene, this.face, { quality: this.opts.quality, seed: this.seed });
-  }
-
-  _updateAvalanche(dt) {
-    if (!this.avOn || !this.avalanche) return;
-    const C = this.C;
-    const running = this.state === 'running';
-    if (running) {
-      this.avZ += (C.avSpeed + this.elapsed * C.avAccel) * dt;
-    }
-    const a = this.avalanche;
-    const s = this.skier;
-    const wasReleased = a.released;
-    a.update(dt, this.avZ, running, this.camera, s.pos);
-    if (a.released && !wasReleased) {
-      // the slab letting go, three hundred metres up
-      AudioBus.play('avRelease');
-      this.shake = Math.max(this.shake, 0.55);
-      if (!this.avRumble) this.avRumble = SkiAvalanche.rumble();
-    }
-
-    const gap = s.pos.z - this.avZ;
-    this.avGap = gap;
-    const near = a.released ? U.clamp(1 - gap / 320, 0, 1) : 0;
-    if (this.avRumble) this.avRumble.set(this.state === 'failed' ? 0.4 : near);
-
-    // the white-out: it closes in from the edges over the last hundred metres
-    const veil = this._avBuried ? 0.92 : U.clamp((110 - gap) / 110, 0, 1) ** 1.6 * 0.8;
-    this._avVeil = U.damp(this._avVeil || 0, a.released ? veil : 0, veil > (this._avVeil || 0) ? 6 : 1.5, dt);
-    if (this.hud.avVeil) this.hud.avVeil.style.opacity = this._avVeil.toFixed(3);
-
-    if (running) {
-      // it announces itself before it arrives, in the two channels a
-      // player is already using: the screen shakes and the band climbs
-      if (gap < 160) this.shake = Math.max(this.shake, U.clamp((160 - gap) / 160, 0, 1) ** 1.3 * 0.95);
-      // and the powder blast runs ahead of the wall and past the camera
-      if (gap < 90) {
-        const k = 1 - U.clamp(gap / 90, 0, 1);
-        this._avBlastAcc = (this._avBlastAcc || 0) + dt * (10 + k * 70);
-        const cam = this.camera.position;
-        while (this._avBlastAcc >= 1) {
-          this._avBlastAcc -= 1;
-          const sp = s.speed + 14 + Math.random() * 22;
-          this.fx.spray.emit(
-            cam.x + (Math.random() - 0.5) * 26, cam.y + (Math.random() - 0.3) * 12, cam.z - 4 - Math.random() * 10,
-            (Math.random() - 0.5) * 4, 1 + Math.random() * 3, sp,
-            1.2 + Math.random() * 2.2, 0.5 + Math.random() * 0.8, MountainKit.COL.snowLit);
-        }
-      }
-      if (gap <= 0) {
-        AudioBus.play('avBury');
-        this._avBuried = true;
-        this._fail('BURIED');
-      }
-    }
-  }
-
-  /* The rear camera, drawn after the frame into the box under the
-     AVALANCHE bar. The box is DOM, so it lays itself out; this only
-     reads where it ended up. It skips the shadow pass, which the main
-     frame has already paid for. */
-  _renderMirror(renderer) {
-    const a = this.avalanche, el = this.hud && this.hud.avMirror;
-    if (!a || !a.mirrorCam || !el || !this.avOn || !a.released || this.state === 'idle') return;
-    const r = el.getBoundingClientRect();
-    if (r.width < 8 || r.height < 8) return;
-    const size = renderer.getSize(this._mirrorSize || (this._mirrorSize = new THREE.Vector2()));
-    const cam = a.aimMirror(this.skier.pos, r.width / r.height);
-    const y = size.y - r.bottom;
-    const auto = renderer.shadowMap.autoUpdate;
-    renderer.shadowMap.autoUpdate = false;
-    // the sky dome is a unit sphere worn by the camera, so this one borrows it
-    Sky.update(0, cam.position, this._skyT || 0);
-    renderer.setScissorTest(true);
-    renderer.setScissor(r.left, y, r.width, r.height);
-    renderer.setViewport(r.left, y, r.width, r.height);
-    renderer.render(this.scene, cam);
-    renderer.setScissorTest(false);
-    renderer.setViewport(0, 0, size.x, size.y);
-    renderer.shadowMap.autoUpdate = auto;
-    Sky.update(0, this.camera.position, this._skyT || 0);
   }
 
   /* -------- the other two -------- */
@@ -1151,8 +1029,6 @@ class SkiMission {
       air: q('sk-air'), airRot: q('sk-air-rot'), airH: q('sk-air-h'), airCue: q('sk-air-cue'),
       chute: q('sk-chute'), chuteName: q('sk-chute-name'),
       chuteGain: q('sk-chute-gain'), chuteArrow: q('sk-chute-arrow'),
-      slide: q('sk-avalanche'), slideBar: q('sk-avalanche-bar'),
-      avMirror: q('sk-av-mirror'), avVeil: q('sk-av-veil'),
       center: q('sk-center'), setup: q('sk-setup'),
       vignette: q('sk-vignette'), flash: q('sk-flash'), lines: q('sk-lines'),
       pop: q('sk-pop'), popFill: q('sk-pop-fill'),
@@ -1161,7 +1037,6 @@ class SkiMission {
     if (h.timeLabel) h.timeLabel.textContent = this.mode === 'prize' ? 'Time left' : this.mode === 'practice' ? 'Untimed' : 'Elapsed';
     if (h.setup) {
       const bits = [this.courseName, SkiConditions.describe(this.cond)];
-      if (this.mod) bits.push(this.mod.name);
       h.setup.innerHTML = bits
         .map((b, i) => `<span class="${i === 0 ? 'hs-name' : 'hs-tag'}">${b}</span>`).join('');
     }
@@ -1173,8 +1048,6 @@ class SkiMission {
       }
     }
     if (h.ghost) h.ghost.classList.toggle('show', !!this.ghost);
-    if (h.slide) h.slide.classList.toggle('show', !!this.avOn);
-    if (h.slide) h.slide.classList.toggle('mirror', !!(this.avOn && this.avalanche && this.avalanche.mirrorCam));
   }
 
   /* =================== lifecycle =================== */
@@ -1263,11 +1136,10 @@ class SkiMission {
 
     const running = this.state === 'running';
     const s = this.skier;
-    const noBrake = !!this.flags.noBrake;
     const ctl = running
       ? {
           steer: Input.steer(),
-          throttle: noBrake ? Math.max(0, Input.throttle()) : Input.throttle(),
+          throttle: Input.throttle(),
           trick: Input.held('boost'),
           grab: Input.held('grabTail') ? 2 : Input.held('grabMute') ? 1 : 0,
         }
@@ -1323,7 +1195,6 @@ class SkiMission {
       if (this.mode === 'trial' && this.elapsed > this.C.trialLimit) this._fail('TOO SLOW');
     }
 
-    this._updateAvalanche(dt);
     this._updateGhost(dt);
     this._updatePeers(dt);
     this._updateField(rawDt);
@@ -1731,7 +1602,7 @@ class SkiMission {
     if (out) {
       c.taken = true;
       this.chutesDone++;
-      const bounty = this.flags.chuteBounty || 1;
+      const bounty = 1;
       const m = this.C.chuteBase * (1 + c.hard) * bounty;
       this.money += m;
       this.chuteMoney += m;
@@ -1955,7 +1826,7 @@ class SkiMission {
     this._flash(0.26, '#ff6a6a');
     const label = reason === 'TREE' ? 'TREE!' : reason === 'ROCK' ? 'ROCK!' : 'DOWN';
     this._setCenter(label,
-      this.flags.oneCrash ? '' : '−' + C.crashPenalty.toFixed(0) + 's · −2 flow', 'bad');
+      '−' + C.crashPenalty.toFixed(0) + 's · −2 flow', 'bad');
     clearTimeout(this._crashT);
     this._crashT = setTimeout(() => {
       if (this.state === 'running') this._setCenter('', '');
@@ -1968,7 +1839,6 @@ class SkiMission {
         Math.cos(a) * sp, 3 + Math.random() * 11, Math.sin(a) * sp,
         1.2 + Math.random() * 2.2, 0.8 + Math.random(), MountainKit.COL.snowLit);
     }
-    if (this.flags.oneCrash) this._fail('GLASS CANNON');
   }
 
   /* -------- the shape of a run --------
@@ -2066,9 +1936,8 @@ class SkiMission {
     if (this.score && this.score.setGear) this.score.setGear(0, 2);
     this._setCenter(headline || "TIME'S UP", '', 'bad');
     this.timeScaleTarget = 0.5;
-    // half of what the mountain paid is still money — unless the card
-    // you took says it is not
-    const kept = this.mode !== 'prize' || this.flags.allOrNothing ? 0 : Math.min(88000, Math.round(this.money * .5 * this.payout));
+    // half of what the mountain paid is still money
+    const kept = this.mode !== 'prize' ? 0 : Math.min(88000, Math.round(this.money * .5 * this.payout));
     this.result = this._buildResult({
       completed: false, earned: kept, raw: this.money, timeBonus: 0,
       finalTime: this.mode === 'trial' ? this._clock() : 0, medal: 0, finishBonus: 0,
@@ -2105,9 +1974,7 @@ class SkiMission {
       seed: this.seed,
       courseName: this.courseName,
       conditionText: SkiConditions.describe(this.cond),
-      modId: this.opts.modId,
-      modName: this.mod ? this.mod.name : null,
-      payout: this.payout,
+                  payout: this.payout,
       key: this.key,
       hoopMoney: this.hoopMoney,
       trickMoney: this.trickMoney,
@@ -2435,12 +2302,6 @@ class SkiMission {
       }
     }
 
-    // and the wall of snow, if a card dealt one
-    if (h.slide && this.avOn) {
-      const gap = U.clamp(this.avGap === undefined ? 999 : this.avGap, 0, 400);
-      h.slideBar.style.width = (100 - U.clamp(gap / 300, 0, 1) * 100) + '%';
-      h.slide.classList.toggle('close', gap < 130);
-    }
 
     if (h.ghost && this.ghost) {
       const d = this.ghostDelta;
@@ -2506,8 +2367,6 @@ class SkiMission {
       for (const g of arch.userData.geos || []) g.dispose();
       for (const m of arch.userData.mats || []) m.dispose();
     }
-    if (this.avalanche) { this.avalanche.dispose(); this.avalanche = null; }
-    if (this.avRumble) { this.avRumble.stop(); this.avRumble = null; }
     Engine.disposeObject(this.scene);
     Sky.resetPreset();
     this.scene = null;
@@ -2526,7 +2385,6 @@ class SkiMission {
       if (this.hud.chute) this.hud.chute.classList.remove('show');
       if (this.hud.pop) this.hud.pop.classList.remove('show');
       if (this.hud.slide) this.hud.slide.classList.remove('show', 'mirror');
-      if (this.hud.avVeil) this.hud.avVeil.style.opacity = 0;
       if (this.hud.setup) this.hud.setup.innerHTML = '';
       this._setCenter('', '');
     }
@@ -2563,10 +2421,6 @@ class SkiMission {
     this._seenSection = new Set();
     this._curChute = null;
     this._chutePrompt = null;
-    this.avZ = this.C.avStart;
-    if (this.avalanche) this.avalanche.reset();
-    if (this.avRumble) { this.avRumble.stop(); this.avRumble = null; }
-    this._avVeil = 0; this._avBuried = false;
     this.ghostT = 0;
     this.ghostDelta = null;
     this.rec = { x: [], y: [], z: [], yaw: [], s: [], spin: [], pitch: [], roll: [], stance: [], times: [] };
@@ -2728,7 +2582,7 @@ Missions.register({
   order: 3,
   setup: true,
   hudScreen: 'hud-ski',
-  setupLabels: { course: 'Mountain', modifier: 'Conditions' },
+  setupLabels: { course: 'Mountain' },
   todOptions: SkiMission.TOD,
   preview: (opts) => SkiMission.preview(opts),
   modes: SkiMission.MODES,
@@ -2819,7 +2673,7 @@ Missions.register({
                  U.money(r.timeBonus)]);
     }
     if (r.payout && Math.abs(r.payout - 1) > 0.005) {
-      const why = [r.conditionText, r.modName].filter(Boolean).join(' · ');
+      const why = r.conditionText || '';
       rows.push([`Conditions ×${r.payout.toFixed(2)}`, why]);
     }
     if (!r.completed) rows.push(['Did not finish', r.earned ? '½ earnings' : 'nothing banked']);

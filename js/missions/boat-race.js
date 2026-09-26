@@ -6,9 +6,8 @@
 
    Every run is a *setup*, not a fixed course: a seed picks the channel,
    the weather and the sea; a mode picks whether the clock counts down
-   for money or up for a time; a modifier drawn from a hand of three
-   bends the rules in exchange for a bigger payout. Two runs are only
-   ever the same race if you asked for the same race.
+   for money or up for a time. Two runs are the same race when they
+   use the same setup.
 
    Most of what makes it feel good still lives in `_updateCamera` and the
    little `hitStop` / `timeScale` pair: the physics is arcade-simple,
@@ -137,22 +136,13 @@ class BoatRaceMission {
       seed,
       mode: opts.mode === 'trial' ? 'trial' : 'prize',
       tod: BoatRaceMission.TOD.some(t => t.id === opts.tod) ? opts.tod : 'auto',
-      modId: opts.modId || null,
       ghost: opts.ghost !== false,
       daily: seed === U.dailySeed(),
     };
   }
 
-  // the same seed always deals the same three cards
-  static hand(seed) {
-    return Modifiers.draw(U.makeRng((seed ^ 0x2545f491) >>> 0), 3);
-  }
 
-  static configFor(mod) {
-    const C = Object.assign({}, BoatRaceMission.CONFIG);
-    if (mod && mod.config) Object.assign(C, mod.config);
-    return C;
-  }
+  static configFor() { return Object.assign({}, BoatRaceMission.CONFIG); }
 
   /* Where the auto clock currently stands. It lives in the save rather than
      in the setup, so it keeps moving whichever channel you race — and a
@@ -167,36 +157,28 @@ class BoatRaceMission {
     GameState.save();
   }
 
-  /* The sea is not the seed's to choose: every race is run on a storm sea
-     now — it is the water this boat was built for, and a run that drew glass
-     was a different, duller game. Forced last, so nothing can deal its way
-     out of it. The hour comes from the setup's own dial; a modifier that
-     names an hour (Night Run) still outranks it, because that one was
-     chosen on purpose and paid for. */
-  static conditionsFor(o, mod) {
+  /* Every race uses the storm sea; the hour comes from the setup dial. */
+  static conditionsFor(o) {
     const base = Conditions.forSeed(o.seed);
     const time = o.tod === 'night' ? 'night'
                : o.tod === 'day' ? Conditions.dayTime(base.time)
                : BoatRaceMission.autoTime();
-    return Object.assign(base, { time }, (mod && mod.cond) || {}, { sea: 'storm' });
+    return Object.assign(base, { time, sea: 'storm' });
   }
 
   // everything the setup UI needs, without touching the GPU
   static preview(opts) {
     const o = BoatRaceMission.normalise(opts);
-    const mod = Modifiers.byId(o.modId);
-    const cond = BoatRaceMission.conditionsFor(o, mod);
-    const key = GameState.runKey(o.mode, o.seed, o.modId);
+    const cond = BoatRaceMission.conditionsFor(o);
+    const key = GameState.runKey(o.mode, o.seed);
     const rec = GameState.runRecord('boat-race', key);
     return {
       opts: o,
-      mod,
       cond,
       name: U.courseName(o.seed),
       conditionText: Conditions.describe(cond),
-      hand: BoatRaceMission.hand(o.seed),
       mode: BoatRaceMission.MODES[o.mode],
-      payout: Conditions.payout(cond) * (mod ? mod.payout : 1),
+      payout: Conditions.payout(cond),
       key,
       record: rec,
       bestText: rec.best
@@ -212,13 +194,11 @@ class BoatRaceMission {
     this.seed = this.opts.seed;
     this.mode = this.opts.mode;
     this.modeDef = BoatRaceMission.MODES[this.mode];
-    this.mod = Modifiers.byId(this.opts.modId);
-    this.flags = Object.assign({}, this.mod && this.mod.flags);
-    this.C = BoatRaceMission.configFor(this.mod);
-    this.cond = BoatRaceMission.conditionsFor(this.opts, this.mod);
-    this.payout = Conditions.payout(this.cond) * (this.mod ? this.mod.payout : 1);
+    this.C = BoatRaceMission.configFor();
+    this.cond = BoatRaceMission.conditionsFor(this.opts);
+    this.payout = Conditions.payout(this.cond);
     this.courseName = U.courseName(this.seed);
-    this.key = GameState.runKey(this.mode, this.seed, this.opts.modId);
+    this.key = GameState.runKey(this.mode, this.seed);
 
     this.rng = U.makeRng(this.seed);
     this.state = 'idle';          // idle | countdown | racing | finished | failed
@@ -307,8 +287,8 @@ class BoatRaceMission {
     const applied = Conditions.apply(this.cond);
     BoatScenery.atmosphere(this.cond);
     document.body.classList.add('boat-race-active');
-    const fog = (this.mod && this.mod.fog) || applied.time.fog;
-    const wFog = (this.mod && this.mod.waterFog) || applied.time.waterFog;
+    const fog = applied.time.fog;
+    const wFog = applied.time.waterFog;
     scene.fog = new THREE.Fog(Sky.PALETTE.fog, fog.near, fog.far);
     scene.add(Conditions.lights(this.cond));
     this.environmentMap = BoatScenery.environment(scene, this.cond);
@@ -371,7 +351,7 @@ class BoatRaceMission {
     this.landmarks = BoatScenery.landmarks(this);
 
     // ---- boat ----
-    this.boat = new Boat({ visualProfile: 'highland', tune: (this.mod && this.mod.tune) || {} });
+    this.boat = new Boat({ visualProfile: 'highland', tune: {} });
     scene.add(this.boat.group);
     const p0 = this.path.at(0);
     this.boat.reset(p0.point.x, p0.point.z, Math.atan2(p0.tangent.x, p0.tangent.z));
@@ -395,7 +375,6 @@ class BoatRaceMission {
     this.world = { colliders: this.colliders, path: this.path, hint: -1, _frame: {} };
 
     // riptide always shoves you the same way down a given channel
-    this.ripSign = U.makeRng(this.seed + 77)() < 0.5 ? -1 : 1;
 
     this.targets = this._computeTargets();
     this._cacheHud();
@@ -506,7 +485,7 @@ class BoatRaceMission {
         forcedRiskLat: side * (at.half - rR - 1),
       };
       riskCandidates.push(candidate);
-      if (room && (this.flags.allRisk || rng() < chance)) {
+      if (room && (rng() < chance)) {
         gate.rings.push(this._makeRing(gate, at, riskLat, riskKind));
         candidate.added = true;
       }
@@ -705,7 +684,7 @@ class BoatRaceMission {
 
   /* -------- ghost --------
      The recording is your own best run on this exact setup: same seed, same
-     mode, same modifier. Anything else would be a lie about where you are. */
+     mode. Anything else would be a lie about where you are. */
 
   /* -------- the other two boats --------
      Painted from the look each of them chose in the dressing room, so
@@ -1113,7 +1092,6 @@ class BoatRaceMission {
     }
     if (this.hud.setup) {
       const bits = [this.courseName, Conditions.describe(this.cond)];
-      if (this.mod) bits.push(this.mod.name);
       this.hud.setup.innerHTML = bits
         .map((b, i) => `<span class="${i === 0 ? 'hs-name' : 'hs-tag'}">${b}</span>`).join('');
     }
@@ -1443,7 +1421,6 @@ class BoatRaceMission {
       this.boat.update(dt, ctl, this.world);
     } else if (racing) {
       this._prevPos.copy(this.boat.pos);
-      if (this.flags.riptide) this._applyRiptide(dt);
       this.boat.update(dt, ctl, this.world);
     } else {
       this.boat.update(dt * 0.2, ctl, this.world);
@@ -1556,15 +1533,6 @@ class BoatRaceMission {
       { className: 'air', life: 1.3, rise: 9 });
   }
 
-  // a cross-current, always the same way down a given channel
-  _applyRiptide(dt) {
-    const f = this.world.lastFrame;
-    if (!f) return;
-    const nx = -f.tangent.z * this.ripSign, nz = f.tangent.x * this.ripSign;
-    const push = this.flags.riptide * dt;
-    this.boat.vel.x += nx * push;
-    this.boat.vel.y += nz * push;
-  }
 
   /* -------- the chain --------
      It used to break only on a miss, which made hanging back the safe play.
@@ -1931,9 +1899,8 @@ class BoatRaceMission {
     }
     this._setCenter(headline || "TIME'S UP", '', 'bad');
     this.timeScaleTarget = 0.5;
-    // half the rings still count — unless you took the modifier that says
-    // they do not
-    const kept = this.flags.allOrNothing ? 0 : Math.round(this.money * 0.5 * this.payout);
+    // half the rings still count
+    const kept = Math.round(this.money * 0.5 * this.payout);
     this.result = this._buildResult({
       completed: false, earned: kept, raw: this.money, timeBonus: 0,
       finalTime: this.mode === 'trial' ? this._clock() : 0, medal: 0, finishBonus: 0,
@@ -1949,9 +1916,7 @@ class BoatRaceMission {
       seed: this.seed,
       courseName: this.courseName,
       conditionText: Conditions.describe(this.cond),
-      modId: this.opts.modId,
-      modName: this.mod ? this.mod.name : null,
-      payout: this.payout,
+                  payout: this.payout,
       key: this.key,
       hoopMoney: this.money,
       trickMoney: this.trickMoney,
@@ -2012,17 +1977,12 @@ class BoatRaceMission {
 
   _updateHoopVisuals(dt, t) {
     const bx = this.boat.pos.x, bz = this.boat.pos.z;
-    // "Closing In": the rings tighten as the chain grows, so the run gets
-    // harder exactly as it gets valuable
-    const shrink = this.flags.shrinkRings
-      ? U.lerp(1, 0.62, this.combo / this.C.maxCombo) : 1;
 
     for (const h of this.hoops) {
       const d2 = (h.x - bx) ** 2 + (h.z - bz) ** 2;
       const near = d2 < 1100 * 1100;
       h.group.visible = near;
       if (!near) continue;
-      if (h.state === 'pending') h.radius = h.baseRadius * shrink;
       Water.sampleSurface(h.x, h.z, this._surf);
       const y = this._surf.height + h.height;
       h.group.position.set(h.x, y, h.z);
@@ -2035,7 +1995,7 @@ class BoatRaceMission {
         h.ring.material.emissiveIntensity = pulse;
         h.lamp.material.emissiveIntensity = 0.8 + pulse;
         h.glow.material.opacity = 0.025 + pulse * 0.025;
-        const s = (1 + (BoatMaterials.reduced() ? 0 : Math.sin(t * beat + h.gate.index) * 0.005)) * shrink;
+        const s = 1 + (BoatMaterials.reduced() ? 0 : Math.sin(t * beat + h.gate.index) * 0.005);
         h.group.scale.setScalar(s);
       } else if (h.flash > 0) {
         h.flash = Math.max(0, h.flash - dt * 1.6);
@@ -2258,10 +2218,6 @@ class BoatRaceMission {
           (Math.random() - 0.5) * 17, 3.5 + Math.random() * 9, (Math.random() - 0.5) * 17,
           0.8 + Math.random() * 1.2, 0.45 + Math.random() * 0.45);
       }
-      // Glass Cannon: one real hit and that is the run
-      if (this.flags.oneCrash && b.impact > 0.5 && this.state === 'racing') {
-        this._fail('WRECKED');
-      }
     }
   }
 
@@ -2437,7 +2393,7 @@ Missions.register({
   duration: '~2 min',
   order: 0,
   setup: true,                      // this mission has a pre-race setup panel
-  setupLabels: { course: 'Channel', modifier: 'Modifier' },
+  setupLabels: { course: 'Channel' },
   todOptions: BoatRaceMission.TOD,
   preview: (opts) => BoatRaceMission.preview(opts),
   modes: BoatRaceMission.MODES,
@@ -2510,7 +2466,7 @@ Missions.register({
                  U.money(r.timeBonus)]);
     }
     if (r.payout && Math.abs(r.payout - 1) > 0.005) {
-      const why = [r.conditionText, r.modName].filter(Boolean).join(' · ');
+      const why = r.conditionText || '';
       rows.push([`Conditions ×${r.payout.toFixed(2)}`, why]);
     }
     if (!r.completed) rows.push(['Did not finish', r.earned ? '½ earnings' : 'nothing banked']);

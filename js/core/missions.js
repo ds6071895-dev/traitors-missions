@@ -66,7 +66,7 @@ const Missions = (() => {
   }
 
   // `opts` is whatever the mission's setup screen produced — seed, mode,
-  // modifier. It is kept so "race again" can repeat the exact same run.
+  // and other normal options. It is kept so "race again" can repeat the exact same run.
   function prepare(id, opts) {
     if (active || prepared.size) throw new Error('Release the current world before preparing a mission');
     const def = get(id);

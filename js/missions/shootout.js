@@ -16,12 +16,9 @@
      quiet seconds drop it. So the correct play is always to keep
      shooting, which is also the fun one.
    - The draw of the run. The seed picks the wood, the weather, which
-     rounds you get and in what order, and the hand of three twist cards
-     you choose one of. Two runs are only the same run if you asked.
+     rounds you get and in what order.
 ------------------------------------------------------------------ */
 class ShootoutMission {
-
-  static _UP = new THREE.Vector3(0, 1, 0);
 
   static CONFIG = {
     seed: 20260829,           // only a fallback; a run brings its own
@@ -30,7 +27,7 @@ class ShootoutMission {
     moneyPerPoint: 0.6,       // £ per point of quarry — the one dial that
                               // keeps a great run here worth about what a
                               // great run in the boat race is worth
-    moneyScale: 1,            // reserved for twists that change the payout
+    moneyScale: 1,
     chainStep: 0.25,          // per link
     chainCap: 16,             // so the multiplier tops out at x5
     chainWindow: 4.0,         // seconds before the chain goes cold
@@ -90,17 +87,10 @@ class ShootoutMission {
       maxRange: 170,
     },
 
-    /* What is left is *information*. The
-       reticle still names what it is pointed at and still shouts about a
-       dove, because knowing a dove is in front of you is the decision;
-       the deliberately easier Steady Hand card can also paint an
-       intercept mark that you must put the crosshair on yourself. A
-       standard run receives no lead solution at all. */
-    lockCone: 0.055,          // ≈ 3.2°, for naming what you are looking at
-    doveCone: 0.18,           // doves get called out from much further off
-    focusLockScale: 1.30,     // focus makes target names easier to acquire
-    leadMark: false,          // enabled only by the Steady Hand card
-    leadCone: 0.16,           // how far off centre the mark will follow
+    // Target names remain visible in the reticle.
+    lockCone: 0.055,
+    doveCone: 0.18,
+    focusLockScale: 1.30,
 
     // walking about
     eyeHeight: 1.72,
@@ -171,44 +161,31 @@ class ShootoutMission {
     return {
       seed,
       mode: opts.mode === 'gauntlet' ? 'gauntlet' : 'prize',
-      modId: opts.modId || null,
       ghost: opts.ghost !== false,
       bossRush: opts.bossRush === true,
       daily: seed === U.dailySeed(),
     };
   }
 
-  static hand(seed) {
-    return ShootoutTwists.draw(U.makeRng((seed ^ 0x7f4a7c15) >>> 0), 3);
-  }
 
-  static configFor(twist) {
-    const C = Object.assign({}, ShootoutMission.CONFIG);
-    if (twist && twist.config) Object.assign(C, twist.config);
-    return C;
-  }
+  static configFor() { return Object.assign({}, ShootoutMission.CONFIG); }
 
-  static conditionsFor(seed, twist) {
-    return Object.assign(ForestConditions.forSeed(seed), (twist && twist.cond) || {});
-  }
+  static conditionsFor(seed) { return ForestConditions.forSeed(seed); }
 
   // everything the briefing needs, without building a wood first
   static preview(opts) {
     const o = ShootoutMission.normalise(opts);
-    const twist = ShootoutTwists.byId(o.modId);
-    const cond = ShootoutMission.conditionsFor(o.seed, twist);
-    const key = GameState.runKey(o.mode, o.seed, o.modId);
+    const cond = ShootoutMission.conditionsFor(o.seed);
+    const key = GameState.runKey(o.mode, o.seed);
     const rec = GameState.runRecord('shootout', key);
     const sched = o.mode === 'prize' ? ShootoutRounds.schedule(o.seed) : null;
     return {
-      opts,
-      mod: twist,
+      opts: o,
       cond,
       name: U.forestName(o.seed),
       conditionText: ForestConditions.describe(cond),
-      hand: ShootoutMission.hand(o.seed),
       mode: ShootoutMission.MODES[o.mode],
-      payout: ForestConditions.payout(cond) * (twist ? twist.payout : 1),
+      payout: ForestConditions.payout(cond),
       key,
       record: rec,
       bestText: rec.best ? U.money(rec.best.earned || 0) : null,
@@ -223,13 +200,11 @@ class ShootoutMission {
     this.seed = this.opts.seed;
     this.mode = this.opts.mode;
     this.modeDef = ShootoutMission.MODES[this.mode];
-    this.twist = ShootoutTwists.byId(this.opts.modId);
-    this.flags = Object.assign({}, this.twist && this.twist.flags);
-    this.C = ShootoutMission.configFor(this.twist);
-    this.cond = ShootoutMission.conditionsFor(this.seed, this.twist);
-    this.payout = ForestConditions.payout(this.cond) * (this.twist ? this.twist.payout : 1);
+    this.C = ShootoutMission.configFor();
+    this.cond = ShootoutMission.conditionsFor(this.seed);
+    this.payout = ForestConditions.payout(this.cond);
     this.forestName = U.forestName(this.seed);
-    this.key = GameState.runKey(this.mode, this.seed, this.opts.modId)
+    this.key = GameState.runKey(this.mode, this.seed)
              + (this.opts.bossRush ? ':boss' : '');
     this.rng = U.makeRng(this.seed);
 
@@ -308,7 +283,6 @@ class ShootoutMission {
     this.elapsed = 0;
     this.roundIndex = -1;
     this.round = null;
-    this.arrowsLeft = this.flags.quiver || Infinity;
     this.countdown = 3.999;
     this._lastBeep = 4;
     this.hitStop = 0;
@@ -358,7 +332,7 @@ class ShootoutMission {
     // weather before sky, for the same reason as the boat race: the haze
     // in the distant peaks is baked against the fog colour of the day
     const applied = ForestConditions.apply(this.cond);
-    const fog = (this.twist && this.twist.fog) || applied.weather.fog;
+    const fog = applied.weather.fog;
     scene.fog = new THREE.Fog(Sky.PALETTE.fog, fog.near, fog.far);
     const lighting = ForestConditions.lights(this.cond);
     lighting.children[0].color.lerp(new THREE.Color('#ffe2af'), .18);
@@ -389,7 +363,7 @@ class ShootoutMission {
     this.pos.set(0, this.forest.walkAt(0, 0), 0);
     camera.position.set(0, this.pos.y + C.eyeHeight, 0);
 
-    this.bow = new Bow({ tune: (this.twist && this.twist.tune) || {} });
+    this.bow = new Bow({ tune: {} });
     this.bow.build(camera);
     // Iron Nerve widens this and then puts it back; the run's own value
     // has to be remembered before anything is allowed to touch it
@@ -482,11 +456,10 @@ class ShootoutMission {
       hitmark: q('sh-hitmark'), loose: q('sh-loose'),
       draw: q('sh-draw'), drawFill: q('sh-draw-fill'),
       breath: q('sh-breath'), breathFill: q('sh-breath-fill'),
-      quiver: q('sh-quiver'), quiverVal: q('sh-quiver-val'),
       lives: q('sh-lives'),
       banner: q('sh-banner'),
       boss: q('sh-boss'), bossPhase: q('sh-boss-phase'), bossPips: q('sh-boss-pips'),
-      bossStages: q('sh-boss-stages'), boons: q('sh-boons'), lead: q('sh-lead'),
+      bossStages: q('sh-boss-stages'), boons: q('sh-boons'),
       hint: q('sh-hint'),
       focus: q('sh-focus'),
       rush: q('sh-rush'),
@@ -497,14 +470,10 @@ class ShootoutMission {
     const h = this.hud;
     if (h.setup) {
       const bits = [this.forestName, ForestConditions.describe(this.cond)];
-      if (this.twist) bits.push(this.twist.name);
       h.setup.innerHTML = bits
         .map((b, i) => `<span class="${i === 0 ? 'hs-name' : 'hs-tag'}">${b}</span>`).join('');
     }
-    if (h.quiver) h.quiver.classList.toggle('show', !!this.flags.quiver);
-    if (h.draw) h.draw.classList.toggle('hidden', !!this.flags.hideDraw);
     if (h.lives) h.lives.classList.toggle('show', this.mode === 'gauntlet');
-    if (h.breath) h.breath.classList.toggle('off', !!this.flags.noFocus);
     if (h.pace) h.pace.classList.toggle('show', !!this.ghost);
   }
 
@@ -639,7 +608,7 @@ class ShootoutMission {
     if (Input.pressed('mute')) AudioBus.toggleMute();
 
     // focus: the world slows, the view narrows, the breath drains
-    const wantFocus = !this.flags.noFocus && Input.held('focus') && this.breath > 0.05
+    const wantFocus = Input.held('focus') && this.breath > 0.05
                       && this.state === 'live';
     this.focusing = wantFocus;
     // a hawk's breath does not run out
@@ -677,7 +646,6 @@ class ShootoutMission {
 
     this._updateBuffs(rawDt);
     this._lockScan(rawDt);
-    this._updateLead();
     this._updateBow(bowDt);
     this._updateArrows(dt);
     this._updateFlock(dt);
@@ -792,7 +760,7 @@ class ShootoutMission {
   _aimAssist(dt, dYaw, dPitch) {
     const out = { yaw: dYaw, pitch: dPitch };
     const A = this.C.assist;
-    if (!A || this.state !== 'live' || this.flags.noAssist) return out;
+    if (!A || this.state !== 'live') return out;
     if (!this.flock || !this.flock.list) return out;
 
     // where you are pointing, before the bow's own sway is added: the
@@ -929,15 +897,10 @@ class ShootoutMission {
 
   _updateBow(dt) {
     const live = this.state === 'live';
-    const holding = live && Input.held('fire') && this.arrowsLeft > 0;
+    const holding = live && Input.held('fire');
     const r = this.bow.update(dt, holding, { steady: this.focusing });
     if (r.loosed) this._loose(r.loosed);
 
-    // out of arrows is a state you should be able to see without looking
-    if (live && this.arrowsLeft <= 0 && Input.pressed('fire')) {
-      AudioBus.play('miss');
-      this._flash(0.12, 'rgba(255,90,120,0.5)');
-    }
   }
 
   _loose(shot) {
@@ -948,19 +911,16 @@ class ShootoutMission {
       this.stats.lateShots++;
       if (shot.perfect) this.stats.perfectsLate++;
     }
-    if (this.arrowsLeft !== Infinity) this.arrowsLeft--;
     this.recoil = 0.028 + shot.power * 0.03;
     this.fovKick = 0.25 + shot.power * 0.45;
     this._looseRing(shot.perfect);
     Input.haptic(8);
 
-    const spread = this.flags.twinShot ? [-0.012, 0.012] : [0];
     // No aim assist: every arrow leaves in the exact direction the player
     // chose. Gravity, wind and target motion take over from here.
     const aimed = this._dirFrom(this.aimYaw, this.aimPitch);
-    for (const off of spread) {
-      const dir = off === 0 ? aimed.clone()
-        : aimed.clone().applyAxisAngle(ShootoutMission._UP, off);
+    {
+      const dir = aimed.clone();
       // far enough in front of the eye that a full-size arrow does not
       // spend its first frame drawn across the whole screen
       const origin = this.camera.position.clone()
@@ -968,7 +928,7 @@ class ShootoutMission {
         .add(this._right.set(Math.cos(this.aimYaw), 0, -Math.sin(this.aimYaw)).multiplyScalar(0.22));
       origin.y -= 0.12;
       const s = Object.assign({}, shot);
-      if (this.flags.alwaysPierce || this.buffs.ember > 0) s.pierce = Math.max(s.pierce, 1);
+      if (this.buffs.ember > 0) s.pierce = Math.max(s.pierce, 1);
       this.arrows.fire(origin, dir, s);
       /* An arrow that only exists on the machine that loosed it is a
          bow that, to everybody else, does nothing at all. This is the
@@ -1034,78 +994,6 @@ class ShootoutMission {
                         : best.type.name);
   }
 
-  /* -------- the intercept mark --------
-
-     Hold your breath and the bow will *show* you the lead it will not
-     take for you: a mark on the point in the air where the arrow and the
-     bird would meet, drop and wind included. You still have to put the
-     crosshair on it, against a target that is moving and a hand that
-     sways, and you are paying breath for the privilege — which is a
-     skill you can practise, rather than a cone that shoots for you.
-
-     It is drawn as a HUD dot rather than a sprite because it has to sit
-     on top of the fog and the trees: a mark you cannot see through a
-     branch is a mark that lies to you at exactly the wrong moment. */
-  _updateLead() {
-    const C = this.C;
-    const el = this.hud && this.hud.lead;
-    if (!el) return;
-    const show = C.leadMark && this.focusing && this.state === 'live'
-                 && !this.flags.noLead;
-    if (!show) { if (this._leadOn) { el.classList.remove('show'); this._leadOn = false; } return; }
-
-    const eye = this.camera.position;
-    const dir = this._dirFrom(this.aimYaw, this.aimPitch);
-    // while you are drawing it answers for the arrow you are holding;
-    // otherwise for the full loose you are about to take
-    const pw = this.bow.state === 'drawing' ? Math.max(this.bow.power, 0.35) : 1;
-    const speed = U.lerp(this.bow.tune.speedMin, this.bow.tune.speedMax, Math.pow(pw, 0.85));
-    let pick = null, pickAng = C.leadCone;
-    for (const f of this.flock.list) {
-      if (f.dying || !f.alive || f.guard) continue;
-      if (f.type.boss && !f.weakName) continue;
-      const anchor = f.type.boss ? f.aimPoint(this._tmpV2) : f.pos;
-      const to = this._tmpV.copy(anchor).sub(eye);
-      const dist = to.length();
-      if (dist < 6) continue;
-      const ang = Math.acos(U.clamp(to.divideScalar(dist).dot(dir), -1, 1));
-      if (ang < pickAng) { pickAng = ang; pick = { f, dist }; }
-    }
-    if (!pick) { el.classList.remove('show'); this._leadOn = false; return; }
-
-    const aim = this._interceptOf(pick.f, pick.dist, speed);
-    const p = aim.project(this.camera);
-    // behind you, or off the edge: a mark parked against the frame is a
-    // mark pointing at the wrong thing
-    if (p.z > 1 || Math.abs(p.x) > 1 || Math.abs(p.y) > 1) {
-      el.classList.remove('show'); this._leadOn = false; return;
-    }
-    el.style.left = ((p.x * 0.5 + 0.5) * 100) + '%';
-    el.style.top = ((-p.y * 0.5 + 0.5) * 100) + '%';
-    el.classList.add('show');
-    el.classList.toggle('far', pick.dist > this.C.longShotFrom);
-    this._leadOn = true;
-  }
-
-  /* Where to hold to hit `f` with an arrow leaving now at `speed`: four
-     passes at the time of flight, then the drop and the wind on top. The
-     assist used to do this and then fly the arrow there itself; now it
-     does it and draws a dot. */
-  _interceptOf(f, dist, speed, out) {
-    const eye = this.camera.position;
-    const anchor = f.type.boss ? f.aimPoint(this._tmpV2) : f.pos;
-    const aim = out || new THREE.Vector3();
-    let tof = dist / speed;
-    for (let i = 0; i < 4; i++) {
-      aim.copy(anchor).addScaledVector(f.vel, tof);
-      tof = aim.distanceTo(eye) / speed;
-    }
-    aim.y += 0.5 * this.bow.tune.gravity * tof * tof;
-    aim.x -= this.wind.x * this.bow.tune.windScale * tof * tof * 0.5;
-    aim.z -= this.wind.z * this.bow.tune.windScale * tof * tof * 0.5;
-    return aim;
-  }
-
   _dirFrom(yaw, pitch) {
     const cp = Math.cos(pitch);
     return this._fwd.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp).clone();
@@ -1147,7 +1035,7 @@ class ShootoutMission {
   _onHit(target, arrow, info) {
     const rule = (this.round && this.round.def.rule) || {};
     // "only a clean loose counts" — a soft arrow goes straight through
-    if ((rule.cleanOnly || this.flags.cleanOnly) && !arrow.perfect) {
+    if ((rule.cleanOnly) && !arrow.perfect) {
       this.fx.labels.add('TOO SOFT', target.pos, { className: 'bad', life: 0.8, rise: 6 });
       return false;                            // not consumed: keep flying
     }
@@ -1223,10 +1111,6 @@ class ShootoutMission {
                 * this._boonPay();
     this.money += value;
 
-    // arrows back for a clean loose, when arrows are finite
-    if (arrow.perfect && this.flags.quiverPerClean && this.arrowsLeft !== Infinity) {
-      this.arrowsLeft += this.flags.quiverPerClean;
-    }
 
     // the readout, in the order you care about it
     const tags = [];
@@ -1784,7 +1668,7 @@ class ShootoutMission {
 
   _dove(target, info) {
     const C = this.C;
-    const mult = this.flags.doveMult || 1;
+    const mult = 1;
     const cost = C.doveCost * mult;
     /* The dip, timed from here. Everybody's row on the strip is their
        money less their fines, so a dove is the one event in this wood
@@ -1814,8 +1698,7 @@ class ShootoutMission {
     clearTimeout(this._doveT);
     this._doveT = setTimeout(() => this._setCenter('', ''), 1500);
 
-    if (this.flags.suddenDeath) this._fail('YOU SHOT A DOVE');
-    else if (this.mode === 'gauntlet') this._loseLife('A DOVE');
+    if (this.mode === 'gauntlet') this._loseLife('A DOVE');
   }
 
   _onLand(arrow, what) {
@@ -1837,7 +1720,7 @@ class ShootoutMission {
     const rule = (this.round && this.round.def.rule) || {};
     if (rule.noChainBreak) return;
     if (this.chain > 0) {
-      this.chain = Math.max(0, this.chain - (this.flags.missPenalty || 1) * 2);
+      this.chain = Math.max(0, this.chain - 2);
       AudioBus.play('miss');
       this._flash(0.1, 'rgba(120,140,160,0.4)');
     }
@@ -2258,14 +2141,13 @@ class ShootoutMission {
       if (!f || f.dying || !f.alive) return;
       const rule = (this.round && this.round.def.rule) || {};
       let effect = 'hit';
-      if ((rule.cleanOnly || this.flags.cleanOnly) && !d.perfect) {
+      if ((rule.cleanOnly) && !d.perfect) {
         effect = 'reject';
       } else if (f.guard) {
         effect = 'dove';
         f.kill();
         if (this.round) this.round.time = Math.max(0, this.round.time - this.C.doveTime);
-        if (this.flags.suddenDeath) this._fail('A DOVE WAS SHOT');
-      } else if (f.type.boon) {
+              } else if (f.type.boon) {
         effect = 'boon';
         f.kill();
       } else if (f.type.boss) {
@@ -2688,16 +2570,6 @@ class ShootoutMission {
       this.music.stinger(d.kind === 'bonus' ? 'bonus-round' : 'round');
     }
 
-    /* "a gilded raven in every round" is a card, not a round — and it
-       is a *spawn*, so only the host may do it. A guest that spawned
-       its own had a bird with a name nobody else's wood knew, which
-       the next snapshot then deleted. */
-    if (this.flags.gildedEveryRound && d.kind === 'normal'
-        && (!this.party || this.isHost)) {
-      this._spawnOne('gilded', 'circle', {
-        mode: 'orbit', dist: 55, height: 26, ang: sched.facing + 1.2, life: d.duration,
-      });
-    }
   }
 
   _endRound(cleared) {
@@ -2728,7 +2600,6 @@ class ShootoutMission {
          than in the shared award because they are decisions about the
          run, and only the authority makes those — a guest's own ending
          arrives as `world.state`. */
-      if (this.flags.suddenDeath) { this._fail('A ROUND GOT AWAY'); return; }
       if (this.mode === 'gauntlet' && R.killed < R.total * 0.5) {
         this._loseLife('TOO MANY GOT AWAY');
         if (this.state === 'failed') return;
@@ -2737,7 +2608,6 @@ class ShootoutMission {
 
     // clear the sky before the next wave arrives
     for (const f of this.flock.list) if (!f.dying && !f.resident) f.escaped = true;
-    if (this.flags.quiver) this.arrowsLeft = this.flags.quiver;
 
     this.round = null;
     this.boss = null;
@@ -3011,7 +2881,7 @@ class ShootoutMission {
     const R = this.round;
     const spec = (R && R.def.spawn) || {};
     const mode = o.mode || spec.mode || 'sweep';
-    const range = (o.dist || 70) * this.C.rangeScale * (this.flags.rangeScale || 1);
+    const range = (o.dist || 70) * this.C.rangeScale;
     const ang = o.ang ?? Math.random() * 6.28;
     // around wherever you are standing now, not around where you started
     const cx = this.pos.x, cz = this.pos.z;
@@ -3181,8 +3051,7 @@ class ShootoutMission {
     this._setCenter(reason || 'RUN OVER', '', 'bad');
     this.timeScaleTarget = 0.45;
     // what you have banked is yours, less what the doves cost
-    const earned = Math.round(Math.max(0, this.money - this.penalty) * this.payout
-                              * (this.flags.suddenDeath ? 0.5 : 1));
+    const earned = Math.round(Math.max(0, this.money - this.penalty) * this.payout);
     this.result = this._buildResult({
       completed: false, earned, medal: 0, reason: reason || 'RUN OVER',
     });
@@ -3211,9 +3080,7 @@ class ShootoutMission {
       seed: this.seed,
       courseName: this.forestName,
       conditionText: ForestConditions.describe(this.cond),
-      modId: this.opts.modId,
-      modName: this.twist ? this.twist.name : null,
-      payout: this.payout,
+                  payout: this.payout,
       key: this.key,
       quarryMoney: Math.round(this.money - this.bonusMoney),
       bonusMoney: Math.round(this.bonusMoney - this.bossMoney),
@@ -3365,7 +3232,6 @@ class ShootoutMission {
     if (h.focus) h.focus.style.opacity = this.focusing ? '1' : '0';
     if (h.rush) h.rush.style.opacity = this.sprinting ? String(0.3 + this.speed01 * 0.45) : '0';
 
-    if (this.flags.quiver) h.quiverVal.textContent = String(Math.max(0, this.arrowsLeft));
     if (this.mode === 'gauntlet' && h.lives) {
       h.lives.innerHTML = '';
       for (let i = 0; i < C.lives; i++) {
@@ -3721,7 +3587,7 @@ Missions.register({
   },
   setup: true,
   hudScreen: 'hud-shoot',
-  setupLabels: { course: 'Wood', modifier: 'Twist' },
+  setupLabels: { course: 'Wood' },
   preview: (opts) => ShootoutMission.preview(opts),
   modes: ShootoutMission.MODES,
   medals: ShootoutMission.MEDALS,
@@ -3795,7 +3661,7 @@ Missions.register({
     if (r.bossMoney) rows.push(['Bounty on the owl', U.money(r.bossMoney)]);
     if (r.penalty) rows.push(['Penalties', '−' + U.money(r.penalty)]);
     if (r.payout && Math.abs(r.payout - 1) > 0.005) {
-      const why = [r.conditionText, r.modName].filter(Boolean).join(' · ');
+      const why = r.conditionText || '';
       rows.push([`Conditions ×${r.payout.toFixed(2)}`, why]);
     }
     if (!r.completed) rows.push(['Run ended early', r.reason || '']);

@@ -197,7 +197,6 @@ class DiveMission {
     return {
       seed,
       mode: opts.mode === 'deep' ? 'deep' : 'salvage',
-      modId: opts.modId || null,
       ghost: opts.ghost !== false,
       daily: seed === U.dailySeed(),
       quality: typeof DivePresentation !== 'undefined'
@@ -205,42 +204,30 @@ class DiveMission {
     };
   }
 
-  static hand(seed) {
-    return DiveTwists.draw(U.makeRng((seed ^ 0x2545f491) >>> 0), 3);
-  }
 
-  static configFor(twist) {
-    const C = Object.assign({}, DiveMission.CONFIG);
-    if (twist && twist.config) Object.assign(C, twist.config);
-    return C;
-  }
+  static configFor() { return Object.assign({}, DiveMission.CONFIG); }
 
-  static conditionsFor(seed, twist) {
-    return Object.assign(DiveConditions.forSeed(seed), (twist && twist.cond) || {});
-  }
+  static conditionsFor(seed) { return DiveConditions.forSeed(seed); }
 
   // everything the briefing needs, without building a reef first
   static preview(opts) {
     const o = DiveMission.normalise(opts);
-    const twist = DiveTwists.byId(o.modId);
-    const cond = DiveMission.conditionsFor(o.seed, twist);
-    const key = GameState.runKey(o.mode, o.seed, o.modId);
+    const cond = DiveMission.conditionsFor(o.seed);
+    const key = GameState.runKey(o.mode, o.seed);
     const rec = GameState.runRecord('dive', key);
     return {
-      opts,
-      mod: twist,
+      opts: o,
       cond,
       name: U.courseName(o.seed),
       conditionText: DiveConditions.describe(cond),
-      hand: DiveMission.hand(o.seed),
       mode: DiveMission.MODES[o.mode],
-      payout: DiveConditions.payout(cond) * (twist ? twist.payout : 1),
+      payout: DiveConditions.payout(cond),
       key,
       record: rec,
       bestText: rec.best ? U.money(rec.best.earned || 0) : null,
       hasGhost: !!GameState.getGhost('dive', key),
       tiers: (() => {
-        const C = DiveMission.configFor(twist);
+        const C = DiveMission.configFor();
         const rows = C.tiers.map(t => t.name + ' ' + U.money(t.value));
         // the caves go on the briefing beside the tiers, because a
         // number that big has to be visible before the run and not
@@ -309,13 +296,11 @@ class DiveMission {
     this.seed = this.opts.seed;
     this.mode = this.opts.mode;
     this.modeDef = DiveMission.MODES[this.mode];
-    this.twist = DiveTwists.byId(this.opts.modId);
-    this.flags = Object.assign({}, this.twist && this.twist.flags);
-    this.C = DiveMission.configFor(this.twist);
-    this.cond = DiveMission.conditionsFor(this.seed, this.twist);
-    this.payout = DiveConditions.payout(this.cond) * (this.twist ? this.twist.payout : 1);
+    this.C = DiveMission.configFor();
+    this.cond = DiveMission.conditionsFor(this.seed);
+    this.payout = DiveConditions.payout(this.cond);
     this.reefName = U.courseName(this.seed);
-    this.key = GameState.runKey(this.mode, this.seed, this.opts.modId);
+    this.key = GameState.runKey(this.mode, this.seed);
     this.rng = U.makeRng(this.seed);
 
     /* ---- three divers, one reef ----
@@ -484,7 +469,7 @@ class DiveMission {
 
     this.reef = ReefKit.build(scene, U.makeRng(this.seed + 3), {
       radius: C.reefRadius,
-      kelp: this.flags.shoal ? 520 : 620,
+      kelp: 620,
       shafts: 9,
       floorRings: this.graphics.rings,
       floorSectors: this.graphics.sectors,
@@ -508,7 +493,7 @@ class DiveMission {
     this.reef.setCurrent(cur.x, cur.z, cur.strength);
 
     this.shoal = ReefKit.buildShoal(scene, U.makeRng(this.seed + 21), {
-      count: this.flags.shoal ? 520 : 320,
+      count: 320,
       radius: C.reefRadius * 0.8,
       heightAt: this.reef.heightAt,
       home: this.reef.wreck.at,
@@ -540,7 +525,7 @@ class DiveMission {
     }
 
     this.sharks = PredatorKit.build(scene, U.makeRng(this.seed + 37), {
-      count: this.flags.noSharks ? 0 : C.sharks,
+      count: C.sharks,
       radius: C.reefRadius,
       heightAt: this.reef.heightAt,
       ceilingAt: (x, z) => this.reef.caves.ceilingAt(x, z),
@@ -552,7 +537,7 @@ class DiveMission {
 
     // ---- the diver
     this.swimmer = new Swimmer({
-      tune: Object.assign({}, (this.twist && this.twist.tune) || {}),
+      tune: {},
       look: this.myLook,
       palette: 'diver',
       paint: { suit: '#123044', fin: '#f2c14e' },
@@ -1835,7 +1820,6 @@ class DiveMission {
     const h = this.hud;
     if (h.setup) {
       const bits = [this.reefName, DiveConditions.describe(this.cond)];
-      if (this.twist) bits.push(this.twist.name);
       h.setup.innerHTML = bits
         .map((b, i) => `<span class="${i === 0 ? 'hs-name' : 'hs-tag'}">${b}</span>`).join('');
     }
@@ -1848,9 +1832,8 @@ class DiveMission {
         this._pips.push(el);
       }
     }
-    if (h.ring) h.ring.classList.toggle('off', !!this.flags.noBeat);
     /* The tape's bands are drawn from the tiers rather than hard-coded,
-       so a twist that moves the trench moves the picture of it too. */
+       so the picture follows the trench. */
     const tiers = this.C.tiers;
     this.tapeMax = Math.min(60, -tiers[tiers.length - 1].bottom);
     if (h.tape) {
@@ -1949,8 +1932,7 @@ class DiveMission {
     this.swimmer.carried = 0;
     this._paintCarry();          // and the boxes come off the body
     // The Deep's escalation lives on the tune, so a retry has to undo it
-    this.swimmer.tune.gaspRefill = ((this.twist && this.twist.tune) || {}).gaspRefill
-                                   || Swimmer.TUNE.gaspRefill;
+    this.swimmer.tune.gaspRefill = Swimmer.TUNE.gaspRefill;
     this._startMusic();
     this.state = 'countdown';
     this._setCenter('', '');
@@ -2148,7 +2130,7 @@ class DiveMission {
        thing a cave mouth or a hatch actually asks you for. */
     c.flare = live && !this.out && !this.swimmer.onFoot && c.move.y < -0.55;
     if (c.flare) c.move.y = 0;
-    c.beat = this.flags.noBeat ? null : this._beatNow();
+    c.beat = this._beatNow();
   }
 
   /* Where the bar is. The score is the authority when there is one —
@@ -2348,7 +2330,6 @@ class DiveMission {
     sw.carried = this.carry.length;
     // Buddy Line: two divers inside five metres share a bar, which turns
     // the whole mission into a conversation about who is next to whom
-    if (this.flags.sharedAir) this._buddyAir(dt);
   }
 
   /* =================== the tide ===================
@@ -2875,7 +2856,7 @@ class DiveMission {
 
   static _SPARK = { r: 1, g: 0.92, b: 0.6 };
 
-  /* Which tier a depth is in. The numbers live in CONFIG and a twist
+  /* Which tier a depth is in. The numbers live in CONFIG and
      may move them, so nothing else in the file is allowed to know that
      the wreck starts at sixteen metres. */
   _tierAt(depth) {
@@ -2905,13 +2886,7 @@ class DiveMission {
     this.swimmer.carried = 0;
     if (!list.length) return;
 
-    // Salvage Rights: only the deepest chest of the trip banks at all
-    let paying = list;
-    if (this.flags.deepestOnly) {
-      let best = list[0];
-      for (const c of list) if (c.depth > best.depth) best = c;
-      paying = [best];
-    }
+    const paying = list;
 
     /* The haul. A trip landed without blacking out makes the next one
        worth a little more, and the number is only ever spent here — so
@@ -3160,18 +3135,6 @@ class DiveMission {
     if (this.mode === 'deep') this._finish('YOU RAN OUT OF AIR');
   }
 
-  /* Buddy Line: within five metres of another diver you are both
-     breathing off the same bar, which makes standing next to somebody a
-     decision rather than a coincidence. */
-  _buddyAir(dt) {
-    const range = this.flags.sharedAir;
-    let near = false;
-    for (const peer of this.peers.values()) {
-      if (!peer.seen) continue;
-      if (peer.pos.distanceTo(this.swimmer.pos) <= range) { near = true; break; }
-    }
-    if (near) this.swimmer.air = Math.min(1, this.swimmer.air + dt * 0.012);
-  }
 
   /* -------- the camera --------
      Cloned from the boat race's chase camera, which is the best feel
@@ -3406,7 +3369,7 @@ class DiveMission {
     }
 
     // the beat ring: the entire teaching mechanism for the chain
-    if (h.ring && !this.flags.noBeat) {
+    if (h.ring) {
       const b = this._beat;
       const k = U.clamp(b.sinceBeat / b.spb, 0, 1);
       const near = Math.min(b.sinceBeat, b.spb - b.sinceBeat);
@@ -3928,9 +3891,7 @@ class DiveMission {
       seed: this.seed,
       courseName: this.reefName,
       conditionText: DiveConditions.describe(this.cond),
-      modId: this.opts.modId,
-      modName: this.twist ? this.twist.name : null,
-      payout: this.payout,
+                  payout: this.payout,
       key: this.key,
       elapsed: this.elapsed,
       par: this.C.par,
@@ -4399,7 +4360,7 @@ Missions.register({
   order: 2,
   setup: true,
   hudScreen: 'hud-dive',
-  setupLabels: { course: 'Loch', modifier: 'Tide' },
+  setupLabels: { course: 'Loch' },
   preview: (opts) => DiveMission.preview(opts),
   modes: DiveMission.MODES,
   medals: DiveMission.MEDALS,
@@ -4546,7 +4507,7 @@ Missions.register({
     if (r.lost) rows.push(['Left on the floor', U.money(r.lost)]);
     if (r.recovered) rows.push(['Taken off the floor', U.money(r.recovered)]);
     if (r.payout && Math.abs(r.payout - 1) > 0.005) {
-      const why = [r.conditionText, r.modName].filter(Boolean).join(' · ');
+      const why = r.conditionText || '';
       rows.push([`Conditions ×${r.payout.toFixed(2)}`, why]);
     }
     return rows;

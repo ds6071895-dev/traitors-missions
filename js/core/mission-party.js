@@ -18,7 +18,7 @@
      chairs is not a round table; a mission needs however many turned
      up, and every mission here already says `1-3`.
    - The host owns the setup and everybody watches it change. The
-     twists, the wood, the seed, and whether this is a full run or a
+     wood, the seed, and whether this is a full run or a
      walk straight up to the owl — all of it is the host's, broadcast
      on its own channel, painted read-only for everyone else. Three
      people arguing about a seed over voice chat while one of them
@@ -74,7 +74,6 @@ const MissionParty = (() => {
     return {
       seed: U.randomSeed(),
       mode: modes[0] || 'prize',
-      modId: null,
       tod: 'auto',
       skip: false,          // the mission's own shortcut, if it has one
     };
@@ -93,11 +92,12 @@ const MissionParty = (() => {
   function optsFor(d, s) {
     const o = Object.assign({}, s, { ghost: false });
     delete o.skip;
+    delete o.modId;
     if (d && d.id === 'ski') {
       if (o.mode === 'practice') o.mode = 'prize';
       if (typeof SkiMission !== 'undefined') {
         const normalized = SkiMission.normalise(o);
-        Object.assign(o, normalized, { conditions: SkiMission.conditionsFor(normalized, SkiTwists.byId(normalized.modId)) });
+        Object.assign(o, normalized, { conditions: SkiMission.conditionsFor(normalized) });
       }
     }
     if (s && s.skip && d && d.quickStart) {
@@ -119,6 +119,7 @@ const MissionParty = (() => {
   function change(patch, opts = {}) {
     if (!canEdit()) return;
     Object.assign(setup, patch);
+    delete setup.modId;
     if (!opts.quiet) AudioBus.play('ui-click');
     broadcast();
     paint();
@@ -144,6 +145,7 @@ const MissionParty = (() => {
     const d = Missions.get(msg.missionId);
     if (d) def = d;
     armed = true;
+    if (msg.setup && Object.hasOwn(msg.setup, 'modId')) { say('This room uses older twist rules. Refresh with the host to play together.', 'bad'); return; }
     setup = Object.assign(defaultSetup(d || def), msg.setup || {});
     paint();
   }
@@ -294,7 +296,6 @@ const MissionParty = (() => {
 
     const labels = (def && def.setupLabels) || {};
     el('mp-place-lbl').textContent = labels.course || 'Channel';
-    el('mp-twist-lbl').textContent = labels.modifier || 'Twist';
     el('mp-place').textContent = p ? p.name : '—';
     el('mp-cond').textContent = p ? p.conditionText : '';
     const seedField = el('mp-seed');
@@ -304,24 +305,6 @@ const MissionParty = (() => {
     el('mp-seed-daily').disabled = !editing;
     el('mp-seed-daily').classList.toggle('on', !!(p && p.opts && p.opts.daily));
 
-    const hand = el('mp-twists');
-    hand.innerHTML = '';
-    for (const m of (p && p.hand) || []) {
-      const on = setup.modId === m.id;
-      const card = document.createElement('button');
-      card.className = 'mod-card' + (on ? ' on' : '');
-      card.disabled = !editing;
-      card.innerHTML = '<div class="mod-icon">' + esc(m.icon) + '</div>'
-        + '<div class="mod-body"><div class="mod-name">' + esc(m.name)
-        + '<span class="mod-pay">×' + m.payout.toFixed(2) + '</span></div>'
-        + '<div class="mod-blurb">' + esc(m.blurb) + '</div></div>';
-      if (editing) {
-        card.onmouseenter = () => AudioBus.play('ui-hover');
-        card.onclick = () => change({ modId: on ? null : m.id });
-      }
-      hand.appendChild(card);
-    }
-    el('mp-twist-row').hidden = !p || !p.hand || !p.hand.length;
 
     el('mp-payout').innerHTML = p && Math.abs(p.payout - 1) > 0.03
       ? '<span class="mp-pay-lbl">Everything pays</span><b>×' + p.payout.toFixed(2) + '</b>'
@@ -447,6 +430,11 @@ const MissionParty = (() => {
   /* Both ends come through here, from the same message, so nobody gets
      a wood the other two are not standing in. */
   function launch(msg) {
+    if (msg.opts && Object.hasOwn(msg.opts, 'modId')) {
+      started = false;
+      say('This host uses older twist rules. Refresh with the host to play together.', 'bad');
+      return;
+    }
     const d = Missions.get(msg.missionId);
     if (!d || d.locked) {
       started = false;

@@ -10,7 +10,7 @@
    still a shared night, which is the rule everywhere else in this
    codebase and there is no reason for the words to break it.
 
-   `{name}`, `{mission}`, `{twist}`, `{pot}` and `{count}` are filled by
+   `{name}`, `{mission}`, `{pot}` and `{count}` are filled by
    the caller. Sentences are kept short on purpose: `Voice` speaks one
    at a time and puts a real pause at every full stop, so full stops are
    the timing, and a line written as one long clause is a line delivered
@@ -153,16 +153,6 @@ const ClaudiaLines = (() => {
     "firstMission": [
       [
         "Your mission is {mission}."
-      ]
-    ],
-    "twist": [
-      [
-        "The twist is {twist}."
-      ]
-    ],
-    "noTwist": [
-      [
-        "No twists this time."
       ]
     ],
     "sendOff": [

@@ -118,7 +118,7 @@ const Game = (() => {
 
   /* ---------------- pre-race setup ----------------
      The briefing panel is where a run is *chosen*: which channel, which
-     mode, which modifier. Everything it shows comes from the mission's own
+     mode and hour. Everything it shows comes from the mission's own
      `preview()`, so this module never has to know what a sea state is. */
 
   let setup = null;          // the live setup for whichever mission is briefed
@@ -142,7 +142,6 @@ const Game = (() => {
       seed: Number.isFinite(saved.seed) ? saved.seed : U.dailySeed(),
       mode: modes.includes(saved.mode) ? saved.mode : (modes[0] || 'prize'),
       tod: saved.tod || 'auto',
-      modId: saved.modId || null,
       ghost: saved.ghost !== false,
       ...(def.id === 'ski' ? { section: saved.section || null, quality: saved.quality || 'medium', reducedMotion: saved.reducedMotion !== false, motion: saved.motion || null } : {}),
       ...(def.id === 'dive' ? { quality: saved.quality || GameState.settings.quality || 'medium' } : {}),
@@ -156,7 +155,7 @@ const Game = (() => {
   }
 
   function setSetup(patch, opts = {}) {
-    if (setupDef && setupDef.id === 'ski' && (patch.seed !== undefined || patch.tod !== undefined || patch.modId !== undefined)) delete setup.conditions;
+    if (setupDef && setupDef.id === 'ski' && (patch.seed !== undefined || patch.tod !== undefined)) delete setup.conditions;
     Object.assign(setup, patch);
     saveSetup();
     if (!opts.quiet) AudioBus.play('ui-click');
@@ -168,16 +167,6 @@ const Game = (() => {
     if (!setupDef || !setupDef.setup) { panel.style.display = 'none'; return; }
     panel.style.display = '';
     let p = setupDef.preview(setup);
-
-    // The hand is dealt from the seed, so a new channel deals new cards and a
-    // modifier you were holding may simply not be on the table any more. This
-    // has to be checked on every render, not just when the seed box changes:
-    // the daily seed rolls over on its own while a choice sits in the save.
-    if (setup.modId && !p.hand.some(m => m.id === setup.modId)) {
-      setup.modId = null;
-      saveSetup();
-      p = setupDef.preview(setup);
-    }
 
     // --- mode ---
     const modeWrap = document.getElementById('setup-mode');
@@ -312,8 +301,6 @@ const Game = (() => {
     // --- the place you are about to play ---
     const labels = setupDef.setupLabels || {};
     document.getElementById('setup-course-head').textContent = labels.course || 'Channel';
-    document.getElementById('setup-mod-head').innerHTML =
-      (labels.modifier || 'Modifier') + ' <span class="setup-sub">keep one, or none</span>';
     document.getElementById('setup-name').textContent = p.name;
     document.getElementById('setup-cond').innerHTML =
       `<span>${p.conditionText}</span>` + (p.opts.daily ? '<b class="tag-today">TODAY</b>' : '');
@@ -354,25 +341,6 @@ const Game = (() => {
       }
       const chosen = tods.find(t => t.id === cur);
       todNote.textContent = chosen ? chosen.blurb : '';
-    }
-
-    // --- the hand ---
-    const hand = document.getElementById('setup-mods');
-    hand.innerHTML = '';
-    for (const m of p.hand) {
-      const card = document.createElement('button');
-      const on = setup.modId === m.id;
-      card.className = 'mod-card' + (on ? ' on' : '');
-      card.innerHTML = `
-        <div class="mod-icon">${m.icon}</div>
-        <div class="mod-body">
-          <div class="mod-name">${m.name}<span class="mod-pay">×${m.payout.toFixed(2)}</span></div>
-          <div class="mod-blurb">${m.blurb}</div>
-        </div>`;
-      card.onmouseenter = () => AudioBus.play('ui-hover');
-      // clicking the card you already hold puts it back down
-      card.onclick = () => setSetup({ modId: on ? null : m.id });
-      hand.appendChild(card);
     }
 
     // --- ghost + record ---
@@ -606,7 +574,7 @@ const Game = (() => {
         : `<span class="rc-ghost ${r.ghostDelta <= 0 ? 'ahead' : 'behind'}">${
             r.ghostDelta <= 0 ? '−' : '+'}${Math.abs(r.ghostDelta).toFixed(2)}s vs ghost</span>`;
       course.innerHTML = `<b>${r.courseName}</b><span>${r.modeName} · ${r.conditionText}${
-        r.modName ? ' · ' + r.modName : ''}</span><span class="rc-seed">seed ${r.seed}</span>${ghost}`;
+        ''}</span><span class="rc-seed">seed ${r.seed}</span>${ghost}`;
     } else course.innerHTML = '';
 
     const medalEl = document.getElementById('result-medal');
@@ -1114,7 +1082,7 @@ const Game = (() => {
       const opts = showResults._opts;
       Screens.transition(() => { Missions.end(); Screens.hideAll(); Missions.launch(id, opts); });
     };
-    // a fresh channel deals a fresh hand, so this goes back to the briefing
+    // a fresh channel needs a fresh briefing
     // rather than straight into a run you did not get to choose
     document.getElementById('result-new').onclick = () => {
       AudioBus.play('ui-click');
@@ -1124,7 +1092,7 @@ const Game = (() => {
         Engine.setPaused(false);
         showAttract();
         renderMissionList();
-        openBrief(def, { seed: U.randomSeed(), modId: null });
+        openBrief(def, { seed: U.randomSeed() });
       });
     };
     document.getElementById('result-menu').onclick = () => { AudioBus.play('ui-click'); toMenu(); };

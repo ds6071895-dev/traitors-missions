@@ -31,7 +31,6 @@ class V3 {
 
 const ctx = H.load(['js/core/util.js', 'js/missions/shootout.js'], {
   THREE: { Vector3: V3, Quaternion: class {}, },
-  ShootoutTwists: { byId: () => null, draw: () => [] },
   ForestConditions: {},
   Input: { isTouch: true },
   /* the file registers its sounds and its mission as it loads; neither
@@ -49,7 +48,6 @@ function rig(birds, yaw = 0, pitch = 0) {
   return {
     C: ShootoutMission.CONFIG,
     state: 'live',
-    flags: {},
     yaw, pitch,
     camera: { position: new V3(0, 0, 0) },
     flock: { list: birds },
@@ -166,12 +164,10 @@ test('a dead or dying bird is not a target', () => {
   eq(run(rig([bird(0.01, 0, 60, { dying: true })]), drag, 0).yaw, drag, 'dying');
 });
 
-test('nothing happens outside a live round, or when a twist forbids it', () => {
+test('nothing happens outside a live round', () => {
   const drag = 0.05;
   const between = rig([bird(0, 0, 60)]); between.state = 'between';
   eq(run(between, drag, 0).yaw, drag, 'between rounds');
-  const off = rig([bird(0, 0, 60)]); off.flags = { noAssist: true };
-  eq(run(off, drag, 0).yaw, drag, 'noAssist');
 });
 
 section('the lead stays the player\'s');

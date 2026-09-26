@@ -13,7 +13,7 @@
      browser still handles Enter and Space, screen readers still work,
      and a phone's own focus behaviour is not fought with.
    - Movement is spatial, not list order. These layouts put a seed box
-     next to two chips and a hand of three cards next to a checkbox;
+     next to two chips and a checkbox;
      "the next one in the DOM" is the wrong answer in half of them, and
      "nearest thing that way" is right in nearly all of them.
 

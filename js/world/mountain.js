@@ -1290,7 +1290,7 @@ const MountainKit = (() => {
       return true;
     };
 
-    /* `scale` is the dial two of the twists pull on, and it only moves
+    /* `scale` controls size, and it only moves
        the wood that is in your way: doubling the trees you have to
        thread is a card, and doubling the ones holding up the horizon is
        a frame-rate bug. */

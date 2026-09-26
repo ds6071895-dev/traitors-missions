@@ -22,7 +22,7 @@ The new modules live in `js/ski/`: course, surfaces, tricks, scoring, progressio
 
 - Full existing logic/network suite passes, including **58 mission-stat tests** (53 existing tests, superseded assertions updated, five additional regressions).
 - Real `Skier` simulations over **100 fixed seeds**, 30 Hz controller input with internal physics substeps. The controller follows main lines and completes every descent. Tests also exercise 30/60/120 Hz trajectories, trick-independent flight, bounded assistance, switch landings, rail entry/exit, roof tops/undersides/edges, reward repetition, one-time progression and storage failure.
-- These 100-run simulations use generated terrain/surfaces and clear main corridors; they do not populate scenery colliders. A separate 12-run matrix exercises cut/freestyle branches across six snow surfaces, with architectural solids. These are not exhaustive tests of every optional branch, landing, modifier or player input sequence.
+- These 100-run simulations use generated terrain/surfaces and clear main corridors; they do not populate scenery colliders. A separate 12-run matrix exercises cut/freestyle branches across six snow surfaces, with architectural solids. These are not exhaustive tests of every optional branch, landing or player input sequence.
 - Rendered Chromium checks of four regions, four modes, Practice reset and actual results flow. Screenshots in this directory were inspected, including an actual course rail capture and sustained slide. Shader compilation errors are checked. The renderer was enabled for these checks.
 - Real Chromium multi-touch tests cover simultaneous movement/pop/mute, tail grab, cancellation and teardown.
 - Existing voice browser checks passed. The three-player game suite passes mission start, pose exchange, results and return to room for boat, shootout, dive and all three competitive ski modes.
@@ -44,7 +44,7 @@ Ordinary landing payout is capped at £800 before the condition multiplier, belo
 
 - Human keyboard and touch playtests, particularly novice completion, manual trick timing, rail approaches and readability at speed. The novice benchmark still times out near the finish.
 - Actual integrated-GPU laptop and phone/tablet measurements against 60/30 FPS targets; long-session heap profiling. Software-rendered Chromium cannot certify those targets.
-- Broader modifier/seed balance, full branch and roof landing simulations, and more varied party input sequences.
+- Broader seed balance, full branch and roof landing simulations, and more varied party input sequences.
 - Art/content polish: the 24 sections have distinct authored placements, widths, warps and rail shapes but share procedural terrain construction. Landmark variety and more elaborate village architecture can be developed further.
 - Building bodies and platform supports have swept collision hulls; decorative window trim and eaves do not have individual collision meshes.
 - Tracks remain bounded local ribbons rather than whole-mountain permanent deformation.

@@ -74,11 +74,7 @@ class HillScene {
       }));
     };
 
-    const twistVars = {
-      mission: m.name || 'the first mission',
-      twist: m.modName || '',
-      twistBlurb: m.modBlurb || '',
-    };
+    const missionVars = { mission: m.name || 'the first mission' };
 
     Scenes.run([
       ...speak('welcome', {}, ['grass', 'rise', 'loch']),
@@ -134,13 +130,8 @@ class HillScene {
 
       { then: () => Scenes.barrier('hill-private-complete') },
 
-      ...speak('firstMission', twistVars, ['wide', 'claudia', null]),
+      ...speak('firstMission', missionVars, ['wide', 'claudia', null]),
 
-      // the twist, announced rather than chosen
-      m.modName ? { card: { kicker: 'Tonight', title: m.modName,
-                            sub: m.modBlurb || '', tone: 'twist' } } : null,
-      ...speak(m.modName ? 'twist' : 'noTwist', twistVars),
-      m.modName ? { card: null } : null,
 
       ...speak('sendOff'),
       { then: () => { if (Session.isHost) Net.send({ type: 'advance' }); } },

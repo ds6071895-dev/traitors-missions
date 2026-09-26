@@ -216,6 +216,14 @@ const Transports = (() => {
         /* State first, always. See rule 1 at the top of this file. */
         const before = Session.state && Session.state.phase;
         if (msg.state) {
+          if (Array.isArray(msg.state.missions) && msg.state.missions.some(m => m && (Object.hasOwn(m, 'modId') || Object.hasOwn(m, 'modName') || Object.hasOwn(m, 'modFlags')))) {
+            this._gotState = false;
+            if (typeof Show !== 'undefined' && Show.running) Show.end({ abandon: true });
+            Party.leave();
+            if (typeof Screens !== 'undefined') Screens.show('lobby');
+            if (typeof alert === 'function') alert('This host uses older twist rules. Refresh with the host to play together.');
+            return;
+          }
           /* Host absolute timestamps are meaningless if two device clocks
              differ. Preserve the remaining duration at send time and put
              it onto this device's clock. */

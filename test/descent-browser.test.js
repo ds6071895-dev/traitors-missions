@@ -4,7 +4,7 @@ const { chromium } = require('playwright');
 const { createServer } = require('../server');
 (async () => {
   const app = createServer(); await new Promise(resolve => app.server.listen(0,'127.0.0.1',resolve));
-  const browser = await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--enable-unsafe-swiftshader']});
+  const browser = await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--no-sandbox','--disable-dev-shm-usage','--enable-unsafe-swiftshader']});
   const page = await browser.newPage({viewport:{width:1100,height:740}}), errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   page.on('console',m=>{if(m.type()==='error'&&/WebGLProgram|shader error|VALIDATE_STATUS/.test(m.text()))errors.push(m.text());});
@@ -21,7 +21,7 @@ const { createServer } = require('../server');
       await page.waitForFunction(()=>SkiMaterials.ready);
       await page.waitForTimeout(300);
       const data=await page.evaluate(()=>{const m=Missions.active; m.state='running';m._setCenter('',''); return {mode:m.mode,rails:m.course.rails.length,rules:m.opts.rulesVersion,key:m.key};});
-      assert.equal(data.mode,mode); assert.equal(data.rules,4); assert.ok(data.rails>0);
+      assert.equal(data.mode,mode); assert.equal(data.rules,5); assert.ok(data.rails>0);
       if(mode==='practice') {
         const reset=await page.evaluate(()=>{const m=Missions.active;m.skier.pos.z=200;m.resetSection();return {z:m.skier.pos.z,mode:m.mode};});
         assert.ok(reset.z<2); await page.screenshot({path:'/tmp/descent-visuals/practice.png'});

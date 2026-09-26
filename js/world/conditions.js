@@ -134,8 +134,8 @@ const Conditions = (() => {
      The natural order of a day. A mission can walk this instead of asking
      the seed for an hour every time, so a session actually goes somewhere:
      dawn, midday, last light, moonlight, round again. A squall is weather
-     rather than an hour, so it sits outside the cycle and only a seed or a
-     modifier can deal it. */
+     rather than an hour, so it sits outside the cycle and only a seed
+     can deal it. */
 
   const CYCLE = ['dawn', 'noon', 'dusk', 'night'];
   // an hour that is not on the cycle (a squall) starts the day again

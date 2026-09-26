@@ -152,7 +152,7 @@ async function run() {
     });
 
     /* A mission party is one mission rather than a night, and the
-       host's choice of it — the wood, the twist, whether this is a
+       host's choice of it — the wood, whether this is a
        full run or a walk up to the owl — arrives on its own channel,
        on a screen where no mission is running. A `go` that names one
        is the start of it, and the lobby must not mistake that for a

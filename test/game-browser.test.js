@@ -71,7 +71,8 @@ const { createServer } = require('../server');
     });
     await a.click('#lobby-start');
     for (const page of pages) await page.waitForFunction(() => Show.running && Session.myRole());
-    console.log('PASS: another night starts in the same room');
+    assert.equal(await a.evaluate(() => Session.state.missions.some(m => 'modId' in m || 'modName' in m)), false);
+    console.log('PASS: another night starts in the same room without a twist');
     for (const page of pages) await page.evaluate(() => {
       Show.end({ abandon: true }); Lobby.leave();
     });
@@ -92,6 +93,7 @@ const { createServer } = require('../server');
       await Promise.all(pages.map(page => page.waitForFunction(id =>
         Party.roster().length === 3 && MissionParty.mission && MissionParty.mission.id === id,
         missionId, { polling: 100 })));
+      assert.equal(await a.locator('#mp-twist-row').count(), 0);
       const expectedSeed = await a.evaluate(() => MissionParty.setup.seed);
       await a.click('#mp-start');
       const playing = { 'boat-race': 'racing', shootout: 'live', dive: 'live', ski: 'running' };
@@ -101,6 +103,7 @@ const { createServer } = require('../server');
           { timeout: 45000, polling: 100 });
         const opts = await page.evaluate(() => Missions.activeOpts);
         assert.equal(opts.seed, expectedSeed);
+        assert.equal('modId' in opts, false);
         assert.equal(opts.party, true);
         assert.equal(opts.ghost, false);
         assert.equal(opts.players.length, 3);

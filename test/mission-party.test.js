@@ -97,7 +97,7 @@ test('an ordinary run is the setup with the ghost turned off', () => {
   const { MissionParty } = boot(BASE);
   const o = MissionParty.optsFor(SHOOTOUT,
     { seed: 4242, mode: 'gauntlet', modId: 'gale', tod: 'auto', skip: false });
-  eq(o, { seed: 4242, mode: 'gauntlet', modId: 'gale', tod: 'auto', ghost: false },
+  eq(o, { seed: 4242, mode: 'gauntlet', tod: 'auto', ghost: false },
      'nothing added, nothing lost, and no ghost in a room');
   ok(!('skip' in o), 'and `skip` never reaches the mission');
 });
@@ -108,7 +108,7 @@ test('the shortcut overrides the mode it makes no sense in', () => {
     { seed: 4242, mode: 'gauntlet', modId: 'gale', tod: 'auto', skip: true });
   eq(o.bossRush, true, 'the owl is on');
   eq(o.mode, 'prize', "and it took the mode its shortcut needs");
-  eq(o.modId, 'gale', 'the twist the host chose is untouched');
+  ok(!('modId' in o), 'legacy twist IDs do not reach the mission');
   eq(o.seed, 4242, 'and so is the wood');
 });
 
@@ -116,7 +116,7 @@ test('a mission with no shortcut cannot be shortcut', () => {
   const { MissionParty } = boot(BASE);
   const o = MissionParty.optsFor({ id: 'boat-race' },
     { seed: 7, mode: 'prize', modId: null, tod: 'night', skip: true });
-  eq(o, { seed: 7, mode: 'prize', modId: null, tod: 'night', ghost: false },
+  eq(o, { seed: 7, mode: 'prize', tod: 'night', ghost: false },
      'the toggle is inert where the mission never offered one');
 });
 
@@ -134,7 +134,7 @@ test('a party starts cold', () => {
    Everything above is arithmetic. This is the feature: a host opens a
    room for a mission it picked, two people arrive on the link, and the
    press of one button has to put all three of them into the same wood
-   with the same twist and the same owl. The wire is faked; every line
+   with the same owl. The wire is faked; every line
    of `party.js` and `mission-party.js` that runs across it is real.
    ================================================================== */
 
@@ -152,9 +152,7 @@ const DEFS = {
     quickStart: { label: 'Fight Owl', icon: '◉', title: 'Jump straight to The Great Owl',
                   opts: { mode: 'prize', bossRush: true, ghost: false } },
     preview: (o) => ({ opts: o, name: 'Rowan Deep', conditionText: 'first light',
-                       hand: [{ id: 'gale', name: 'Gale', icon: '≋', payout: 1.42,
-                                blurb: 'A cross-wind.' }],
-                       payout: 1.42 }),
+                       payout: 1 }),
   },
   'boat-race': { id: 'boat-race', name: 'Boat Race', tagline: 'Go.', icon: '01',
                  maxPrize: 40000, locked: false },
@@ -163,7 +161,7 @@ const DEFS = {
     icon: '03', maxPrize: 85000, locked: false, setup: true,
     modes: { prize: { id: 'prize', name: 'Prize Dive' } },
     preview: (o) => ({ opts: o, name: 'Loch', conditionText: 'slight sea',
-                       hand: [], payout: 1 }),
+                       payout: 1 }),
   },
 };
 
@@ -282,19 +280,27 @@ async function party() {
     ok(!B.Party.isHost, 'and it is not the one choosing');
   });
 
+  await atest('an older host setup is rejected before a guest can use it', async () => {
+    const seed = B.MP.setup.seed;
+    A.Party.post('mp', { k: 'setup', missionId: 'shootout',
+                         setup: { seed: 99, modId: 'gale' } });
+    await settle();
+    eq(B.MP.setup.seed, seed, 'legacy setup did not replace the guest setup');
+  });
+
   await atest("the host's choices reach the room as it makes them", async () => {
     /* The guest never asks for this after the first time. The host
        broadcasts on every change, which is what makes three people
        arguing about a seed over voice chat work at all. */
-    A.MP.choose({ seed: 4242, modId: 'gale' });
+    A.MP.choose({ seed: 4242 });
     await settle();
     eq(B.MP.setup.seed, 4242, 'the guest is looking at the same wood');
-    eq(B.MP.setup.modId, 'gale', 'and the same twist');
+    ok(!('modId' in B.MP.setup), 'no twist enters the setup');
     eq(A.MP.setup.seed, 4242, 'and the host still holds its own');
   });
 
   await atest('a guest cannot change the run', async () => {
-    B.MP.choose({ seed: 1, modId: null });
+    B.MP.choose({ seed: 1 });
     await settle();
     eq(A.MP.setup.seed, 4242, 'the host was not overwritten');
     eq(B.MP.setup.seed, 4242, 'and the guest did not fool itself either');
@@ -308,7 +314,7 @@ async function party() {
     /* It arrived after every one of those choices was made and heard
        none of them. Asking once on arrival is what fixes that. */
     eq(C.MP.setup.seed, 4242, 'and the choices made before it got here');
-    eq(C.MP.setup.modId, 'gale', 'all of them');
+    ok(!('modId' in C.MP.setup), 'no twist enters the late setup');
   });
 
   await atest('one press starts the same run on all three', async () => {
@@ -323,8 +329,8 @@ async function party() {
 
     const seeds = [A, B, C].map(m => m.launched[0].opts.seed);
     eq(seeds, [4242, 4242, 4242], "everybody got the host's wood");
-    eq([A, B, C].map(m => m.launched[0].opts.modId), ['gale', 'gale', 'gale'],
-       'and the twist it chose');
+    ok([A, B, C].every(m => !('modId' in m.launched[0].opts)),
+       'no twist reaches a mission');
 
     ok([A, B, C].every(m => m.launched[0].opts.party === true), 'all three know it is shared');
     eq([A, B, C].map(m => m.launched[0].opts.host), [true, false, false],

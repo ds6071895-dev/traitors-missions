@@ -685,23 +685,6 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .chip:hover{background:rgba(255,255,255,.13)}
 .chip.on{border-color:rgba(242,193,78,.65); color:var(--gold)}
 
-.mod-hand{display:flex; flex-direction:column; gap:6px}
-.mod-card{display:flex; gap:10px; align-items:flex-start; text-align:left; cursor:pointer;
-  padding:9px 10px; border-radius:10px; background:rgba(255,255,255,.035);
-  border:1px solid rgba(255,255,255,.09); color:inherit; font-family:var(--body);
-  transition:background .16s, border-color .16s, transform .12s}
-.mod-card:hover{background:rgba(255,255,255,.085); transform:translateX(2px)}
-.mod-card.on{border-color:rgba(242,193,78,.75); background:rgba(242,193,78,.12)}
-.mod-icon{flex:none; width:30px; height:30px; border-radius:8px; display:grid; place-items:center;
-  font-size:15px; color:var(--gold); background:rgba(242,193,78,.12);
-  border:1px solid rgba(242,193,78,.25)}
-.mod-card.on .mod-icon{background:var(--gold); color:#1a1206; border-color:transparent}
-.mod-body{min-width:0}
-.mod-name{display:flex; align-items:baseline; gap:8px; font-size:13px; font-weight:800;
-  color:var(--paper); letter-spacing:.03em}
-.mod-pay{font-size:10.5px; font-weight:800; letter-spacing:.06em; color:var(--gold)}
-.mod-blurb{font-size:11.5px; color:var(--muted); line-height:1.45; margin-top:2px}
-
 .setup-foot{display:flex; flex-direction:column; gap:10px; padding-top:12px;
   border-top:1px solid rgba(255,255,255,.1)}
 .toggle{display:flex; align-items:center; gap:8px; font-size:12px; color:#b8c9dc; cursor:pointer}
@@ -929,7 +912,6 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 /* -------- draw / breath / quiver -------- */
 .sh-draw{width:min(260px,44vw); text-align:center; opacity:.55; transition:opacity .15s}
 .sh-draw.on{opacity:1}
-.sh-draw.hidden{visibility:hidden}
 .sh-draw-track{position:relative; height:7px; border-radius:4px; overflow:hidden;
   background:rgba(6,18,30,.6); border:1px solid rgba(255,255,255,.14)}
 .sh-draw-fill{height:100%; width:0%; background:linear-gradient(90deg,#2f7f8f,var(--cyan));
@@ -953,12 +935,6 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .sh-breath-lbl{margin-top:5px; font-size:9.5px; letter-spacing:.2em; text-transform:uppercase;
   font-weight:700; color:rgba(240,249,255,.72)}
 
-.sh-quiver{display:none; text-align:right; min-width:80px}
-.sh-quiver.show{display:block}
-.sh-quiver-val{font-family:var(--display); font-size:clamp(26px,3.4vw,38px); line-height:1;
-  color:var(--paper); text-shadow:0 2px 0 rgba(4,12,22,.5)}
-.sh-quiver-lbl{font-size:9.5px; letter-spacing:.2em; text-transform:uppercase; font-weight:700;
-  color:rgba(240,249,255,.72)}
 
 /* -------- round banner -------- */
 .sh-banner{position:absolute; left:50%; top:26%; transform:translate(-50%,-8px) scale(.96);
@@ -1021,17 +997,6 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 /* -------- the intercept mark --------
    A ring you have to put the crosshair on, drawn over everything: a mark
    you cannot see through a branch lies to you at the worst moment. */
-.sh-lead{position:absolute; left:50%; top:50%; width:0; height:0; z-index:23;
-  opacity:0; transition:opacity .12s ease; pointer-events:none}
-.sh-lead.show{opacity:.92}
-.sh-lead i{position:absolute; display:block; border-radius:50%}
-.sh-lead i:first-child{left:-11px; top:-11px; width:22px; height:22px;
-  border:1.5px dashed rgba(57,230,255,.9); box-shadow:0 0 12px rgba(57,230,255,.45)}
-.sh-lead i:last-child{left:-2px; top:-2px; width:4px; height:4px; background:var(--cyan);
-  box-shadow:0 0 8px rgba(57,230,255,.9)}
-.sh-lead.far i:first-child{border-color:rgba(242,193,78,.9);
-  box-shadow:0 0 12px rgba(242,193,78,.45)}
-.sh-lead.far i:last-child{background:var(--gold); box-shadow:0 0 8px rgba(242,193,78,.9)}
 
 /* -------- focus vignette + pointer hint -------- */
 .sh-focus{position:fixed; inset:-4%; pointer-events:none; z-index:21; opacity:0;
@@ -1220,7 +1185,7 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
   background:rgba(6,18,30,.4); border:1px solid rgba(255,255,255,.14)}
 .dv-tape i{position:absolute; left:0; right:0; display:block}
 /* The band positions and colours are written from CONFIG.tiers at
-   build time, so a twist that moves the trench moves the picture of it
+   build time, so a changed trench moves the picture of it
    too. These are only the fallback, for a HUD nobody has painted yet. */
 .dv-tape i.b0{top:0; height:28.6%; background:linear-gradient(180deg,rgba(255,209,102,.65),rgba(255,209,102,.3))}
 .dv-tape i.b1{top:28.6%; height:32.1%; background:linear-gradient(180deg,rgba(255,159,74,.6),rgba(255,159,74,.28))}
@@ -1451,7 +1416,6 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 @media (max-width:640px){
   .mission-card{padding:13px 14px; gap:12px}
   .hud-setup{display:none}
-  .mod-blurb{display:none}
   .mc-icon{width:46px; height:46px; font-size:23px}
   .mc-meta{display:none}
   .mission-card-row{gap:7px}
@@ -1772,10 +1736,8 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 /* A guest is reading, not choosing. Saying so once at the top and
    dimming the controls is kinder than a screen full of dead buttons
    that look exactly like live ones. */
-.mp-setup.watching .seg, .mp-setup.watching .mod-hand,
-.mp-setup.watching .channel-seed{opacity:.72}
+.mp-setup.watching .seg, .mp-setup.watching .channel-seed{opacity:.72}
 .mp-setup.watching .mp-setup-head span{color:var(--muted)}
-.mp-setup.watching .mod-card{cursor:default}
 .mp-setup .setup-block{gap:8px}
 
 .mp-skip{
@@ -1859,7 +1821,7 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
   text-wrap:balance;
 }
 
-/* the full-screen card: your role, and the night's twist */
+/* the full-screen role card */
 .cine-card{
   position:absolute; left:50%; top:44%; transform:translate(-50%,-50%) scale(.94);
   width:min(560px, 86vw); text-align:center; padding:26px 30px 30px;
@@ -1885,8 +1847,6 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .cine-card.t-traitor .cc-title{color:#ff5470; text-shadow:0 0 46px rgba(216,30,64,.6)}
 .cine-card.t-faithful{border-color:rgba(125,252,208,.42)}
 .cine-card.t-faithful .cc-title{color:var(--mint); text-shadow:0 0 42px rgba(125,252,208,.45)}
-.cine-card.t-twist{border-color:rgba(63,224,255,.42)}
-.cine-card.t-twist .cc-title{color:var(--cyan); text-shadow:0 0 42px rgba(63,224,255,.45)}
 
 /* ---------------- the round table: your line ---------------- */
 
@@ -2767,36 +2727,6 @@ body.touch .sk-hud{padding-bottom:calc(var(--br-foot) + 12px)}
   transition:opacity .15s}
 .sk-air.true .sk-air-cue{opacity:1; color:var(--gold)}
 
-/* -------- the wall of snow --------
-   Across the top, because that is where it is: behind you and above
-   you. The bar fills as it closes, so a full bar is the last thing you
-   ever see on that run. */
-.sk-avalanche{position:absolute; left:50%; top:clamp(10px,2vh,22px); transform:translateX(-50%);
-  width:min(420px,64vw); display:none; text-align:center; pointer-events:none}
-.sk-avalanche.show{display:block}
-.sk-avalanche b{display:block; font-family:var(--display); font-size:13px; letter-spacing:.3em;
-  text-transform:uppercase; color:#ff8fa3; text-shadow:0 0 18px rgba(255,84,112,.6)}
-.sk-av-track{margin-top:4px; height:5px; border-radius:3px; background:rgba(6,18,30,.6);
-  border:1px solid rgba(255,120,150,.3); overflow:hidden}
-.sk-av-bar{height:100%; width:0%; background:linear-gradient(90deg,#ff8fa3,#ffffff);
-  transition:width .18s linear}
-.sk-avalanche.close b{animation:tick .4s steps(2) infinite}
-.sk-avalanche.close .sk-av-bar{box-shadow:0 0 16px rgba(255,84,112,.9)}
-/* The rear view. Transparent: the renderer paints the canvas underneath
-   it after the main frame, and this is only the frame round the picture. */
-.sk-av-mirror{display:none; position:relative; margin:6px auto 0; width:100%; aspect-ratio:3.2/1;
-  border-radius:10px; border:1px solid rgba(255,140,165,.45);
-  box-shadow:0 6px 24px rgba(0,0,0,.35), inset 0 0 18px rgba(4,14,26,.45)}
-.sk-avalanche.mirror .sk-av-mirror{display:block}
-.sk-av-mirror span{position:absolute; left:8px; top:5px; font-size:9px; letter-spacing:.24em;
-  font-weight:800; color:rgba(255,255,255,.85); text-shadow:0 1px 4px rgba(0,0,0,.6)}
-.sk-avalanche.close .sk-av-mirror{border-color:rgba(255,84,112,.95);
-  box-shadow:0 0 22px rgba(255,84,112,.55), inset 0 0 18px rgba(4,14,26,.45)}
-/* The white-out, closing in from the edges and the top: where it is. */
-.sk-av-veil{position:fixed; inset:0; z-index:22; pointer-events:none; opacity:0;
-  background:radial-gradient(ellipse 75% 65% at 50% 62%, rgba(236,246,255,0) 35%, rgba(236,246,255,.75) 78%, rgba(246,251,255,.97) 100%),
-             linear-gradient(to bottom, rgba(246,251,255,.8), rgba(246,251,255,0) 42%)}
-
 /* -------- speed, as the room rather than as a number --------
    A cold vignette that closes in, and radial streaks masked to the
    edges so the middle of the screen — where the mountain is — stays
@@ -2828,9 +2758,7 @@ body.touch .sk-hud{padding-bottom:calc(var(--br-foot) + 12px)}
   .sk-lines.on{animation:none}
   .sk-flow-wrap.max .sk-flow{animation:none}
   .sk-chute.near .sk-chute-arrow{animation:none}
-  .sk-avalanche.close b{animation:none}
 }
-@media (max-width:760px){ .sk-av-mirror{aspect-ratio:2.6/1} }
 
 @media (max-width:760px){
   .sk-air{top:34%}

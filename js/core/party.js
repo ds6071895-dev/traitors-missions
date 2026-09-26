@@ -80,7 +80,7 @@ const Party = (() => {
     mev:    new Set(),   // (payload, fromPeer)
     /* A mission party: three people in a room for one mission rather
        than a whole night. It gets its own channel because the host is
-       broadcasting a *setup* — a seed, a twist, whether to skip to the
+       broadcasting a *setup* — a seed, whether to skip to the
        owl — and that is neither a pose nor a mission event, and it has
        to keep arriving on a screen where no mission is running. */
     mp:     new Set(),   // (payload, fromPeer)

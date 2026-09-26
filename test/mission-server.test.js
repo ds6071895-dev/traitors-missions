@@ -63,7 +63,7 @@ async function until(fn) {
         await B.MissionParty.joinCode(code, missionId);
         await C.MissionParty.joinCode(code, missionId);
         await until(() => A.Party.roster().length === 3 && C.MissionParty.setup?.seed);
-        A.MissionParty.choose({ seed: 424242, modId: 'test-twist', skip: missionId === 'shootout' });
+        A.MissionParty.choose({ seed: 424242, skip: missionId === 'shootout' });
         await until(() => group.every(c => c.MissionParty.setup.seed === 424242));
         A.MissionParty.start();
         await until(() => group.every(c => c.launched.length === 1));

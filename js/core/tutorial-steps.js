@@ -91,7 +91,7 @@ const TutorialSteps = (() => {
     brief: [
       { target: '#brief-setup',
         title: 'Set up your run',
-        text: 'Choose a mode, a course and an optional <b>modifier card</b> that makes it harder '
+        text: 'Choose a mode and a course '
             + 'but pays more. <b>The defaults are fine</b> for a first go.' },
       { target: '#brief-keys',
         title: 'Your controls',

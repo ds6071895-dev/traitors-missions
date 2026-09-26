@@ -26,7 +26,7 @@ npm run test:browser
 
 If the browser or CDN is unavailable, set `CHROMIUM_PATH` to an installed Chromium executable and `THREE_TEST_ASSET` to a local copy of the app’s pinned Three.js r160 browser build. The browser suites require a loopback test server.
 
-`test:boat-render` compares 600 fixed-input physics steps, wave heights/normals, path samples, channel widths, colliders and safe/risk gate layouts against the pre-change fixture. It also checks the untouched displacement shader, gameplay RNG continuation, shared-builder defaults, payouts and clock changes in Prize Run and Time Trial, five representative modifiers, tricks, starts/restarts/pauses/finishes/failures, ghost interpolation, five time/weather palettes, boost/wakes, keyboard and simultaneous touch steering/boost, both motion preferences, three boat models and colour identity, late-load disposal, missing assets, repeat-entry resources and water-profile cleanup. Browser errors and shader failures fail the suite.
+`test:boat-render` compares 600 fixed-input physics steps, wave heights/normals, path samples, channel widths, colliders and safe/risk gate layouts against the pre-change fixture. It also checks the untouched displacement shader, gameplay RNG continuation, shared-builder defaults, payouts and clock changes in Prize Run and Time Trial, tricks, starts/restarts/pauses/finishes/failures, ghost interpolation, five time/weather palettes, boost/wakes, keyboard and simultaneous touch steering/boost, both motion preferences, three boat models and colour identity, late-load disposal, missing assets, repeat-entry resources and water-profile cleanup. Browser errors and shader failures fail the suite.
 
 The existing multiplayer browser suite verifies actual three-player pose exchange and shared results through Boat Race and transitions to the other missions. The voice browser suite now keeps Boat Race’s sustained audio playing during real microphone capture, server relay, playback, mute, reconnect and rejoin checks. Its synthetic microphone replaces hardware, not the voice transport.
 
@@ -41,7 +41,7 @@ The showcase’s labelled surf, airborne, impact, finish and failure stills stag
 
 ## Measurements and limits
 
-See [rendered-suite measurements](checks/results.json), [baseline resources](before/metrics.json), [updated resources](after/metrics.json) and [showcase measurements](showcase/metrics.json). All captures use Chromium 153 with SwiftShader on a Linux host reporting an Intel Core i3-1215U. They establish rendered correctness and resource budgets, not integrated-GPU performance.
+See the [archived rendered-suite measurements](checks/results.json) from the previous rules, [baseline resources](before/metrics.json), [updated resources](after/metrics.json) and [showcase measurements](showcase/metrics.json). All captures use Chromium 153 with SwiftShader on a Linux host reporting an Intel Core i3-1215U. They establish rendered correctness and resource budgets, not integrated-GPU performance.
 
 Low quality uses 128-pixel material cells, fewer pines and particles, simpler player fittings, reduced cosmetic normal detail and a smaller near-water grid. High quality uses 256-pixel cells and denser detail. Repeated entries are checked for exact stable geometry and texture counts after cache warm-up, including both quality tiers. No physical phone or accelerated laptop GPU was available: sustained 60 fps laptop / 30 fps phone targets remain unverified and require device testing.
 

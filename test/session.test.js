@@ -57,6 +57,8 @@ test('the dive can be drawn into a night', () => {
   ok(found, 'the dive appeared in the plan');
   ok(seen.size >= 3, 'and the seed reaches every mission across nights: '
                      + [...seen].join(', '));
+  ok(ctx.Session.state.missions.every(m => !('modId' in m) && !('modName' in m)),
+     'night plans contain no twist');
 });
 
 test('a party of three is seated in order, with looks and no bots', () => {
