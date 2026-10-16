@@ -30,10 +30,12 @@ function world(opts = {}) {
   math.random = () => seq[(ri++) % seq.length];
   const listeners = {};
   const asked = [];                // [{ id, text, at }]
+  const prompts = [];              // [{ id, text }]
+  const netHandlers = [];
   const speaking = new Set();
   const AI = {
     CLAUDIA: 'claudia-id', available: true, ready: true,
-    agent: () => ({}), spawn() {}, prompt() {}, listen() {}, say() {}, tool() {},
+    agent: () => ({}), spawn() {}, prompt(id, text) { prompts.push({ id, text }); }, listen() {}, say() {}, tool() {},
     ask(id, text) { asked.push({ id, text, at: now }); speaking.add(id); },
     hush(id) { speaking.delete(id); },
     speaking: (id) => speaking.has(id),
@@ -46,7 +48,7 @@ function world(opts = {}) {
     setTimeout: (fn, ms) => { timeouts.push({ fn, at: now + ms }); return timeouts.length; },
     clearTimeout: () => {},
     AI,
-    Net: { on: () => () => {}, send() {} },
+    Net: { on: (fn) => { netHandlers.push(fn); return () => {}; }, send() {} },
     VoiceChat: { levels: new Map(), selfLevel: 0 },
     Voice: { speaking: false },
   });
@@ -58,9 +60,10 @@ function world(opts = {}) {
   ].slice(0, opts.n || 6);
   ctx.Session.startParty({ seed: 7, players, mode: 'host' });
   ctx.AIDirector.start();
-  const emit = (evt, m) => (listeners[evt] || []).forEach(fn => fn(m));
+  function emit(evt, m) { (listeners[evt] || []).forEach(fn => fn(m)); }
   const W = {
-    ctx, asked, speaking,
+    ctx, asked, speaking, prompts, emit,
+    net(e) { netHandlers.forEach(fn => fn(e)); },
     step(sec) {
       const end = now + sec * 1000;
       while (now < end) {
@@ -139,10 +142,101 @@ test('the moment a person speaks, the follow-ups stop and the AIs listen', () =>
   W.step(0.3);
   eq(W.asked.length, 1, 'nobody talks over Bo');
   W.step(1.5);
-  eq(W.asked.length, 2, 'and the next voice answers Bo, not the old thread');
+  eq(W.asked.length, 1, 'two people are talking to each other: the AIs keep out of it');
+  W.step(4);
+  eq(W.asked.length, 2, 'and answer Bo, not the old thread, once there is a real lull');
   ok(/Bo just said/.test(W.asked[1].text));
 });
 
+test('people talking among themselves are not talked over, but are listened to', () => {
+  const W = world();
+  W.say('p1', 'Bo what did you make of the library?');
+  W.step(0.5);
+  W.say('p2', 'Honestly I thought it was creepy');
+  W.step(2.5);
+  eq(W.asked.length, 0, 'no AI cuts in on a conversation between people');
+  W.step(3);
+  ok(W.asked.length <= 1, 'at most one joins, after a real gap');
+  // every word went into what they know
+  W.step(25);
+  ok(W.prompts.some(x => /creepy/.test(x.text)), 'they heard every word');
+});
+
+test('an AI that is named is answered even in a conversation between people', () => {
+  const W = world();
+  W.say('p2', 'I reckon it was the cook');
+  W.step(0.2);
+  W.say('p1', 'Morag, what do you think?');
+  W.step(1.5);
+  eq(W.asked.length, 1, 'she answers at once');
+  eq(W.asked[0].id, 'm');
+});
+
+test('their own voices coming back through a microphone are not a person talking', () => {
+  const W = world({ random: [0.05] });
+  W.say('p1', 'Has anybody seen the turret?');
+  W.step(1.5);
+  const id = W.asked[0].id;
+  W.emit('text', { id, text: 'It is up the long stair past the kitchen.' });
+  W.emit('hearing', { id: 'p1', text: 'up the long stair past the kitchen' });
+  W.emit('heard', { id: 'p1', text: 'up the long stair past the kitchen', final: true });
+  ok(W.speaking.has(id), 'the speaker is not cut off by its own echo');
+});
+
+test('nobody talks over Claudia, and one already talking gives way', () => {
+  const W = world();
+  W.ctx.Voice.speaking = true;
+  W.say('p1', 'Has anybody seen the turret?');
+  W.step(3);
+  eq(W.asked.length, 0, 'they wait while she speaks');
+  W.ctx.Voice.speaking = false;
+  W.step(1.5);
+  eq(W.asked.length, 1, 'then they answer');
+  W.ctx.Voice.speaking = true;
+  W.step(1);
+  ok(!W.speaking.has(W.asked[0].id), 'and an AI mid-sentence stops for her');
+});
+
+test('a refused turn gives the room back instead of holding it for half a minute', () => {
+  const W = world({ random: [0.9] });
+  W.say('p1', 'Has anybody seen the turret?');
+  W.step(1.5);
+  eq(W.asked.length, 1);
+  W.emit('refused', { id: W.asked[0].id, final: true });
+  W.say('p1', 'Hello?');
+  W.step(2);
+  eq(W.asked.length, 2, 'somebody else answers straight away');
+});
+
+section('ai — the open table, and what they remember');
+
+test('at the open table, a person who speaks gets an answer', () => {
+  const W = world();
+  W.phase = 'table';
+  W.ctx.Session.state.floor = { all: true, done: false, ready: [], endsAt: Date.now() + 90000 };
+  W.say('p1', 'I think Fergus has been very quiet');
+  W.step(1.5);
+  eq(W.asked.length, 1, 'one of them answers');
+  ok(/Ana just said/.test(W.asked[0].text), 'to what was said');
+});
+
+test('every voice is told the whole game, not just the last few lines', () => {
+  const W = world();
+  const pl = W.ctx.Session.state.players;
+  W.net({ type: 'nameReveal', playerId: 'm', targetId: 'f' });
+  W.ctx.Session.state.banished.push({ id: 'f', name: 'Fergus', day: 0, role: 'faithful' });
+  W.net({ type: 'reveal', name: 'Fergus', role: 'faithful' });
+  // a long argument afterwards pushes those events far out of the recent lines
+  for (let k = 0; k < 120; k++) W.say('p1', 'filler talk number ' + k + ' about nothing at all');
+  W.step(25);
+  const last = W.prompts.filter(x => x.id === 'i').pop();
+  ok(last, 'a prompt was sent');
+  ok(/Morag voted for Fergus/.test(last.text), 'who voted for whom is still there');
+  ok(/Fergus was banished and revealed as a Faithful/.test(last.text), 'and what the banished turned out to be');
+  ok(/STRATEGY/.test(last.text), 'and how to play to win');
+  ok(/YOUR READ ON THE OTHERS/.test(last.text), 'and a read on everybody');
+  ok(/Morag \+3/.test(last.text), 'a vote for somebody who was Faithful counts against Morag');
+});
 test('whoever is named answers', () => {
   const W = world();
   W.say('p1', 'Isla, where were you just now?');

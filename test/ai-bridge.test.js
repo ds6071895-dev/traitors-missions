@@ -70,7 +70,10 @@ function fakeDeepgram() {
             ws.send(JSON.stringify({ type: 'FunctionCallRequest', functions: [
               { id: 'call-1', name: 'vote_banish', arguments: '{"name":"Bo"}', client_side: true }] }));
           }
-          ws.send(JSON.stringify({ type: 'AgentAudioDone' }));
+          if (m.type === 'InjectUserMessage' && /^SLOW/.test(m.content)) {
+            // a turn still being produced when the host cuts it off
+            setTimeout(() => ws.send(JSON.stringify({ type: 'AgentAudioDone' })), 250);
+          } else ws.send(JSON.stringify({ type: 'AgentAudioDone' }));
         }
         if (m.type === 'FunctionCallResponse') seen.toolResults.push(m);
       });
@@ -151,6 +154,22 @@ function fakeDeepgram() {
       eq(heard[0].subarray(0, 36).toString(), BOT, 'from the AI seat');
       ok(Date.now() - t0 >= 80, 'and paced, not dumped: ' + (Date.now() - t0) + 'ms');
       ok(fromHost.some(m => m.op === 'text' && m.id === BOT), 'the host is told what was said');
+    });
+
+    await atest('a turn that is cut off ends quietly, and the next waits for it instead of speaking over it', async () => {
+      const before = dg.seen.injected.length;
+      const doneBefore = fromHost.filter(m => m.op === 'done' && m.id === BOT).length;
+      A.Party.ai({ op: 'ask', id: BOT, text: 'SLOW first' });
+      await until(() => dg.seen.injected.length === before + 1);
+      A.Party.ai({ op: 'hush', id: BOT, on: true });
+      A.Party.ai({ op: 'ask', id: BOT, text: 'second' });
+      await new Promise(r => setTimeout(r, 120));
+      eq(dg.seen.injected.length, before + 1, 'the second turn is held back while the first is still being produced');
+      await until(() => dg.seen.injected.length === before + 2);
+      await until(() => fromHost.filter(m => m.op === 'done' && m.id === BOT).length > doneBefore);
+      await new Promise(r => setTimeout(r, 200));
+      eq(fromHost.filter(m => m.op === 'done' && m.id === BOT).length, doneBefore + 1,
+        'one "done", for the turn that was actually finished — not one for the one thrown away');
     });
 
     await atest('voice routes apply to an AI exactly as to a person', async () => {

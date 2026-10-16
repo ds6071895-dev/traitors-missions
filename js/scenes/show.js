@@ -62,6 +62,11 @@ const Show = (() => {
                      : (isHost ? Transports.HostTransport : Transports.GuestTransport));
     VoiceChat.init();
     VoiceChat.listen();
+    /* Talking is half the game, and the AIs only hear a live microphone.
+       Having to find the mic button first meant a night spent shouting at
+       characters who could not hear a word, so it comes on with the show;
+       a refusal leaves the button to say so, and the night carries on. */
+    if (!solo && typeof Party !== 'undefined' && Party.connected && !VoiceChat.available) VoiceChat.start();
     offNet = Net.on((e) => {
       if (e.type === 'phase') enter(e.phase, !!e.catchUp);
       else if (e.type === 'cue' && e.voice && e.text) caption(e);

@@ -124,6 +124,7 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
     const voice = VOICES.has(msg.voice) ? msg.voice : 'aura-2-thalia-en';
     const agent = { id, voice, ws: null, ready: false, queue: [], pending: Buffer.alloc(0), pace: null,
                     keepalive: null, hushed: false, speaking: false, outbox: [], closed: false,
+                    inflight: false, cancelTimer: null, deferred: null, lastInject: null, refusals: 0,
                     name: str(msg.name, 24) };
     s.agents.set(id, agent);
     s.names.set(id, agent.name);
@@ -144,7 +145,7 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
           language: 'en',
           listen: { provider: { type: 'deepgram', model: 'nova-3' } },
           think: { provider: { type: THINK_PROVIDER, model: THINK_MODEL, temperature: 0.85 },
-                   prompt: str(msg.prompt, 12000), functions: cleanFunctions(msg.functions) },
+                   prompt: str(msg.prompt, 30000), functions: cleanFunctions(msg.functions) },
           speak: { provider: { type: 'deepgram', model: voice } },
         },
       }));
@@ -167,13 +168,25 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
         case 'AgentStartedSpeaking':
           agent.speaking = true; say(s, { op: 'speaking', id }); break;
         case 'AgentAudioDone':
+          agent.inflight = false;
+          /* The tail of a turn that was cut short: its audio was dropped,
+             and it must not report "done" for whatever is asked next. */
+          if (agent.hushed) { agent.audioDone = false; agent.speaking = false; settle(s, agent); break; }
           agent.audioDone = true; flushDone(s, agent); break;
         case 'FunctionCallRequest':
           say(s, { op: 'tool', id, calls: (m.functions || []).slice(0, 4).map(f => ({
             callId: str(f.id, 80), name: str(f.name, 64), arguments: str(f.arguments, 2000) })) });
           break;
         case 'InjectionRefused':
-          say(s, { op: 'refused', id }); break;
+          /* Deepgram will not take a turn while the agent is still
+             speaking or thinking. Try again in a moment; only a turn
+             that keeps being refused is reported, so the director can
+             give the floor to somebody else instead of waiting it out. */
+          if (agent.lastInject && agent.refusals++ < 4) {
+            const again = agent.lastInject;
+            setTimeout(() => { if (!agent.closed && agent.lastInject === again && ws.readyState === 1) ws.send(again); }, 600);
+          } else { agent.inflight = false; say(s, { op: 'refused', id, final: true }); }
+          break;
         case 'Error':
           say(s, { op: 'error', id, message: str(m.description || m.message || 'Deepgram error', 300),
                    code: str(m.code, 60) });
@@ -220,26 +233,56 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
     say(s, { op: 'done', id: agent.id });
   }
 
-  function send(s, msg, build) {
+  function send(s, msg, build, turn) {
     const agent = s.agents.get(str(msg.id, 36));
     if (!agent || !agent.ws) return;
     const payload = JSON.stringify(build(agent));
+    /* A turn asked for while the last one is still being thrown away
+       waits for it to end, or the two would be spoken together. Only
+       the newest waiting turn is kept: it is the one that is current. */
+    if (turn && agent.hushed) { agent.deferred = payload; return; }
+    if (turn) { agent.inflight = true; agent.refusals = 0; agent.lastInject = payload; }
     if (agent.ready && agent.ws.readyState === 1) agent.ws.send(payload);
     else agent.outbox.push(payload);
   }
 
+  /* The turn being thrown away has finished (or taken too long): the
+     agent is clear, so the turn that was waiting goes now. */
+  function settle(s, agent) {
+    clearTimeout(agent.cancelTimer); agent.cancelTimer = null;
+    agent.hushed = false;
+    const next = agent.deferred;
+    agent.deferred = null;
+    if (next && agent.ws && agent.ws.readyState === 1) {
+      agent.inflight = true; agent.refusals = 0; agent.lastInject = next;
+      agent.ws.send(next);
+    }
+  }
+
+  /* Cutting an agent off. Deepgram has no "stop talking", so the rest of
+     the turn is simply not relayed: audio is dropped until the agent
+     reports that turn finished, and the next turn waits behind it. */
   function hush(s, msg) {
     const agent = s.agents.get(str(msg.id, 36));
     if (!agent) return;
-    agent.hushed = !!msg.on;
-    if (agent.hushed) { agent.queue.length = 0; agent.pending = Buffer.alloc(0); }
+    agent.queue.length = 0; agent.pending = Buffer.alloc(0);
+    if (agent.pace) { clearInterval(agent.pace); agent.pace = null; }
+    agent.audioDone = false;
+    if (msg.on === false) { if (agent.hushed) settle(s, agent); return; }
+    if (agent.hushed) return;
+    // only while Deepgram is still producing the turn: if it has finished, the queue was all there was
+    if (agent.inflight) {
+      agent.hushed = true;
+      agent.speaking = false;
+      agent.cancelTimer = setTimeout(() => settle(s, agent), 6000);
+    }
   }
 
   function close(s, id) {
     const agent = s.agents.get(id);
     if (!agent) return;
     agent.closed = true;
-    clearInterval(agent.keepalive); clearInterval(agent.pace);
+    clearInterval(agent.keepalive); clearInterval(agent.pace); clearTimeout(agent.cancelTimer);
     try { agent.ws.close(1000); } catch (e) {}
     s.agents.delete(id);
   }
@@ -369,7 +412,7 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
           const text = m.channel && m.channel.alternatives && m.channel.alternatives[0]
             && m.channel.alternatives[0].transcript;
           if (text && m.is_final) say(s, { op: 'heard', id, text: str(text, 600), final: !!m.speech_final });
-          else if (text) say(s, { op: 'hearing', id });
+          else if (text) say(s, { op: 'hearing', id, text: str(text, 200) });
         } else if (m.type === 'UtteranceEnd') say(s, { op: 'pause', id });
       });
       ws.on('error', (e) => say(s, { op: 'error', id, message: 'Transcription failed: ' + str(e && e.message, 200) }));
@@ -398,12 +441,12 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
     switch (msg && msg.op) {
       case 'configure': configure(s, msg); break;
       case 'spawn': spawn(s, msg); break;
-      case 'prompt': send(s, msg, () => ({ type: 'UpdatePrompt', prompt: str(msg.text, 12000) })); break;
-      case 'say': hush(s, { id: msg.id, on: false });
+      case 'prompt': send(s, msg, () => ({ type: 'UpdatePrompt', prompt: str(msg.text, 30000) })); break;
+      case 'say':
         send(s, msg, () => ({ type: 'InjectAgentMessage', message: str(msg.text, 1200),
-                              ...(msg.queue === false ? {} : { behavior: 'queue' }) })); break;
-      case 'ask': hush(s, { id: msg.id, on: false });
-        send(s, msg, () => ({ type: 'InjectUserMessage', content: str(msg.text, 8000) })); break;
+                              ...(msg.queue === false ? {} : { behavior: 'queue' }) }), true); break;
+      case 'ask':
+        send(s, msg, () => ({ type: 'InjectUserMessage', content: str(msg.text, 8000) }), true); break;
       case 'tool': send(s, msg, () => ({ type: 'FunctionCallResponse', id: str(msg.callId, 80),
                                            name: str(msg.name, 64), content: str(msg.content, 2000) })); break;
       case 'hush': hush(s, msg); break;
