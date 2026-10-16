@@ -71,9 +71,9 @@ const Session = (() => {
   const TASK_SECONDS = 180;        // the day loose in the castle
   const BELL_AT = 30;              // seconds left when the bell goes
   const NOTE_EVERY = 4;            // seconds between looks round the room
-  const NIGHT_MIN = 14;            // the night always lasts at least this
-  const NIGHT_SECONDS = 30;        // and the turret has this long to agree
-  const RECRUIT_SECONDS = 18;      // an offer is answered or refused
+  const NIGHT_SECONDS = 20;        // every night lasts exactly this, whatever was decided
+  const PICK_SECONDS = 12;         // the Traitors have this long (from lights out) to agree
+  const RECRUIT_SECONDS = 7;       // an offer is answered or refused
   const tableSeconds = (n) => Math.min(240, 50 + 22 * n);
 
   let state = null;
@@ -105,6 +105,7 @@ const Session = (() => {
       spared: false,               // the poisoned were banished before it could take
       recruited: null,             // playerId turned tonight
       resolvedAt: 0,
+      pickBy: 0,                   // when the clock decides for the Traitors
       queue: [],                   // breakfast arrival groups, still to come
       fate: {},                    // playerId -> 'murdered' (told before breakfast)
     };
@@ -438,7 +439,7 @@ const Session = (() => {
         canRecruit: !!state.night.canRecruit,
         choose: !!state.night.choose,
         picks: Object.assign({}, secret.picks),
-        endsAt: state.night.endsAt,
+        endsAt: secret.pickBy,
         locked: !!(secret.offer || secret.resolvedAt),
         offer: secret.offer ? { targetId: secret.offer.targetId, answer: secret.offer.answer } : null,
       };
@@ -778,9 +779,13 @@ const Session = (() => {
     const tr = traitorsAlive();
     const choose = tr.length > 1;
     const recruit = canRecruit();
-    state.night = { day: state.day, done: false, startedAt: Date.now(),
-                    endsAt: Date.now() + ((choose || recruit) ? NIGHT_SECONDS : NIGHT_MIN) * 1000,
+    /* The night is the same length every time, so how long the house
+       sleeps says nothing about whether anybody had anything to decide. */
+    const t0 = Date.now();
+    state.night = { day: state.day, done: false, startedAt: t0,
+                    endsAt: t0 + NIGHT_SECONDS * 1000,
                     canRecruit: recruit, choose };
+    secret.pickBy = t0 + PICK_SECONDS * 1000;
     secret.spared = !!secret.victim && !(playerById(secret.victim) || {}).alive;
     if (secret.victim && !secret.spared) secret.fate[secret.victim] = 'murdered';
     else secret.victim = null;
@@ -823,8 +828,9 @@ const Session = (() => {
   function lockNight(pick) {
     if (pick.kind === 'carrier') secret.carrier = pick.targetId;
     if (pick.kind === 'recruit') {
-      secret.offer = { targetId: pick.targetId, endsAt: Date.now() + RECRUIT_SECONDS * 1000, answer: null };
-      state.night.endsAt = Math.max(state.night.endsAt, secret.offer.endsAt);
+      // an offer is never allowed to run past the end of the night
+      const by = Math.min(Date.now() + RECRUIT_SECONDS * 1000, state.night.endsAt - 1500);
+      secret.offer = { targetId: pick.targetId, endsAt: by, answer: null };
       armNight();
       emit('private');
       return;
@@ -877,12 +883,12 @@ const Session = (() => {
         if (now >= secret.offer.endsAt) settleOffer(false);
         return false;
       }
-      if (now >= state.night.endsAt) forceNight();
+      if (now >= secret.pickBy) forceNight();
       return false;
     }
     /* Decided is not the same as over. The night always runs its full
-       minimum, so the moment the turret agreed is never on the wire. */
-    if (now - state.night.startedAt >= NIGHT_MIN * 1000) {
+       length, so the moment the Traitors agreed is never on the wire. */
+    if (now >= state.night.endsAt) {
       clearNightTimer();
       state.night.done = true;
       emit('night', { done: true });
@@ -896,9 +902,9 @@ const Session = (() => {
     clearNightTimer();
     if (!state || state.phase !== 'night' || !state.night) return;
     const now = Date.now();
-    let at = state.night.endsAt;
+    let at = secret.pickBy;
     if (secret.offer && secret.offer.answer === null) at = secret.offer.endsAt;
-    if (secret.resolvedAt) at = Math.max(now, state.night.startedAt + NIGHT_MIN * 1000);
+    if (secret.resolvedAt) at = Math.max(now, state.night.endsAt);
     nightTimer = setTimeout(() => {
       nightTimer = null;
       if (state && state.phase === 'night' && nightTick()) emit('change', state);
@@ -1597,7 +1603,7 @@ const Session = (() => {
       if (!state) return null;
       return JSON.parse(JSON.stringify(state));
     },
-    SEATS, MIN_PLAYERS, FINALE_AT, NIGHT_MIN, NIGHT_SECONDS, TASK_SECONDS, BELL_AT,
+    SEATS, MIN_PLAYERS, FINALE_AT, NIGHT_SECONDS, PICK_SECONDS, TASK_SECONDS, BELL_AT,
     RECRUIT_SECONDS, LAST_WORDS_SECONDS, FLOOR_SECONDS,
     tableSeconds, traitorCount,
 

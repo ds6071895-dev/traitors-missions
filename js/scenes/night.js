@@ -7,9 +7,9 @@
      a Faithful        is in their own bedroom; the door swings shut
                        and locks, and that is the night — short, and
                        quiet, with the castle settling round them
-     a Traitor         climbs to the turret, where Claudia waits with
-                       the other Traitor (if there is one); what is left
-                       to decide is who carries tomorrow's poison, and —
+     a Traitor         is in their own bedroom like everybody else, and a
+                       quiet choice is put to them there: who carries
+                       tomorrow's poison (if there are two of them), and —
                        only when they have lost one of their own —
                        whether to offer somebody a seat
      the offered       is woken with the offer, and may say no
@@ -17,10 +17,12 @@
                        letter under the door
      the dead          watch the corridor, and hear nothing
 
-   Nothing here decides anything. The turret's buttons are actions, the
-   session settles them in private, and every screen finds out only
-   what its own private view says. The night always lasts its full
-   length whatever the turret did, so the clock is not a tell either.
+   Nothing here decides anything. The buttons are actions, the session
+   settles them in private, and every screen finds out only what its
+   own private view says. The night is the same length every time,
+   whatever was decided and whether or not anybody had to decide, so
+   the clock is not a tell: a Faithful asleep and a Traitor deciding
+   are on the same screen for the same time.
 ------------------------------------------------------------------ */
 class NightScene extends CastleScene {
 
@@ -32,11 +34,6 @@ class NightScene extends CastleScene {
     this._dead = !me || !me.alive;
     this._traitor = !this._dead && this._role === 'traitor';
     const seed = s.seed + 4111 * (s.day + 1);
-    if (this._traitor) {
-      const turret = s.players.filter(p => p.alive && (p.local || (view.partners || []).indexOf(p.id) >= 0))
-        .sort((a, b) => a.seat - b.seat);
-      return { seed, hour: 'night', room: 'turret', dress: 'conclave', seated: true, players: turret };
-    }
     if (this._dead) {
       return { seed, hour: 'night', room: 'corridor', dress: 'none', claudia: false, players: [] };
     }
@@ -68,7 +65,6 @@ class NightScene extends CastleScene {
     await this._say('nightFalls', {}, null);
     if (!this._alive) return;
 
-    if (this._traitor) return this._turret();
     if (this._dead) return this._watch();
     return this._bedroom();
   }
@@ -100,7 +96,7 @@ class NightScene extends CastleScene {
   _privateMoved() {
     if (!this._alive) return;
     const v = Session.myPrivate() || {};
-    if (this._traitor && v.night) this._paintTurret(v);
+    if (this._traitor && v.night) this._paintChoice(v);
     if (v.offer && !this._told.offer) { this._told.offer = true; this._offer(v); }
     if (v.recruited && !this._told.recruited) { this._told.recruited = true; this._recruited(); }
     if (v.fate === 'murdered' && !this._told.fate) { this._told.fate = true; this._murdered(); }
@@ -109,14 +105,24 @@ class NightScene extends CastleScene {
   /* ---------------- a Faithful's room ---------------- */
 
   async _bedroom() {
+    /* A Traitor's choice comes up the moment the door is locked; it is
+       not made to wait behind Claudia saying goodnight (the clock was
+       running behind her and the choice was gone before it was asked). */
+    const choice = this._traitor && (Session.myPrivate() || {}).night;
+    if (choice && (choice.choose || choice.canRecruit)) return this._choose();
     await this._say('nightFaithful', {}, null);
     if (!this._alive) return;
+    this._sleepCard();
+    await this._waitFor(() => Session.state.phase !== 'night');
+  }
+
+  /* The dark, for as long as it lasts. It lasts the same time whether or
+     not anybody is deciding anything, and this is what a Faithful sees
+     all the way through it. */
+  _sleepCard() {
     Scenes.Cine.card({ kicker: 'Night', title: 'THE CASTLE SLEEPS',
                        sub: 'The poison is already in somebody.', tone: 'bad' });
-    await this._sleep(3);
-    Scenes.Cine.card(null);
     if (this.music) this.music.section('deed', { at: 'bar', glide: 4 });
-    this._privateMoved();
   }
 
   _watch() {
@@ -127,10 +133,11 @@ class NightScene extends CastleScene {
 
   /* A seat, offered to the one person it is offered to. */
   async _offer(v) {
+    Scenes.Cine.card(null);
     AudioBus.play('ui-click');
     if (this.music) this.music.stinger('murder-hit', { at: 'now' });
-    await this._say('recruitOffer', {}, null);
-    if (!this._alive) return;
+    // the answer is wanted while she is still talking: the offer is short
+    const told = this._say('recruitOffer', {}, null);
     this._openVote({
       kicker: 'A knock at your door',
       title: 'Join the Traitors?',
@@ -145,6 +152,8 @@ class NightScene extends CastleScene {
     await this._waitFor(() => { const w = Session.myPrivate() || {}; return !w.offer; },
                         (v.offer && v.offer.endsAt ? Math.max(1000, v.offer.endsAt - Date.now()) : 20000) + 2000);
     this._closeVote();
+    await told;
+    if (this._alive && !this._told.recruited && Session.state.phase === 'night') this._sleepCard();
   }
 
   async _recruited() {
@@ -169,28 +178,17 @@ class NightScene extends CastleScene {
     await this._say('murderedYou', {}, null);
   }
 
-  /* ---------------- the turret ---------------- */
+  /* ---------------- a Traitor's choice ---------------- */
 
-  async _turret() {
-    if (this.music) this.music.section('conclave', { at: 'bar', glide: 3 });
-    const v = Session.myPrivate() || {};
-    await this._say('conclaveOpen', {}, 'claudia');
-    if (!this._alive) return;
-    const n = v.night || {};
-    if (n.choose) await this._say('conclaveAgree', {}, 'claudia');
-    if (!this._alive) return;
-    if (n.canRecruit) await this._say('conclaveRecruit', {}, 'claudia');
-    if (!this._alive) return;
-    if (n.choose || n.canRecruit) {
-      this._panelOpen = true;
-      this._paintTurret(Session.myPrivate() || {});
-      await this._waitFor(() => {
-        const w = Session.myPrivate() || {};
-        return !w.night || w.night.locked || Session.state.phase !== 'night';
-      });
-      this._panelOpen = false;
-      this._closeVote();
-    }
+  async _choose() {
+    this._panelOpen = true;
+    this._paintChoice(Session.myPrivate() || {});
+    await this._waitFor(() => {
+      const w = Session.myPrivate() || {};
+      return !w.night || w.night.locked || Session.state.phase !== 'night';
+    });
+    this._panelOpen = false;
+    this._closeVote();
     if (!this._alive || Session.state.phase !== 'night') return;
     const w = Session.myPrivate() || {};
     if (w.night && w.night.offer && w.night.offer.answer === null) {
@@ -198,22 +196,25 @@ class NightScene extends CastleScene {
       Scenes.Cine.card({ kicker: 'The offer is made', title: (t ? t.name : 'They').toUpperCase(),
                          sub: 'Waiting for their answer…', tone: 'traitor' });
       await this._waitFor(() => { const x = Session.myPrivate() || {}; return !x.night || !x.night.offer || x.night.offer.answer !== null; });
-      Scenes.Cine.card(null);
     }
+    if (!this._alive || Session.state.phase !== 'night') return;
     const after = Session.myPrivate() || {};
     if (after.poison && after.poison.carrier) {
       const c = Session.playerById(after.poison.carrier);
       Scenes.Cine.card({ kicker: 'Tomorrow', tone: 'traitor',
                          title: c && c.local ? 'YOU CARRY THE POISON' : (c ? c.name.toUpperCase() : 'YOUR PARTNER') + ' CARRIES IT' });
-      setTimeout(() => { if (this._alive) Scenes.Cine.card(null); }, 2600);
+      await this._sleep(2.6);
     }
-    await this._say('conclaveDone', {}, 'claudia');
+    if (!this._alive || Session.state.phase !== 'night') return;
+    // and then the same dark as everybody else's, until the morning
+    this._sleepCard();
+    await this._waitFor(() => Session.state.phase !== 'night');
   }
 
-  /* The turret's panel. With two of them: who carries it tomorrow, each
-     marked with what the other has pointed at. When a seat may be
-     offered: an offer to each Faithful, or none. */
-  _paintTurret(v) {
+  /* The panel. With two Traitors: who carries it tomorrow, each marked
+     with what the other has pointed at. When a seat may be offered: an
+     offer to each Faithful, or none. */
+  _paintChoice(v) {
     if (!this._panelOpen || !v.night || v.night.locked) return;
     const me = Session.state.players.find(p => p.local);
     const partners = new Set(v.partners || []);
@@ -246,7 +247,7 @@ class NightScene extends CastleScene {
     }
     const left = Math.max(0, Math.round(((v.night.endsAt || Date.now()) - Date.now()) / 1000));
     this._openVote({
-      kicker: 'The turret',
+      kicker: 'Your room, in the dark',
       title: v.night.choose ? 'Who carries it tomorrow?' : 'Offer somebody a seat?',
       note: (partners.size ? 'You must both point at the same thing. ' : '') + left + 's before the castle decides for you.',
       options,

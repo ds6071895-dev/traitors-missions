@@ -264,11 +264,30 @@ class RoundtableScene extends CastleScene {
     if (!st) return;
     const seat = st.seats.find(x => x.id === target.id);
     if (!seat) return;
+    /* Not behind the chair: that is where the chair back and the
+       neighbours' chairs box them in. They step sideways along the ring,
+       towards the door, into the gap between this chair and the next,
+       and from there the way out is straight outward and clear. */
     const len = Math.hypot(seat.home.x, seat.home.z) || 1;
-    const out = new THREE.Vector3(seat.home.x / len * (len + 0.75), 0, seat.home.z / len * (len + 0.75));
+    const a0 = Math.atan2(seat.home.z, seat.home.x);
+    const TAU = Math.PI * 2, norm = (d) => ((d % TAU) + TAU) % TAU;
+    const toDoor = Math.atan2(1, 0) - a0;                   // the door is at +z
+    const dir = Math.sin(toDoor) >= 0 ? 1 : -1;
+    let gap = Infinity;
+    for (const o of st.seats) {
+      if (o === seat) continue;
+      const d = norm(dir * (Math.atan2(o.home.z, o.home.x) - a0));
+      if (d > 1e-3 && d < gap) gap = d;
+    }
+    if (!isFinite(gap)) gap = 1;
+    const a1 = a0 + dir * Math.min(gap, 2.2) / 2;
+    const out = new THREE.Vector3(Math.cos(a1) * len, 0, Math.sin(a1) * len);
     if (fig) {
       Figure.setSeated(fig, false);
-      st.walkPath(target.id, [seat.home.clone(), out], { speed: 0.9, sit: false, face: new THREE.Vector3(0, 0, 0) });
+      // out of the chair by its front (the table side), then along to the gap
+      const fa = a0 + dir * 0.18;
+      const front = new THREE.Vector3(Math.cos(fa) * (len - 0.4), 0, Math.sin(fa) * (len - 0.4));
+      st.walkPath(target.id, [seat.home.clone(), front, out], { speed: 0.9, sit: false, face: new THREE.Vector3(0, 0, 0) });
       // the camera, out past the table, on them
       st.aim(new THREE.Vector3(-out.x * 0.55, 1.75, -out.z * 0.55 + 0.4),
              new THREE.Vector3(out.x, 1.5, out.z), { fov: 40, speed: 1.4 });

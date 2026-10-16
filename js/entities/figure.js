@@ -607,8 +607,11 @@ const Figure = (() => {
       fore.add(elbow);
 
       const cuff = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.064 * g, 0.062 * g, 0.060, 16), M.trim);
-      cuff.position.y = -foreH + 0.030;
+        new THREE.CylinderGeometry(0.064 * g, 0.062 * g, 0.066, 16), M.trim);
+      // hangs 6 mm below the end of the forearm, so its bottom face is
+      // not in the same plane as the forearm's end cap (that z-fought,
+      // and flashed at the wrist whenever the arm swung)
+      cuff.position.y = -foreH + 0.027;
       fore.add(cuff);
 
       // a mitten of a hand: big, soft and round, the stylised way
