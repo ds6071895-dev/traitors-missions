@@ -3,8 +3,8 @@
    other people in the room.
 
    None of them is a screen. They sit over whatever is showing, the
-   same way the subtitle does, because all three need to be readable
-   while a vote panel is up or a mission is running.
+   same way the subtitle does, because they need to be readable while a
+   vote panel is up.
 
    - The floor bar: who may speak, how long is left, and whether your
      microphone is actually open. At the fire that is one name and
@@ -12,11 +12,10 @@
      for as long as the discussion lasts. The clock is drawn from the
      host's `endsAt`, never counted locally, so all three people see
      the same number.
-   - The board: everybody's numbers from the mission that just
-     finished. It never accuses anyone. It is the evidence a Faithful
-     argues from and the thing a Traitor has to explain.
-   - The task chip: your own agenda, visible only to you, with its
-     progress on it so nobody ever fails one by forgetting it existed.
+   - The board: how many jobs everybody managed today. It never
+     accuses anyone. It is the evidence a Faithful argues from and the
+     thing a Traitor has to explain.
+   - The microphone button.
 ------------------------------------------------------------------ */
 const RoomUI = (() => {
 
@@ -86,14 +85,14 @@ const RoomUI = (() => {
     bar.classList.add('on', 'open');
     bar.classList.remove('mine');
     el('floor-who').textContent = ready.length
-      ? 'ANYONE MAY SPEAK — ' + ready.length + ' of ' + alive.length + ' finished'
-      : 'ANYONE MAY SPEAK — TALK OVER EACH OTHER';
+      ? 'The table · ' + ready.length + ' of ' + alive.length + ' done'
+      : 'The table is open';
 
     const done = el('floor-done');
     if (done) {
       done.hidden = !(me && me.alive);
       done.disabled = mineReady;
-      done.textContent = mineReady ? 'Waiting for the others…' : "I've said enough";
+      done.textContent = mineReady ? 'Waiting…' : 'Done talking';
       done.onclick = mineReady ? null : () => {
         AudioBus.play('ui-click');
         Net.send({ type: 'yieldFloor', playerId: me ? me.id : null });
@@ -146,9 +145,9 @@ const RoomUI = (() => {
     const head = '<div class="bd-row bd-head"><span class="bd-name"></span>'
       + cols.map(c => '<span>' + esc(c) + '</span>').join('') + '</div>';
     const body = rows.map(r => {
-      /* A night knows who everybody is; a mission party has no session
-         at all, so "you" falls back to the peer id — which is the same
-         id either way, because a player id *is* a peer id. */
+      /* A night knows who everybody is; with no session, "you" falls
+         back to the peer id — which is the same id either way, because
+         a player id *is* a peer id. */
       const p = typeof Session !== 'undefined' ? Session.playerById(r.playerId) : null;
       const mine = typeof Party !== 'undefined' ? Party.selfId() : null;
       const you = p ? !!p.local : (!!mine && r.playerId === mine);
@@ -163,15 +162,42 @@ const RoomUI = (() => {
 
   const boardCols = (board) => ((board && board.columns) || []).length;
 
+  /* It starts folded: a small tab on the side that says what it is.
+     Click it, or press B, and it opens; the table is for faces, not
+     for reading. */
+  let boardWired = false;
   function showBoard(board) {
     const wrap = el('board');
     if (!wrap) return;
     const html = boardHTML(board);
     if (!html) { hideBoard(); return; }
-    el('board-title').textContent = (board && board.missionName) || 'The mission';
+    el('board-title').textContent = (board && board.title) || 'The day';
     el('board-grid').style.setProperty('--bd-cols', String(boardCols(board)));
     el('board-grid').innerHTML = html;
     wrap.classList.add('on');
+    wrap.classList.remove('open');
+    if (!boardWired) {
+      boardWired = true;
+      wrap.addEventListener('click', () => { AudioBus.play('ui-click'); wrap.classList.toggle('open'); });
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'KeyB' && wrap.classList.contains('on') && !/INPUT|TEXTAREA/.test((e.target || {}).tagName || '')) {
+          wrap.classList.toggle('open');
+        }
+      });
+    }
+  }
+
+  /* The day's jobs, as the table argues about them: who managed how
+     many. A Traitor who spent the day following somebody round the
+     house has a short line here, and has to explain it. */
+  function choreBoard() {
+    const s = typeof Session !== 'undefined' ? Session.state : null;
+    if (!s || !s.chores) return null;
+    const done = s.chores.done || {};
+    const rows = Session.alive().map(p => ({ playerId: p.id, name: p.name, n: done[p.id] || 0 }))
+      .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name))
+      .map(r => ({ playerId: r.playerId, name: r.name, cells: [String(r.n)] }));
+    return { title: 'Jobs done today · pot ' + U.money(s.pot || 0), columns: ['Jobs'], rows };
   }
 
   function hideBoard() {
@@ -179,180 +205,9 @@ const RoomUI = (() => {
     if (wrap) wrap.classList.remove('on');
   }
 
-  /* ---------------- the field ----------------
-     Everybody's standing, live, during a mission. It is a scoreboard
-     and it is also the evidence: every card in the agenda deck moves a
-     row on this strip at the moment it is being performed, and half of
-     them are only survivable because a very good player can move it
-     back. A row is `{ playerId, name, value, meter, dim }`. */
-
-  function showField(rows) {
-    const wrap = el('field');
-    if (!wrap) return;
-    if (!rows || rows.length < 2) { hideField(); return; }
-    wrap.innerHTML = rows.map(r => {
-      const p = typeof Session !== 'undefined' ? Session.playerById(r.playerId) : null;
-      const you = p && p.local;
-      const meter = r.meter === undefined || r.meter === null ? ''
-        : '<span class="fd-meter"><i style="transform:scaleX('
-          + U.clamp(r.meter, 0, 1).toFixed(3) + ')"></i></span>';
-      return '<div class="fd-row' + (you ? ' you' : '') + (r.dim ? ' dim' : '') + '">'
-        + '<span class="fd-name">' + esc(you ? 'You' : r.name) + '</span>'
-        + '<span class="fd-val">' + esc(r.value) + '</span>'
-        + meter + '</div>';
-    }).join('');
-    wrap.classList.add('on');
-  }
-
-  function hideField() {
-    const wrap = el('field');
-    if (wrap) { wrap.classList.remove('on'); wrap.innerHTML = ''; }
-  }
-
-  /* ---------------- your task ----------------
-     Only ever drawn from `Session.myAgenda()`, which returns null for
-     everybody who is not a Traitor — so there is no branch here that
-     could accidentally render somebody else's card.
-
-     The deck is voice now. Nothing on this machine, or on the host, or
-     anywhere else in this game, can hear a microphone, so this panel
-     is not reporting a check somebody else is running — it *is* the
-     check. Four lines, and a Traitor reading them at speed is asking
-     four questions:
-
-       task    the card, in full. Longer than it used to be: half the
-               deck is a whole sentence you have to say word for word.
-       prog    the short form, for glancing at.
-       mark    the button. This is the one that matters.
-       state   whether it counted, said in words rather than left to a
-               colour: NOT SAID YET while the run is still going, SAID
-               once you have marked it, and NOT SAID once the run is
-               over and you never did — which is the state that decides
-               the rest of the night.
-
-     Two things about the button, both of them deliberate:
-
-     - It asks twice. The first press arms it and the second commits,
-       and an armed button disarms itself after a few seconds. An
-       accidental mark is a lie you did not decide to tell, and the
-       whole of this deck rests on the difference.
-     - It dies with the run. `Agendas` latches its window shut the
-       moment the numbers stop, so the last thing this panel does is go
-       grey — you cannot settle up on a card once you have seen how the
-       mission went.
-
-     The card still carries its alibi and this deliberately does not
-     draw it. Spelled out on the HUD it reads as a second instruction —
-     say this, then do that — when it is nothing of the kind: it is the
-     harder way to do the one task, and a Traitor who is handed it in
-     words plays the sentence instead of the room. */
-
-  const ARM_MS = 4000;
-  let armedUntil = 0;
-  let markWired = false;
-
-  /* Every input path the game has, aimed at one button. A phone taps
-     it and a keyboard presses T. The key is polled rather than bound,
-     because a mission owns the frame and `pressedThisFrame` only exists
-     inside one. */
-  function wireMark() {
-    if (markWired) return;
-    const b = el('agenda-mark');
-    if (!b) return;
-    markWired = true;
-    b.addEventListener('click', (ev) => { ev.preventDefault(); pressMark(); });
-  }
-
-  function pressMark() {
-    if (!Session.state || Session.state.phase !== 'mission' || Session.state.taskClosed) return;
-    const card = Session.myAgenda ? Session.myAgenda() : null;
-    if (!card || typeof Agendas === 'undefined') return;
-    if (Agendas.isClosed() || Agendas.isMarked(card.id)) return;
-    const now = Date.now();
-    if (now > armedUntil) {          // first press: arm it, commit nothing
-      armedUntil = now + ARM_MS;
-      AudioBus.play('ui-hover');
-      showAgenda();
-      return;
-    }
-    armedUntil = 0;
-    if (!Agendas.mark(card.id)) { showAgenda(); return; }
-    AudioBus.play('ui-click');
-    /* The host is told separately and answers nothing. It does not go
-       into the shared state and it emits no event, because a packet
-       leaving this machine at the exact moment somebody says the thing
-       they were told to say is a tell the other two could watch for. */
-    Net.send({ type: 'taskDone' });
-    showAgenda();
-  }
-
-  /* Called from inside the mission's own frame, where `pressedThisFrame`
-     is meaningful. Everything else about this panel is event-driven;
-     this one poll is what gives it a keyboard and a pad. */
-  function pollMark() {
-    if (typeof Input === 'undefined' || !Input.pressed('task')) return;
-    pressMark();
-  }
-
-  function showAgenda() {
-    const chip = el('agenda-chip');
-    if (!chip) return;
-    const card = Session.myAgenda ? Session.myAgenda() : null;
-    if (!card) { hideAgenda(); return; }
-    wireMark();
-
-    const A = typeof Agendas !== 'undefined' ? Agendas : null;
-    const done = !!(A && A.isMarked(card.id));
-    const closed = !!(A && A.isClosed());
-    const failed = closed && !done;
-    const armed = !done && !closed && Date.now() < armedUntil;
-
-    el('agenda-text').textContent = card.text || '';
-    const prog = el('agenda-prog');
-    if (prog) {
-      prog.textContent = card.hud || '';
-      prog.hidden = !prog.textContent;
-    }
-
-    const b = el('agenda-mark');
-    if (b) {
-      const playable=Session.state && Session.state.phase==='mission' && !Session.state.taskClosed;
-      b.disabled = done || closed || !playable;
-      b.classList.toggle('armed', armed);
-      b.textContent = !playable && !closed ? 'Available during the mission' : done   ? 'Marked — it counted'
-                    : closed ? 'Too late'
-                    : armed  ? 'Press again to confirm'
-                             : 'I said it';
-    }
-
-    const state = el('agenda-state');
-    if (state) {
-      /* No microphone is its own answer, and it is worth saying out
-         loud rather than letting somebody press a button they had no
-         way of earning. */
-      const noMic = typeof VoiceChat !== 'undefined' && !VoiceChat.available;
-      state.textContent = failed ? 'NOT SAID — you left it undone'
-                        : done   ? 'SAID — and only you know'
-                        : noMic  ? 'NO MICROPHONE — nobody can hear you say it'
-                                 : 'NOT SAID YET';
-    }
-
-    chip.classList.toggle('done', done);
-    chip.classList.toggle('failed', failed);
-    chip.hidden = false;
-    chip.classList.add('on');
-  }
-
-  function hideAgenda() {
-    const chip = el('agenda-chip');
-    if (!chip) return;
-    chip.classList.remove('on');
-    chip.hidden = true;
-  }
-
   /* ---------------- the microphone button ----------------
-     Always there once there is somebody to talk to, on every screen and
-     inside every mission — a mute you have to leave the game to reach
+     Always there once there is somebody to talk to, on every screen —
+     a mute you have to leave the game to reach
      is a mute nobody uses in the moment they need it. */
 
   function paintMic() {
@@ -379,7 +234,7 @@ const RoomUI = (() => {
     if (b) b.onclick = toggleMic;
     VoiceChat.on('state', paintMic);
     /* One place polls the key and the pad button, rather than every
-       mission growing its own copy of this. */
+       scene growing its own copy of this. */
     Engine.addUpdater(() => {
       if (Input.pressed('mic')) toggleMic();
     });
@@ -387,13 +242,12 @@ const RoomUI = (() => {
   }
 
   function hideAll() {
-    hideFloor(); hideBoard(); hideAgenda(); hideField();
+    hideFloor(); hideBoard();
   }
 
   return { init, toggleMic, paintMic,
-           showFloor, hideFloor, showBoard, hideBoard, showAgenda, hideAgenda,
-           pollMark,
-           hideAll, paintTick, boardHTML, boardCols, showField, hideField,
+           showFloor, hideFloor, showBoard, hideBoard, choreBoard,
+           hideAll, paintTick, boardHTML, boardCols,
            get floorWho() { return floorWho; },
            get floorOpen() { return floorOpen; } };
 })();

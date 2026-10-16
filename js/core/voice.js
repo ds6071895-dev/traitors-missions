@@ -157,10 +157,56 @@ const Voice = (() => {
     resolve();
   }
 
+  /* With an AI Claudia, every line of hers — the public ones and the
+     ones only you may hear — is read aloud by the room server in her
+     Deepgram voice and sent to this browser alone. The browser's own
+     synthesiser is only ever the fallback for a line the server could
+     not read (no key, or Deepgram refused it), never a mode the night
+     drifts into.
+
+     The beat is held for whichever is longer: the text clock everybody
+     shares, or the audio actually finishing — capped, so a line that
+     never reports back cannot hold the show. */
+  let remote = false;
+  let remoteLine = 0;
+  let remotePlaying = false;
+  const remoteWaits = new Map();     // line id -> fn({ ok })
+  let remoteWired = false;
+  function setRemote(on) {
+    remote = !!on;
+    if (remote && !remoteWired && typeof Party !== 'undefined' && Party.on) {
+      remoteWired = true;
+      Party.on('claudia', (m) => {
+        const fn = m && remoteWaits.get(String(m.line));
+        if (!fn) return;
+        remoteWaits.delete(String(m.line));
+        fn({ ok: m.op === 'done', message: m.message || null });
+      });
+    }
+    if (!remote) hushRemote();
+  }
+  const canRemote = () => remote && typeof Party !== 'undefined' && Party.connected
+    && Party.serverRoom && typeof Party.claudia === 'function';
+  function hushRemote() {
+    for (const fn of remoteWaits.values()) fn({ ok: false, hushed: true });
+    remoteWaits.clear();
+    if (remotePlaying && typeof Party !== 'undefined' && Party.claudia) Party.claudia({ op: 'hush' });
+    remotePlaying = false;
+  }
+  function askRemote(text) {
+    const line = 'l' + (++remoteLine);
+    remotePlaying = true;
+    return new Promise((resolve) => {
+      remoteWaits.set(line, (r) => { if (line === 'l' + remoteLine) remotePlaying = false; resolve(r); });
+      Party.claudia({ op: 'say', text, line });
+    });
+  }
+
   /* Always resolves, exactly once, whatever the browser does. */
   function say(text, opts = {}) {
     const t = ++token;
     if (live) { const l = live; live = null; if (l.timer) clearTimeout(l.timer); l.resolve(); }
+    if (remotePlaying) hushRemote();
     // Chrome drops or clips an utterance spoken in the same tick as a
     // cancel that interrupted something, so a busy synthesiser gets a beat
     let busy = false;
@@ -169,6 +215,8 @@ const Voice = (() => {
     const body = String(text || '').trim();
     show(opts.speaker || '', body);
     if (!body) return Promise.resolve();
+
+    const claudia = opts.speaker === undefined || opts.speaker === 'Claudia';
 
     return new Promise((resolve) => {
       const done = () => settle(t, resolve);
@@ -182,6 +230,27 @@ const Voice = (() => {
          speech synthesis at all. */
       const duration = readTime(body, opts.rate === undefined ? 0.94 : opts.rate);
 
+      if (claudia && !opts.silent && !muted && canRemote()) {
+        if (typeof Music !== 'undefined' && Music.duckAll) Music.duckAll(0.45, 0.6);
+        let clock = false, heard = false;
+        live.timer = setTimeout(done, duration * 1.6 + 2500);
+        setTimeout(() => { clock = true; if (heard) done(); }, duration);
+        askRemote(body).then((r) => {
+          if (t !== token || !live) return;
+          if (r.ok) { heard = true; if (clock) done(); return; }
+          if (r.hushed) return;
+          // the server could not read it: this one line in the browser's voice
+          console.warn('Claudia line fell back to the browser voice:', r.message);
+          if (live.timer) clearTimeout(live.timer);
+          speakLocal(body, opts, t, done, false, duration);
+        });
+        return;
+      }
+      speakLocal(body, opts, t, done, busy, duration);
+    });
+  }
+
+  function speakLocal(body, opts, t, done, busy, duration) {
       /* `silent` is not a fallback, it is a choice: your own line at the
          table is read, not performed, because hearing yourself dubbed by
          the host's voice is worse than reading it. */
@@ -234,13 +303,13 @@ const Voice = (() => {
         try { synth.speak(u); } catch (e) { advance(30); }
       };
       if (busy) setTimeout(next, 80); else next();
-    });
   }
 
   // Cancellation is reserved for teardown and browser lifecycle events;
   // ordinary show input never calls this or cuts a line short.
   function skip() {
     token++;
+    if (remotePlaying) hushRemote();
     if (supported) { try { synth.cancel(); } catch (e) {} }
     if (live) {
       const l = live; live = null;
@@ -284,7 +353,8 @@ const Voice = (() => {
     } catch (e) {}
   }
 
-  return { init, unlock, say, stop, clear, show, list, setVoice, setMuted, refresh,
+  return { init, unlock, say, stop, clear, show, list, setVoice, setMuted, refresh, setRemote,
+           get remote() { return remote; },
            /* Whether a line is still running its clock. Not "is the
               synthesiser making a noise" — a muted player and a machine
               with no speech in it still hold the beat for the reading

@@ -166,6 +166,7 @@ const VoiceChat = (() => {
 
     const entry = { stream: peerStream, el, analyser: null, data: null };
     peers.set(peerId, entry);
+    if (volumes.has(peerId)) el.volume = volumes.get(peerId);
     meter(peerId, entry);
   }
 
@@ -199,8 +200,36 @@ const VoiceChat = (() => {
     } catch (e) { /* a meter is a nicety; never let it cost the audio */ }
   }
 
+  /* Our own voice, metered the same way, for the one client that has
+     to judge the whole room: the host's moderator asks how long every
+     living person has spoken, and the host is a person too. */
+  let selfMeter = null, selfLevel = 0;
+  function meterSelf() {
+    if (!stream || (selfMeter && selfMeter.stream === stream)) return;
+    try {
+      const ctx = AudioBus.ctx || AudioBus.init();
+      if (!ctx) return;
+      const tracks = stream.getAudioTracks();
+      if (!tracks.length) return;
+      const src = ctx.createMediaStreamSource(new MediaStream(tracks));
+      const an = ctx.createAnalyser();
+      an.fftSize = 256;
+      an.smoothingTimeConstant = 0.75;
+      src.connect(an);
+      selfMeter = { stream, an, data: new Uint8Array(an.frequencyBinCount) };
+    } catch (e) { selfMeter = null; }
+  }
+
   function pump() {
-    if (!peers.size) return;
+    meterSelf();
+    if (selfMeter && stream) {
+      selfMeter.an.getByteFrequencyData(selfMeter.data);
+      let sum = 0;
+      for (let i = 2; i < 40; i++) sum += selfMeter.data[i];
+      const gagged = muted || (floorId !== null && floorId !== selfId);
+      selfLevel = gagged ? 0 : Math.min(1, (sum / 38) / 96);
+    } else selfLevel = 0;
+    if (!peers.size) { emit('level', levels); return; }
     for (const [id, e] of peers) {
       if (!e.analyser) continue;
       e.analyser.getByteFrequencyData(e.data);
@@ -271,6 +300,22 @@ const VoiceChat = (() => {
     emit('state');
   }
 
+  /* How loud one voice is in your ears. In the castle by day that is
+     how far away they are standing, which is what makes a quiet word in
+     the turret quiet. 1 everywhere else. */
+  const volumes = new Map();
+  function setVolume(peerId, v) {
+    const vol = Math.max(0, Math.min(1, Number(v)));
+    if (!Number.isFinite(vol)) return;
+    if (vol >= 0.999) volumes.delete(peerId); else volumes.set(peerId, vol);
+    const e = peers.get(peerId);
+    if (e && e.el && Math.abs(e.el.volume - vol) > 0.02) e.el.volume = vol;
+  }
+  function resetVolumes() {
+    volumes.clear();
+    for (const e of peers.values()) if (e.el) e.el.volume = 1;
+  }
+
   /* The meters only need to move as fast as a person can see them. */
   let pumpTimer = null;
   function init() {
@@ -279,8 +324,9 @@ const VoiceChat = (() => {
   }
 
   return {
-    init, listen, start, stop, on, setMuted, toggleMuted, setFloor, openFloor,
+    init, listen, start, stop, on, setMuted, toggleMuted, setFloor, openFloor, setVolume, resetVolumes,
     level, levels, loudest,
+    get selfLevel() { return selfLevel; },
     get available() { return available; },
     get muted() { return muted; },
     get speaking() { return floorId; },

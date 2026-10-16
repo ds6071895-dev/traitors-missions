@@ -66,6 +66,13 @@ const Net = (() => {
         Session.on('scene',   (s)       => emit({ type: 'scene',   ...s })),
         Session.on('sync',    (s)       => emit({ type: 'sync',    ...s })),
         Session.on('expose',  (x)       => emit({ type: 'expose',  ...x })),
+        Session.on('chore',   (c)       => emit({ type: 'chore',   ...c })),
+        Session.on('bell',    (b)       => emit({ type: 'bell',    ...b })),
+        Session.on('night',   (n)       => emit({ type: 'night',   ...n })),
+        Session.on('arrive',  (a)       => emit({ type: 'arrive',  ...a })),
+        Session.on('murder',  (m)       => emit({ type: 'murder',  ...m })),
+        Session.on('cue',     (c)       => emit({ type: 'cue',     ...c })),
+        Session.on('private', ()        => emit({ type: 'private' })),
         Session.on('outcome', (o)       => emit({ type: 'outcome', outcome: o })),
       ];
     },

@@ -65,6 +65,9 @@ const Lobby = (() => {
       el('lobby-code').textContent = Party.code || '····';
       const list = Party.roster();
       const mine = Party.selfId();
+      /* AI contestants sit in the empty chairs the host has given them,
+         after the people. They are the host's to add and nobody else's. */
+      const ai = aiSeats(list.length);
       el('lobby-roster').innerHTML = list.map(p => {
         const you = p.id === mine;
         return '<div class="lr-seat' + (you ? ' you' : '') + '">'
@@ -72,22 +75,35 @@ const Lobby = (() => {
              + '<span class="lr-name">' + escape(p.name || 'Player') + '</span>'
              + '<span class="lr-tag">' + (p.host ? 'host' : (you ? 'you' : '')) + '</span>'
              + '</div>';
-      }).join('') + emptySeats(list.length);
+      }).join('') + ai.map((b, i) => '<div class="lr-seat ai">'
+             + '<span class="lr-seat-n">' + (list.length + i + 1) + '</span>'
+             + '<span class="lr-name">' + escape(b.name) + '</span>'
+             + '<span class="lr-tag">' + (b.ready ? 'AI' : 'AI · ' + escape(b.status || 'waking')) + '</span>'
+             + '</div>').join('') + emptySeats(list.length + ai.length);
 
-      const n = list.length;
+      const n = list.length + ai.length;
       const full = n >= Party.MAX;
+      const enough = n >= Party.MIN;
+      const aiWaiting = ai.some(b => !b.ready)
+        || (typeof AIPlayers !== 'undefined' && Party.isHost && AIPlayers.wantsClaudia && !AIPlayers.claudia);
       /* A guest with no roster yet has not been let in — it has only
-         opened a door. Saying "0/3" there reads as an empty room the
+         opened a door. Saying "0/8" there reads as an empty room the
          host is sitting in, which is the one thing it is not. */
-      el('lobby-status').textContent = Party.reconnecting ? 'Reconnecting…' : (!Party.isHost && !n)
+      el('lobby-status').textContent = Party.reconnecting ? 'Reconnecting…' : (!Party.isHost && !list.length)
         ? 'Looking for the room…'
         : (full
-            ? (Party.isHost ? 'Everybody is here.' : 'Everybody is here. Waiting for the host.')
-            : 'Waiting for players… ' + n + '/' + Party.MAX);
+            ? (Party.isHost ? 'Every chair is filled.' : 'Every chair is filled. Waiting for the host.')
+            : enough
+              ? (Party.isHost ? n + ' at the table. Start whenever you like, or wait for more.'
+                              : n + ' at the table. Waiting for the host.')
+              : 'Waiting for players… ' + n + '/' + Party.MAX + ' · ' + Party.MIN + ' needed to start');
 
       const start = el('lobby-start');
       start.hidden = !Party.isHost;
-      start.disabled = !full || Party.reconnecting;
+      start.disabled = !enough || n > Party.MAX || aiWaiting || Party.reconnecting;
+      const opts = el('lobby-opts');
+      if (opts) opts.hidden = !Party.isHost;
+      if (Party.isHost && typeof AIPlayers !== 'undefined') AIPlayers.paintPanel(el('lobby-ai'), list.length);
     }
 
     RoomUI.paintMic();
@@ -99,6 +115,14 @@ const Lobby = (() => {
       mic.classList.toggle('on', VoiceChat.available && !VoiceChat.muted);
     }
     UINav.scan();
+  }
+
+  /* The AI contestants the host has asked for, if the AI panel exists
+     and this is the host's lobby. A guest learns of them only when the
+     night starts, as players like any other. */
+  function aiSeats(humans) {
+    if (!Party.isHost || typeof AIPlayers === 'undefined') return [];
+    return AIPlayers.seats(humans);
   }
 
   function emptySeats(n) {
@@ -159,6 +183,7 @@ const Lobby = (() => {
   }
 
   function leave() {
+    if (typeof AIPlayers !== 'undefined' && Party.isHost) { AIPlayers.reset(); if (typeof AI !== 'undefined') AI.end(); }
     Party.leave();
     VoiceChat.stop();
     started = false;
@@ -175,15 +200,19 @@ const Lobby = (() => {
   function start() {
     if (!Party.isHost || started || Party.reconnecting) return;
     const list = Party.roster();
-    if (list.length < Party.MAX) return;
+    const ai = aiSeats(list.length);
+    const total = list.length + ai.length;
+    if (total < Party.MIN || total > Party.MAX || ai.some(b => !b.ready)) return;
     started = true;
     const seed = U.randomSeed();
-    const players = list.map(p => ({ id: p.id, name: p.name, look: p.look }));
-    Party.post('go', { seed, players });
-    launch(seed, players);
+    const players = list.map(p => ({ id: p.id, name: p.name, look: p.look }))
+      .concat(ai.map(b => ({ id: b.id, name: b.name, look: b.look, bot: true, voice: b.voice })));
+    const aiOn = { claudia: !!(typeof AIPlayers !== 'undefined' && AIPlayers.claudia) };
+    Party.post('go', { seed, players, ai: aiOn });
+    launch(seed, players, aiOn);
   }
 
-  function launch(seed, players) {
+  function launch(seed, players, aiOn) {
     const mine = Party.selfId();
     const seated = players.map(p => Object.assign({}, p, { local: p.id === mine }));
     const launchRoom = Party.room;
@@ -192,7 +221,7 @@ const Lobby = (() => {
     Screens.transition(() => {
       if (Party.room !== launchRoom || !Party.connected) return;
       Game.enterShow();
-      Show.beginParty({ seed, players: seated, host: Party.isHost });
+      Show.beginParty({ seed, players: seated, host: Party.isHost, ai: aiOn || null });
     }, 420);
   }
 
@@ -251,12 +280,8 @@ const Lobby = (() => {
     });
     Party.on('go', (data) => {
       if (Party.isHost || started || !data) return;
-      /* Two things start out of a room now. A `go` that names a
-         mission is a mission party — `mission-party.js` owns that one,
-         and a night must not be started on top of it. */
-      if (data.kind === 'mission') return;
       started = true;
-      launch(data.seed, data.players || []);
+      launch(data.seed, data.players || [], data.ai || null);
     });
     VoiceChat.on('state', paint);
 

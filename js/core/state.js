@@ -1,8 +1,8 @@
 /* ------------------------------------------------------------------
    state.js — what survives between nights.
 
-   The prize pot, the per-course records, the ghosts and the settings.
-   Deliberately *not* the night in progress: a run is three people
+   The prize pot, the settings and a short log. Deliberately *not* the
+   night in progress: a run is a table of people
    being in the same room at the same time, and there is nothing on
    this machine that could bring that back. `Session` owns the night
    and writes none of it down.
@@ -25,9 +25,8 @@ const GameState = (() => {
       createdAt: Date.now(),
       prizePot: 0,
       round: 1,
-      phase: 'lobby',            // lobby | mission | roundtable | endgame
-      missions: {},              // id -> { plays, completed, best:{...}, lastEarned }
-      settings: { muted: false, camera: 'chase', quality: 'medium' },
+      phase: 'lobby',            // lobby | tasks | night | roundtable | endgame
+      settings: { muted: false, quality: 'medium' },
       log: [],                   // narrative events, for a future recap screen
     };
   }
@@ -43,8 +42,12 @@ const GameState = (() => {
         if (parsed && parsed.version === VERSION) data = Object.assign(fresh(), parsed);
       }
     } catch (e) { /* corrupt or unavailable storage — start fresh */ }
-    if (removeTwistedRecords()) save();
-    loadGhosts();
+    // the missions are gone, and so is everything they kept here
+    let stale = false;
+    for (const k of ['missions']) if (Object.hasOwn(data, k)) { delete data[k]; stale = true; }
+    for (const k of ['setups', 'setup', 'camera']) if (data.settings && Object.hasOwn(data.settings, k)) { delete data.settings[k]; stale = true; }
+    if (stale) save();
+    try { localStorage.removeItem('traitors.ghosts.v1'); } catch (e) {}
     return data;
   }
 
@@ -65,131 +68,6 @@ const GameState = (() => {
     return data.prizePot;
   }
 
-  /* ---------------- mission records ---------------- */
-
-  function missionRecord(id) {
-    if (!data.missions[id]) {
-      data.missions[id] = { plays: 0, completed: 0, best: null, lastEarned: 0 };
-    }
-    return data.missions[id];
-  }
-
-  // result: { earned, completed, time, ...anything mission-specific }
-  // A mission decides what "better" means via `betterFn`.
-  function recordMission(id, result, betterFn) {
-    const rec = missionRecord(id);
-    rec.plays++;
-    if (result.completed) rec.completed++;
-    rec.lastEarned = result.earned || 0;
-    const better = betterFn || ((a, b) => (a.earned || 0) > (b.earned || 0));
-    const isBest = !rec.best || better(result, rec.best);
-    if (isBest) rec.best = Object.assign({}, result);
-    save();
-    return { record: rec, isBest };
-  }
-
-  /* Keep the original untwisted key format so existing records survive. */
-
-  const runKey = (mode, seed) => `${mode}:${seed}:none`;
-
-  function untwistedKey(id, key) {
-    if (id === 'ski') {
-      try { const parts = JSON.parse(key); return Array.isArray(parts) && parts[3] === null; }
-      catch (e) { return false; }
-    }
-    return /^(prize|trial|gauntlet|salvage|deep):\d+:none(?::boss)?$/.test(key);
-  }
-
-  function removeTwistedRecords() {
-    let changed = false;
-    for (const [id, rec] of Object.entries(data.missions || {})) {
-      if (!rec) continue;
-      const runs = rec.runs || {};
-      for (const key of Object.keys(runs)) {
-        if (untwistedKey(id, key)) continue;
-        delete runs[key]; changed = true;
-      }
-      if (rec.best && (rec.best.modId || rec.best.modName || (rec.best.key && !untwistedKey(id, rec.best.key)))) {
-        const candidates = Object.values(runs).map(run => run && run.best).filter(Boolean);
-        rec.best = candidates.reduce((best, run) => !best || (run.earned || 0) > (best.earned || 0) ? run : best, null);
-        changed = true;
-      }
-      for (const result of [rec.best, ...Object.values(runs).map(run => run && run.best)]) {
-        if (!result) continue;
-        for (const field of ['modId', 'modName']) {
-          if (Object.hasOwn(result, field)) { delete result[field]; changed = true; }
-        }
-      }
-    }
-    for (const setup of Object.values((data.settings || {}).setups || {})) {
-      if (setup && Object.hasOwn(setup, 'modId')) { delete setup.modId; changed = true; }
-    }
-    return changed;
-  }
-
-  function runRecord(id, key) {
-    const rec = missionRecord(id);
-    if (!rec.runs) rec.runs = {};
-    if (!rec.runs[key]) rec.runs[key] = { plays: 0, best: null, medal: 0 };
-    return rec.runs[key];
-  }
-
-  // result: whatever the mission wants to keep. `betterFn` decides what
-  // "better" means for this mode (most money, or least time) and is asked
-  // even about the very first run — a `b` of null means "nothing to beat",
-  // which is not the same as "anything beats it": a time trial abandoned
-  // after twelve seconds has not set a twelve-second time.
-  function recordRun(id, key, result, betterFn) {
-    const run = runRecord(id, key);
-    run.plays++;
-    const better = betterFn || ((a, b) => (a.earned || 0) > (b ? (b.earned || 0) : -1));
-    const isBest = better(result, run.best);
-    if (isBest) run.best = Object.assign({}, result);
-    run.medal = Math.max(run.medal || 0, result.medal || 0);
-    save();
-    return { run, isBest };
-  }
-
-  /* ---------------- ghosts ----------------
-     Kept in their own storage key: they are far bigger than the save and
-     far less precious, so a quota failure here must never cost you the
-     prize pot. Oldest ghosts are evicted first. */
-
-  const GHOST_KEY = 'traitors.ghosts.v1';
-  const GHOST_LIMIT = 12;
-  let ghosts = null;
-
-  function loadGhosts() {
-    if (ghosts) return ghosts;
-    try { ghosts = JSON.parse(localStorage.getItem(GHOST_KEY)) || {}; }
-    catch (e) { ghosts = {}; }
-    let changed = false;
-    for (const fullKey of Object.keys(ghosts)) {
-      const cut = fullKey.indexOf('|');
-      if (cut < 0 || untwistedKey(fullKey.slice(0, cut), fullKey.slice(cut + 1))) continue;
-      delete ghosts[fullKey]; changed = true;
-    }
-    if (changed) try { localStorage.setItem(GHOST_KEY, JSON.stringify(ghosts)); } catch (e) {}
-    return ghosts;
-  }
-
-  function getGhost(id, key) {
-    const g = loadGhosts()[id + '|' + key];
-    return g ? g.data : null;
-  }
-
-  function saveGhost(id, key, data) {
-    const g = loadGhosts();
-    g[id + '|' + key] = { at: Date.now(), data };
-    const keys = Object.keys(g);
-    if (keys.length > GHOST_LIMIT) {
-      keys.sort((a, b) => g[a].at - g[b].at);
-      for (let i = 0; i < keys.length - GHOST_LIMIT; i++) delete g[keys[i]];
-    }
-    try { localStorage.setItem(GHOST_KEY, JSON.stringify(g)); }
-    catch (e) { /* out of room — a ghost is not worth failing a run over */ }
-  }
-
   /* ---------------- narrative hooks for later phases ---------------- */
 
   function logEvent(type, text, meta) {
@@ -206,8 +84,7 @@ const GameState = (() => {
 
   return {
     load, save, reset, subscribe,
-    addToPot, missionRecord, recordMission, logEvent,
-    runKey, runRecord, recordRun, getGhost, saveGhost,
+    addToPot, logEvent,
     get data() { return data; },
     get prizePot() { return data.prizePot; },
     get settings() { return data.settings; },

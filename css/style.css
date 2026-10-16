@@ -1,5 +1,5 @@
 /* ==================================================================
-   The Traitors — Missions
+   The Traitors
    Palette: slate ink + candle gold + traitor crimson, over vibrant sea
    ================================================================== */
 :root{
@@ -731,301 +731,8 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
   font-weight:700; color:rgba(230,244,255,.82); background:rgba(6,18,30,.55);
   border:1px solid rgba(255,255,255,.14); border-radius:20px; padding:2px 8px}
 
-/* ==================================================================
-   HUD: Shootout
-   Everything here is built around the middle of the screen, because
-   that is where the whole game happens. The reticle *is* the draw
-   meter — it opens with sway and shuts as the bow comes good — and the
-   bar under it is only there for the first few runs.
-   ================================================================== */
-.sh-hud{flex-direction:column; justify-content:space-between}
-.sh-top{display:flex; justify-content:space-between; align-items:flex-start; gap:20px}
-.sh-bottom{display:flex; justify-content:space-between; align-items:flex-end; gap:20px}
-
-.sh-money{font-family:var(--display); font-size:clamp(28px,4.2vw,48px); line-height:1;
-  color:var(--gold); text-shadow:0 3px 0 rgba(4,12,22,.5), 0 0 34px rgba(242,193,78,.42)}
-/* what a mistake just cost you, said in the same place the money lives */
-.sh-docked{font-family:var(--display); font-size:clamp(17px,2.3vw,26px); line-height:1;
-  color:var(--crimson); text-shadow:0 0 16px rgba(229,19,63,.75); margin-top:2px;
-  opacity:0; transform:translateY(-6px); transition:opacity .12s, transform .18s;
-  letter-spacing:.02em; white-space:nowrap}
-.sh-docked.show{opacity:1; transform:none; animation:dockShove .45s cubic-bezier(.2,1.4,.4,1)}
-@keyframes dockShove{0%{transform:translateY(-14px) scale(1.35)}100%{transform:none}}
-.sh-money.hurt{color:var(--crimson); text-shadow:0 0 22px rgba(229,19,63,.8);
-  animation:moneyHurt .5s ease-out}
-@keyframes moneyHurt{0%{transform:translateX(0)}20%{transform:translateX(-7px)}
-  40%{transform:translateX(6px)}60%{transform:translateX(-4px)}100%{transform:none}}
-
-.sh-chain-wrap{display:flex; align-items:baseline; flex-wrap:wrap; gap:7px; margin-top:4px;
-  opacity:0; max-width:190px; transform:translateY(-4px);
-  transition:opacity .2s, transform .2s}
-.sh-chain-wrap.on{opacity:1; transform:none}
-.sh-chain{font-family:var(--display); font-size:22px; color:var(--mint);
-  text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 20px rgba(125,252,208,.5)}
-.sh-chain-lbl{font-size:9.5px; letter-spacing:.2em; text-transform:uppercase;
-  color:rgba(240,249,255,.75); font-weight:700}
-.sh-chain-track{flex-basis:100%; height:3px; border-radius:2px; overflow:hidden;
-  background:rgba(6,18,30,.6); border:1px solid rgba(255,255,255,.1)}
-.sh-chain-bar{height:100%; width:0%; background:var(--mint); transition:width .1s linear, background .2s}
-.sh-chain-bar.low{background:#ff5470}
-
-.sh-round-block{text-align:center; min-width:180px}
-.sh-round{font-family:var(--display); font-size:clamp(20px,2.6vw,30px); letter-spacing:.06em;
-  color:var(--paper); text-shadow:0 2px 0 rgba(4,12,22,.5)}
-.sh-round-name{font-size:11px; letter-spacing:.18em; text-transform:uppercase; font-weight:700;
-  color:rgba(240,249,255,.8); margin-top:2px; min-height:14px;
-  text-shadow:0 1px 2px rgba(4,16,28,.9)}
-.sh-round-track{height:4px; margin-top:7px; border-radius:3px; background:rgba(6,18,30,.55);
-  border:1px solid rgba(255,255,255,.12); overflow:hidden}
-.sh-round-bar{height:100%; width:100%; background:linear-gradient(90deg,var(--cyan),var(--mint));
-  transition:width .1s linear}
-.sh-round-bar.low{background:#ff5470}
-.sh-pace{display:none; margin-top:4px; font-family:var(--display); font-size:17px;
-  letter-spacing:.04em; color:var(--muted); text-shadow:0 2px 0 rgba(4,12,22,.5)}
-.sh-pace.show{display:block}
-.sh-pace.ahead{color:var(--mint); text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 18px rgba(125,252,208,.5)}
-.sh-pace.behind{color:#ff8fa3; text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 18px rgba(255,84,112,.45)}
-
-.sh-tally{text-align:right; min-width:130px}
-.sh-left{font-family:var(--display); font-size:clamp(22px,3vw,32px); line-height:1.1;
-  color:var(--paper); text-shadow:0 2px 0 rgba(4,12,22,.5)}
-.sh-acc-row{display:flex; gap:8px; justify-content:flex-end; align-items:baseline;
-  font-size:9.5px; letter-spacing:.18em; text-transform:uppercase; color:rgba(240,249,255,.7);
-  font-weight:700}
-.sh-acc-row b{font-family:var(--display); font-size:15px; letter-spacing:.02em; color:var(--cyan)}
-.sh-lives{display:none; gap:5px; justify-content:flex-end; margin-top:7px}
-.sh-lives.show{display:flex}
-.sh-life{width:11px; height:11px; border-radius:50%; border:1.5px solid rgba(255,255,255,.35);
-  background:transparent; transition:background .2s}
-.sh-life.on{background:var(--crimson); border-color:rgba(255,120,150,.8);
-  box-shadow:0 0 12px rgba(216,30,64,.6)}
-
-/* -------- the reticle --------
-   The middle of the screen is where the whole game happens, so the middle
-   of the reticle has to survive being held over anything: birch bark, a
-   bright sky, a lit lantern. Every part of it is a bright core wearing a
-   dark outline — the trick a map pin uses — instead of a pale pixel that
-   vanishes the moment the background is pale too. One variable, --ret,
-   carries the state colour to the blades, the dot and the glow together,
-   so the middle is never a colour you cannot see. */
-.sh-reticle{position:absolute; left:50%; top:50%; width:0; height:0; z-index:24;
-  pointer-events:none; --ret:#f4fbff; --ret-glow:rgba(180,220,255,.35)}
-.sh-reticle i{position:absolute; background:var(--ret); display:block; border-radius:1.5px;
-  box-shadow:0 0 0 1px rgba(2,10,18,.92), 0 0 7px rgba(2,10,18,.8), 0 0 12px var(--ret-glow);
-  transition:background .1s, box-shadow .1s}
-.sh-reticle .r-n,.sh-reticle .r-s{width:2.5px; height:10px; left:-1.25px}
-.sh-reticle .r-e,.sh-reticle .r-w{width:10px; height:2.5px; top:-1.25px}
-.sh-reticle .r-n{top:calc(-1 * var(--spread) - 10px)}
-.sh-reticle .r-s{top:var(--spread)}
-.sh-reticle .r-e{left:var(--spread)}
-.sh-reticle .r-w{left:calc(-1 * var(--spread) - 10px)}
-/* the dot: a solid pip with a hard dark ring round it, big enough to be
-   a thing you aim with rather than a smudge you look for */
-.sh-reticle .r-dot{width:5px; height:5px; left:-2.5px; top:-2.5px; border-radius:50%;
-  background:var(--ret);
-  box-shadow:0 0 0 1.8px rgba(2,10,18,.95), 0 0 9px var(--ret), 0 0 16px var(--ret-glow)}
-.sh-reticle.nocking{--ret:#9db2c4; --ret-glow:rgba(120,150,180,.25)}
-.sh-reticle.drawing{--ret:var(--cyan); --ret-glow:rgba(57,230,255,.6)}
-/* full draw: the middle goes gold and breathes, and you can feel the shot
-   is ready without taking your eye off the bird */
-.sh-reticle.perfect{--ret:var(--gold); --ret-glow:rgba(242,193,78,.9)}
-.sh-reticle.perfect .r-dot{width:7px; height:7px; left:-3.5px; top:-3.5px;
-  animation:retReady .85s ease-in-out infinite}
-@keyframes retReady{0%,100%{transform:scale(1)}50%{transform:scale(1.3)}}
-.sh-reticle.focus::after{content:''; position:absolute; left:-46px; top:-46px;
-  width:92px; height:92px; border-radius:50%; border:1px solid rgba(240,249,255,.16)}
-
-/* -------- the loose, and the hit --------
-   Two answers, both dead centre. The ring leaves with the arrow; the four
-   ticks snap out when it lands. The tick is the only thing that tells you
-   the arrow arrived before the money floats up out of the wood, so it is
-   instant, it is loud, and it is a different shape for a kill, for a hit
-   that only annoyed something, for the owl, and for a dove. */
-.sh-loose{position:absolute; left:50%; top:50%; width:0; height:0; z-index:25;
-  pointer-events:none}
-.sh-loose::after{content:''; position:absolute; left:-11px; top:-11px;
-  width:22px; height:22px; border-radius:50%; border:2px solid var(--lo,#dff3ff);
-  box-shadow:0 0 12px var(--lo,#dff3ff); opacity:0}
-.sh-loose.go::after{animation:looseRing .26s cubic-bezier(.2,.8,.35,1) forwards}
-.sh-loose.clean{--lo:var(--gold)}
-@keyframes looseRing{
-  0%{transform:scale(.5); opacity:.95}
-  100%{transform:scale(2.3); opacity:0}}
-
-.sh-hitmark{position:absolute; left:50%; top:50%; width:0; height:0; z-index:26;
-  pointer-events:none; opacity:0; --hm:#ffffff; --hm-far:24px; --hm-len:12px}
-.sh-hitmark.show{opacity:1}
-.sh-hitmark i{position:absolute; left:-1.5px; top:calc(-1 * var(--hm-len) / 2);
-  width:3px; height:var(--hm-len); border-radius:2px; background:var(--hm);
-  box-shadow:0 0 0 1px rgba(2,10,18,.9), 0 0 10px var(--hm); opacity:0}
-.sh-hitmark i:nth-child(1){--a:45deg}
-.sh-hitmark i:nth-child(2){--a:135deg}
-.sh-hitmark i:nth-child(3){--a:225deg}
-.sh-hitmark i:nth-child(4){--a:315deg}
-.sh-hitmark b{position:absolute; left:-9px; top:-9px; width:18px; height:18px;
-  border-radius:50%; border:2px solid var(--hm); box-shadow:0 0 14px var(--hm);
-  opacity:0; display:block}
-.sh-hitmark.show i{animation:hitTick .32s cubic-bezier(.12,.85,.3,1) forwards}
-.sh-hitmark.show b{animation:hitRing .36s cubic-bezier(.2,.8,.35,1) forwards}
-@keyframes hitTick{
-  0%{transform:rotate(var(--a)) translateY(-6px) scale(.55); opacity:0}
-  14%{opacity:1}
-  100%{transform:rotate(var(--a)) translateY(calc(-1 * var(--hm-far))) scale(1); opacity:0}}
-@keyframes hitRing{
-  0%{transform:scale(.4); opacity:.85}
-  100%{transform:scale(2.6); opacity:0}}
-/* a kill pays gold; a clean kill throws the ticks further */
-.sh-hitmark.kill{--hm:var(--gold); --hm-far:28px; --hm-len:14px}
-.sh-hitmark.kill.clean{--hm-far:36px; --hm-len:17px}
-/* a hit that landed on armour: grey, small, and it does not ring */
-.sh-hitmark.dull{--hm:#9aa6b8; --hm-far:16px; --hm-len:9px}
-.sh-hitmark.dull b{display:none}
-/* the owl giving one up */
-.sh-hitmark.boss{--hm:var(--gold); --hm-far:46px; --hm-len:22px}
-.sh-hitmark.boss i{width:4px}
-/* and the one you should not have taken */
-.sh-hitmark.bad{--hm:var(--crimson); --hm-far:30px; --hm-len:15px}
-@media (prefers-reduced-motion:reduce){
-  .sh-reticle.perfect .r-dot{animation:none}
-  .sh-hitmark.show i,.sh-hitmark.show b,.sh-loose.go::after{animation-duration:.01ms}
-  .sh-boon{animation:none}
-  .sh-boon.low{animation:none; opacity:.7}
-}
-
-/* the lock: what the crosshair is over, named. Gold is quarry — it does
-   not mean the arrow will find it, nothing aims for you any more — and
-   red means a dove is in front of you, so do not loose. */
-.sh-reticle .r-lock{left:-19px; top:-19px; width:38px; height:38px; border-radius:50%;
-  background:none; border:2px solid var(--gold); opacity:0; box-shadow:0 0 12px rgba(242,193,78,.6);
-  transform:scale(1.5); transition:opacity .1s, transform .12s}
-.sh-reticle.lock .r-lock{opacity:.95; transform:scale(1)}
-.sh-reticle .r-tag{position:absolute; left:50%; top:30px; transform:translateX(-50%);
-  font:700 10px/1 var(--body); letter-spacing:.16em; text-transform:uppercase;
-  color:var(--gold); white-space:nowrap; opacity:0; transition:opacity .12s;
-  text-shadow:0 2px 6px rgba(4,16,28,.9)}
-.sh-reticle.lock .r-tag{opacity:.9}
-.sh-reticle.lock-bad .r-lock{border-color:var(--crimson); box-shadow:0 0 18px rgba(229,19,63,.85);
-  animation:lockPulse .5s ease-in-out infinite}
-.sh-reticle.lock-bad .r-tag{color:var(--crimson); opacity:1; font-size:11px}
-@keyframes lockPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.14)}}
-
-/* -------- draw / breath / quiver -------- */
-.sh-draw{width:min(260px,44vw); text-align:center; opacity:.55; transition:opacity .15s}
-.sh-draw.on{opacity:1}
-.sh-draw-track{position:relative; height:7px; border-radius:4px; overflow:hidden;
-  background:rgba(6,18,30,.6); border:1px solid rgba(255,255,255,.14)}
-.sh-draw-fill{height:100%; width:0%; background:linear-gradient(90deg,#2f7f8f,var(--cyan));
-  transition:width .04s linear}
-.sh-draw.perfect .sh-draw-fill{background:linear-gradient(90deg,var(--gold-dim),var(--gold))}
-.sh-draw.strain .sh-draw-fill{background:linear-gradient(90deg,#8a3b4b,#ff5470)}
-/* the clean-loose window, drawn where it actually is on the bar */
-.sh-draw-window{position:absolute; right:0; top:0; bottom:0; width:5%;
-  background:rgba(242,193,78,.5); box-shadow:0 0 10px rgba(242,193,78,.6)}
-.sh-draw-lbl{margin-top:5px; font-size:9.5px; letter-spacing:.24em; text-transform:uppercase;
-  font-weight:700; color:rgba(240,249,255,.8)}
-.sh-draw.perfect .sh-draw-lbl{color:var(--gold)}
-
-.sh-breath{width:min(190px,32vw); opacity:.9}
-.sh-breath.off{visibility:hidden}
-.sh-breath-track{height:5px; border-radius:3px; overflow:hidden; background:rgba(6,18,30,.6);
-  border:1px solid rgba(255,255,255,.13)}
-.sh-breath-fill{height:100%; width:100%; background:linear-gradient(90deg,#4a7f9a,#bfe6ff);
-  transition:width .1s linear}
-.sh-breath.using .sh-breath-fill{background:linear-gradient(90deg,#7dfcd0,#fff)}
-.sh-breath-lbl{margin-top:5px; font-size:9.5px; letter-spacing:.2em; text-transform:uppercase;
-  font-weight:700; color:rgba(240,249,255,.72)}
-
-
-/* -------- round banner -------- */
-.sh-banner{position:absolute; left:50%; top:26%; transform:translate(-50%,-8px) scale(.96);
-  text-align:center; opacity:0; pointer-events:none;
-  transition:opacity .28s ease, transform .28s cubic-bezier(.2,1.4,.4,1)}
-.sh-banner.show{opacity:1; transform:translate(-50%,0) scale(1)}
-.sb-title{font-family:var(--display); font-size:clamp(30px,5vw,58px); letter-spacing:.06em;
-  color:var(--paper); text-shadow:0 4px 0 rgba(4,12,22,.55), 0 0 40px rgba(6,20,34,.7)}
-.sb-sub{font-size:12px; letter-spacing:.22em; text-transform:uppercase; font-weight:700;
-  color:rgba(240,249,255,.86); margin-top:4px; text-shadow:0 2px 6px rgba(4,16,28,.9)}
-.sh-banner.boss .sb-title{color:#ff8fa3; text-shadow:0 4px 0 rgba(4,12,22,.55), 0 0 46px rgba(255,84,112,.6)}
-.sh-banner.bonus .sb-title{color:var(--gold); text-shadow:0 4px 0 rgba(4,12,22,.55), 0 0 46px rgba(242,193,78,.6)}
-.sh-banner.clear .sb-title{color:var(--mint)}
-.sh-banner.perfect .sb-title{color:var(--gold); text-shadow:0 4px 0 rgba(4,12,22,.55), 0 0 56px rgba(242,193,78,.8)}
-.sh-banner.fail .sb-title{color:#ff5470}
-
-/* -------- the owl -------- */
-.sh-boss{position:absolute; left:50%; top:calc(100% - 148px); transform:translateX(-50%);
-  width:min(420px,74vw); text-align:center; opacity:0; pointer-events:none;
-  transition:opacity .35s ease}
-.sh-boss.show{opacity:1}
-.sb-name{font-family:var(--display); font-size:19px; letter-spacing:.14em; color:#ff8fa3;
-  text-shadow:0 2px 0 rgba(4,12,22,.6), 0 0 26px rgba(255,84,112,.5)}
-.sb-phase{font-size:9.5px; letter-spacing:.26em; text-transform:uppercase; font-weight:800;
-  color:rgba(240,249,255,.85); margin-top:2px; text-shadow:0 1px 4px rgba(4,16,28,.9)}
-.sb-pips{display:flex; gap:5px; justify-content:center; margin-top:7px}
-.sb-pip{width:26px; height:7px; border-radius:3px; background:rgba(6,18,30,.6);
-  border:1px solid rgba(255,255,255,.22); transition:background .18s, box-shadow .18s}
-.sb-pip.on{background:linear-gradient(90deg,#ff5470,#ff8fa3); border-color:transparent;
-  box-shadow:0 0 14px rgba(255,84,112,.7)}
-.sh-boss.stagger .sb-name{color:var(--gold); text-shadow:0 2px 0 rgba(4,12,22,.6), 0 0 30px rgba(242,193,78,.7)}
-.sh-boss.open .sb-phase{color:var(--gold); animation:shWeakPulse 1s ease-in-out infinite}
-@keyframes shWeakPulse{0%,100%{opacity:1}50%{opacity:.65}}
-
-.sb-stages{display:flex; gap:6px; justify-content:center; margin-top:8px}
-.sb-stage{width:7px; height:7px; transform:rotate(45deg); background:rgba(6,18,30,.6);
-  border:1px solid rgba(255,255,255,.28)}
-.sb-stage.done{background:rgba(255,84,112,.35); border-color:rgba(255,143,163,.5)}
-.sb-stage.now{background:var(--gold); border-color:transparent;
-  box-shadow:0 0 14px rgba(242,193,78,.9)}
-
-/* -------- the charms the owl fight lends you -------- */
-.sh-boons{position:absolute; left:50%; top:calc(100% - 210px); transform:translateX(-50%);
-  display:flex; flex-wrap:wrap; gap:8px; justify-content:center; width:min(760px,92vw);
-  pointer-events:none; z-index:23}
-.sh-boon{--bc:#ffd166; display:flex; align-items:center; gap:7px; padding:5px 10px 5px 8px;
-  border-radius:999px; background:rgba(6,18,30,.62); border:1px solid var(--bc);
-  box-shadow:0 0 18px -4px var(--bc); backdrop-filter:blur(3px);
-  animation:boonIn .28s cubic-bezier(.2,1.4,.4,1) both}
-.sh-boon b{font-size:9.5px; letter-spacing:.18em; font-weight:800; color:var(--bc);
-  text-transform:uppercase}
-.sh-boon .bt{position:relative; width:34px; height:4px; border-radius:2px;
-  background:rgba(255,255,255,.16); overflow:hidden}
-.sh-boon .bt i{position:absolute; inset:0; right:auto; background:var(--bc); border-radius:2px}
-/* the last two seconds, said out loud */
-.sh-boon.low{animation:boonLow .5s ease-in-out infinite}
-@keyframes boonIn{from{opacity:0; transform:translateY(8px) scale(.9)} to{opacity:1; transform:none}}
-@keyframes boonLow{0%,100%{opacity:1} 50%{opacity:.45}}
-
-/* -------- the intercept mark --------
-   A ring you have to put the crosshair on, drawn over everything: a mark
-   you cannot see through a branch lies to you at the worst moment. */
-
-/* -------- focus vignette + pointer hint -------- */
-.sh-focus{position:fixed; inset:-4%; pointer-events:none; z-index:21; opacity:0;
-  transition:opacity .22s ease;
-  background:
-    radial-gradient(ellipse 42% 38% at 50% 50%, rgba(0,0,0,0) 55%, rgba(4,12,22,.72) 100%),
-    radial-gradient(ellipse 70% 60% at 50% 50%, rgba(0,0,0,0) 60%, rgba(20,60,90,.3) 100%);
-}
-/* the run: the edges of the world blur past you */
-.sh-rush{position:fixed; inset:-6%; pointer-events:none; z-index:21; opacity:0;
-  transition:opacity .18s linear;
-  background:
-    radial-gradient(ellipse 46% 40% at 50% 50%, rgba(0,0,0,0) 58%, rgba(10,26,18,.6) 100%),
-    radial-gradient(ellipse 76% 62% at 50% 50%, rgba(0,0,0,0) 62%, rgba(120,200,140,.16) 100%);
-}
-.sh-hint{position:absolute; left:50%; top:62%; transform:translateX(-50%); opacity:0;
-  font-size:11px; letter-spacing:.24em; text-transform:uppercase; font-weight:700;
-  color:rgba(240,249,255,.9); background:rgba(6,18,30,.7); padding:8px 16px; border-radius:20px;
-  border:1px solid rgba(255,255,255,.18); transition:opacity .25s}
-.sh-hint.show{opacity:1}
-
-/* -------- touch: drag anywhere to look, two pads to act -------- */
-/* Below `.screen`, which is 40, and that is the whole point of the
-   number. This sheet is `inset:0` and swallows every pointer event on
-   it, so at 45 it sat on top of the results panel, the pause panel and
-   the fire's ballot — every button a touch player has to press after a
-   mission ends was under a transparent sheet that ate the tap. It
-   still has to be above the world and above the HUD screen (20), so it
-   goes between them. */
+/* The walking stick for a thumb, in every room of the castle. Below every
+   screen (40), so panels and votes stay pressable over it. */
 #touch-shoot{display:none; position:fixed; inset:0; z-index:35; pointer-events:all; touch-action:none}
 #touch-shoot.visible{display:block}
 /* A panel somebody has to read and press is not a thing to hold a
@@ -1052,388 +759,6 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 #touch-shoot.walk-only .draw-pad,
 #touch-shoot.walk-only .focus-pad,
 #touch-shoot.walk-only .sprint-pad{display:none}
-
-
-/* ==================================================================
-   HUD: The Dive
-
-   Two numbers matter and everything else gets out of their way: how
-   much air is left, and where the beat is. So the breath bar is the
-   widest thing on the screen and the beat ring sits dead centre, and
-   the money — which is normally the loudest thing in this game — is
-   pushed into a corner, because down here money you have not surfaced
-   with is not money yet.
-
-   Nothing in this block is black. The pressure vignette is cyan-white,
-   the low-air state goes *warm* rather than dark, and the deepest
-   colour on the screen is a saturated blue. Depth is dangerous here in
-   colour, never in darkness.
-   ================================================================== */
-.dv-hud{flex-direction:column; justify-content:space-between}
-.dv-top{display:flex; justify-content:space-between; align-items:flex-start; gap:20px}
-.dv-bottom{display:flex; justify-content:center; align-items:flex-end; gap:20px}
-
-.dv-money{font-family:var(--display); font-size:clamp(24px,3.4vw,40px); line-height:1;
-  color:var(--gold); text-shadow:0 3px 0 rgba(4,12,22,.5), 0 0 34px rgba(242,193,78,.42);
-  transition:text-shadow .2s}
-/* the purse while it is still counting up to what it holds */
-.dv-money.rising{color:#fff2c8;
-  text-shadow:0 3px 0 rgba(4,12,22,.5), 0 0 44px rgba(255,225,150,.95)}
-.dv-gain{font-family:var(--display); font-size:clamp(15px,2vw,23px); line-height:1;
-  color:var(--mint); text-shadow:0 0 18px rgba(125,252,208,.7); margin-top:2px;
-  opacity:0; transform:translateY(-6px); transition:opacity .12s, transform .18s;
-  white-space:nowrap}
-.dv-gain.show{opacity:1; transform:none; animation:dvGain .5s cubic-bezier(.2,1.4,.4,1)}
-@keyframes dvGain{0%{transform:translateY(-14px) scale(1.4)}100%{transform:none}}
-
-.dv-chain-wrap{display:flex; align-items:baseline; flex-wrap:wrap; gap:7px; margin-top:5px;
-  opacity:0; max-width:190px; transform:translateY(-4px); transition:opacity .2s, transform .2s}
-.dv-chain-wrap.on{opacity:1; transform:none}
-.dv-chain{font-family:var(--display); font-size:21px; color:var(--cyan);
-  text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 20px rgba(57,230,255,.55)}
-.dv-chain-lbl{font-size:9.5px; letter-spacing:.2em; text-transform:uppercase;
-  color:rgba(240,249,255,.75); font-weight:700}
-.dv-chain-track{flex-basis:100%; height:3px; border-radius:2px; overflow:hidden;
-  background:rgba(6,18,30,.55); border:1px solid rgba(255,255,255,.12)}
-.dv-chain-bar{height:100%; width:0%; background:linear-gradient(90deg,var(--cyan),var(--mint));
-  transition:width .09s linear}
-.dv-chain-bar.full{background:linear-gradient(90deg,var(--mint),#fff); box-shadow:0 0 14px rgba(125,252,208,.9)}
-
-.dv-clock{text-align:center; min-width:120px}
-/* the tide's name on the clock; the flood is the one worth shouting */
-.dv-clock .hud-label{transition:color .6s}
-.dv-clock .hud-label.flood{color:#ffd166; text-shadow:0 0 12px rgba(255,209,102,.55)}
-.dv-time{font-family:var(--display); font-size:clamp(26px,3.6vw,44px); line-height:1;
-  color:var(--paper); text-shadow:0 2px 0 rgba(4,12,22,.5)}
-.dv-time.low{color:#ff8fa3; text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 26px rgba(255,84,112,.6);
-  animation:dvTick 1s steps(2) infinite}
-@keyframes dvTick{50%{opacity:.55}}
-
-.dv-hold{text-align:right; min-width:130px}
-.dv-carry-val{font-family:var(--display); font-size:clamp(18px,2.4vw,28px); line-height:1.1;
-  color:rgba(240,249,255,.45); text-shadow:0 2px 0 rgba(4,12,22,.5); transition:color .2s}
-.dv-carry-val.held{color:var(--gold); text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 22px rgba(242,193,78,.6)}
-.dv-carry{display:flex; gap:6px; justify-content:flex-end; margin-top:8px}
-.dv-carry i{width:14px; height:18px; border-radius:3px; display:block;
-  border:1.5px solid rgba(255,255,255,.3); background:transparent; transition:background .15s, box-shadow .2s}
-.dv-carry i.on{border-color:rgba(255,255,255,.7); box-shadow:0 0 12px currentColor}
-
-/* -------- the depth tape --------
-   Three bands down the left edge, and a mark that slides through them.
-   It is the only place in the mission that says how far the surface is,
-   which is the question you are asking every two seconds. */
-/* -------- the compass --------
-   Which way home is, not how far. The needle is read against the tick
-   at the top — straight ahead — so "turn until the needle is up" is
-   the entire instruction and it works at forty metres in silt with the
-   beach behind a hill. The ring closes over the last forty metres, so
-   "nearly there" is a shape rather than a number, and the whole dial
-   goes gold the moment you are stood in the drop. */
-.dv-compass{--near:0; position:relative; width:62px; height:62px; margin:9px 0 0 auto;
-  border-radius:50%; opacity:0; transform:scale(.9);
-  transition:opacity .2s, transform .2s;
-  background:radial-gradient(circle at 50% 42%, rgba(10,30,46,.82), rgba(4,14,24,.9));
-  border:1.5px solid rgba(125,252,208,.35);
-  box-shadow:0 0 18px rgba(57,230,255,.18), 0 0 0 1px rgba(4,16,28,.5) inset}
-.dv-compass.show{opacity:1; transform:none}
-.dv-compass i{position:absolute; display:block}
-/* the closing ring: a conic sweep whose gap shuts as you come in */
-.dv-comp-ring{inset:3px; border-radius:50%;
-  background:conic-gradient(var(--mint) calc(var(--near) * 360deg), rgba(255,255,255,.10) 0);
-  -webkit-mask:radial-gradient(circle, transparent 62%, #000 64%);
-  mask:radial-gradient(circle, transparent 62%, #000 64%);
-  opacity:.85; transition:opacity .2s}
-/* the tick at twelve o'clock: where you are looking */
-.dv-comp-tick{left:50%; top:2px; width:2px; height:7px; margin-left:-1px; border-radius:1px;
-  background:rgba(240,249,255,.8)}
-/* And the needle, which is a triangle so it has a point rather than
-   two ends whose sense you have to work out.
-
-   The pivot is the fiddly part: a CSS border triangle is a zero-size
-   box, so a percentage transform-origin lands somewhere that is not
-   the dial's middle. It is written in pixels against the dial instead
-   — the disc is 62px, so its centre is 31px down, and the needle's
-   own top sits at 8px: 31 - 8 = 23. Get this wrong and the needle
-   orbits the dial rather than turning in it. */
-.dv-comp-needle{left:50%; top:8px; width:0; height:0; margin-left:-6px;
-  border-left:6px solid transparent; border-right:6px solid transparent;
-  border-bottom:18px solid var(--gold);
-  transform-origin:50% 23px;
-  filter:drop-shadow(0 0 7px rgba(255,209,102,.85));
-  transition:border-bottom-color .2s}
-.dv-comp-lbl{position:absolute; left:0; right:0; bottom:9px; text-align:center;
-  font-size:8px; letter-spacing:.18em; font-weight:800; color:rgba(240,249,255,.7)}
-.dv-compass.laden{border-color:rgba(255,209,102,.55);
-  box-shadow:0 0 26px rgba(255,209,102,.30), 0 0 0 1px rgba(4,16,28,.5) inset}
-.dv-compass.laden .dv-comp-ring{background:conic-gradient(var(--gold) calc(var(--near) * 360deg), rgba(255,255,255,.10) 0)}
-.dv-compass.home{border-color:var(--gold); animation:dvHome .9s ease-in-out infinite}
-.dv-compass.home .dv-comp-needle{border-bottom-color:#fff}
-.dv-compass.home .dv-comp-lbl{color:var(--gold)}
-@keyframes dvHome{50%{box-shadow:0 0 34px rgba(255,209,102,.75), 0 0 0 1px rgba(4,16,28,.5) inset}}
-
-/* the haul: consecutive trips landed. It appears at ×2 and stops
-   moving at the cap, so it is only ever on screen while it is news. */
-.dv-haul{font-family:var(--display); font-size:clamp(12px,1.5vw,16px); line-height:1;
-  letter-spacing:.06em; color:var(--mint); margin-top:4px; white-space:nowrap;
-  opacity:0; transform:translateY(-4px); transition:opacity .2s, transform .2s, color .2s;
-  text-shadow:0 0 16px rgba(125,252,208,.6)}
-.dv-haul.on{opacity:1; transform:none}
-.dv-haul.capped{color:var(--gold); text-shadow:0 0 22px rgba(255,209,102,.9)}
-
-.dv-tape{position:absolute; left:clamp(14px,3vw,34px); top:50%; transform:translateY(-50%);
-  width:9px; height:min(46vh,340px); border-radius:5px; overflow:visible;
-  background:rgba(6,18,30,.4); border:1px solid rgba(255,255,255,.14)}
-.dv-tape i{position:absolute; left:0; right:0; display:block}
-/* The band positions and colours are written from CONFIG.tiers at
-   build time, so a changed trench moves the picture of it
-   too. These are only the fallback, for a HUD nobody has painted yet. */
-.dv-tape i.b0{top:0; height:28.6%; background:linear-gradient(180deg,rgba(255,209,102,.65),rgba(255,209,102,.3))}
-.dv-tape i.b1{top:28.6%; height:32.1%; background:linear-gradient(180deg,rgba(255,159,74,.6),rgba(255,159,74,.28))}
-.dv-tape i.b2{top:60.7%; height:39.3%; background:linear-gradient(180deg,rgba(57,230,255,.6),rgba(57,230,255,.25))}
-.dv-tape-mark{position:absolute; left:-7px; width:23px; height:3px; border-radius:2px;
-  background:var(--paper); box-shadow:0 0 12px rgba(255,255,255,.85); transition:top .08s linear}
-/* arriving in a tier lights its band once, on the way down. Descending
-   used to be thirty metres of nothing happening. */
-.dv-tape.lit0 i.b0, .dv-tape.lit1 i.b1, .dv-tape.lit2 i.b2{animation:dvBand 1.1s ease-out}
-@keyframes dvBand{
-  0%{filter:brightness(3.4) saturate(1.4); box-shadow:0 0 22px currentColor}
-  100%{filter:none}}
-.dv-depth{position:absolute; left:20px; top:50%; transform:translateY(-50%);
-  font-family:var(--display); font-size:clamp(20px,2.6vw,30px); color:var(--paper);
-  text-shadow:0 2px 0 rgba(4,12,22,.6); white-space:nowrap}
-.dv-tier{position:absolute; left:20px; top:calc(50% + 22px);
-  font-size:10px; letter-spacing:.22em; text-transform:uppercase; font-weight:800;
-  text-shadow:0 1px 3px rgba(4,16,28,.9); white-space:nowrap}
-
-/* -------- the beat ring --------
-   A fixed circle, a ring that contracts into it, and a dot. When the
-   contracting ring meets the fixed one you are on the beat, and the
-   whole thing goes gold for the width of the window. Nobody has to be
-   told what that means, which is the entire point of it. */
-.dv-ring{position:absolute; left:50%; top:50%; width:0; height:0; z-index:24;
-  pointer-events:none; --dv-ring:rgba(240,249,255,.55)}
-.dv-ring.off{display:none}
-.dv-ring i{position:absolute; left:50%; top:50%; border-radius:50%; display:block;
-  transform:translate(-50%,-50%)}
-.dv-ring-fixed{width:74px; height:74px; border:2px solid var(--dv-ring);
-  box-shadow:0 0 0 1px rgba(4,16,28,.5) inset, 0 0 0 1px rgba(4,16,28,.5)}
-.dv-ring-pulse{width:74px; height:74px; border:2px solid var(--cyan);
-  box-shadow:0 0 16px rgba(57,230,255,.5)}
-.dv-ring-dot{width:5px; height:5px; background:var(--dv-ring)}
-.dv-ring.hot{--dv-ring:var(--gold)}
-.dv-ring.hot .dv-ring-fixed{border-color:var(--gold); box-shadow:0 0 22px rgba(242,193,78,.75)}
-.dv-ring.hot .dv-ring-pulse{border-color:var(--gold)}
-.dv-ring.lit .dv-ring-pulse{border-color:var(--mint); box-shadow:0 0 22px rgba(125,252,208,.75)}
-
-/* -------- the breath bar --------
-   The mission, drawn once. It is the widest element on the screen
-   because it is the only clock that matters, and when it runs low it
-   goes *warm* — a bar that dims as it empties would be telling you
-   less exactly when you need to be told more. */
-.dv-breath{width:min(560px,72vw); margin-bottom:6px; --cap:1}
-.dv-breath-track{position:relative; height:13px; border-radius:8px; overflow:hidden;
-  background:rgba(6,18,30,.55);
-  border:1px solid rgba(255,255,255,.18); box-shadow:0 0 24px rgba(57,230,255,.12) inset}
-/* The Deep takes the top of the bar away a little at a time. The part
-   you can no longer reach is hatched out rather than simply left dark,
-   because a bar that stops filling with no explanation reads as a bug. */
-.dv-breath.capped .dv-breath-track::after{
-  content:''; position:absolute; top:0; bottom:0; right:0;
-  width:calc((1 - var(--cap)) * 100%);
-  background:repeating-linear-gradient(135deg, rgba(229,19,63,.30) 0 4px,
-    rgba(6,18,30,.55) 4px 8px);
-  border-left:1px solid rgba(255,143,163,.7);
-}
-.dv-breath-fill{height:100%; width:100%; transform-origin:left center;
-  background:linear-gradient(90deg,#2f8fb4,#7ee8ff,#d6fbff);
-  transition:background .3s}
-.dv-breath.low .dv-breath-fill{background:linear-gradient(90deg,#e8a53c,#ffd166,#fff0c4)}
-.dv-breath.critical .dv-breath-fill{background:linear-gradient(90deg,#e5133f,#ff8fa3,#fff);
-  animation:dvGasp .55s ease-in-out infinite}
-@keyframes dvGasp{50%{filter:brightness(1.55)}}
-.dv-breath-lbl{margin-top:6px; text-align:center; font-size:9.5px; letter-spacing:.24em;
-  text-transform:uppercase; font-weight:700; color:rgba(240,249,255,.75);
-  text-shadow:0 1px 3px rgba(4,16,28,.9)}
-.dv-breath.critical .dv-breath-lbl{color:#ffd6de}
-
-/* -------- pressure --------
-   Not a darkness. A cyan-white closing-in, the same trick .sh-focus
-   uses, so the deep reads as squeezing rather than as a dimmer switch. */
-.dv-pressure{position:fixed; inset:-4%; pointer-events:none; z-index:21; opacity:0;
-  transition:opacity .3s ease;
-  background:
-    radial-gradient(ellipse 40% 36% at 50% 50%, rgba(0,0,0,0) 52%, rgba(120,215,240,.34) 100%),
-    radial-gradient(ellipse 62% 54% at 50% 50%, rgba(0,0,0,0) 58%, rgba(24,90,160,.42) 100%);
-}
-
-/* -------- something in the water --------
-   The dive's one hostile read, and it is deliberately built like the
-   pressure vignette rather than like an alarm: a rim that closes, in
-   the one hue nothing else in this mission uses. Underwater everything
-   is cyan and gold, so a warm red edge is legible at a glance and
-   impossible to confuse with money.
-
-   The word only appears once the animal has committed, and it sits
-   low and small. A diver who is reading text is a diver who is not
-   turning round, and turning round is the entire answer. */
-.dv-threat{position:fixed; inset:-4%; pointer-events:none; z-index:23; opacity:0;
-  transition:opacity .18s linear;
-  background:
-    radial-gradient(ellipse 46% 42% at 50% 50%, rgba(0,0,0,0) 46%, rgba(255,64,84,.30) 100%),
-    radial-gradient(ellipse 70% 62% at 50% 50%, rgba(0,0,0,0) 56%, rgba(150,10,34,.38) 100%);
-}
-.dv-threat b{position:absolute; left:0; right:0; bottom:15%; text-align:center;
-  font-weight:800; font-size:clamp(13px,1.5vw,18px); letter-spacing:.34em;
-  color:#ffd9de; text-shadow:0 0 14px rgba(255,60,80,.85), 0 2px 6px rgba(0,0,0,.7);
-  opacity:0; transform:translateY(6px); transition:opacity .14s linear, transform .14s ease;
-}
-.dv-threat.near b{opacity:1; transform:none; animation:dvThreat .5s ease-in-out infinite;}
-@keyframes dvThreat{50%{opacity:.45;}}
-
-/* -------- water on the lens --------
-   A second and a half after every surface break. It is a handful of
-   soft radial highlights and one opacity write a frame, and it is the
-   difference between the surface being a fog change and the surface
-   being something that just happened to you. Nothing here is dark:
-   they are *bright* beads, the way water on glass in sunlight is. */
-.dv-wet{position:fixed; inset:0; pointer-events:none; z-index:22; opacity:0;
-  transition:opacity .12s linear; mix-blend-mode:screen;
-  background:
-    radial-gradient(circle 22px at 18% 26%, rgba(226,250,255,.30), transparent 70%),
-    radial-gradient(circle 13px at 31% 62%, rgba(226,250,255,.26), transparent 70%),
-    radial-gradient(circle 30px at 72% 20%, rgba(226,250,255,.22), transparent 70%),
-    radial-gradient(circle 17px at 84% 55%, rgba(226,250,255,.28), transparent 70%),
-    radial-gradient(circle 11px at 57% 79%, rgba(226,250,255,.30), transparent 70%),
-    radial-gradient(circle 25px at 44% 12%, rgba(226,250,255,.18), transparent 70%),
-    radial-gradient(circle 9px at 8% 71%, rgba(226,250,255,.26), transparent 70%),
-    radial-gradient(circle 15px at 92% 82%, rgba(226,250,255,.20), transparent 70%),
-    radial-gradient(ellipse 90% 44% at 50% 0%, rgba(200,244,255,.20), transparent 72%),
-    radial-gradient(ellipse 90% 40% at 50% 100%, rgba(200,244,255,.16), transparent 72%)}
-
-.dv-banner{position:absolute; left:50%; top:16%; transform:translate(-50%,-14px);
-  text-align:center; opacity:0; transition:opacity .25s, transform .25s; pointer-events:none}
-.dv-banner.show{opacity:1; transform:translate(-50%,0)}
-.dv-banner b{display:block; font-family:var(--display); font-size:clamp(20px,3vw,34px);
-  letter-spacing:.05em; color:var(--paper); text-shadow:0 3px 0 rgba(4,12,22,.5)}
-.dv-banner span{display:block; margin-top:4px; font-size:11px; letter-spacing:.2em;
-  text-transform:uppercase; font-weight:700; color:rgba(240,249,255,.8);
-  text-shadow:0 1px 3px rgba(4,16,28,.9)}
-.dv-banner.perfect b{color:var(--mint); text-shadow:0 3px 0 rgba(4,12,22,.5), 0 0 40px rgba(125,252,208,.7)}
-.dv-banner.bad b{color:#ff8fa3}
-
-.dv-hint{position:absolute; left:50%; top:62%; transform:translateX(-50%); opacity:0;
-  font-size:11px; letter-spacing:.2em; text-transform:uppercase; font-weight:700;
-  color:rgba(240,249,255,.9); background:rgba(6,18,30,.7); padding:8px 16px; border-radius:20px;
-  border:1px solid rgba(255,255,255,.18); transition:opacity .25s}
-.dv-hint.show{opacity:1}
-
-/* -------- touch: drag anywhere to steer, one pad to kick --------
-   Below .screen (40) for the same reason #touch-shoot is: this sheet is
-   inset:0 and eats every pointer event on it, so above the HUD and
-   below anything anybody has to press. */
-#touch-dive{display:none; position:fixed; inset:0; z-index:35; pointer-events:all; touch-action:none}
-#touch-dive.visible{display:block}
-#touch-dive.visible.blocked{display:none}
-#touch-dive .kick-pad{position:absolute; right:6vw; bottom:9vh; width:124px; height:124px;
-  border-radius:50%; display:grid; place-items:center; font-weight:800; letter-spacing:.1em;
-  font-size:13px; color:#eaffff; background:rgba(63,224,255,.26);
-  border:2px solid rgba(63,224,255,.7); pointer-events:all; touch-action:none}
-#touch-dive .scull-zone{position:absolute; left:6vw; bottom:9vh; width:118px; height:118px;
-  pointer-events:all; touch-action:none}
-#touch-dive .scull-ring{position:absolute; inset:0; border-radius:50%;
-  border:2px solid rgba(255,255,255,.22); background:rgba(8,18,30,.24)}
-#touch-dive .scull-knob{position:absolute; left:50%; top:50%; width:52px; height:52px;
-  margin:-26px 0 0 -26px; border-radius:50%; background:rgba(240,249,255,.4);
-  border:2px solid rgba(255,255,255,.5)}
-
-/* ---------------- results: which channel, and what it was worth --------- */
-.result-course{display:flex; flex-direction:column; gap:3px; align-items:center; margin:2px 0 10px}
-.result-course b{font-family:var(--display); font-size:22px; letter-spacing:.05em;
-  text-transform:uppercase; color:var(--paper)}
-.result-course span{font-size:11.5px; color:var(--muted)}
-.result-course .rc-seed{font-size:10px; letter-spacing:.18em; color:rgba(139,163,189,.75)}
-.rc-ghost{font-size:11.5px; font-weight:700; margin-top:2px}
-.rc-ghost.ahead{color:var(--mint)}
-.rc-ghost.behind{color:#ff8fa3}
-.result-badges{display:flex; gap:8px; justify-content:center; align-items:center; min-height:22px}
-.result-medal{display:none; font-size:10px; letter-spacing:.26em; font-weight:800;
-  color:var(--mc,#fff); border:1px solid var(--mc,#fff); border-radius:20px; padding:4px 12px}
-.result-medal.show{display:block; animation:pop .5s ease-out}
-.result-best{margin:0}
-
-/* ---------------- panels that outgrow the screen ----------------
-   The shootout's scoreboard is a long one, and a panel that runs off the
-   bottom of a laptop screen with no way to reach the buttons is not a
-   scoreboard. Anything in a panel scrolls when it has to. */
-.screen.results, .screen.brief{overflow-y:auto; overscroll-behavior:contain}
-.result-panel, .brief-panel{
-  max-height:calc(100vh - 40px);
-  max-height:calc(100dvh - 40px);
-  overflow-y:auto; overscroll-behavior:contain;
-  touch-action:pan-y; pointer-events:auto;
-  scrollbar-width:thin; scrollbar-color:rgba(242,193,78,.5) transparent;
-}
-.result-panel::-webkit-scrollbar, .brief-panel::-webkit-scrollbar{width:8px}
-.result-panel::-webkit-scrollbar-thumb, .brief-panel::-webkit-scrollbar-thumb{
-  background:rgba(242,193,78,.45); border-radius:4px}
-.result-panel::-webkit-scrollbar-track, .brief-panel::-webkit-scrollbar-track{
-  background:transparent}
-
-/* ---------------- boot ---------------- */
-#boot{position:fixed; inset:0; z-index:100; display:grid; place-items:center;
-  background:#06101c; transition:opacity .5s ease}
-#boot.gone{opacity:0; pointer-events:none}
-.boot-inner{display:flex; flex-direction:column; align-items:center; gap:16px;
-  color:var(--muted); font-size:12px; letter-spacing:.24em; text-transform:uppercase}
-.boot-spin{width:34px; height:34px; border-radius:50%; border:2px solid rgba(242,193,78,.22);
-  border-top-color:var(--gold); animation:spin 1s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.boot-err{color:#ff8fa3; font-size:13px; text-align:center; line-height:1.7; letter-spacing:0}
-
-/* keep the whole list on screen on short/laptop viewports */
-@media (max-height:900px){
-  .brand-title{font-size:clamp(44px,8.5vw,86px)}
-  .brand-rule{margin-top:10px}
-  .title-inner{gap:clamp(10px,1.4vh,18px)}
-  .mission-card{padding:11px 18px}
-  .mission-list{gap:9px}
-  .title-inner{padding:4px 0}
-  .mc-icon{width:46px; height:46px; font-size:21px}
-  .mc-title{font-size:20px}
-  .pot{padding:8px 18px}
-  .pot-value{font-size:clamp(22px,3vw,32px)}
-}
-@media (max-height:720px){
-  .brand-kicker{display:none}
-  .mission-head p{display:none}
-  .title-foot{margin-top:0}
-}
-
-@media (max-width:900px){
-  .brief-body{grid-template-columns:1fr; gap:20px}
-  .brief-panel{width:min(620px,100%)}
-}
-@media (max-width:640px){
-  .mission-card{padding:13px 14px; gap:12px}
-  .hud-setup{display:none}
-  .mc-icon{width:46px; height:46px; font-size:23px}
-  .mc-meta{display:none}
-  .mission-card-row{gap:7px}
-  .mission-quick{width:78px; font-size:9px; letter-spacing:.08em}
-  .title-foot{display:none}
-  .hud-rings{min-width:0}
-  .hud-progress{width:110px; margin-left:auto}
-  .sh-tally{min-width:0}
-  .sh-round-block{min-width:0}
-  .sh-round-name{display:none}
-  .sh-breath{display:none}
-  /* the dive keeps its breath bar at every size — it is the mission —
-     but the tape's numbers and the purse's chain can go */
-  .dv-hold{min-width:0}
-  .dv-clock{min-width:0}
-  .dv-tier{display:none}
-  .dv-breath{width:min(560px,86vw)}
-}
 
 /* ==================================================================
    THE SHOW — play screen, cinematics, the table, the fire, the verdict
@@ -1654,136 +979,6 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
   .screen.play.active .pcard, .screen.play.active .pm-rule i{animation:none}
   .pcard:before{display:none}
 }
-
-/* ==================================================================
-   MISSION PARTY
-   The room for one mission. Two columns: the room on the left, which
-   is a code, a link and up to three seats, and the run on the right,
-   which is the host's to set and everybody else's to watch.
-   ================================================================== */
-.screen.mparty{
-  align-items:stretch; justify-content:center; overflow-y:auto;
-  background:
-    radial-gradient(ellipse 120% 76% at 50% 4%, rgba(242,193,78,.10) 0%, rgba(0,0,0,0) 56%),
-    radial-gradient(ellipse 82% 62% at 50% 52%, rgba(4,10,20,.80) 0%,
-                                                rgba(4,10,20,.34) 74%, rgba(0,0,0,0) 100%),
-    linear-gradient(180deg, rgba(5,13,24,.70) 0%, rgba(5,13,24,.24) 30%,
-                            rgba(5,13,24,.32) 64%, rgba(5,13,24,.84) 100%);
-}
-.mp-inner{width:min(980px,100%); margin:auto; display:flex; flex-direction:column;
-  gap:clamp(12px,2vh,20px); padding:clamp(8px,2vh,20px) 0}
-
-.mp-head{display:flex; align-items:center; gap:16px; text-align:left}
-.mp-icon{
-  font-family:var(--display); font-size:26px; color:var(--gold);
-  width:60px; height:60px; flex:none; display:grid; place-items:center; border-radius:14px;
-  background:rgba(242,193,78,.10); border:1px solid rgba(242,193,78,.30);
-  box-shadow:inset 0 0 22px rgba(242,193,78,.10);
-}
-.mp-head-text{min-width:0}
-.mp-head .brand-kicker{margin-bottom:2px; text-indent:0}
-.mp-title{font-family:var(--display); font-size:clamp(28px,5vw,44px); line-height:1;
-  letter-spacing:.04em; text-transform:uppercase; margin:0; color:var(--paper)}
-.mp-tagline{margin:5px 0 0; font-size:13px; color:var(--muted); line-height:1.5}
-
-.mp-cols{display:grid; grid-template-columns:.92fr 1.08fr; gap:14px; align-items:start}
-.mp-room, .mp-setup{padding:clamp(16px,2.2vw,22px)}
-
-/* -------- the room -------- */
-.mp-room{display:flex; flex-direction:column; gap:12px}
-.mp-code-label{font-size:10px; letter-spacing:.26em; text-transform:uppercase;
-  color:var(--gold); font-weight:800}
-.mp-code{
-  font-family:var(--display); font-size:clamp(40px,7vw,62px); line-height:1;
-  letter-spacing:.26em; text-indent:.26em; color:var(--paper); text-align:center;
-  text-shadow:0 0 40px rgba(242,193,78,.28);
-}
-.mp-link{display:flex; gap:8px}
-.mp-link-field{
-  flex:1; min-width:0; font-family:var(--body); font-size:11.5px; font-weight:600;
-  letter-spacing:.01em; color:#b9cde2; padding:10px 12px; border-radius:9px;
-  background:rgba(4,12,22,.72); border:1px solid rgba(255,255,255,.13);
-  text-overflow:ellipsis;
-}
-.mp-link-field:focus{outline:none; border-color:rgba(242,193,78,.6); color:var(--paper)}
-.btn.mp-copy{flex:none; padding:10px 18px; font-size:12px; letter-spacing:.12em}
-.mp-link-note{margin:0; font-size:11.5px; line-height:1.55; color:var(--muted)}
-
-.mp-roster{display:flex; flex-direction:column; gap:6px; margin-top:2px}
-.mp-seat{
-  display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:10px;
-  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.09);
-}
-.mp-seat.you{border-color:rgba(242,193,78,.55); background:rgba(242,193,78,.09)}
-.mp-seat.empty{opacity:.4; border-style:dashed}
-.mp-seat-n{font-family:var(--display); font-size:15px; color:var(--gold); width:16px; flex:none}
-.mp-seat-name{flex:1; min-width:0; font-size:13.5px; font-weight:600; color:var(--paper);
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.mp-seat.empty .mp-seat-name{color:var(--muted); font-weight:400}
-.mp-seat-tag{font-size:9px; letter-spacing:.2em; text-transform:uppercase; color:var(--muted);
-  font-weight:800}
-
-.mp-status{font-size:12px; color:#a8bfd6; letter-spacing:.03em; text-align:center;
-  min-height:16px}
-.mp-room-actions{display:flex; gap:8px; justify-content:center; flex-wrap:wrap}
-
-/* -------- the run -------- */
-.mp-setup{display:flex; flex-direction:column; gap:16px}
-.mp-setup-head{font-family:var(--display); font-size:19px; letter-spacing:.16em;
-  text-transform:uppercase; color:var(--paper); display:flex; align-items:baseline; gap:10px}
-.mp-setup-head span{font-family:var(--body); font-size:10px; font-weight:800;
-  letter-spacing:.2em; color:var(--gold); text-transform:uppercase}
-/* A guest is reading, not choosing. Saying so once at the top and
-   dimming the controls is kinder than a screen full of dead buttons
-   that look exactly like live ones. */
-.mp-setup.watching .seg, .mp-setup.watching .channel-seed{opacity:.72}
-.mp-setup.watching .mp-setup-head span{color:var(--muted)}
-.mp-setup .setup-block{gap:8px}
-
-.mp-skip{
-  display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer;
-  padding:11px 14px; border-radius:12px; font-family:var(--body); color:var(--paper);
-  background:linear-gradient(150deg,rgba(70,14,32,.55),rgba(16,12,24,.72));
-  border:1px solid rgba(255,84,112,.32);
-  transition:border-color .18s, background .2s, transform .12s;
-}
-.mp-skip:hover:not(:disabled){transform:translateY(-1px); border-color:rgba(255,143,163,.7)}
-.mp-skip:disabled{cursor:default}
-.mp-skip.on{border-color:#ff8fa3;
-  background:linear-gradient(150deg,rgba(122,20,50,.85),rgba(36,12,28,.9));
-  box-shadow:inset 0 0 26px rgba(255,84,112,.14)}
-.ms-icon{font-family:var(--display); font-size:21px; line-height:1; flex:none;
-  color:#ff8fa3; text-shadow:0 0 16px rgba(255,84,112,.6)}
-.ms-body{flex:1; min-width:0; display:flex; flex-direction:column; gap:2px}
-.ms-body b{font-size:13.5px; font-weight:800; letter-spacing:.03em}
-.ms-body i{font-style:normal; font-size:11.5px; color:#c6a8b4; line-height:1.4}
-.ms-state{flex:none; font-size:9.5px; font-weight:800; letter-spacing:.2em; color:var(--muted);
-  border:1px solid rgba(255,255,255,.18); border-radius:20px; padding:3px 9px}
-.mp-skip.on .ms-state{color:#1a0d13; background:#ff8fa3; border-color:transparent}
-
-.mp-payout{display:flex; align-items:baseline; justify-content:space-between; gap:10px;
-  padding-top:12px; border-top:1px solid rgba(255,255,255,.1)}
-.mp-pay-lbl{font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--muted);
-  font-weight:800}
-.mp-payout b{font-family:var(--display); font-size:24px; color:var(--gold)}
-
-.mp-msg{min-height:18px; text-align:center; font-size:12.5px; letter-spacing:.03em;
-  color:var(--muted); opacity:0; transition:opacity .2s}
-.mp-msg.on{opacity:1}
-.mp-msg.good{color:var(--mint)}
-.mp-msg.bad{color:#ff8fa3}
-
-.mp-foot{display:flex; gap:12px; align-items:center; justify-content:space-between}
-.mp-foot .btn.primary{min-width:230px}
-
-@media (max-width: 860px){
-  .mp-cols{grid-template-columns:1fr}
-  .mp-head{flex-direction:column; text-align:center; gap:10px}
-  .mp-head-text{text-align:center}
-  .mp-foot{flex-direction:column-reverse}
-  .mp-foot .btn{width:100%}
-}
-.title-foot .btn.ghost{padding:8px 18px; font-size:12px; margin-right:auto}
 
 /* ---------------- the cinematic overlay ----------------
    Not a screen. It sits over everything so that a subtitle and a vote
@@ -2174,7 +1369,8 @@ select.nav-on{outline-offset:2px}
   letter-spacing:.18em; color:var(--gold); text-shadow:0 0 34px rgba(242,193,78,.4);
   padding-left:.18em;
 }
-.lobby-roster{display:flex; flex-direction:column; gap:7px}
+.lobby-roster{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px}
+@media (max-width:520px){ .lobby-roster{grid-template-columns:1fr} }
 .lr-seat{
   display:grid; grid-template-columns:26px 1fr auto; align-items:center; gap:10px;
   padding:10px 13px; border-radius:10px; text-align:left;
@@ -2192,6 +1388,13 @@ select.nav-on{outline-offset:2px}
   color:var(--gold); font-weight:800;
 }
 .lr-status{font-size:13px; color:var(--muted)}
+.lr-seat.ai{border-color:rgba(125,252,208,.32); background:rgba(125,252,208,.06)}
+.lr-seat.ai .lr-tag{color:var(--mint)}
+.lr-opts{display:flex; flex-direction:column; gap:10px; padding:10px 0 2px;
+  border-top:1px solid rgba(255,255,255,.08)}
+.lr-opt{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); cursor:pointer}
+.lr-opt small{opacity:.6}
+.lr-opt input{accent-color:var(--gold, #f2c14e)}
 .lr-actions{display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
 
 .lobby-msg{
@@ -2572,328 +1775,6 @@ body[data-screen]:not([data-screen=""]):not([data-screen^="hud"]) #agenda-chip{d
 @media (pointer:coarse){ #mic-btn{width:46px; height:46px} }
 
 /* ==================================================================
-   HUD: The Descent
-
-   One mission, one meter. Everything else on this screen is a number
-   you glance at; the ladder is the thing you *play*, so it gets the
-   left-hand column, the brightest colour on the page and the only
-   element here that changes hue as it climbs — cyan on the way up,
-   gold at four, and white-hot at six.
-
-   The rest is arranged by where you are looking. Speed is at the
-   bottom middle, under the skier, because that is where your eye
-   already is. The shortcut card comes in from the side the shortcut is
-   on. The air panel only exists while you are in the air, and it turns
-   gold when the rotation comes square — which makes it the landing cue
-   rather than a readout.
-   ================================================================== */
-.sk-hud{flex-direction:column; justify-content:space-between}
-.sk-top{display:flex; justify-content:space-between; align-items:flex-start; gap:20px}
-.sk-bottom{display:flex; justify-content:space-between; align-items:flex-end; gap:20px}
-/* On a phone the whole bottom row moves up over the thumb overlay
-   rather than sitting behind it: the speedo is the number you steer by
-   and the pop bar is directly under the button that spends it, so both
-   of them being under a thumb is the mountain unplayable. Padding on
-   the flex parent moves the row without touching the absolutely
-   positioned name tag, which is already stacked off `--bl-foot`. */
-body.touch .sk-hud{padding-bottom:calc(var(--br-foot) + 12px)}
-
-.sk-purse{min-width:200px}
-.sk-money{font-family:var(--display); font-size:clamp(30px,4.4vw,50px); line-height:1;
-  color:var(--gold); text-shadow:0 3px 0 rgba(4,12,22,.5), 0 0 34px rgba(242,193,78,.42)}
-.sk-gain{font-family:var(--display); font-size:clamp(15px,2vw,22px); line-height:1;
-  color:var(--mint); min-height:1em; opacity:0; transition:opacity .15s}
-
-/* -------- the ladder --------
-   Six pips you can count without reading and a multiplier you can read
-   without counting, which is deliberate redundancy: at forty metres a
-   second nobody parses a number, they notice a shape getting longer. */
-.sk-flow-wrap{margin-top:7px; display:flex; align-items:baseline; flex-wrap:wrap; gap:8px;
-  max-width:230px; --fl:var(--cyan); --flg:rgba(63,224,255,.55)}
-.sk-flow-wrap.hot{--fl:var(--gold); --flg:rgba(242,193,78,.6)}
-.sk-flow-wrap.max{--fl:#ffffff; --flg:rgba(255,255,255,.85)}
-.sk-pips{flex-basis:100%; display:flex; gap:4px; margin-bottom:2px}
-.sk-pips i{flex:1; height:7px; border-radius:2px; display:block;
-  background:rgba(6,18,30,.62); border:1px solid rgba(255,255,255,.13);
-  transition:background .18s, box-shadow .18s, border-color .18s}
-.sk-pips i.on{background:var(--fl); border-color:var(--fl);
-  box-shadow:0 0 10px var(--flg)}
-.sk-flow{font-family:var(--display); font-size:clamp(22px,2.8vw,30px); line-height:1;
-  color:var(--fl); text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 22px var(--flg)}
-.sk-flow-wrap.max .sk-flow{animation:skFlowMax .9s ease-in-out infinite}
-@keyframes skFlowMax{0%,100%{transform:scale(1)}50%{transform:scale(1.09)}}
-.sk-flow-lbl{font-size:9.5px; letter-spacing:.2em; text-transform:uppercase;
-  color:rgba(240,249,255,.75); font-weight:700}
-.sk-flow-track{flex-basis:100%; height:3px; border-radius:2px; overflow:hidden;
-  background:rgba(6,18,30,.6); border:1px solid rgba(255,255,255,.1)}
-.sk-flow-bar{height:100%; width:0%; background:var(--fl);
-  box-shadow:0 0 8px var(--flg); transition:width .09s linear}
-
-.sk-clock{text-align:center}
-.sk-time{font-family:var(--display); font-size:clamp(40px,6.2vw,68px); line-height:1;
-  color:var(--paper); text-shadow:0 3px 0 rgba(4,12,22,.5)}
-.sk-time.urgent{color:#ff5470; animation:tick .5s steps(2) infinite;
-  text-shadow:0 3px 0 rgba(4,12,22,.5), 0 0 30px rgba(255,84,112,.6)}
-.sk-time.trial{color:var(--cyan)}
-.sk-ghost{display:none; margin-top:2px; font-family:var(--display); font-size:17px;
-  letter-spacing:.04em; color:var(--muted); text-shadow:0 2px 0 rgba(4,12,22,.5)}
-.sk-ghost.show{display:block}
-.sk-ghost.ahead{color:var(--mint); text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 18px rgba(125,252,208,.5)}
-.sk-ghost.behind{color:#ff8fa3; text-shadow:0 2px 0 rgba(4,12,22,.5), 0 0 18px rgba(255,84,112,.45)}
-
-.sk-route{text-align:right; min-width:170px}
-.sk-hoops{font-family:var(--display); font-size:clamp(22px,3vw,32px); line-height:1.1;
-  color:var(--paper); text-shadow:0 2px 0 rgba(4,12,22,.5)}
-/* the name of the stretch you are in. It changes five times a run and
-   it is the only thing telling you the mountain has a shape. */
-.sk-section{font-size:10px; letter-spacing:.2em; text-transform:uppercase; font-weight:700;
-  color:rgba(240,249,255,.82); margin-top:3px; min-height:13px;
-  text-shadow:0 1px 2px rgba(4,16,28,.9)}
-.sk-progress{height:5px; margin-top:7px; border-radius:3px; background:rgba(6,18,30,.55);
-  border:1px solid rgba(255,255,255,.12); overflow:hidden}
-.sk-progress-fill{height:100%; width:0%; background:linear-gradient(90deg,var(--cyan),var(--mint));
-  transition:width .12s linear, background .4s}
-.sk-progress-fill.final{background:linear-gradient(90deg,#b98cff,var(--gold))}
-.sk-vert{margin-top:4px; font-size:9.5px; letter-spacing:.18em; text-transform:uppercase;
-  font-weight:700; color:rgba(240,249,255,.62)}
-
-/* -------- speed --------
-   Under the skier, where the eye already is, and the bar goes mint the
-   moment you tuck — which is the only feedback that a tuck is doing
-   anything, because the acceleration it buys is too gradual to feel. */
-.sk-speedo{display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; margin:0 auto}
-.sk-speed{font-family:var(--display); font-size:clamp(44px,7vw,80px); line-height:.9;
-  color:var(--paper); text-shadow:0 4px 0 rgba(4,12,22,.5), 0 0 40px rgba(180,225,255,.35)}
-.sk-speed-unit{font-size:11px; letter-spacing:.24em; text-transform:uppercase;
-  color:rgba(240,249,255,.72); font-weight:700}
-.sk-speed-track{width:min(280px,46vw); height:4px; border-radius:2px; flex-basis:100%;
-  background:rgba(6,18,30,.6); border:1px solid rgba(255,255,255,.12); overflow:hidden}
-.sk-speed-bar{height:100%; width:0%; background:linear-gradient(90deg,var(--cyan),#dff3ff);
-  transition:width .1s linear, background .25s}
-.sk-speed-bar.tuck{background:linear-gradient(90deg,var(--mint),#ffffff)}
-
-/* the stored pop. On screen only while there is one, because a bar
-   that is empty nine tenths of the time teaches nothing. */
-.sk-pop{width:min(220px,32vw); text-align:right; opacity:0; transform:translateY(6px);
-  transition:opacity .12s, transform .12s}
-.sk-pop.show{opacity:1; transform:none}
-.sk-pop-track{height:10px; border-radius:6px; background:rgba(6,18,30,.6);
-  border:1px solid rgba(255,255,255,.14); overflow:hidden}
-.sk-pop-fill{height:100%; width:0%; background:linear-gradient(90deg,var(--gold),#fff6d8);
-  box-shadow:0 0 14px rgba(242,193,78,.6); transition:width .05s linear}
-.sk-pop-lbl{margin-top:4px; font-size:9.5px; letter-spacing:.18em; text-transform:uppercase;
-  font-weight:700; color:rgba(240,249,255,.7)}
-
-/* -------- the shortcut card --------
-   It comes in from the side the shortcut is on, says the one number
-   that decides it, and gets brighter as the mouth arrives. */
-.sk-chute{position:absolute; left:50%; top:calc(50% - 148px); transform:translate(-50%,-12px);
-  display:flex; align-items:center; gap:12px; pointer-events:none;
-  padding:9px 16px 9px 12px; border-radius:36px;
-  background:linear-gradient(180deg,rgba(9,22,36,.86),rgba(6,16,28,.78));
-  border:1px solid rgba(242,193,78,.42);
-  box-shadow:0 12px 34px rgba(3,10,20,.5), 0 0 26px rgba(242,193,78,.12);
-  opacity:0; transition:opacity .2s, transform .2s}
-.sk-chute.show{opacity:1; transform:translate(-50%,0)}
-.sk-chute.near{border-color:rgba(242,193,78,.95);
-  box-shadow:0 12px 34px rgba(3,10,20,.5), 0 0 40px rgba(242,193,78,.42)}
-.sk-chute-arrow{font-size:22px; line-height:1; color:var(--gold);
-  text-shadow:0 0 18px rgba(242,193,78,.8)}
-.sk-chute.near .sk-chute-arrow{animation:skArrow .7s ease-in-out infinite}
-@keyframes skArrow{0%,100%{transform:translateX(0)}50%{transform:translateX(-5px)}}
-.sk-chute-body{display:flex; flex-direction:column; gap:1px}
-.sk-chute-body b{font-family:var(--display); font-size:clamp(15px,2vw,21px);
-  letter-spacing:.05em; text-transform:uppercase; color:var(--paper); line-height:1.05}
-.sk-chute-body i{font-style:normal; font-size:9.5px; letter-spacing:.18em;
-  text-transform:uppercase; font-weight:700; color:var(--gold)}
-
-/* -------- the air panel --------
-   The needle going gold *is* the landing cue: when the rotation is
-   square, let go. Nobody is ever told that; they work it out inside two
-   jumps and then never look at anything else while they are flying. */
-.sk-air{position:absolute; right:clamp(14px,4vw,54px); top:50%;
-  transform:translateY(-50%) translateX(14px); text-align:right; pointer-events:none;
-  opacity:0; transition:opacity .14s, transform .14s;
-  --ac:var(--cyan); --acg:rgba(63,224,255,.55)}
-.sk-air.show{opacity:1; transform:translateY(-50%)}
-.sk-air.true{--ac:var(--gold); --acg:rgba(242,193,78,.85)}
-.sk-air-rot{display:block; font-family:var(--display); font-size:clamp(30px,4.4vw,50px);
-  line-height:1; color:var(--ac); text-shadow:0 3px 0 rgba(4,12,22,.5), 0 0 28px var(--acg)}
-.sk-air-h{display:block; font-style:normal; font-family:var(--display);
-  font-size:clamp(15px,2vw,22px); color:rgba(240,249,255,.86); line-height:1.1;
-  text-shadow:0 2px 0 rgba(4,12,22,.5)}
-.sk-air-cue{display:block; margin-top:3px; font-size:9px; letter-spacing:.2em;
-  text-transform:uppercase; font-weight:700; color:rgba(240,249,255,.5); opacity:0;
-  transition:opacity .15s}
-.sk-air.true .sk-air-cue{opacity:1; color:var(--gold)}
-
-/* -------- speed, as the room rather than as a number --------
-   A cold vignette that closes in, and radial streaks masked to the
-   edges so the middle of the screen — where the mountain is — stays
-   completely clean. One repeating-conic-gradient, no elements, no
-   per-frame work: the only thing script touches is the opacity. */
-.sk-vignette{position:fixed; inset:-4%; pointer-events:none; z-index:22; opacity:0;
-  transition:opacity .18s linear;
-  background:
-    radial-gradient(ellipse 60% 50% at 50% 54%, rgba(0,0,0,0) 52%, rgba(8,26,44,.66) 100%),
-    radial-gradient(ellipse 92% 72% at 50% 50%, rgba(0,0,0,0) 60%, rgba(120,190,240,.22) 100%);
-}
-.sk-lines{position:fixed; inset:-10%; pointer-events:none; z-index:22; opacity:0;
-  transition:opacity .22s linear;
-  background:repeating-conic-gradient(from 0deg at 50% 50%,
-    rgba(255,255,255,0) 0deg 1.5deg, rgba(230,247,255,.16) 1.5deg 1.9deg);
-  -webkit-mask-image:radial-gradient(ellipse 44% 38% at 50% 50%, transparent 58%, #000 100%);
-  mask-image:radial-gradient(ellipse 44% 38% at 50% 50%, transparent 58%, #000 100%);
-}
-.sk-lines.on{animation:skStreak 1.05s linear infinite}
-@keyframes skStreak{0%{transform:scale(1)}100%{transform:scale(1.14)}}
-.sk-flash{position:fixed; inset:0; z-index:23; pointer-events:none; opacity:0;
-  mix-blend-mode:screen; transition:opacity .22s ease-out; background:#fff}
-
-/* the floating labels this mission adds to the shared set */
-.float-label.good{color:var(--mint); text-shadow:0 3px 0 rgba(4,14,24,.6), 0 0 26px rgba(125,252,208,.6)}
-.float-label.gold{color:var(--gold); text-shadow:0 3px 0 rgba(4,14,24,.6), 0 0 30px rgba(242,193,78,.8)}
-
-@media (prefers-reduced-motion:reduce){
-  .sk-lines.on{animation:none}
-  .sk-flow-wrap.max .sk-flow{animation:none}
-  .sk-chute.near .sk-chute-arrow{animation:none}
-}
-
-@media (max-width:760px){
-  .sk-air{top:34%}
-  .sk-chute{top:calc(50% - 116px); width:min(88vw,340px); justify-content:center}
-  .sk-purse{min-width:150px}
-  .sk-route{min-width:120px}
-}
-
-/* The running order of a mountain, under the conditions on the briefing.
-   Generic: any mission that returns `shape` from its preview gets it. */
-.channel-shape{display:none; margin-top:7px; flex-wrap:wrap; gap:5px; align-items:center;
-  font-size:10px; letter-spacing:.13em; text-transform:uppercase; font-weight:700}
-.channel-shape.show{display:flex}
-.channel-shape i{font-style:normal; color:rgba(240,249,255,.88);
-  background:rgba(8,22,36,.55); border:1px solid rgba(255,255,255,.12);
-  border-radius:20px; padding:2px 9px}
-.channel-shape b{color:var(--muted); font-weight:400}
-.channel-shape .cs-vert{color:var(--cyan); letter-spacing:.16em; margin-left:4px}
-
-/* Descent-only touch grab controls; the shared drive pad resets on exit. */
-.ski-grab{min-width:80px;height:52px;border:1px solid #ffa6c4;border-radius:28px;display:flex;align-items:center;justify-content:center;pointer-events:auto;background:#24354cdd;color:#fff;font-weight:800;touch-action:none}
-.ski-grab[hidden]{display:none!important}
-
-/* -------- the Descent's extra briefing settings --------
-   Built from the briefing's own parts (setup-head, seg, chip,
-   dr-select). The set-once settings fold under a quiet header. */
-#ski-setup-extra{display:flex; flex-direction:column; gap:12px}
-.sx-row{display:flex; flex-wrap:wrap; gap:6px}
-.sx-row .chip{flex:1 1 auto}
-.sx-field{display:flex; flex-direction:column; gap:6px; min-width:0}
-.sx-field .dr-select, #ski-setup-section .dr-select{font-size:13px; padding:8px 30px 8px 10px;
-  background-color:rgba(4,12,22,.65); border-color:rgba(255,255,255,.13);
-  background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
-                   linear-gradient(-45deg,transparent 50%,var(--muted) 50%);
-  background-size:5px 5px; background-repeat:no-repeat;
-  background-position:calc(100% - 16px) 55%, calc(100% - 11px) 55%}
-.channel-seed #ski-fav{font-size:13px; letter-spacing:0; padding:6px 10px}
-.sx-toggle{display:flex; align-items:baseline; width:100%; padding:12px 0 0; margin:0;
-  background:none; border:0; border-top:1px solid rgba(255,255,255,.09);
-  cursor:pointer; text-align:left; font-family:var(--body)}
-.sx-toggle .setup-sub{flex:1; font-size:10px; text-transform:uppercase}
-.sx-toggle::after{content:'+'; font-size:15px; font-weight:700; line-height:1; color:var(--muted)}
-.sx-toggle[aria-expanded="true"]::after{content:'−'}
-.sx-toggle:hover::after, .sx-toggle.nav-on::after{color:var(--gold)}
-.sx-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px}
-.sx-wide{grid-column:1 / -1}
-.sx-grid .seg-btn{padding:7px 6px; font-size:11px}
-.sx-mastery{list-style:none; margin:0; padding:0; display:grid; grid-template-columns:1fr 1fr;
-  gap:5px 14px; font-size:12px; color:var(--muted)}
-.sx-mastery li{display:flex; gap:6px; align-items:baseline}
-.sx-mastery li::before{content:'○'; color:rgba(255,255,255,.3)}
-.sx-mastery li.done{color:var(--paper)}
-.sx-mastery li.done::before{content:'✓'; color:var(--mint)}
-.sx-mastery i{margin-left:auto; font-style:normal; font-size:10.5px; color:rgba(139,163,189,.7)}
-@media (max-width:640px){ .sx-grid, .sx-mastery{grid-template-columns:1fr} }
-
-/* -------- results: the two links under the two buttons -------- */
-.result-total[hidden], .result-pot[hidden], .result-more[hidden]{display:none}
-.result-more{display:flex; gap:22px; justify-content:center; margin-top:12px}
-.link-btn{font-family:var(--body); font-size:11px; font-weight:800; letter-spacing:.16em;
-  text-transform:uppercase; color:var(--muted); background:none; border:0;
-  border-bottom:1px solid transparent; padding:6px 2px; cursor:pointer;
-  transition:color .16s, border-color .16s}
-.link-btn:hover, .link-btn.nav-on{color:var(--gold); border-bottom-color:rgba(242,193,78,.5)}
-
-/* -------- the practice card on the mountain --------
-   Stacked above the name tag like every other bottom-left tenant, and
-   inert apart from its button so it never eats a steering drag. */
-.sk-practice{position:absolute; left:clamp(14px,2.4vw,30px);
-  bottom:calc(var(--bl-foot, 96px) + 64px); width:min(290px, 60vw); pointer-events:none;
-  padding:11px 13px; border-radius:12px; background:rgba(6,15,26,.72);
-  border:1px solid rgba(255,255,255,.12); backdrop-filter:blur(6px);
-  box-shadow:0 12px 30px rgba(0,0,0,.28)}
-.sk-practice-head{font-size:9.5px; letter-spacing:.26em; text-transform:uppercase;
-  font-weight:800; color:var(--gold)}
-.sk-practice p{margin:5px 0 9px; font-size:12.5px; line-height:1.45; color:var(--paper)}
-.sk-practice .chip{pointer-events:auto; display:inline-flex; gap:8px; align-items:center}
-.sk-practice kbd{font-size:10px; letter-spacing:0}
-body.touch .sk-practice kbd{display:none}
-@media (max-width:640px){ .sk-practice{padding:9px 11px} .sk-practice p{font-size:11.5px} }
-
-/* Estate scenery stays visible behind the front door. */
-#menu-bg{background:linear-gradient(90deg,rgba(4,10,16,.64),rgba(4,10,16,.05) 75%);pointer-events:none}
-#journey-ui{position:fixed;inset:0;z-index:65;pointer-events:none;color:#fff6e6;font-family:Inter,sans-serif}
-.journey-caption{position:absolute;left:max(24px,env(safe-area-inset-left));top:8%;text-shadow:0 2px 12px #000}
-.journey-caption small{font-size:11px;letter-spacing:.24em;color:#f0cf94}
-#journey-title{font-size:clamp(20px,3vw,34px);font-weight:600;margin-top:8px}
-#journey-status{font-size:13px;min-height:20px}
-.journey-actions{position:absolute;bottom:max(24px,env(safe-area-inset-bottom));right:24px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:90%;justify-content:flex-end}
-.journey-actions button,.journey-actions label,#journey-error,.destination-error{pointer-events:auto;background:rgba(9,20,25,.9);border:1px solid #8e8466;color:#fff6e6;border-radius:7px;padding:14px 18px;min-height:48px;font-size:14px}
-.journey-actions input{margin-right:8px;accent-color:#edcd87}
-#journey-error,.destination-error{position:fixed;left:50%;top:45%;transform:translate(-50%,-50%);z-index:100}
-#journey-ui [hidden]{display:none!important}
-@media(max-width:600px){.journey-caption{top:5%;left:18px}.journey-actions{right:16px;bottom:max(100px,env(safe-area-inset-bottom));gap:8px}.journey-actions button,.journey-actions label{font-size:13px;padding:12px}}
-
-@media(min-width:900px){
-  .screen.play{background:linear-gradient(90deg,rgba(5,12,19,.65),transparent 80%)}
-  .play-inner{width:min(510px,48vw);margin:auto auto auto 2vw;gap:20px}
-  .play-mark .brand-title{font-size:clamp(48px,6vw,76px)}
-  .play-mark .pm-seal{width:44px;height:44px;margin-bottom:7px}
-  .play-mark .brand-kicker{font-size:10px}
-  .play-inner .pcard{gap:12px;padding:14px}
-  .play-inner .pc-main{font-size:24px}
-  .play-inner .pc-sub{font-size:11px}
-}
-
-.estate-setting{display:inline-flex;align-items:center;gap:7px;text-transform:none;letter-spacing:0;font-size:11px}
-.estate-setting input{accent-color:#ebc47d}.estate-setting select{background:#17232c;color:#f4e9d4;border:0;padding:4px;min-height:24px}
-.play-foot{flex-wrap:wrap;justify-content:center}
-
-/* Shootout: parchment, moss and warm brass; warning and draw colours stay vivid. */
-.sh-hud .sh-money{color:#efd6a0;text-shadow:0 2px 5px #182519,0 0 18px #17241880}
-.sh-hud .sh-money.hurt{color:#ff7890}
-.sh-hud .sh-chain{color:#bed29a;text-shadow:0 2px 5px #172418}
-.sh-hud .sh-round,.sh-hud .sh-left{color:#f0ead9;text-shadow:0 2px 5px #172418}
-.sh-hud .sh-round-name,.sh-hud .sh-chain-lbl{color:#e2e4d4}
-.sh-hud .sh-round-track,.sh-hud .sh-chain-track,.sh-hud .sh-breath-track{background:#18291dcc;border-color:#d7d6b533}
-.sh-hud .sh-round-bar,.sh-hud .sh-chain-bar{background:linear-gradient(90deg,#809b63,#c2d4a2)}
-.sh-hud .sh-round-bar.low,.sh-hud .sh-chain-bar.low{background:#ff5470}
-.sh-hud .sh-breath-fill{background:linear-gradient(90deg,#6d978e,#d4e5ca)}
-.sh-hud .sh-breath.using .sh-breath-fill{background:linear-gradient(90deg,#c5d8a6,#fff3d1)}
-@media (max-width:600px){
-  .sh-top{gap:8px}
-  .sh-round-block{min-width:110px;max-width:42vw}
-  .sh-tally{min-width:60px}
-  .sh-round-name{font-size:9px;letter-spacing:.08em}
-  .sh-boss{top:max(108px,14vh);width:88vw}
-  .sh-boons{top:max(194px,25vh);gap:4px}
-}
-@media (prefers-reduced-motion:reduce){
-  .sh-hud *,.sh-reticle *,.sh-loose::after,.sh-hit i{animation:none!important;transition:none!important}
-}
-.sh-hud.reduce-motion *{animation:none!important;transition:none!important}
-
-/* ==================================================================
    TUTORIAL
    A gold ring round the real thing, a candle-lit card beside it, and
    in a mission a big keycap that lights while you are holding it.
@@ -3106,3 +1987,313 @@ body.touch .sk-practice kbd{display:none}
 #tutorial.hints .tut-key.space{min-width:100px; font-size:13px}
 #tutorial.hints .tut-foot{display:none}
 #tutorial.hints .tut-actions{margin-top:6px}
+
+/* a crowded field: the leaders, you, and a count of the rest */
+#field.crowded .fd-row{padding-top:2px; padding-bottom:2px}
+#field .fd-gap, #field .fd-more{opacity:.55; font-size:11px; justify-content:center}
+
+/* the AI panel in the host's lobby */
+.lr-ai{display:flex; flex-direction:column; gap:8px; font-size:13px}
+.ai-head{font-weight:700; letter-spacing:.06em; text-transform:uppercase; font-size:12px}
+.ai-head small{font-weight:400; text-transform:none; letter-spacing:0; opacity:.6; margin-left:6px}
+.ai-row{display:flex; align-items:center; gap:8px}
+.ai-row input[type=password]{flex:1; min-width:0; padding:8px 10px; border-radius:6px;
+  border:1px solid rgba(255,255,255,.18); background:rgba(0,0,0,.25); color:inherit; font:inherit}
+.ai-stepper b{min-width:22px; text-align:center; font-size:16px}
+.ai-stepper span{flex:1}
+.ai-status{font-size:12px; color:var(--muted)}
+.ai-status.ready{color:var(--mint)}
+.ai-status.error{color:#ff8a9a}
+.ai-cost, .ai-note{font-size:12px; color:var(--muted)}
+
+/* ==================================================================
+   The day in the castle: the jobs, the puzzles, the notebook
+   ================================================================== */
+.cg-wrap{position:fixed; inset:0; z-index:70; display:flex; align-items:center; justify-content:center;
+  background:rgba(6,12,20,.28); opacity:0; transition:opacity .2s; pointer-events:auto}
+.cg-wrap.on{opacity:1}
+.cg-panel{width:min(420px,92vw); background:linear-gradient(180deg,#1c2a3e,#121d2c);
+  border:1px solid rgba(242,193,78,.45); border-radius:14px; box-shadow:var(--shadow); padding:14px 16px 12px;
+  transform:translateY(10px) scale(.97); transition:transform .22s cubic-bezier(.2,.9,.3,1.3)}
+.cg-wrap.on .cg-panel{transform:none}
+.cg-panel.cg-done{border-color:#7fe0a0; box-shadow:0 0 0 3px rgba(127,224,160,.35), var(--shadow)}
+.cg-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px}
+.cg-title{font-family:var(--display); letter-spacing:.06em; font-size:20px; color:var(--gold)}
+.cg-close{background:none; border:1px solid rgba(255,255,255,.2); color:var(--paper); border-radius:8px;
+  width:30px; height:30px; cursor:pointer}
+.cg-body{display:flex; flex-direction:column; align-items:center; gap:10px; min-height:180px; justify-content:center}
+.cg-hint{margin-top:10px; font-size:12px; color:var(--muted); text-align:center; min-height:16px}
+.cg-shake{animation:cgShake .32s}
+@keyframes cgShake{0%,100%{transform:none}25%{transform:translateX(-7px)}75%{transform:translateX(7px)}}
+
+.cg-note{background:#efe2c2; color:#3a2a14; border-radius:6px; padding:8px 14px; text-align:center;
+  font-family:Georgia,serif; opacity:0; transform:rotate(-2deg) scale(.9); transition:all .25s}
+.cg-note.on{opacity:1; transform:rotate(-2deg)}
+.cg-note span{display:block; font-size:11px; font-style:italic}
+.cg-note b{font-size:28px; letter-spacing:.25em}
+.cg-screen{font:700 26px/1 ui-monospace,monospace; letter-spacing:.35em; background:#07110a; color:#7fe0a0;
+  padding:8px 14px; border-radius:6px; min-width:150px; text-align:center}
+.cg-pad{display:grid; grid-template-columns:repeat(3,58px); gap:6px}
+.cg-key{height:44px; border-radius:8px; border:1px solid rgba(255,255,255,.18); background:#26364d; color:var(--paper);
+  font:600 18px var(--body); cursor:pointer}
+.cg-key:active{transform:scale(.95); background:#34496a}
+
+.cg-wires{width:100%; display:flex; justify-content:center}
+.cg-wire-svg{width:300px; height:220px; background:#0d1520; border-radius:10px}
+.cg-wdot{cursor:pointer; stroke:#fff; stroke-width:2}
+.cg-wdot.held{stroke:#fff; stroke-width:5}
+
+.cg-candles{display:flex; align-items:flex-end; gap:12px; height:170px; padding-top:30px}
+.cg-candle{position:relative; width:30px; border:none; border-radius:5px 5px 2px 2px; cursor:pointer;
+  background:linear-gradient(90deg,#efe6d4,#fffaf0,#e3d6bd); color:#5a4630; font:700 13px var(--body);
+  display:flex; align-items:flex-end; justify-content:center; padding-bottom:8px}
+.cg-flame{position:absolute; top:-26px; left:50%; width:14px; height:22px; margin-left:-7px; border-radius:50% 50% 45% 45%;
+  background:radial-gradient(circle at 50% 70%,#fff6c8,#ffb43d 55%,rgba(255,90,20,0) 72%); opacity:0; transition:opacity .2s}
+.cg-candle.lit .cg-flame{opacity:1; animation:cgFlicker .5s infinite alternate}
+@keyframes cgFlicker{from{transform:scaleY(1)}to{transform:scaleY(1.12) skewX(3deg)}}
+
+.cg-glass{position:relative; width:110px; height:150px; border:3px solid rgba(220,235,255,.7); border-top:none;
+  border-radius:0 0 22px 22px; overflow:hidden; background:rgba(255,255,255,.04)}
+.cg-band{position:absolute; left:0; right:0; background:rgba(127,224,160,.22); border-top:1px dashed #7fe0a0; border-bottom:1px dashed #7fe0a0}
+.cg-dram{position:absolute; left:0; right:0; bottom:0; height:0; background:linear-gradient(180deg,#e0a24a,#a45f17)}
+.cg-pour-btn{padding:10px 22px; border-radius:22px; border:1px solid var(--gold); background:#2c2416; color:var(--gold);
+  font:700 13px var(--body); letter-spacing:.08em; cursor:pointer}
+.cg-pour-btn.on{background:var(--gold); color:#1a1408}
+
+.cg-bells{display:flex; gap:14px; padding:20px 0}
+.cg-bell{width:58px; height:66px; border:none; cursor:pointer; border-radius:50% 50% 10px 10px / 70% 70% 10px 10px;
+  background:linear-gradient(180deg,#e9c46a,#a8781c); box-shadow:inset 0 -6px 0 rgba(0,0,0,.25); transition:transform .1s, filter .1s}
+.cg-bell.b1{filter:hue-rotate(-25deg)} .cg-bell.b2{filter:hue-rotate(25deg) saturate(.8)} .cg-bell.b3{filter:hue-rotate(60deg) saturate(.6)}
+.cg-bell.on{transform:rotate(-14deg) scale(1.08); box-shadow:0 0 22px #ffe08a, inset 0 -6px 0 rgba(0,0,0,.25)}
+
+.cg-holes{display:flex; gap:10px}
+.cg-hole{width:96px; height:58px; border-radius:6px; border:1px solid rgba(255,255,255,.18); background:#0d1520;
+  color:var(--paper); font:600 11px var(--body); cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px}
+.cg-hole i{width:16px; height:16px; border-radius:50%}
+.cg-hole.fed{background:#203a2a}
+.cg-pile{display:flex; flex-wrap:wrap; gap:8px; justify-content:center; max-width:330px}
+.cg-letter{width:62px; height:42px; border:none; border-radius:3px; background:#efe6d4; cursor:pointer; position:relative}
+.cg-letter i{position:absolute; left:50%; top:50%; width:14px; height:14px; margin:-7px 0 0 -7px; border-radius:50%}
+.cg-letter.held{outline:3px solid var(--gold); transform:translateY(-6px)!important}
+
+.cg-tartan-target{width:150px; height:84px; border-radius:6px; border:2px solid var(--gold)}
+.cg-tartan-opts{display:grid; grid-template-columns:repeat(4,70px); gap:8px}
+.cg-tartan{width:70px; height:56px; border-radius:5px; border:1px solid rgba(255,255,255,.25); cursor:pointer}
+.cg-tartan:hover{outline:2px solid var(--paper)}
+
+.cg-wave{width:320px; height:120px; background:#0d1520; border-radius:10px}
+.cg-slider{width:300px; accent-color:var(--gold)}
+
+/* the day's HUD */
+.tk-hud{position:fixed; inset:0; pointer-events:none; z-index:40; font-family:var(--body); color:var(--paper)}
+.tk-hud .glass, .tk-list, .tk-role, .tk-notes, .tk-map, .tk-clock, .tk-pot, .tk-prompt, .tk-notes-btn{
+  background:linear-gradient(180deg, rgba(14,22,36,.82), rgba(8,13,22,.78)); backdrop-filter:blur(8px);
+  border:1px solid rgba(242,193,78,.28); box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.tk-top{position:absolute; top:14px; left:50%; transform:translateX(-50%); display:flex; gap:10px; align-items:stretch}
+.tk-clock{position:relative; display:flex; align-items:center; gap:9px; border-radius:14px; padding:6px 14px 6px 8px;
+  font:700 20px/1 var(--display); letter-spacing:.06em}
+.tk-clock-ring{width:26px; height:26px; border-radius:50%;
+  background:conic-gradient(var(--gold) calc(var(--p,1)*1turn), rgba(255,255,255,.12) 0);
+  -webkit-mask:radial-gradient(circle, transparent 7px, #000 8px); mask:radial-gradient(circle, transparent 7px, #000 8px)}
+.tk-clock.bell{border-color:var(--crimson); animation:cgPulse .8s infinite alternate}
+.tk-clock.bell .tk-clock-ring{background:conic-gradient(var(--crimson) calc(var(--p,1)*1turn), rgba(255,255,255,.12) 0)}
+.tk-pot{position:relative; border-radius:14px; padding:5px 16px; display:flex; flex-direction:column; align-items:center; justify-content:center}
+.tk-pot small{font-size:8.5px; letter-spacing:.28em; color:#b9a77a}
+.tk-pot b{font:400 20px/1 var(--display); color:var(--gold); letter-spacing:.04em}
+.tk-pot-pop{position:absolute; left:50%; top:100%; transform:translateX(-50%); font-style:normal;
+  font:400 22px/1 var(--display); color:#ffe08a; text-shadow:0 0 14px rgba(242,193,78,.8); opacity:0; white-space:nowrap}
+.tk-pot-pop.go{animation:potPop 1.3s ease-out}
+@keyframes potPop{0%{opacity:0; transform:translate(-50%,10px) scale(.7)}15%{opacity:1; transform:translate(-50%,0) scale(1.15)}
+  70%{opacity:1}100%{opacity:0; transform:translate(-50%,-34px) scale(1)}}
+@keyframes cgPulse{to{box-shadow:0 0 22px rgba(216,30,64,.75)}}
+.tk-list{position:absolute; left:14px; top:14px; width:min(300px,66vw); border-radius:14px; padding:10px 12px 8px}
+.tk-list-head{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:6px}
+.tk-list h4{margin:0; font:400 15px var(--display); letter-spacing:.12em; color:var(--gold)}
+.tk-count{font-size:10.5px; letter-spacing:.14em; color:#b9a77a; text-transform:uppercase}
+.tk-list ul{margin:0; padding:0}
+.tk-list li{list-style:none; display:flex; gap:8px; align-items:flex-start; margin:3px 0; padding:4px 6px; border-radius:8px;
+  font-size:12.5px; line-height:1.35; transition:background .2s}
+.tk-list li i{font-style:normal; width:14px; flex:none; text-align:center; color:#ffd66b}
+.tk-list li.carry i{color:#7cc8ff}
+.tk-list li.letter i{color:#efe6d4}
+.tk-list li.near{background:rgba(242,193,78,.16)}
+.tk-list li.done{opacity:.45}
+.tk-list li.done span{text-decoration:line-through}
+.tk-list li.done i{color:#7fe0a0}
+.tk-carry{margin-top:6px; padding:5px 8px; border-radius:8px; font-size:11.5px; color:#d6efff; background:rgba(124,200,255,.14);
+  border:1px solid rgba(124,200,255,.35)}
+.tk-prompt{position:absolute; left:50%; bottom:20%; transform:translateX(-50%); border-radius:12px; padding:9px 16px;
+  font:600 14px var(--body); display:flex; align-items:center; gap:10px; opacity:0; transition:opacity .12s; white-space:nowrap}
+.tk-prompt.on{opacity:1}
+.tk-prompt em{display:inline-block; width:14px}
+.tk-prompt kbd{display:inline-block; min-width:22px; text-align:center; background:var(--gold); color:#1a1408; border-radius:5px;
+  padding:2px 7px; font:800 12px var(--body); margin-right:4px}
+.tk-prompt.poison{border-color:var(--crimson)}
+.tk-prompt.poison kbd:last-of-type{background:var(--crimson); color:#fff}
+.tk-ring{width:22px; height:22px; border-radius:50%; flex:none;
+  background:conic-gradient(var(--gold) calc(var(--p,0)*1turn), rgba(255,255,255,.15) 0)}
+.tk-prompt.poison .tk-ring{background:conic-gradient(var(--crimson) calc(var(--p,0)*1turn), rgba(255,255,255,.15) 0)}
+.tk-role{position:absolute; right:14px; top:14px; max-width:250px; border-radius:12px; padding:9px 12px; font-size:12px; line-height:1.45;
+  border-color:rgba(216,30,64,.6); background:linear-gradient(180deg, rgba(56,10,20,.86), rgba(30,6,12,.82))}
+.tk-role b{color:#ff8a9c; letter-spacing:.06em}
+.tk-role.used{border-color:rgba(255,255,255,.2)}
+.tk-map{position:absolute; right:14px; bottom:14px; width:170px; height:170px; border-radius:14px}
+.tk-notes-btn{position:absolute; left:14px; bottom:14px; pointer-events:auto; color:var(--paper);
+  border-radius:12px; padding:8px 14px; font:600 12.5px var(--body); cursor:pointer}
+.tk-notes-btn b{background:rgba(242,193,78,.85); color:#1a1408; border-radius:4px; padding:1px 6px; margin-right:6px; font-size:11px}
+.tk-notes{position:absolute; left:14px; bottom:58px; width:min(360px,86vw); max-height:46vh; overflow:auto; pointer-events:auto;
+  border-radius:12px; padding:10px 12px; font-size:12.5px; display:none}
+.tk-notes.on{display:block}
+.tk-notes h4{margin:0 0 6px; font:400 15px var(--display); letter-spacing:.08em; color:var(--gold)}
+.tk-notes p{margin:4px 0} .tk-notes p i{color:var(--muted); font-style:normal; margin-right:6px}
+.tk-notes p.hand{color:#ffd48a}
+.tk-touch{position:absolute; right:18px; bottom:200px; display:none; flex-direction:column; gap:10px; pointer-events:auto}
+.tk-hud.touch .tk-touch, body.touch .tk-touch{display:flex}
+.tk-touch button{width:74px; height:74px; border-radius:50%; border:2px solid var(--gold); background:rgba(20,28,40,.8); color:var(--gold); font:700 12px var(--body)}
+.tk-touch button.poison{border-color:var(--crimson); color:#ff8a9c}
+@media (max-width:640px){ .tk-map{width:118px;height:118px} .tk-list{font-size:11.5px; width:min(240px,60vw)} .tk-role{max-width:170px} }
+
+/* ==================================================================
+   Loading: the seal, the title, a line of candlelight filling
+   ================================================================== */
+#boot{position:fixed; inset:0; z-index:100; display:grid; place-items:center; overflow:hidden;
+  background:radial-gradient(120% 90% at 50% 40%, #1d2a44 0%, #0d1424 55%, #05080f 100%);
+  transition:opacity .7s ease}
+#boot.gone{opacity:0; pointer-events:none}
+.boot-glow{position:absolute; left:50%; top:46%; width:70vmin; height:70vmin; transform:translate(-50%,-50%);
+  background:radial-gradient(circle, rgba(242,193,78,.22), rgba(242,193,78,0) 62%); animation:bootBreath 3.2s ease-in-out infinite}
+@keyframes bootBreath{50%{opacity:.55; transform:translate(-50%,-50%) scale(1.08)}}
+.boot-inner{position:relative; display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center}
+.boot-seal{width:84px; height:84px; margin-bottom:6px; filter:drop-shadow(0 0 18px rgba(242,193,78,.45)); animation:bootSeal 6s linear infinite}
+.boot-seal .ps-ring{fill:none; stroke:#f2c14e; stroke-width:1.6}
+.boot-seal .ps-ring.thin{stroke-width:.8; opacity:.6}
+.boot-seal .ps-keep,.boot-seal .ps-bar{fill:#f2c14e}
+.boot-seal .ps-blade{fill:#d81e40}
+@keyframes bootSeal{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
+.boot-kicker{font-size:11px; letter-spacing:.32em; text-transform:uppercase; color:#b9a77a}
+.boot-title{font-family:var(--display); font-size:clamp(46px,9vw,84px); line-height:.95; letter-spacing:.06em; color:#f4ecd8;
+  text-shadow:0 0 40px rgba(242,193,78,.25)}
+.boot-title span{display:block; color:#f2c14e; letter-spacing:.12em}
+.boot-bar{width:min(280px,64vw); height:3px; border-radius:3px; background:rgba(242,193,78,.16); overflow:hidden; margin-top:14px}
+.boot-bar i{display:block; height:100%; width:40%; border-radius:3px;
+  background:linear-gradient(90deg, rgba(242,193,78,0), #f2c14e, #fff2c4); animation:bootFill 1.4s ease-in-out infinite}
+@keyframes bootFill{0%{transform:translateX(-110%)}100%{transform:translateX(260%)}}
+.boot-line{font-size:12.5px; letter-spacing:.08em; color:#8ba3bd; margin-top:4px}
+.boot-err{color:#ff8fa3; font-size:13px; text-align:center; line-height:1.7; letter-spacing:0}
+.destination-error{position:fixed; left:50%; top:45%; transform:translate(-50%,-50%); z-index:100; pointer-events:auto;
+  background:rgba(9,20,25,.92); border:1px solid #8e8466; color:#fff6e6; border-radius:10px; padding:16px 20px; text-align:center}
+.destination-error button{margin:8px 6px 0; background:#17232c; color:#f4e9d4; border:1px solid #8e8466; border-radius:7px; padding:10px 16px; cursor:pointer}
+.estate-setting{display:inline-flex; align-items:center; gap:7px; text-transform:none; letter-spacing:0; font-size:11px}
+.estate-setting input{accent-color:#ebc47d}
+.estate-setting select{background:#17232c; color:#f4e9d4; border:0; padding:4px; min-height:24px}
+
+/* the puzzles' extra pieces */
+.cg-panel{position:relative; overflow:visible}
+.cg-spark{position:absolute; left:50%; top:50%; width:8px; height:8px; border-radius:50%; background:#ffe08a;
+  box-shadow:0 0 10px #f2c14e; pointer-events:none; animation:cgSpark .85s ease-out forwards}
+@keyframes cgSpark{to{transform:translate(var(--dx),var(--dy)) scale(.2); opacity:0}}
+.cg-rafters{position:relative; width:340px; max-width:100%; height:230px; border-radius:10px; overflow:hidden;
+  background:linear-gradient(180deg,#1c140f,#2c1f15 60%,#3a2a1b); box-shadow:inset 0 0 40px rgba(0,0,0,.6)}
+.cg-rafters::before{content:''; position:absolute; inset:0; background:repeating-linear-gradient(90deg, transparent 0 58px, rgba(0,0,0,.35) 58px 70px)}
+.cg-bat{position:absolute; left:-20px; top:-12px; width:40px; height:24px; border:none; background:none; cursor:pointer; padding:0}
+.cg-bat i{position:absolute; top:6px; width:20px; height:12px; background:#0b0b10; border-radius:60% 60% 10% 10%; animation:batFlap .18s infinite alternate}
+.cg-bat i:first-child{left:0; transform-origin:right center} .cg-bat i:last-child{right:0; transform-origin:left center}
+.cg-bat::after{content:''; position:absolute; left:15px; top:5px; width:10px; height:12px; border-radius:50%; background:#16141c;
+  box-shadow:inset 2px 2px 0 rgba(255,80,80,.6)}
+@keyframes batFlap{to{transform:scaleY(.35)}}
+.cg-bat.gone{transition:transform .5s ease-in, opacity .5s; opacity:0; pointer-events:none}
+.cg-pins{display:flex; gap:22px; height:70px; align-items:flex-end}
+.cg-pin{width:16px; height:56px; border-radius:4px 4px 2px 2px; background:linear-gradient(90deg,#9b8a6a,#e0cfa4,#9b8a6a);
+  transform:translateY(16px); transition:transform .15s ease-out}
+.cg-pin.up{transform:none; background:linear-gradient(90deg,#c9a33c,#ffe08a,#c9a33c); box-shadow:0 0 12px rgba(242,193,78,.6)}
+.cg-lockbar{position:relative; width:300px; max-width:90%; height:22px; border-radius:11px; background:#0d1520; border:1px solid rgba(255,255,255,.18)}
+.cg-zone{position:absolute; top:0; bottom:0; background:rgba(242,193,78,.45); border-radius:11px}
+.cg-pick{position:absolute; top:-5px; width:4px; height:32px; margin-left:-2px; background:#fff; border-radius:2px; box-shadow:0 0 8px #fff}
+.cg-hearth{position:relative; width:170px; height:150px; border-radius:80px 80px 12px 12px; overflow:hidden;
+  background:radial-gradient(circle at 50% 95%, #3a1d0e, #120a06 70%); border:4px solid #4b3a2c}
+.cg-target{position:absolute; left:50%; top:52%; width:110px; height:110px; margin:-55px 0 0 -55px; border-radius:50%;
+  border:2px dashed rgba(255,224,138,.7)}
+.cg-glow{position:absolute; left:50%; top:52%; width:110px; height:110px; margin:-55px 0 0 -55px; border-radius:50%;
+  background:radial-gradient(circle, rgba(255,190,90,.85), rgba(255,110,30,.35) 55%, rgba(255,80,0,0) 72%)}
+.cg-flames{position:absolute; left:20%; right:20%; bottom:0; height:100px; transform-origin:bottom center;
+  background:radial-gradient(ellipse at 50% 100%, #fff3c4, #ffb43d 35%, rgba(255,80,20,.6) 60%, transparent 72%)}
+.cg-hearth.puff{box-shadow:0 0 30px rgba(255,160,60,.8)}
+.cg-recipe{display:flex; flex-wrap:wrap; gap:6px 12px; justify-content:center; background:#efe2c2; color:#3a2a14; border-radius:6px;
+  padding:7px 12px; font:italic 13px Georgia,serif; transform:rotate(-1deg)}
+.cg-recipe span.in{text-decoration:line-through; opacity:.55}
+.cg-cauldron{width:110px; height:64px; border-radius:0 0 55px 55px; background:linear-gradient(180deg,#2a2a30,#121216);
+  border-top:8px solid #3c3c44; position:relative}
+.cg-cauldron i{position:absolute; left:10px; right:10px; top:-6px; height:14px; border-radius:50%; background:#5fbf6a; box-shadow:0 0 12px #5fbf6a}
+.cg-cauldron.bubble i{animation:brewBubble .4s}
+.cg-cauldron.spoilt i{background:#c0392b; box-shadow:0 0 14px #c0392b}
+@keyframes brewBubble{50%{transform:scaleY(1.8) translateY(-4px)}}
+.cg-shelf{display:grid; grid-template-columns:repeat(3,96px); gap:6px}
+.cg-ingredient{display:flex; flex-direction:column; align-items:center; gap:2px; padding:6px 4px; border-radius:8px; cursor:pointer;
+  background:#26364d; border:1px solid rgba(255,255,255,.16); color:var(--paper); font:600 11px var(--body)}
+.cg-ingredient b{font-size:22px; line-height:1}
+.cg-ingredient:active{transform:scale(.95)}
+
+/* the round table, uncluttered: a small pill for the discussion, and the
+   day's board folded into a tab on the right until somebody wants it */
+#floor-bar{gap:9px; padding:5px 6px 5px 13px}
+#floor-bar .fb-who{font-size:10px; letter-spacing:.14em}
+#floor-bar .fb-clock{font-size:17px}
+#floor-bar.open .fb-track{display:none}
+#floor-bar .fb-done{padding:6px 11px; font-size:9.5px}
+#board{left:auto; right:14px; bottom:auto; top:50%; width:auto; min-width:0; padding:8px 12px; border-radius:12px;
+  transform:translate(12px,-50%); cursor:pointer; pointer-events:none; background:rgba(8,16,26,.72)}
+#board.on{transform:translate(0,-50%); pointer-events:auto}
+#board .bd-head-line{margin:0; gap:8px; align-items:center}
+#board .bd-head-line b{font-size:13px}
+#board .bd-key{font:800 10px var(--body); background:rgba(242,193,78,.85); color:#1a1408; border-radius:4px; padding:1px 6px}
+#board .board-grid{display:none; margin-top:8px}
+#board.open .board-grid{display:flex}
+#board .bd-row{min-width:0; grid-template-columns:minmax(90px,1fr) 40px; padding:4px 6px}
+#board .bd-row span{font-size:11.5px}
+.stage-hint.on{animation:hintAway 6s forwards}
+@keyframes hintAway{0%,75%{opacity:1}100%{opacity:0}}
+
+/* the AI panel in the lobby */
+.lr-ai{display:block}
+.ai-card{display:flex; flex-direction:column; gap:12px; padding:14px; border-radius:14px; text-align:left;
+  background:linear-gradient(180deg, rgba(23,33,52,.85), rgba(12,18,30,.85)); border:1px solid rgba(124,200,255,.28)}
+.ai-head{display:flex; gap:10px; align-items:center}
+.ai-head b{display:block; font:400 18px var(--display); letter-spacing:.1em; text-transform:uppercase; color:#d6efff}
+.ai-head small{display:block; font-size:11px; color:var(--muted); letter-spacing:.02em; text-transform:none; margin:0}
+.ai-spark{display:grid; place-items:center; width:34px; height:34px; border-radius:10px; font-size:16px; color:#0b1422;
+  background:linear-gradient(135deg,#7cc8ff,#b48bff); box-shadow:0 0 18px rgba(124,200,255,.4)}
+.ai-key{display:flex; align-items:center; gap:8px; padding:4px 4px 4px 10px; border-radius:10px;
+  background:rgba(4,8,14,.6); border:1px solid rgba(255,255,255,.12)}
+.ai-key:focus-within{border-color:rgba(124,200,255,.6)}
+.ai-key-ico{font-size:13px; opacity:.8}
+.ai-key input{flex:1; min-width:0; background:none; border:none; outline:none; color:var(--paper); font:500 13px var(--body); padding:8px 0}
+.btn.ai-connect{padding:8px 14px; font-size:11px; letter-spacing:.12em}
+.ai-meta{display:flex; align-items:center; justify-content:space-between; gap:10px}
+.ai-status{font-size:12px; color:var(--muted)}
+.ai-status.ready{color:var(--mint)} .ai-status.checking{color:var(--gold)} .ai-status.error{color:#ff8a9a}
+.ai-switch{display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px; color:#c7d6e8}
+.ai-switch input{position:absolute; opacity:0; pointer-events:none}
+.ai-switch i{position:relative; width:34px; height:20px; border-radius:10px; background:rgba(255,255,255,.14); flex:none; transition:background .2s}
+.ai-switch i::after{content:''; position:absolute; left:3px; top:3px; width:14px; height:14px; border-radius:50%; background:#dfe8f3; transition:transform .2s}
+.ai-switch input:checked + i{background:linear-gradient(90deg,#7cc8ff,#b48bff)}
+.ai-switch input:checked + i::after{transform:translateX(14px)}
+.ai-switch input:disabled + i{opacity:.4}
+.ai-switch.big{padding:10px 12px; border-radius:10px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08)}
+.ai-switch.big span b{display:block; font-size:13px; color:var(--paper)}
+.ai-switch.big span small{display:block; font-size:11px; color:var(--muted)}
+.ai-body{display:flex; flex-direction:column; gap:10px; transition:opacity .2s}
+.ai-body.off{opacity:.38; pointer-events:none}
+.ai-seats-row{display:flex; align-items:center; justify-content:space-between; gap:10px}
+.ai-seats-row b{display:block; font-size:13px} .ai-seats-row small{display:block; font-size:11px; color:var(--muted)}
+.ai-stepper{display:flex; align-items:center; gap:10px}
+.ai-stepper b{min-width:22px; text-align:center; font:400 24px var(--display); color:#d6efff}
+.ai-round{width:32px; height:32px; border-radius:50%; border:1px solid rgba(124,200,255,.5); background:rgba(124,200,255,.1);
+  color:#d6efff; font:700 18px/1 var(--body); cursor:pointer}
+.ai-round:disabled{opacity:.3; cursor:default}
+.ai-round:hover:not(:disabled){background:rgba(124,200,255,.25)}
+.ai-chairs{display:flex; gap:6px}
+.ai-chairs i{flex:1; height:8px; border-radius:4px; border:1px dashed rgba(255,255,255,.22)}
+.ai-chairs i.h{border:none; background:var(--gold)}
+.ai-chairs i.a{border:none; background:linear-gradient(90deg,#7cc8ff,#b48bff)}
+.ai-cost{font-size:11px; color:var(--muted); line-height:1.5}
+.ai-cost:empty{display:none}

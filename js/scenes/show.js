@@ -3,22 +3,9 @@
 
    Something has to decide what is on screen, and it should not be the
    thing that is on screen. This listens for the session changing phase
-   and puts up whatever that phase is: a scene, a mission, or the
-   verdict. Nothing else in the codebase knows the running order, which
-   means changing it is changing the table in `go()` and nothing more.
-
-   It also owns two joins between the show and the mission engine:
-
-   - The pot. For the duration of a run, mission winnings stop going
-     into the permanent prize pot and go into the night's pot instead —
-     which is only banked if the night is survived. One swapped
-     function, restored on the way out.
-   - The pause between a mission ending and the next scene starting.
-     The result is held rather than dispatched, so you read your own
-     scoreboard and press Continue; the session only learns the mission
-     finished when you say so. Dispatching it the instant the mission
-     ended would change phase, and the phase change would tear the
-     results screen down while you were still reading it.
+   and puts up whatever that phase is: a scene, or the verdict. Nothing
+   else in the codebase knows the running order, which means changing
+   it is changing the table in `enter()` and nothing more.
 ------------------------------------------------------------------ */
 const Show = (() => {
 
@@ -26,7 +13,7 @@ const Show = (() => {
   let transitionAbort = null;
   let isHost = true;
   let solo = false;                 // a rehearsal night: you and two bots
-  let offNet = null, restorePot = null;
+  let offNet = null;
   let verdictGuard = null;      // see `armVerdictGuard`
 
   /* ---------------- starting and stopping ---------------- */
@@ -48,10 +35,6 @@ const Show = (() => {
        `Session` refuses to honour without it. Nothing on any screen can
        set it. */
     solo = !!opts.solo;
-    /* A fresh night, a fresh card, and — this is the part that matters
-       — an unmarked one with its window open again. The deck holds
-       that mark on this machine and nothing else clears it. */
-    if (typeof Agendas !== 'undefined') Agendas.begin();
     Session.startParty({
       seed: opts.seed,
       players: opts.players || [],
@@ -59,7 +42,13 @@ const Show = (() => {
       rehearsal: solo,
       parts: opts.parts,
       traitorSeat: opts.traitorSeat,
+      ai: opts.ai || null,
     });
+    /* With an AI Claudia in the room, every line of hers — yours alone
+       as well as the room's — is read in her own voice by the room
+       server, to each browser separately. See `Voice`. */
+    Voice.setRemote(!!(Session.state.ai && Session.state.ai.claudia));
+    if (isHost && !solo && typeof AIDirector !== 'undefined') AIDirector.start();
     if (opts.jumpTo && isHost) Session.jumpTo(opts.jumpTo);
     attach();
     enter(Session.state.phase, true);
@@ -73,12 +62,10 @@ const Show = (() => {
                      : (isHost ? Transports.HostTransport : Transports.GuestTransport));
     VoiceChat.init();
     VoiceChat.listen();
-    /* The night's takings are the night's. `Session` adds them to its
-       own pot when it is told the mission finished, so the sink here is
-       deliberately a hole — banking twice would be worse than not
-       banking at all. */
-    restorePot = Missions.setPotSink(() => {});
-    offNet = Net.on((e) => { if (e.type === 'phase') enter(e.phase, !!e.catchUp); });
+    offNet = Net.on((e) => {
+      if (e.type === 'phase') enter(e.phase, !!e.catchUp);
+      else if (e.type === 'cue' && e.voice && e.text) caption(e);
+    });
     GameState.logEvent('show', 'A new night begins', { seed: Session.state.seed });
   }
 
@@ -86,7 +73,6 @@ const Show = (() => {
     if (!running) return;
     running = false;
     if (transitionAbort) transitionAbort.abort();
-    Journey.stop();
     const errorPanel=document.getElementById('destination-error');if(errorPanel)errorPanel.remove();
     clearTimeout(verdictGuard);
     verdictGuard = null;
@@ -94,16 +80,35 @@ const Show = (() => {
     if (solo && typeof Bots !== 'undefined') Bots.stop();
     solo = false;
     if (offNet) { offNet(); offNet = null; }
-    if (restorePot) { restorePot(); restorePot = null; }
-    MissionNet.detach();
     RoomUI.hideAll();
     VoiceChat.openFloor();
     Net.disconnect();
     Scenes.stop();
-    Missions.end();
+    if (typeof ChoreGames !== 'undefined') ChoreGames.close(false);
     Voice.stop();
+    Voice.setRemote(false);
+    if (typeof AIDirector !== 'undefined') AIDirector.stop();
     Music.stopAll(0.6);
     if (opts.abandon) Session.abandon();
+  }
+
+  /* Live AI speech, captioned on every screen, with the speaker's name.
+     Claudia's scripted lines already have their subtitle from the beat
+     list, so the host marks those `quiet` and they are not shown twice. */
+  let captionTimer = null;
+  function caption(e) {
+    if (e.quiet) return;
+    // by day, a voice from the other end of the house is not on your screen
+    if (Array.isArray(e.near)) {
+      const me = Session.state && Session.state.players.find(p => p.local);
+      if (me && me.alive && e.id !== me.id && e.near.indexOf(me.id) < 0) return;
+    }
+    const p = e.id && e.id !== 'claudia' ? Session.playerById(e.id) : null;
+    const who = e.id === 'claudia' ? 'Claudia' : (p ? p.name : '');
+    if (Voice.speaking && who === 'Claudia') return;    // a scripted line is on screen
+    Voice.show(who, e.text);
+    clearTimeout(captionTimer);
+    captionTimer = setTimeout(() => { if (!Voice.speaking) Voice.clear(); }, Math.max(2600, e.text.length * 75));
   }
 
   /* ---------------- what each phase looks like ---------------- */
@@ -123,91 +128,32 @@ const Show = (() => {
       return;
     }
     if (transitionAbort) transitionAbort.abort();
-    const controller=new AbortController();transitionAbort=controller;
-    const swap=async()=>{
-      if(controller.signal.aborted||!running)return;
-      let prepared=null;
-      if(phase==='mission'&&Journey.active)prepared=Journey.takePrepared();
-      let pickup=null;
-      if(phase==='travel'&&Session.state.travel.direction==='return')pickup=Missions.releaseForTravel();
-      Journey.stop();Scenes.stop();
-      if(!prepared&&!pickup)Missions.end();
+    const controller = new AbortController();
+    transitionAbort = controller;
+    const swap = async () => {
+      if (controller.signal.aborted || !running) return;
+      Scenes.stop();
       Screens.hideAll();
-      if(phase==='hill')Scenes.play(new HillScene());
-      else if(phase==='finale')Scenes.play(new FinaleScene());
-      else if(phase==='travel')await Journey.start({missionOpts:missionOptions()},pickup);
-      else if(phase==='mission'){
-        try { if(prepared)Missions.activate(prepared);else launchMission(); }
-        catch(error){showBuildError(error);}
-      }
+      if (phase === 'hill') Scenes.play(new HillScene());
+      else if (phase === 'tasks') Scenes.play(new TasksScene());
+      else if (phase === 'finale') Scenes.play(new FinaleScene());
+      else if (phase === 'night') Scenes.play(new NightScene());
+      else if (phase === 'breakfast') Scenes.play(new BreakfastScene());
+      else if (phase === 'table') Scenes.play(new RoundtableScene());
     };
-    Screens.cover(swap,controller.signal,first?0:380).catch(showBuildError);
+    /* A cut, not a dissolve: a quarter of a second of black between one
+       room and the next is all the show needs. */
+    Screens.cover(swap, controller.signal, first ? 0 : 260).catch(showBuildError);
   }
 
-  function showBuildError(error){
-    console.error('Scene build failed',error);
-    if(!running)return;
-    let panel=document.getElementById('destination-error');
-    if(!panel){panel=document.createElement('div');panel.id='destination-error';panel.className='destination-error';document.body.appendChild(panel);}
-    panel.innerHTML='<p>We could not prepare the destination.</p><button>Retry</button><button>Leave the night</button>';
-    panel.children[1].onclick=()=>{panel.remove();enter(Session.state.phase,true);};
-    panel.children[2].onclick=()=>{panel.remove();end({abandon:true});Screens.show('play');};
-  }
-  function missionOptions(){
-    const s=Session.state,m=s.missions[s.missionAt];
-    return {seed:m.seed,mode:m.mode,tod:'auto',ghost:false,
-      party:!solo&&typeof Party!=='undefined'&&Party.connected,host:isHost,
-      players:s.players.map(p=>({id:p.id,name:p.name,look:p.look,local:!!p.local,alive:p.alive,seat:p.seat})),
-      agenda:Session.myAgenda()};
-  }
-  function launchMission(){
-    const m=Session.state.missions[Session.state.missionAt];
-    if(!m||!Missions.get(m.id))throw new Error('Destination unavailable');
-    Missions.launch(m.id,missionOptions());
-  }
-
-  /* ---------------- the join back from a mission ----------------
-     The result is handed in by whoever drew the scoreboard rather than
-     picked up from a listener of our own. Both would be subscribed to
-     the same event, and which of them ran first would depend on the
-     order they happened to subscribe in — which is exactly the kind of
-     thing that works until somebody moves a line. */
-
-  /* The board decides the money now, not your own scoreboard: three
-     people played that mission and the pot is what the three of them
-     managed between them. A solo fallback is kept for the case where
-     the board never arrived, so a dropped peer cannot strand a night. */
-  function resultsAction(result, board) {
-    if (!running || !result) return null;
-    RoomUI.hideAgenda();
-    if (Session.isHost) Net.send({ type: 'missionFinished' });
-    const s = Session.state;
-    const earned = board
-      ? Math.max(0, Math.round(board.earned || 0))
-      : Math.max(0, Math.round(result.earned || 0));
-    const completed = board ? !!board.completed : !!result.completed;
-    const players = board ? (board.players || []) : [];
-    let sent = false;
-    return {
-      label: nextRoomLabel(),
-      go() {
-        if (sent) return;
-        sent = true;
-        Net.send({ type: 'readyResult', earned, completed, players });
-      },
-    };
-  }
-
-  /* What the Continue button says. There is one mission and one room
-     after it now, so this is nearly always "to the fire" — but a
-     rehearsal can switch the fire off, and a button offering a room
-     nobody is going to sit in is worse than a plain one.
-     `Session.state.parts` stays the authority on what is still to
-     come. */
-  function nextRoomLabel() {
-    const s = Session.state;
-    const parts = (s && s.parts) || [];
-    return parts.indexOf('finale') >= 0 ? 'Return to the castle' : 'To the verdict';
+  function showBuildError(error) {
+    console.error('Scene build failed', error);
+    if (!running) return;
+    let panel = document.getElementById('destination-error');
+    if (!panel) { panel = document.createElement('div'); panel.id = 'destination-error'; panel.className = 'destination-error'; document.body.appendChild(panel); }
+    panel.innerHTML = '<p>We could not prepare the next room.</p><button>Retry</button><button>Leave the night</button>';
+    panel.children[1].onclick = () => { panel.remove(); enter(Session.state.phase, true); };
+    panel.children[2].onclick = () => { panel.remove(); end({ abandon: true }); Screens.show('play'); };
   }
 
   /* ---------------- the verdict ---------------- */
@@ -269,17 +215,22 @@ const Show = (() => {
     el('verdict-role').className = 'verdict-role ' + o.role;
 
     el('verdict-line').textContent =
-      /* Exposed by an unfinished task. It is its own ending and it
-         needs its own sentence — "they found you" is not what
-         happened, and the Traitor should be told exactly what did. */
-      o.reason === 'agenda'
+      /* How it ended for you, which on a night of eight is as often
+         "you were not there for the end of it" as anything else. */
+      o.reason === 'exposed'
         ? (o.role === 'traitor'
-            ? 'You left the work undone, and Claudia counted it.'
-            : 'The Traitor fumbled the job. You never had to name them.')
+            ? 'You never used the poison, and Claudia exposed you.'
+            : 'The last Traitor lost their nerve. You never had to name them.')
       : o.reason === 'you-burned' ? 'You were banished, and the fire told them what you were.'
+      : o.fate === 'murdered' ? (o.traitorAlive ? 'You were murdered, and the Traitors got away with it.'
+                                                 : 'You were murdered — but the ones who did it were caught.')
+      : o.fate === 'banished' ? (o.role === 'traitor' ? 'They found you at the round table.'
+                                                      : 'They banished you, and you were Faithful all along.')
+      : o.fate === 'left' ? 'You left the castle before the end.'
       : o.role === 'traitor'
         ? (won ? 'They never found you.' : 'They found you.')
-        : (won ? (o.hadTraitor ? 'The Traitor was caught.'
+        : (won ? (o.hadTraitor ? (o.reason === 'all-found' ? 'Every Traitor was caught.'
+                                                               : 'The Traitors were caught.')
                                : 'There was never a Traitor here at all.')
                : 'A Traitor was still sitting there when you ended it.');
 
@@ -291,11 +242,11 @@ const Show = (() => {
            + `<span class="vc-name">${you ? 'You' : p.name}</span>`
            + `<span class="vc-role">${p.role === 'traitor' ? 'TRAITOR' : 'FAITHFUL'}</span>`
            + `<span class="vc-fate">${p.winner ? 'won ' + U.money(p.payout)
-                                      : (p.alive ? 'no share' : 'banished — £0')}</span>`
+                                      : (p.alive ? 'no share'
+                                         : (p.out === 'murdered' ? 'murdered — £0'
+                                           : p.out === 'left' ? 'left — £0' : 'banished — £0'))}</span>`
            + '</div>';
     }).join('');
-
-    paintReckoning(o);
 
     el('verdict-pot').textContent = U.money(o.pot);
     el('verdict-banked').textContent = won ? '+' + U.money(o.banked) : 'lost';
@@ -310,54 +261,7 @@ const Show = (() => {
     if (!Music.sectionAll(V.credits, { at: 'bar', glide: 3 }) && won) AudioBus.play('reveal-faithful');
   }
 
-  /* ---------------- the reckoning ----------------
-     The one thing in this game that nothing in this game can check.
-
-     The Traitor's card was a thing to say out loud on a microphone.
-     Nothing on the host can hear a microphone, so the card was marked
-     by the only person who knew — and there has been no way, all
-     night, for anybody to find out whether that mark was honest.
-
-     This is that way. It is printed once, here, at the end, when every
-     role is already face up and there is nothing left to protect: the
-     card, word for word, and whether they claimed they said it. The
-     two people who were on that microphone with them read it and know
-     immediately. Claudia never says a word of this — she stopped
-     talking two beats ago, and a line read out by a presenter would
-     make it an accusation. Printed on a board after the money has been
-     paid, it is a fact, and what to do about it is theirs.
-
-     It is deliberately not scored. Nobody wins or loses anything on
-     it. It is the reason to have been honest, and that is all it needs
-     to be. */
-  function paintReckoning(o) {
-    const box = document.getElementById('verdict-task');
-    if (!box) return;
-    const a = o && o.agenda;
-    box.hidden = true;
-    box.innerHTML = '';
-    if (!a || !a.text) return;
-    const me = Session.state && Session.state.players.find(p => p.local);
-    const yours = !!(me && a.playerId === me.id);
-    const esc = (v) => String(v === undefined || v === null ? '' : v)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const who = yours ? 'You were' : esc(a.name || 'The Traitor') + ' was';
-    box.className = 'verdict-task ' + (a.marked ? 'marked' : 'unmarked');
-    box.innerHTML =
-        '<div class="vt-head">The task</div>'
-      + '<div class="vt-who">' + who + ' asked to do this, out loud, '
-      + 'while all three of you were on the microphone.</div>'
-      + '<div class="vt-text">' + esc(a.text) + '</div>'
-      + '<div class="vt-mark">'
-      + (a.marked ? (yours ? 'You marked it done.'
-                           : 'They marked it done. You were there — decide for yourselves.')
-                  : (yours ? 'You never marked it.'
-                           : 'They never marked it.'))
-      + '</div>';
-    box.hidden = false;
-  }
-
-  return { beginParty, end, showVerdict, resultsAction,
+  return { beginParty, end, showVerdict,
            get running() { return running; },
            get solo() { return solo; },
            get isHost() { return isHost; } };

@@ -1,4 +1,3 @@
-const finishTravel = require('./travel-helper');
 /* ------------------------------------------------------------------
    bots.test.js — the rehearsal door.
 
@@ -10,15 +9,14 @@ const finishTravel = require('./travel-helper');
       started the night declared itself a rehearsal — and only `Bots`
       does that.
    2. A night with parts switched off still ends up somewhere a scene
-      can be played from: a skipped mission is *done*, with money in the
-      pot and a board on the table, because the round table is an
-      argument about a board and the fire divides a pot.
+      can be played from: a skipped day still paid into the pot, because
+      the fire divides one.
 ------------------------------------------------------------------ */
 const H = require('./harness');
 const { test, eq, ok, section } = H;
 
-const FILES = ['js/core/util.js', 'js/core/state.js', 'js/core/missions.js',
-               'js/missions/agendas.js', 'js/core/look.js', 'js/core/session.js',
+const FILES = ['js/core/util.js', 'js/core/state.js', 'js/core/chores.js',
+               'js/core/look.js', 'js/core/session.js',
                'js/core/net.js', 'js/core/transports.js',
                'js/scenes/claudia-lines.js', 'js/core/bots.js'];
 
@@ -46,9 +44,6 @@ function fresh() {
   const ctx = H.load(FILES, stubs());
   ctx.GameState.load();
   ctx.Look.load();
-  for (const id of ['boat-race', 'shootout', 'dive']) {
-    ctx.Missions.register({ id, name: id, create: () => ({}) });
-  }
   ctx.Scenes = { wait: (s) => new Promise(r => setTimeout(r, Math.min(20, s * 1000))) };
   ctx.Show = {
     running: false,
@@ -69,7 +64,7 @@ function fresh() {
 const SNAP = { turn: [0.005, 0.01], open: [0.005, 0.01],
                vote: [0.005, 0.01], line: [0.005, 0.01] };
 const RIG = { seed: 31, parts: ['finale'], names: ['Morag', 'Struan'], pace: SNAP,
-              target: 'random', quiet: true };
+              target: 'random', quiet: true, count: 3 };
 
 const PLAYERS = [
   { id: 'you', name: 'You', local: true },
@@ -97,9 +92,10 @@ test('parts are named, aliased, and come back in running order', () => {
   eq(ctx.Bots.parseParts('finale,intro'), ['intro', 'finale'],
      'typed backwards, played forwards');
   eq(ctx.Bots.parseParts('fire'), ['finale'], 'fire is the finale');
-  eq(ctx.Bots.parseParts('m1,finale'), ['m1', 'finale']);
-  eq(ctx.Bots.parseParts('mission'), ['m1'], 'there is one of them now');
-  eq(ctx.Bots.parseParts('intro m1 finale'), ['intro', 'm1', 'finale'],
+  eq(ctx.Bots.parseParts('m1,finale'), ['tasks', 'finale'], 'an old link lands on the day in the castle');
+  eq(ctx.Bots.parseParts('castle'), ['tasks']);
+  eq(ctx.Bots.parseParts('murder,roundtable'), ['table', 'night'], 'the show\'s own words, in running order');
+  eq(ctx.Bots.parseParts('intro tasks finale'), ['intro', 'tasks', 'finale'],
      'spaces separate as well as commas');
 });
 
@@ -119,6 +115,7 @@ test('the traitor can be named, refused, or left to the seed', () => {
   eq(ctx.Bots.parseTraitor('random'), undefined);
   eq(ctx.Bots.parseTraitor(undefined), undefined);
   eq(ctx.Bots.parseTraitor('nonsense'), undefined, 'unreadable is left to the seed');
+  eq(ctx.Bots.parseTraitor('you,3'), [0, 3], 'two Traitors, for a table of seven or eight');
 });
 
 test('the door is shut unless the address bar opened it', () => {
@@ -166,11 +163,12 @@ test('a night that is not a rehearsal plays the whole running order', () => {
 
 test('a rehearsal is honoured, and says so', () => {
   const ctx = fresh();
+  const peek = () => { const p = ctx.Session._peek(); return { has: p.has, seat: p.seat }; };
   startRehearsal(ctx, { traitorSeat: 2 });
-  eq(ctx.Session._peek(), { has: true, seat: 2 });
+  eq(peek(), { has: true, seat: 2 });
   ok(ctx.Session.rehearsal, 'the flag is readable');
   startRehearsal(ctx, { traitorSeat: -1 });
-  eq(ctx.Session._peek(), { has: false, seat: -1 }, 'and a clean night is askable');
+  eq(peek(), { has: false, seat: -1 }, 'and a clean night is askable');
   startRehearsal(ctx, { traitorSeat: 0 });
   eq(ctx.Session.myRole(), 'traitor', 'seat 0 is you');
 });
@@ -189,22 +187,9 @@ section('bots — a night with parts switched off');
 test('only the fire opens straight into the fire', () => {
   const ctx = fresh();
   const s = startRehearsal(ctx, { parts: ['finale'] });
-  eq(s.phase, 'finale', 'no hill and no mission');
-  ok(s.missions.every(m => m.done), 'the mission counted as played');
-  ok(s.pot > 0, 'and paid into the pot: ' + s.pot);
-  ok(!!s.debrief && s.debrief.rows.length === 3,
-     'with a board the fire can put up');
-  eq(s.finale.stage, 'name', 'and the one ballot ready to open');
-});
-
-test('a skipped mission is indistinguishable from a played one', () => {
-  const ctx = fresh();
-  const s = startRehearsal(ctx, { parts: ['finale'] });
-  for (const m of s.missions) {
-    ok(m.done && m.earned > 0, m.id + ' was marked done with money on it');
-  }
-  eq(s.pot, s.missions.reduce((n, m) => n + m.earned, 0),
-     'the pot is exactly what it paid');
+  eq(s.phase, 'finale', 'no hill and no castle');
+  ok(s.pot > 0, 'the skipped day paid into the pot: ' + s.pot);
+  eq(s.finale.stage, 'decide', 'and the Fire of Truth ready to open');
 });
 
 test('the welcome then the fire skips everything between', () => {
@@ -212,17 +197,18 @@ test('the welcome then the fire skips everything between', () => {
   const s = startRehearsal(ctx, { parts: ['intro', 'finale'] });
   eq(s.phase, 'hill');
   ctx.Session.dispatch({ type: 'advance' });
-  finishTravel(ctx);
   eq(ctx.Session.state.phase, 'finale', 'the hill hands straight to the fire');
 });
 
-test('the mission hands straight to the fire', () => {
+test('the castle hands straight to the fire', () => {
   const ctx = fresh();
-  const s = startRehearsal(ctx, { parts: ['m1', 'finale'] });
-  eq(s.phase, 'mission');
-  eq(s.missionAt, 0);
-  ctx.Session.dispatch({ type: 'result', earned: 1000, completed: true, players: [] });
-  finishTravel(ctx);
+  const s = startRehearsal(ctx, { parts: ['tasks', 'finale'] });
+  eq(s.phase, 'tasks', 'the day first');
+  const real = ctx.Date.now;
+  const end = s.chores.endsAt + 50;
+  ctx.Date.now = () => end;
+  ctx.Session.dispatch({ type: 'tasksTick', authority: true });
+  ctx.Date.now = real;
   eq(ctx.Session.state.phase, 'finale', 'and there is nothing between them');
   ok(ctx.Session.state.scene.phase === 'finale' && !ctx.Session.state.scene.started,
      'and the scene handshake was reset rather than inherited');
@@ -234,8 +220,7 @@ test('the welcome alone, and then the night is simply over', () => {
   const ctx = fresh();
   const s = startRehearsal(ctx, { parts: ['intro'], traitorSeat: -1 });
   eq(s.phase, 'hill');
-  ctx.Session.dispatch({ type: 'advance' });
-  finishTravel(ctx);          // hill -> nothing left
+  ctx.Session.dispatch({ type: 'advance' });   // hill -> nothing left
   eq(ctx.Session.state.phase, 'verdict');
   const o = ctx.Session.state.outcome;
   ok(o && o.won, 'a Faithful still sitting there with no Traitor in the game won');
@@ -246,7 +231,10 @@ test('a rehearsal fire still plays a whole finale', () => {
   const ctx = fresh();
   startRehearsal(ctx, { parts: ['finale'], traitorSeat: 1 });
   const S = ctx.Session;
-  eq(S.state.finale.stage, 'name', 'straight onto the naming');
+  eq(S.state.finale.stage, 'decide', 'straight onto the Fire of Truth');
+  for (const id of ['you', 'bot1', 'bot2']) S.dispatch({ type: 'decide', playerId: id, choice: 'banish' });
+  for (let i = 0; i < 3; i++) S.dispatch({ type: 'decisionPouch' });
+  eq(S.state.finale.stage, 'name', 'and Banish sends it to the names');
   S.dispatch({ type: 'name', playerId: 'you', targetId: 'bot1' });
   S.dispatch({ type: 'name', playerId: 'bot1', targetId: 'you' });
   S.dispatch({ type: 'name', playerId: 'bot2', targetId: 'bot1' });
@@ -259,33 +247,6 @@ test('a rehearsal fire still plays a whole finale', () => {
   while (S.state.phase === 'finale' && guard++ < 6) S.dispatch({ type: 'pouch' });
   eq(S.state.phase, 'verdict');
   ok(S.state.outcome.won, 'the named Traitor burned and the Faithfuls took it');
-});
-
-/* ---------------- the board they argue about ---------------- */
-
-section('bots — the board');
-
-test('the two of them get rows shaped like yours, and no stats', () => {
-  const ctx = fresh();
-  ctx.Bots.start(Object.assign({}, RIG, { parts: ['m1', 'table', 'finale'] }));
-  const board = ctx.Bots.board({
-    name: 'You', earned: 4000, completed: true,
-    columns: ['Place', 'Won', 'Gates'],
-    cells: ['1st', '£4,000', '12'],
-    stats: { gates: 12 },
-  });
-  ctx.Bots.stop();
-  eq(board.rows.length, 3, 'three rows');
-  eq(board.columns, ['Place', 'Won', 'Gates']);
-  ok(board.rows.every(r => r.cells.length === 3), 'and every row fills them');
-  const me = board.rows.find(r => r.playerId === 'you');
-  const them = board.rows.filter(r => r.playerId !== 'you');
-  ok(me.stats && me.stats.gates === 12, 'your own stats survive, so a task can be judged');
-  ok(them.every(r => !r.stats),
-     'and theirs never exist, so a bot is never exposed for a task it could not do');
-  eq(board.earned, board.rows.reduce((n, r) => n + r.earned, 0),
-     'the pot is the three of you');
-  ok(board.rows.every((r, i) => r.place === i + 1), 'placed by what they won');
 });
 
 /* ---------------- the two of them, actually playing ---------------- */
@@ -303,7 +264,12 @@ async function ceremony(ctx, myName) {
   let guard = 0;
   while (S.state.phase === 'finale' && guard++ < 24) {
     const f = S.state.finale;
-    if (f.stage === 'name') {
+    if (f.stage === 'decide') {
+      if (!f.votes.you) send({ type: 'decide', playerId: 'you', choice: 'banish' });
+      await settle(ctx, () => S.state.finale.stage !== 'decide');
+      continue;
+    } else if (f.stage === 'decisions') send({ type: 'decisionPouch' });
+    else if (f.stage === 'name') {
       if (!f.names.you) send({ type: 'name', playerId: 'you', targetId: myName(ctx) });
       await settle(ctx, () => S.state.finale.stage !== 'name');
       continue;
@@ -358,9 +324,9 @@ const A3 = () => H.atest('both bots name somebody, and the fire reaches a verdic
   ctx.Bots.start(Object.assign({}, RIG, { traitorSeat: 1 }));
   const S = ctx.Session;
   eq(S.state.phase, 'finale', 'straight to the fire');
-  await settle(ctx, () => Object.keys(S.state.finale.names).length >= 2);
-  eq(Object.keys(S.state.finale.names).sort(), ['bot1', 'bot2'],
-     'both of them answered without being asked');
+  await settle(ctx, () => Object.keys(S.state.finale.votes).length >= 2);
+  eq(Object.keys(S.state.finale.votes).sort(), ['bot1', 'bot2'],
+     'both of them decided without being asked');
   const st = await ceremony(ctx, () => 'bot1');
   ctx.Bots.stop();
   eq(st.phase, 'verdict');

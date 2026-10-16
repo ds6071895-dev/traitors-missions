@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
-<title>The Traitors — Missions</title>
+<title>The Traitors</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a1119'/%3E%3Cpath d='M5 21h22l-3 5H8z' fill='%23d81e40'/%3E%3Cpath d='M11 20V9l11 11z' fill='%23f2c14e'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,8 +20,6 @@
 
 <!-- world-anchored effects -->
 <div id="world-labels"></div>
-<div id="speed-vignette"></div>
-<div id="surf-indicator"><span>SURFING</span></div>
 <div id="screen-flash"></div>
 <div id="fade"></div>
 
@@ -79,8 +77,8 @@
       <div class="pm-rule"><i></i></div>
 
       <p class="play-blurb">
-        Three of you, one Highland estate, one mission and a fire.
-        <b>One of you is a Traitor.</b>
+        Five to eight of you, one castle, and a poison passed in plain sight.
+        <b>Somebody here is a Traitor.</b>
       </p>
     </header>
 
@@ -88,30 +86,30 @@
       <button class="pcard hero" id="play-go" data-nav>
         <span class="pc-n">01</span>
         <span class="pc-text">
-          <span class="pc-main">Play the Night</span>
-          <span class="pc-sub">Arrive at the castle. Face the mission. Return to the fire.</span>
+          <span class="pc-main">Play the Game</span>
+          <span class="pc-sub">Work the castle. Watch who stands too close. Banish the poisoner.</span>
         </span>
-        <span class="pc-meta"><b>3</b> players<i>~25 min</i></span>
-        <span class="pc-go" aria-hidden="true">→</span>
-      </button>
-
-      <button class="pcard" id="play-missions" data-nav>
-        <span class="pc-n">02</span>
-        <span class="pc-text">
-          <span class="pc-main">Missions</span>
-          <span class="pc-sub">Practise them on your own</span>
-        </span>
-        <span class="pc-meta"><b>Solo</b><i>no lying</i></span>
+        <span class="pc-meta"><b>5–8</b> players<i>AI fills seats</i></span>
         <span class="pc-go" aria-hidden="true">→</span>
       </button>
 
       <button class="pcard" id="play-dressing" data-nav>
-        <span class="pc-n">03</span>
+        <span class="pc-n">02</span>
         <span class="pc-text">
           <span class="pc-main">Dressing Room</span>
           <span class="pc-sub">How you turn up</span>
         </span>
         <span class="pc-meta"><b id="play-you">You</b><i>saved here</i></span>
+        <span class="pc-go" aria-hidden="true">→</span>
+      </button>
+
+      <button class="pcard" id="play-castle" data-nav>
+        <span class="pc-n">03</span>
+        <span class="pc-text">
+          <span class="pc-main">Explore the Castle</span>
+          <span class="pc-sub">The round table, the turret, the great hall</span>
+        </span>
+        <span class="pc-meta"><b>Solo</b><i>look around</i></span>
         <span class="pc-go" aria-hidden="true">→</span>
       </button>
     </nav>
@@ -125,96 +123,6 @@
       <button class="chip" id="play-howto" data-nav title="Replay every tutorial from the start">How to play</button>
       <label class="chip estate-setting"><input id="estate-motion" type="checkbox"> Reduced motion</label>
       <label class="chip estate-setting">Scenery <select id="estate-quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
-    </footer>
-
-  </div>
-</section>
-
-<!-- ============ MISSION PARTY ============
-     One mission, a room, and a link. The lobby next door opens a room
-     for a whole night; this opens one for a single mission, which is
-     the thing people actually ask for when they have twenty minutes
-     rather than an evening. See `js/core/mission-party.js`. -->
-<section class="screen mparty" data-screen="mparty">
-  <div class="mp-inner">
-
-    <header class="mp-head">
-      <div class="mp-icon" id="mp-icon">◆</div>
-      <div class="mp-head-text">
-        <div class="brand-kicker">Mission Party</div>
-        <h2 class="mp-title" id="mp-title">Mission</h2>
-        <p class="mp-tagline" id="mp-tagline"></p>
-      </div>
-    </header>
-
-    <div class="mp-cols">
-
-      <div class="panel mp-room">
-        <div class="mp-code-label">Room code</div>
-        <div class="mp-code" id="mp-code">····</div>
-
-        <div class="mp-link">
-          <input id="mp-link-field" class="mp-link-field" type="text" readonly
-                 spellcheck="false" autocomplete="off" aria-label="Invite link"
-                 placeholder="Opening a room…" data-nav>
-          <button class="btn primary mp-copy" id="mp-copy" data-nav>Copy</button>
-        </div>
-        <p class="mp-link-note">Send that link. It opens the game on this mission
-          and drops them straight into this room — no code to read out, no account,
-          no download.</p>
-
-        <div class="mp-roster" id="mp-roster"></div>
-        <div class="mp-status" id="mp-status">Opening a room…</div>
-
-        <div class="mp-room-actions">
-          <button class="chip" id="mp-mic" data-nav>Mic: off</button>
-          <button class="chip" id="mp-share" data-nav hidden>Share…</button>
-        </div>
-      </div>
-
-      <div class="panel mp-setup" id="mp-setup">
-        <div class="mp-setup-head">The run <span id="mp-owner">yours to choose</span></div>
-
-        <div class="setup-block" id="mp-mode-row">
-          <div class="setup-head">Mode</div>
-          <div class="seg" id="mp-mode"></div>
-        </div>
-
-        <div class="setup-block" id="mp-skip-row">
-          <button class="mp-skip" id="mp-skip" data-nav>
-            <span class="ms-icon" id="mp-skip-icon">◉</span>
-            <span class="ms-body">
-              <b id="mp-skip-name">Skip ahead</b>
-              <i id="mp-skip-note"></i>
-            </span>
-            <span class="ms-state" id="mp-skip-state">OFF</span>
-          </button>
-        </div>
-
-        <div class="setup-block">
-          <div class="setup-head" id="mp-place-lbl">Channel</div>
-          <div class="channel-name" id="mp-place">—</div>
-          <div class="channel-cond"><span id="mp-cond"></span></div>
-          <div class="channel-seed">
-            <input id="mp-seed" type="text" inputmode="numeric" spellcheck="false"
-                   autocomplete="off" aria-label="Seed" data-nav>
-            <button class="chip" id="mp-seed-daily" title="Today's, the same for everybody"
-                    data-nav>Today</button>
-            <button class="chip" id="mp-seed-roll" title="Draw a new one" data-nav>Roll</button>
-          </div>
-        </div>
-
-
-        <div class="mp-payout" id="mp-payout"></div>
-      </div>
-
-    </div>
-
-    <div class="mp-msg" id="mp-msg"></div>
-
-    <footer class="mp-foot">
-      <button class="btn ghost" id="mp-leave" data-back data-nav>Leave</button>
-      <button class="btn primary" id="mp-start" data-nav disabled>START MISSION</button>
     </footer>
 
   </div>
@@ -264,7 +172,10 @@
       <div class="lr-code-label">Room code</div>
       <div class="lr-code" id="lobby-code">····</div>
       <div class="lobby-roster" id="lobby-roster"></div>
-      <div class="lr-status" id="lobby-status">Waiting for players… 1/3</div>
+      <div class="lr-status" id="lobby-status">Waiting for players… 1/8</div>
+      <div class="lr-opts" id="lobby-opts" hidden>
+        <div class="lr-ai" id="lobby-ai"></div>
+      </div>
       <div class="lr-actions">
         <button class="btn ghost" id="lobby-leave" data-nav>Leave</button>
         <button class="btn primary" id="lobby-start" data-nav disabled>START THE NIGHT</button>
@@ -306,488 +217,6 @@
   </div>
 </section>
 
-<!-- ============ MISSIONS (practice) ============ -->
-<section class="screen title" data-screen="title">
-  <div class="title-inner">
-    <header class="brand">
-      <div class="brand-kicker">Mission Series</div>
-      <h1 class="brand-title">THE<span>TRAITORS</span></h1>
-      <div class="brand-rule"></div>
-    </header>
-
-    <div class="pot">
-      <span class="pot-label">Prize pot</span>
-      <span class="pot-value" id="pot-value">£0</span>
-    </div>
-
-    <div class="mission-head">
-      <h2>Missions</h2>
-      <p id="mission-note">Solo practice. No table, no fire, no one lying to you.</p>
-    </div>
-
-    <div class="mission-list" id="mission-list"></div>
-
-    <footer class="title-foot">
-      <button class="btn ghost" id="title-back" data-back data-nav>Back</button>
-      <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> steer</span>
-      <span><kbd>Space</kbd> boost</span>
-      <span><kbd>Esc</kbd> pause</span>
-      <span><kbd>M</kbd> mute</span>
-    </footer>
-  </div>
-</section>
-
-<!-- ============ BRIEFING ============ -->
-<section class="screen brief" data-screen="brief">
-  <div class="panel brief-panel">
-    <div class="brief-kicker">Mission Briefing</div>
-    <h2 id="brief-title">Boat Race</h2>
-    <p class="brief-tagline" id="brief-tagline"></p>
-
-    <div class="brief-body">
-      <div class="brief-col">
-        <p class="brief-desc" id="brief-desc"></p>
-        <ul class="brief-tips" id="brief-tips"></ul>
-      </div>
-
-      <div class="brief-col brief-setup" id="brief-setup">
-        <div class="setup-block">
-          <div class="setup-head">Mode</div>
-          <div class="seg" id="setup-mode"></div>
-          <div class="setup-note" id="setup-mode-note"></div>
-        </div>
-
-        <div class="setup-block">
-          <div class="setup-head" id="setup-course-head">Channel</div>
-          <div class="channel-name" id="setup-name">—</div>
-          <div class="channel-cond" id="setup-cond">—</div>
-          <!-- what shape the course the seed drew is, if the mission
-               has anything to say about it -->
-          <div class="channel-shape" id="setup-shape"></div>
-          <div class="channel-seed">
-            <input id="setup-seed" type="text" inputmode="numeric" spellcheck="false"
-                   aria-label="Course seed">
-            <button class="chip" id="setup-daily" title="Today's channel, the same for everyone">Today</button>
-            <button class="chip" id="setup-random" title="Draw a new channel">Random</button>
-          </div>
-          <div class="channel-tod" id="setup-tod-row">
-            <span class="tod-lbl">Hour</span>
-            <div class="tod-chips" id="setup-tod"></div>
-          </div>
-          <div class="setup-note" id="setup-tod-note"></div>
-        </div>
-
-
-        <div class="setup-foot">
-          <label class="toggle"><input type="checkbox" id="setup-ghost" checked>
-            <span id="setup-ghost-label">Race my ghost</span></label>
-          <div class="setup-best" id="setup-best"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="brief-actions">
-      <div class="brief-keys" id="brief-keys"></div>
-      <label class="toggle brief-tut" title="Run the step-by-step controls tutorial when this mission starts">
-        <input type="checkbox" id="brief-tut"><span>Controls tutorial</span></label>
-      <button class="btn ghost" id="brief-back" data-back data-nav>Back</button>
-      <button class="btn primary" id="brief-go">Start Mission<span class="btn-mult" id="brief-mult"></span></button>
-    </div>
-  </div>
-</section>
-
-<!-- ============ HUD ============ -->
-<section class="screen hud" data-screen="hud">
-
-  <div class="hud-top">
-    <div class="hud-money-block">
-      <div class="hud-label">Pot earnings</div>
-      <div class="hud-money" id="hud-money">£0</div>
-      <div class="hud-combo-wrap" id="hud-combo-wrap">
-        <span class="hud-combo" id="hud-combo">×1</span>
-        <span class="hud-combo-lbl">multiplier</span>
-        <div class="hud-combo-track"><div class="hud-combo-bar" id="hud-combo-bar"></div></div>
-      </div>
-    </div>
-
-    <div class="hud-timer">
-      <div class="hud-label" id="hud-time-label">Time</div>
-      <div class="hud-time" id="hud-time">70</div>
-      <div class="hud-ghost" id="hud-ghost">—</div>
-    </div>
-
-    <div class="hud-rings">
-      <div class="hud-label">Rings</div>
-      <div class="hud-rings-val" id="hud-hoops">0/0</div>
-      <div class="hud-progress"><div class="hud-progress-fill" id="hud-progress-fill"></div></div>
-    </div>
-  </div>
-
-  <div class="hud-bottom">
-    <div class="hud-speedo">
-      <div class="hud-speed" id="hud-speed">0</div>
-      <div class="hud-speed-unit">knots</div>
-      <div class="hud-speed-track"><div class="hud-speed-bar" id="hud-speed-bar"></div></div>
-    </div>
-
-    <div class="hud-boost" id="hud-boost">
-      <div class="hud-boost-track"><div class="hud-boost-fill" id="hud-boost-fill"></div></div>
-      <div class="hud-boost-label">Boost <kbd>Space</kbd></div>
-    </div>
-  </div>
-
-  <div class="center-msg" id="center-msg"></div>
-
-  <div class="hud-setup" id="hud-setup"></div>
-
-  <button id="mute-btn" title="Mute (M)" aria-label="Mute">
-    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-      <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/>
-      <path class="wave" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"
-            fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-      <path class="slash" d="M4 20L20 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    </svg>
-  </button>
-</section>
-
-<!-- The driving pad lives outside every HUD, like the shooter's and the
-     diver's do. It used to sit inside the boat race's section, which is
-     `display:none` while any other HUD is up — so the moment a second
-     mission wanted the same controls, touch players got a screen with
-     nothing on it. -->
-<div id="touch-controls">
-  <div class="stick-zone"><div class="stick-ring"></div><div class="stick-knob"></div></div>
-  <!-- The right-hand column. Most missions want one button; the
-       mountain wants two, because a skier holds a tuck for most of the
-       run and a stick that has to be pushed forward to hold it is a
-       stick that has stopped steering. -->
-  <div class="drive-btns">
-    <div class="ski-grab ski-mute" hidden>MUTE</div>
-    <div class="ski-grab ski-tail" hidden>TAIL</div>
-    <div class="aux-btn" hidden>TUCK</div>
-    <div class="boost-btn">BOOST</div>
-  </div>
-</div>
-
-<!-- ============ HUD — SHOOTOUT ============ -->
-<section class="screen hud sh-hud" data-screen="hud-shoot">
-
-  <div class="sh-top">
-    <div class="sh-purse">
-      <div class="hud-label">Purse</div>
-      <div class="sh-money" id="sh-money">£0</div>
-      <div class="sh-docked" id="sh-docked"></div>
-      <div class="sh-chain-wrap" id="sh-chain-wrap">
-        <span class="sh-chain" id="sh-chain">×1</span>
-        <span class="sh-chain-lbl">chain</span>
-        <div class="sh-chain-track"><div class="sh-chain-bar" id="sh-chain-bar"></div></div>
-      </div>
-    </div>
-
-    <div class="sh-round-block">
-      <div class="sh-round" id="sh-round">ROUND 1/10</div>
-      <div class="sh-round-name" id="sh-round-name"></div>
-      <div class="sh-round-track"><div class="sh-round-bar" id="sh-round-bar"></div></div>
-      <div class="sh-pace" id="sh-pace">—</div>
-    </div>
-
-    <div class="sh-tally">
-      <div class="hud-label">Taken</div>
-      <div class="sh-left" id="sh-left">0/0</div>
-      <div class="sh-acc-row"><span>accuracy</span><b id="sh-acc">—</b></div>
-      <div class="sh-lives" id="sh-lives"></div>
-    </div>
-  </div>
-
-  <div class="sh-reticle" id="sh-reticle" style="--spread:22px">
-    <i class="r-n"></i><i class="r-s"></i><i class="r-e"></i><i class="r-w"></i>
-    <i class="r-dot"></i>
-    <i class="r-lock"></i>
-    <b class="r-tag" id="sh-lock"></b>
-  </div>
-
-  <!-- hold your breath and the bow shows you the lead it will not take
-       for you: the point in the air where the arrow and the bird meet -->
-
-  <!-- the loose: a ring that leaves the middle with the arrow -->
-  <div class="sh-loose" id="sh-loose"></div>
-  <!-- and the answer to it: four ticks that snap out when it lands -->
-  <div class="sh-hitmark" id="sh-hitmark">
-    <i></i><i></i><i></i><i></i><b></b>
-  </div>
-
-  <div class="sh-banner" id="sh-banner"></div>
-
-  <div class="sh-boss" id="sh-boss">
-    <div class="sb-name">THE GREAT OWL</div>
-    <div class="sb-phase" id="sh-boss-phase">THE LANTERN</div>
-    <div class="sb-pips" id="sh-boss-pips"></div>
-    <!-- which of the four fights you are in -->
-    <div class="sb-stages" id="sh-boss-stages"></div>
-  </div>
-
-  <!-- what the wood has lent you, and for how long -->
-  <div class="sh-boons" id="sh-boons"></div>
-
-  <div class="sh-bottom">
-    <div class="sh-breath" id="sh-breath">
-      <div class="sh-breath-track"><div class="sh-breath-fill" id="sh-breath-fill"></div></div>
-      <div class="sh-breath-lbl">Breath <kbd>RMB</kbd></div>
-    </div>
-
-    <div class="sh-draw" id="sh-draw">
-      <div class="sh-draw-track">
-        <div class="sh-draw-fill" id="sh-draw-fill"></div>
-        <div class="sh-draw-window"></div>
-      </div>
-      <div class="sh-draw-lbl">Draw</div>
-    </div>
-
-  </div>
-
-  <div class="sh-hint" id="sh-hint">Click to aim</div>
-  <div class="sh-focus" id="sh-focus"></div>
-  <div class="sh-rush" id="sh-rush"></div>
-  <div class="hud-setup" id="sh-setup"></div>
-</section>
-
-<div id="touch-shoot">
-  <div class="move-zone"><div class="move-ring"></div><div class="move-knob"></div></div>
-  <div class="focus-pad">FOCUS</div>
-  <div class="sprint-pad">RUN</div>
-  <div class="draw-pad">DRAW</div>
-</div>
-
-
-<!-- ============ HUD — THE DIVE ============ -->
-<section class="screen hud dv-hud" data-screen="hud-dive">
-
-  <div class="dv-top">
-    <div class="dv-purse">
-      <div class="hud-label">Banked</div>
-      <div class="dv-money" id="dv-money">£0</div>
-      <div class="dv-gain" id="dv-gain"></div>
-      <!-- the haul: consecutive trips landed, and what they are worth.
-           It only exists on screen while it is worth something. -->
-      <div class="dv-haul" id="dv-haul"></div>
-      <div class="dv-chain-wrap" id="dv-chain-wrap">
-        <span class="dv-chain" id="dv-chain">×1.00</span>
-        <span class="dv-chain-lbl">flow</span>
-        <div class="dv-chain-track"><div class="dv-chain-bar" id="dv-chain-bar"></div></div>
-      </div>
-    </div>
-
-    <div class="dv-clock">
-      <div class="hud-label" id="dv-time-label">Time</div>
-      <div class="dv-time" id="dv-time">180</div>
-    </div>
-
-    <div class="dv-hold">
-      <div class="hud-label">In hand</div>
-      <div class="dv-carry-val" id="dv-carry-val">—</div>
-      <div class="dv-carry" id="dv-carry"></div>
-      <!-- What is in your hands is not money until it is on the pile,
-           so the panel that counts it also says which way that is.
-           A needle, not a number of metres: you never wanted to know
-           how far the beach was, you wanted to know where it is. -->
-      <div class="dv-compass" id="dv-compass">
-        <i class="dv-comp-ring" id="dv-comp-ring"></i>
-        <i class="dv-comp-tick"></i>
-        <i class="dv-comp-needle" id="dv-comp-needle"></i>
-        <b class="dv-comp-lbl" id="dv-comp-lbl">HOME</b>
-      </div>
-    </div>
-  </div>
-
-  <!-- the depth tape: the three bands, and where in them you are -->
-  <div class="dv-tape" id="dv-tape">
-    <i class="b0"></i><i class="b1"></i><i class="b2"></i>
-    <span class="dv-tape-mark" id="dv-tape-mark"></span>
-    <b class="dv-depth" id="dv-depth">0m</b>
-    <b class="dv-tier" id="dv-tier">Shelf</b>
-  </div>
-
-  <!-- the beat ring. This is the entire teaching mechanism for the
-       chain: it contracts towards the beat and goes gold in the window,
-       so nobody ever has to be told what "on the beat" means. -->
-  <div class="dv-ring" id="dv-ring">
-    <i class="dv-ring-fixed"></i>
-    <i class="dv-ring-pulse" id="dv-ring-pulse"></i>
-    <i class="dv-ring-dot"></i>
-  </div>
-
-  <div class="dv-banner" id="dv-banner"></div>
-
-  <div class="dv-bottom">
-    <div class="dv-breath" id="dv-breath">
-      <div class="dv-breath-track"><div class="dv-breath-fill" id="dv-breath-fill"></div></div>
-      <div class="dv-breath-lbl" id="dv-breath-lbl">Breath</div>
-    </div>
-  </div>
-
-  <div class="dv-hint" id="dv-hint">Click to swim · <kbd>Space</kbd> kicks, hold it to streamline · <kbd>S</kbd> brakes · ride the tide races home along the floor</div>
-  <!-- pressure, as a cyan-white closing-in rather than a darkness -->
-  <div class="dv-pressure" id="dv-pressure"></div>
-  <!-- and the other thing that closes in. A rim rather than a label,
-       on the edges rather than in the middle, because its whole job is
-       to make you turn round and look. -->
-  <div class="dv-threat" id="dv-threat"><b>SHARK</b></div>
-  <!-- and water on the lens for a second and a half after every time
-       your head comes out, which is what makes it an event -->
-  <div class="dv-wet" id="dv-wet"></div>
-  <!-- the dive gets its own, because #center-msg lives inside the boat
-       race's HUD section and that section is display:none while another
-       screen is up -->
-  <div class="center-msg" id="dv-center"></div>
-  <div class="hud-setup" id="dv-setup"></div>
-</section>
-
-<div id="touch-dive">
-  <div class="scull-zone"><div class="scull-ring"></div><div class="scull-knob"></div></div>
-  <div class="kick-pad">KICK</div>
-</div>
-
-<!-- ============ HUD — THE DESCENT ============ -->
-<section class="screen hud sk-hud" data-screen="hud-ski">
-
-  <!-- the wall of snow, when a card dealt one. Across the top of the
-       screen because that is where it is: behind and above you. -->
-
-  <div class="sk-top">
-    <div class="sk-purse">
-      <div class="hud-label">Pot earnings</div>
-      <div class="sk-money" id="sk-money">£0</div>
-      <div class="sk-gain" id="sk-gain"></div>
-
-      <!-- the ladder. One meter runs the whole mission, so it gets the
-           most real estate on the screen: six rungs you can count
-           without reading, a multiplier you can read without counting,
-           and a bar towards the next one. -->
-      <div class="sk-flow-wrap" id="sk-flow-wrap">
-        <div class="sk-pips" id="sk-pips"></div>
-        <span class="sk-flow" id="sk-flow">×1</span>
-        <span class="sk-flow-lbl">flow</span>
-        <div class="sk-flow-track"><div class="sk-flow-bar" id="sk-flow-bar"></div></div>
-      </div>
-    </div>
-
-    <div class="sk-clock">
-      <div class="hud-label" id="sk-time-label">Time</div>
-      <div class="sk-time" id="sk-time">96</div>
-      <div class="sk-ghost" id="sk-ghost">—</div>
-    </div>
-
-    <div class="sk-route">
-      <div class="hud-label">Hoops</div>
-      <div class="sk-hoops" id="sk-hoops">0</div>
-      <div class="sk-section" id="sk-section">The Cornice</div>
-      <div class="sk-progress"><div class="sk-progress-fill" id="sk-progress-fill"></div></div>
-      <div class="sk-vert" id="sk-vert">0m</div>
-    </div>
-  </div>
-
-  <!-- the shortcut card. The only decision on this mountain you make
-       with your eyes, so it arrives early, says the one number that
-       matters, and points. -->
-  <div class="sk-chute" id="sk-chute">
-    <span class="sk-chute-arrow" id="sk-chute-arrow">◀</span>
-    <span class="sk-chute-body">
-      <b id="sk-chute-name">Keeper’s Cut</b>
-      <i id="sk-chute-gain">saves 60m</i>
-    </span>
-  </div>
-
-  <!-- and the air panel, which answers the only question anybody has
-       while they are off the ground: how far round am I, and is that a
-       whole number yet. -->
-  <div class="sk-air" id="sk-air">
-    <b class="sk-air-rot" id="sk-air-rot">360°</b>
-    <i class="sk-air-h" id="sk-air-h">0.0m</i>
-    <span class="sk-air-cue" id="sk-air-cue">let go to land</span>
-  </div>
-
-  <div class="sk-bottom">
-    <div class="sk-speedo">
-      <div class="sk-speed" id="sk-speed">0</div>
-      <div class="sk-speed-unit">km/h</div>
-      <div class="sk-speed-track"><div class="sk-speed-bar" id="sk-speed-bar"></div></div>
-    </div>
-    <div class="sk-pop" id="sk-pop">
-      <div class="sk-pop-track"><div class="sk-pop-fill" id="sk-pop-fill"></div></div>
-      <div class="sk-pop-lbl">Pop <kbd>Space</kbd></div>
-    </div>
-  </div>
-
-  <div class="center-msg" id="sk-center"></div>
-  <div class="hud-setup" id="sk-setup"></div>
-
-  <!-- speed, as two overlays rather than a number: a vignette that
-       closes in and a set of lines that streak past. Both are outside
-       every panel, so nothing you are reading sits on top of them. -->
-  <div class="sk-vignette" id="sk-vignette"></div>
-  <div class="sk-lines" id="sk-lines"></div>
-  <div class="sk-flash" id="sk-flash"></div>
-
-</section>
-
-<!-- ============ PAUSE ============ -->
-<section class="screen pause" data-screen="pause">
-  <div class="panel pause-panel">
-    <h2>Paused</h2>
-    <div class="pause-actions">
-      <button class="btn primary" id="pause-resume" data-back data-nav>Resume</button>
-      <button class="btn ghost" id="pause-restart">Restart mission</button>
-      <button class="btn ghost" id="pause-skip-tut" data-nav hidden>Skip tutorial</button>
-      <button class="btn ghost" id="pause-quit" data-nav>Leave</button>
-    </div>
-  </div>
-</section>
-
-<!-- ============ RESULTS ============ -->
-<section class="screen results" data-screen="results">
-  <div class="panel result-panel">
-    <div class="result-sub" id="result-sub">Boat Race</div>
-    <h2 class="result-title win" id="result-title">MISSION COMPLETE</h2>
-    <div class="result-course" id="result-course"></div>
-    <div class="result-badges">
-      <div class="result-medal" id="result-medal"></div>
-      <div class="result-best" id="result-best">NEW BEST</div>
-    </div>
-
-    <div class="result-rows" id="result-rows"></div>
-
-    <!-- The Traitor's card, marked. Only ever rendered for the one
-         player who was dealt it, and the only place in the game that
-         says out loud whether the task counted — the chip over the
-         mission says it live, and this says it once the numbers have
-         stopped moving. -->
-    <div class="result-task" id="result-task" hidden></div>
-
-    <!-- everybody's numbers, in a party run. It is the same board the
-         round table argues over, and it accuses nobody. -->
-    <div class="result-board" id="result-board" hidden></div>
-
-    <div class="result-total">
-      <span>Added to the pot</span>
-      <b id="result-earned">£0</b>
-    </div>
-    <div class="result-pot">
-      <span>Prize pot</span>
-      <b id="result-pot">£0</b>
-    </div>
-
-    <div class="result-actions">
-      <button class="btn ghost" id="result-menu" data-nav>Missions</button>
-      <button class="btn primary" id="result-retry" data-nav>Race again</button>
-      <button class="btn primary" id="result-continue" data-nav hidden>Continue</button>
-    </div>
-    <div class="result-more" id="result-more">
-      <button class="link-btn" id="result-new" data-nav>New channel</button>
-      <button class="link-btn" id="result-practice-ski" data-nav hidden>Practice this section</button>
-    </div>
-  </div>
-</section>
-
 <!-- ============ ROUND TABLE — your line ============ -->
 <!-- ============ THE FIRE — the vote ============ -->
 <section class="screen vote" data-screen="vote">
@@ -799,6 +228,20 @@
     <div class="vote-note" id="vote-note"></div>
   </div>
 </section>
+
+<button id="mute-btn" title="Mute (M)" aria-label="Mute" hidden>
+  <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+    <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/>
+    <path class="wave" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"
+          fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    <path class="slash" d="M4 20L20 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+</button>
+
+<!-- The walking stick for a thumb, in every room of the castle. -->
+<div id="touch-shoot">
+  <div class="move-zone"><div class="move-ring"></div><div class="move-knob"></div></div>
+</div>
 
 <div class="stage-hint" id="stage-hint">Click to look <i>·</i> WASD to move <i>·</i> Tab frees the mouse</div>
 
@@ -838,7 +281,7 @@
   <div class="fb-who" id="floor-who"></div>
   <div class="fb-clock" id="floor-clock">0:30</div>
   <div class="fb-track"><div class="fb-fill" id="floor-fill"></div></div>
-  <div class="fb-mic" id="floor-mic">mic off</div>
+  <div class="fb-mic" id="floor-mic" hidden>mic off</div>
   <button class="fb-done" id="floor-done" data-nav hidden>I've said enough</button>
 </div>
 
@@ -858,27 +301,13 @@
 <!-- The field: who else is out there and how they are doing. It is
      also, deliberately, where half the agenda tells become visible —
      a boost meter that stops moving is a thing the other two can see. -->
-<div id="field"></div>
 
 <div id="board">
   <div class="bd-head-line">
-    <b id="board-title">The mission</b>
-    <span>What happened out there. It accuses nobody.</span>
+    <b id="board-title">The day</b>
+    <span class="bd-key">B</span>
   </div>
   <div class="board-grid" id="board-grid"></div>
-</div>
-
-<!-- The Traitor's task, and the only panel in the game written for
-     one pair of eyes. What you have to say, the button that says you
-     said it, and whether it counted. Nothing on this machine can hear
-     a microphone, so the button is the whole verdict — which is why it
-     asks twice and why it dies the moment the run does. -->
-<div id="agenda-chip" hidden>
-  <div class="ac-kicker">Your task · nobody else can see this</div>
-  <div class="ac-text" id="agenda-text"></div>
-  <div class="ac-prog" id="agenda-prog"></div>
-  <button class="ac-mark" id="agenda-mark" type="button">I said it</button>
-  <div class="ac-state" id="agenda-state"></div>
 </div>
 
 <!-- The tutorial: a gold ring round the real button, a card that says
@@ -921,7 +350,22 @@
   <div class="tut-toast"></div>
 </div>
 
-<div id="boot"><div class="boot-inner"><div class="boot-spin"></div><span>Loading the loch…</span></div></div>
+<div id="boot">
+  <div class="boot-glow" aria-hidden="true"></div>
+  <div class="boot-inner">
+    <svg class="boot-seal" viewBox="0 0 64 64" aria-hidden="true">
+      <circle class="ps-ring" cx="32" cy="32" r="29"/>
+      <circle class="ps-ring thin" cx="32" cy="32" r="24.5"/>
+      <path class="ps-keep" d="M21 45V29h2.6v-3.6h2.6V29h3.5v-5.4h4.6V29h3.5v-3.6h2.6V29H43v16z"/>
+      <path class="ps-blade" d="M32 11.5l3.4 9.4h-6.8z"/>
+      <rect class="ps-bar" x="19" y="47.2" width="26" height="2.6" rx="1.3"/>
+    </svg>
+    <div class="boot-kicker">Ardross Castle · The Highlands</div>
+    <div class="boot-title">THE<span>TRAITORS</span></div>
+    <div class="boot-bar"><i></i></div>
+    <div class="boot-line">Lighting the candles…</div>
+  </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 
@@ -939,88 +383,57 @@
 <script src="js/core/music.js"></script>
 <script src="js/core/state.js"></script>
 <script src="js/core/screens.js"></script>
-<script src="js/core/missions.js"></script>
 <script src="js/core/tutorial-steps.js"></script>
 <script src="js/core/tutorial.js"></script>
 <script src="js/core/voice.js"></script>
 <script src="js/core/uinav.js"></script>
 <script src="js/core/look.js"></script>
 <script src="js/core/party.js"></script>
+<script src="js/core/chores.js"></script>
 <script src="js/core/session.js"></script>
 <script src="js/core/net.js"></script>
 <script src="js/core/transports.js"></script>
 <script src="js/core/voicechat.js"></script>
-<script src="js/core/mission-net.js"></script>
 <script src="js/core/lobby.js"></script>
 <script src="js/core/bots.js"></script>
-<script src="js/core/mission-party.js"></script>
 <script src="js/core/roomui.js"></script>
+<script src="js/core/moderator.js"></script>
+<script src="js/core/ai.js"></script>
+<script src="js/core/ai-players.js"></script>
+<script src="js/core/ai-director.js"></script>
 <script src="js/core/scenes.js"></script>
 <script src="js/world/sky.js"></script>
 <script src="js/world/water.js"></script>
 <script src="js/world/conditions.js"></script>
-<script src="js/world/course.js"></script>
 <script src="js/world/forest.js"></script>
-<script src="js/world/castle.js"></script>
-<script src="js/world/highland.js"></script>
 <script src="js/world/estate-layout.js"></script>
 <script src="js/world/estate-materials.js"></script>
 <script src="js/world/estate.js"></script>
 <script src="js/world/estate-fire.js"></script>
-<script src="js/dive/materials.js"></script>
-<script src="js/dive/presentation.js"></script>
-<script src="js/dive/tide.js"></script>
-<script src="js/dive/feedback.js"></script>
-<script src="js/world/reef.js"></script>
-<script src="js/world/mountain.js"></script>
-<script src="js/boat/materials.js"></script>
-<script src="js/boat/models.js"></script>
-<script src="js/boat/scenery.js"></script>
-<script src="js/boat/feedback.js"></script>
-<script src="js/boat/boost.js"></script>
-<script src="js/entities/boat.js"></script>
+<script src="js/world/castle-layout.js"></script>
+<script src="js/world/castle-props.js"></script>
+<script src="js/world/castle-interior.js"></script>
+<script src="js/core/castle-net.js"></script>
+<script src="js/core/castle-bots.js"></script>
 <script src="js/entities/figure-materials.js"></script>
 <script src="js/entities/figure.js"></script>
 <script src="js/entities/estate-car.js"></script>
-<script src="js/core/mission-cinematics.js"></script>
-<script src="js/entities/swimmer.js"></script>
-<script src="js/ski/tricks.js"></script>
-<script src="js/ski/scoring.js"></script>
-<script src="js/ski/progression.js"></script>
-<script src="js/ski/course.js"></script>
-<script src="js/ski/surfaces.js"></script>
-<script src="js/ski/materials.js"></script>
-<script src="js/ski/presentation.js"></script>
-
-<script src="js/entities/skier.js"></script>
 <script src="js/fx/fx.js"></script>
 <script src="js/fx/nametag.js"></script>
-<script src="js/shootout/materials.js"></script>
-<script src="js/shootout/forest.js"></script>
-<script src="js/shootout/models.js"></script>
-<script src="js/shootout/feedback.js"></script>
-<script src="js/shootout/bow-visual.js"></script>
-<script src="js/entities/bow.js"></script>
-<script src="js/entities/flyers.js"></script>
-<script src="js/entities/predators.js"></script>
-<script src="js/missions/agendas.js"></script>
-
-<script src="js/missions/boat-race.js"></script>
-<script src="js/missions/shootout-rounds.js"></script>
-
-<script src="js/missions/shootout.js"></script>
-
-<script src="js/missions/dive.js"></script>
-
-<script src="js/missions/ski.js"></script>
 <script src="js/scenes/claudia-lines.js"></script>
 <script src="js/scenes/stage.js"></script>
 <script src="js/scenes/dressing.js"></script>
 <script src="js/scenes/reveal.js"></script>
 <script src="js/scenes/hill.js"></script>
+<script src="js/scenes/castle-scene.js"></script>
 <script src="js/scenes/fireplace.js"></script>
 <script src="js/scenes/exposed.js"></script>
-<script src="js/scenes/journey.js"></script>
+<script src="js/scenes/roundtable.js"></script>
+<script src="js/scenes/night.js"></script>
+<script src="js/scenes/breakfast.js"></script>
+<script src="js/scenes/chore-games.js"></script>
+<script src="js/scenes/tasks.js"></script>
+<script src="js/scenes/explore.js"></script>
 <script src="js/scenes/show.js"></script>
 <script src="js/main.js"></script>
 </body>

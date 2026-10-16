@@ -2,8 +2,7 @@
    game messages during a brief interruption. Voice frames are never replayed. */
 const RoomSocket = (() => {
   // These snapshots are replaced by the next update. Actions/results are reliable.
-  const livePost = (channel, data) => channel === 'sync'
-    || (channel === 'mev' && data?.k === 'event' && ['flock', 'reef'].includes(data.data?.kind));
+  const livePost = (channel) => channel === 'sync';
   const LIVE_BUFFER = 16 * 1024;
   function create(options) {
     let socket = null, stopped = false, admitted = false, active = false;
@@ -28,6 +27,9 @@ const RoomSocket = (() => {
       },
       updateProfile(profile) { reliable({ type: 'profile', profile }); },
       setLobby() { reliable({ type: 'lobby' }); },
+      setRoutes(routes) { reliable({ type: 'routes', routes }); },
+      sendAI(message) { reliable(Object.assign({}, message, { type: 'ai' })); },
+      sendClaudia(message) { reliable(Object.assign({}, message, { type: 'claudia' })); },
       sendAudio(data) {
         if (live() && socket.bufferedAmount < LIVE_BUFFER) socket.send(data);
       },
@@ -71,6 +73,8 @@ const RoomSocket = (() => {
         room.players = msg.players; room.hostId = msg.hostId;
         if (room.onRoster) room.onRoster(msg.players, msg.hostId);
       } else if (msg.type === 'post' && room.onMessage) room.onMessage(msg.channel, msg.data, msg.from);
+      else if (msg.type === 'ai' && room.onAI) room.onAI(msg);
+      else if (msg.type === 'claudia' && room.onClaudia) room.onClaudia(msg);
     }
     function connect() {
       if (stopped) return;

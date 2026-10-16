@@ -90,13 +90,19 @@ const Figure = (() => {
                boot: '#241a26', glove: '#5d3a5f', accent: '#d6a8da' },
     ochre:   { coat: '#7d6524', trim: '#dcc06a', skin: '#d9a67e', hair: '#4a3418',
                boot: '#2a2416', glove: '#5c4a1c', accent: '#efd694' },
+    navy:    { coat: '#1f2f5a', trim: '#8fa6e0', skin: '#b98260', hair: '#140f0c',
+               boot: '#161b29', glove: '#2c3a66', accent: '#a9c0ff' },
+    crimson: { coat: '#6e1a24', trim: '#e2838c', skin: '#efc6a6', hair: '#c28a4a',
+               boot: '#24151a', glove: '#4e1820', accent: '#ff9aa4' },
+    teal:    { coat: '#1d5a5c', trim: '#84d0cc', skin: '#8f5e42', hair: '#1a1210',
+               boot: '#152324', glove: '#24484a', accent: '#8ef0e6' },
     // a wetsuit, for the water: dark neoprene with a high-vis trim,
     // because a diver nobody can pick out of blue water is not a diver
     diver:   { coat: '#123044', trim: '#39e6ff', skin: '#e2b894', hair: '#221a15',
                boot: '#0b1a26', glove: '#1c4358', accent: '#f2c14e', fabric: 'neoprene' },
   };
 
-  const CAST_PALETTES = ['green', 'rust', 'slate', 'plum', 'ochre'];
+  const CAST_PALETTES = ['green', 'rust', 'slate', 'plum', 'ochre', 'navy', 'crimson', 'teal'];
 
   const EYE_DARK  = '#1c1f26';
   const EYE_SHINE = '#f4f1ea';   // never pure white

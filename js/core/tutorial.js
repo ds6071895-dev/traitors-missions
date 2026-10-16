@@ -523,8 +523,8 @@ const Tutorial = (() => {
   function maybeTaskHint() {
     const S = steps();
     if (!S || isOff() || seen('traitor-task') || !multiplayer()) return;
-    const chip = document.getElementById('agenda-chip');
-    if (!chip || chip.hidden || !chip.classList.contains('on')) return;
+    const chip = null;
+    if (!chip) return;
     run('traitor-task', S.traitorTask, { kind: 'mission', mode: 'hints', instance: null });
     if (cur) cur.instance = '*';
   }

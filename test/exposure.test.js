@@ -1,39 +1,30 @@
-const finishTravel = require('./travel-helper');
 /* ------------------------------------------------------------------
-   exposure.test.js — the night ends in the room it ended in.
+   exposure.test.js — the poison nobody used, and the room it ends in.
 
-   `session.test.js` already proves the reducer half: a Traitor who
-   left their task undone is exposed, the pot goes to the Faithfuls and
-   the phase becomes `verdict`. All of that was correct and none of it
-   was ever visible, because nothing on the far side of `exposeDone`
-   put a verdict panel on the screen. The director only opens one for a
-   client that arrives in the phase cold; on an ordinary night the fire
-   opens its own after Claudia's last line, and an exposure never
-   reaches that code — it ends the night from inside a room that has no
-   ballot in it. So three browsers sat looking at a table nobody could
-   leave, with the game finished behind them.
-
-   This covers the two halves of the fix that are pure logic: the
-   ceremony's last beat, and the waiter it is built on.
+   `session.test.js` proves the reducer half: a carrier who let the bell
+   go with the poison still in their pocket is exposed at the round
+   table, and is that table's banishment. This covers the scene half
+   that is pure logic: the ceremony's last beat opens the verdict when
+   it was the last Traitor, a guest opens the same panel off the packet
+   it is waiting for, and a table with a Traitor left goes on without
+   a vote.
 ------------------------------------------------------------------ */
 const H = require('./harness');
-const { test, atest, flush, eq, ok, section, report } = H;
+const { atest, flush, eq, ok, section, report } = H;
 
-const FILES = ['js/core/util.js', 'js/core/state.js', 'js/core/missions.js',
-               'js/missions/agendas.js', 'js/core/session.js', 'js/core/net.js',
-               'js/scenes/claudia-lines.js', 'js/scenes/exposed.js'];
+const FILES = ['js/core/util.js', 'js/core/state.js', 'js/core/chores.js', 'js/core/session.js',
+               'js/core/net.js', 'js/scenes/claudia-lines.js', 'js/scenes/exposed.js'];
 
-const PLAYERS = [
-  { id: 'a', name: 'Ana', local: true },
-  { id: 'b', name: 'Bo', local: false },
-  { id: 'c', name: 'Cy', local: false },
-];
+let now = 1.7e12;
+class FakeDate extends Date {
+  constructor(...a) { if (a.length) super(...a); else super(now); }
+  static now() { return now; }
+}
 
-/* The loopback the real solo night runs on, small enough to live here:
-   everything a scene sends is stamped as the authority and handed
-   straight to the reducer, and everything the reducer emits comes back
-   out on `Net`. It is `Transports.SoloTransport` with the parts this
-   file does not need left out. */
+const roster = (n) => ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].slice(0, n)
+  .map((id, i) => ({ id, name: id.toUpperCase() + 'nn', local: i === 0 }));
+
+/* The loopback the real solo night runs on, small enough to live here. */
 function wire(ctx) {
   const EV = ['phase', 'expose', 'outcome', 'sync'];
   return {
@@ -50,122 +41,103 @@ function wire(ctx) {
   };
 }
 
-/* A night with a Traitor in it who did not do the work, stopped one
-   beat before the ceremony. */
-function owingACeremony() {
-  const ctx = H.load(FILES);
+/* A day in which the carrier never used it, stopped at the round table. */
+function owingACeremony(n = 5, seed = 4) {
+  const ctx = H.load(FILES, { Date: FakeDate });
   ctx.GameState.load();
-  for (const id of ['boat-race', 'shootout', 'dive']) {
-    ctx.Missions.register({ id, name: id, create: () => ({}) });
-  }
-  ctx.Session.startParty({ seed: 4, players: PLAYERS, mode: 'host' });
-  const traitor = ctx.Session.state.players[ctx.Session._peek().seat];
-
+  ctx.Session.startParty({ seed, players: roster(n), mode: 'host' });
+  const carrier = ctx.Session.playerById(ctx.Session._peek().carrier);
   ctx.Net.connect(wire(ctx));
-  ctx.Session.dispatch({ type: 'advance' });
-  finishTravel(ctx);
-  /* The card is never marked, which is what an unfinished task is now:
-     nothing on the host can hear a microphone, so an unmarked card at
-     the deadline is the whole of the evidence. */
-  ctx.Session.dispatch({
-    type: 'result', earned: 2000, completed: true,
-    players: ctx.Session.state.players.map(p => ({
-      playerId: p.id, name: p.name, earned: 600, columns: ['A'], cells: ['x'],
-      stats: {},
-    })),
-  });
-  finishTravel(ctx);
-  ok(ctx.Session.hasExposure(), 'the night owes a ceremony');
-  return { ctx, traitor };
+  ctx.Session.dispatch({ type: 'advance', authority: true });
+  now = ctx.Session.state.chores.endsAt + 50;
+  ctx.Session.dispatch({ type: 'tasksTick', authority: true });
+  eq(ctx.Session.state.phase, 'table');
+  ok(ctx.Session.hasExposure(), 'the table owes a ceremony');
+  return { ctx, carrier };
 }
 
-/* Enough of a room for the beat list to be built: it reads the stage
-   only through these, and never during the beat this file runs. */
 const scene = { stage: { setControls() {} }, takeEmbers() {} };
 
 async function main() {
 
-section('exposure — the ceremony ends the night');
+section('exposure — the last Traitor, exposed');
 
 await atest('the last beat opens the verdict panel', async () => {
-  const { ctx, traitor } = owingACeremony();
-
+  const { ctx, carrier } = owingACeremony();
   let told = null;
   ctx.Net.on((e) => { if (e.type === 'expose') told = e; });
   ctx.Net.send({ type: 'expose' });
   await flush();
-  ok(told && told.playerId === traitor.id, 'the room was told who');
-
+  ok(told && told.playerId === carrier.id, 'the room was told who');
   const beats = ctx.Exposed.beats(scene, told, ctx.Session.state.seed);
+  ok(beats.some(b => b.line && /poison|pocket|nerve|bottle/i.test(b.line.text)), 'Claudia says what it was for');
   const last = beats[beats.length - 1];
-  ok(last && typeof last.then === 'function', 'the ceremony ends in an action');
-
-  // the panel, stubbed: this file is about whether it is asked for
   const shown = [];
   ctx.Show = { showVerdict: (o) => shown.push(o) };
-
   await last.then();
-
-  eq(ctx.Session.state.phase, 'verdict', 'the night is over in the session');
+  eq(ctx.Session.state.phase, 'verdict', 'the game is over in the session');
   eq(shown.length, 1, 'and the panel was opened exactly once');
-  eq(shown[0].reason, 'agenda', 'with the ending that actually happened');
-  ok(shown[0].roles.length === 3, 'and every card face up');
+  eq(shown[0].reason, 'exposed', 'with the ending that actually happened');
+  eq(shown[0].roles.length, 5, 'and every card face up');
 });
 
 await atest('a guest opens the same panel off the packet it is waiting for', async () => {
   const { ctx } = owingACeremony();
-
   ctx.Net.send({ type: 'expose' });
   await flush();
-
-  /* A guest never sends `exposeDone` — it waits for the outcome to
-     arrive. Nothing has produced one yet, so the waiter must still be
-     pending here and must finish the moment one exists. */
   let landed = null;
   const waiting = ctx.Exposed.outcome(3000).then(o => { landed = o; });
   await flush();
   eq(landed, null, 'nothing to show yet, and no guess made');
-
   ctx.Net.send({ type: 'exposeDone' });
   await waiting;
-  ok(landed && landed.reason === 'agenda', 'the packet released it');
+  ok(landed && landed.reason === 'exposed', 'the packet released it');
 });
 
 await atest('the waiter answers rather than hanging when nothing ever comes', async () => {
   const { ctx } = owingACeremony();
-  const out = await ctx.Exposed.outcome(0);
-  eq(out, null, 'a night that never produced a verdict still lets the scene end');
+  eq(await ctx.Exposed.outcome(0), null, 'a game that never produced a verdict still lets the scene end');
 });
 
-section('exposure — a clean night is not a ceremony');
+section('exposure — a table of seven goes on without them');
 
-/* Every night has a Traitor now, so a clean night is not one with
-   nobody in it — it is one where the Traitor marked their card. The
-   host still has to answer "nobody", promptly, because a guest that
-   asked and heard nothing cannot tell a clean night from a packet
-   still in flight. */
-await atest('a marked task means no beats and no panel', async () => {
-  const ctx = H.load(FILES);
+await atest('one of two Traitors exposed: no vote today, and the castle goes to bed', async () => {
+  const { ctx, carrier } = owingACeremony(7, 9);
+  let told = null;
+  ctx.Net.on((ev) => { if (ev.type === 'expose') told = ev; });
+  ctx.Net.send({ type: 'expose' });
+  await flush();
+  eq(told.playerId, carrier.id, 'the carrier is named');
+  ctx.Net.send({ type: 'exposeDone' });
+  await flush();
+  eq(ctx.Session.state.phase, 'table', 'still at the table');
+  eq(ctx.Session.state.finale.stage, 'done', 'but there is nothing left to vote on');
+  ok(!ctx.Session.state.outcome, 'nobody has won anything yet');
+  ctx.Net.send({ type: 'advance' });
+  await flush();
+  eq(ctx.Session.state.phase, 'night', 'to bed');
+});
+
+section('exposure — a day the poison was used is not a ceremony');
+
+await atest('the host answers a definite "nobody"', async () => {
+  const ctx = H.load(FILES, { Date: FakeDate });
   ctx.GameState.load();
-  for (const id of ['boat-race', 'shootout', 'dive']) {
-    ctx.Missions.register({ id, name: id, create: () => ({}) });
-  }
-  ctx.Session.startParty({ seed: 4, players: PLAYERS, mode: 'host' });
-  const traitor = ctx.Session.state.players[ctx.Session._peek().seat];
+  ctx.Session.startParty({ seed: 4, players: roster(5), mode: 'host' });
+  ctx.Session.setEyes({ reach: () => 1, witnesses: () => ({ ids: [], room: 'hall' }), presence: () => ({}) });
   ctx.Net.connect(wire(ctx));
-  ctx.Session.dispatch({ type: 'advance' });
-  finishTravel(ctx);
-  ctx.Session.dispatch({ type: 'taskDone', playerId: traitor.id });
-  ctx.Session.dispatch({ type: 'result', earned: 10, completed: true,
-    players: PLAYERS.map(p => ({ playerId: p.id, stats: {} })) });
-  finishTravel(ctx);
-
+  ctx.Session.dispatch({ type: 'advance', authority: true });
+  const pk = ctx.Session._peek();
+  const victim = ctx.Session.alive().find(p => pk.seats.indexOf(p.seat) < 0);
+  ctx.Session.dispatch({ type: 'poison', playerId: pk.carrier, targetId: victim.id });
+  now = ctx.Session.state.chores.endsAt + 50;
+  ctx.Session.dispatch({ type: 'tasksTick', authority: true });
   let told = 'unset';
   ctx.Net.on((e) => { if (e.type === 'expose') told = e; });
   ctx.Net.send({ type: 'expose' });
   await flush();
   eq(told.playerId, null, 'the room got a definite "nobody"');
-  ok(ctx.Session.state.phase !== 'verdict', 'and the night carries on');
+  ok(ctx.Session.state.phase !== 'verdict', 'and the game carries on');
 });
 
 }

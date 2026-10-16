@@ -1,10 +1,8 @@
 /* ------------------------------------------------------------------
-   scenes.js — the parts of the night that are not a mission.
+   scenes.js — every room of the game.
 
-   A scene plugs into the engine exactly the way a mission does —
-   build() -> { scene, camera }, then start/update/dispose — but it has
-   no registry, no score and no prize, because a welcome is not a thing
-   you can be bad at.
+   A scene plugs into the engine as build() -> { scene, camera }, then
+   start/update/dispose.
 
    On top of that sits a beat sequencer, which is the part that matters.
    A scene written as control flow becomes a thicket of timers and
@@ -109,7 +107,7 @@ const Scenes = (() => {
         if (l && l.text) {
           if (scene && scene.setSpeaking) scene.setSpeaking(l.who || 'claudia');
           await Voice.say(l.text, { speaker: l.speaker === undefined ? 'Claudia' : l.speaker,
-                                    rate: l.rate, pitch: l.pitch });
+                                    rate: l.rate, pitch: l.pitch, public: !!l.public });
           if (mine !== token) return false;
           if (scene && scene.setSpeaking) scene.setSpeaking(null);
         }
@@ -193,7 +191,7 @@ const Scenes = (() => {
     const s = typeof Session !== 'undefined' ? Session.state : null;
     const shared = typeof Party !== 'undefined' && Party.connected;
     if (s && s.players && s.players.length > 1 && Net.connected && shared
-        && s.phase !== 'mission' && s.phase !== 'verdict') {
+        && s.phase !== 'verdict') {
       if (s.scene && s.scene.phase === s.phase && s.scene.started) begin();
       else {
         const phase = s.phase;
@@ -225,7 +223,7 @@ const Scenes = (() => {
   }
 
   /* A soft swell under a card landing. Its brightness is the tone, so a
-     role card and a mission card do not sound like the same event. */
+     role card and a calmer card do not sound like the same event. */
   AudioBus.define('card-in', (ctx, dest, o = {}) => {
     const t = ctx.currentTime;
     const dark = o.tone === 'traitor' || o.tone === 'bad';

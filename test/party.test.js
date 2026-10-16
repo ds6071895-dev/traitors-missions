@@ -81,6 +81,9 @@ async function run() {
     const B = makeClient(swarm, 'peerB', modern);
     const C = makeClient(swarm, 'peerC', modern);
     const D = makeClient(swarm, 'peerD', modern);
+    // five more, so the castle can actually fill
+    const EXTRA = ['E', 'F', 'G', 'H', 'I'].map(x => makeClient(swarm, 'peer' + x, modern));
+    const EXTRA_NAMES = ['Eve', 'Fin', 'Gil', 'Hen', 'Ivo'];
 
     let code = null;
     await atest('hosting a room returns a four-letter code', async () => {
@@ -113,13 +116,22 @@ async function run() {
       eq(ana.look, { coat: 3 }, "the host's look reached a guest");
     });
 
-    await atest('a fourth is turned away rather than ignored', async () => {
+    await atest('the castle seats eight', async () => {
+      for (let i = 0; i < EXTRA.length; i++) {
+        await EXTRA[i].join(code, { name: EXTRA_NAMES[i], look: null });
+      }
+      await settle();
+      eq(A.roster().length, 8, 'eight at the table');
+      eq(A.roster().map(p => p.seat), [0, 1, 2, 3, 4, 5, 6, 7], 'seated in arrival order');
+    });
+
+    await atest('a ninth is turned away rather than ignored', async () => {
       let refused = null;
       D.on('error', (m) => { refused = m; });
       await D.join(code, { name: 'Dee', look: null });
       await settle();
       ok(refused && /full/i.test(refused), 'told it is full: ' + refused);
-      eq(A.roster().length, 3, 'and the room did not grow');
+      eq(A.roster().length, 8, 'and the room did not grow');
       ok(!D.connected, 'and the refused one is put back on the front door');
     });
 
@@ -129,7 +141,7 @@ async function run() {
       B.post('roster', { list: [{ id: 'peerB', name: 'Bo', seat: 0, host: true }],
                          hostId: 'peerB' });
       await settle();
-      eq(A.roster().length, 3, 'the host held its own roster');
+      eq(A.roster().length, 8, 'the host held its own roster');
       eq(A.hostId, 'peerA', 'and stayed the authority');
     });
 
@@ -151,31 +163,6 @@ async function run() {
       eq(got.sort(), [['B', 12345], ['C', 12345]], 'the same seed, both machines');
     });
 
-    /* A mission party is one mission rather than a night, and the
-       host's choice of it — the wood, whether this is a
-       full run or a walk up to the owl — arrives on its own channel,
-       on a screen where no mission is running. A `go` that names one
-       is the start of it, and the lobby must not mistake that for a
-       night. */
-    await atest('a mission party setup reaches the room', async () => {
-      const heard = [];
-      B.on('mp', (m) => heard.push(['B', m]));
-      C.on('mp', (m) => heard.push(['C', m]));
-      A.post('mp', { k: 'setup', missionId: 'shootout',
-                     setup: { seed: 99, skip: true } });
-      await settle();
-      eq(heard.length, 2, 'both guests were told');
-      eq(heard[0][1].setup.skip, true, 'and the owl came with it');
-    });
-
-    await atest('a guest can ask the host what the room is playing', async () => {
-      let asked = null;
-      A.on('mp', (m, from) => { asked = [m.k, from]; });
-      B.post('mp', { k: 'want' }, A.selfId() ? A.selfId() : 'peerA');
-      await settle();
-      eq(asked, ['want', 'peerB'], 'the host heard the newcomer, and who it was');
-    });
-
     await atest('a targeted message reaches only its peer', async () => {
       const heard = [];
       B.on('wire', (m) => heard.push(['B', m]));
@@ -191,7 +178,7 @@ async function run() {
       C.leave();
       await settle();
       eq(left, 'peerC', 'the host noticed');
-      eq(A.roster().map(p => p.name), ['Ana', 'Bo'], 'and the room shrank');
+      eq(A.roster().map(p => p.name), ['Ana', 'Bo'].concat(EXTRA_NAMES), 'and the room shrank');
       ok(!C.connected, 'and the leaver is out');
     });
 
@@ -221,13 +208,15 @@ async function run() {
       const A = makeClient(swarm, 'peerA', true);
       const B = makeClient(swarm, 'peerB', true);
       const C = makeClient(swarm, 'peerC', true);
-      const D = makeClient(swarm, 'peerD', true);   // the fourth
+      const D = makeClient(swarm, 'peerD', true);   // the ninth
+      const rest = ['E', 'F', 'G', 'H', 'I'].map(x => makeClient(swarm, 'peer' + x, true));
 
       const code = await A.host({ name: 'Ana', look: null });
       await B.join(code, { name: 'Bo', look: null });
       await C.join(code, { name: 'Cy', look: null });
+      for (const r of rest) await r.join(code, { name: 'Pat', look: null });
       await settle();
-      eq(A.roster().length, 3, 'a full room');
+      eq(A.roster().length, 8, 'a full room');
 
       /* Listening before Dee knocks, because being turned away is what
          makes her leave — by the time the room has settled she is
@@ -238,7 +227,7 @@ async function run() {
       await D.join(code, { name: 'Dee', look: null });
       await settle();
 
-      ok(!D.connected, 'the fourth was turned away');
+      ok(!D.connected, 'the ninth was turned away');
       eq(saw, 1, 'and the host saw her go');
       ok(seat === null, 'but nobody lost a seat over it');
     });

@@ -1,10 +1,8 @@
 /* ------------------------------------------------------------------
-   engine.js — renderer, main loop and the "view" a mission plugs into.
+   engine.js — renderer, main loop and the "view" a scene plugs into.
 
-   The engine owns nothing about gameplay. A mission hands it a
+   The engine owns nothing about gameplay. A scene hands it a
    { scene, camera } view and an update function; the engine renders it.
-   That keeps missions completely independent of one another — a
-   round-table scene and a boat race have nothing in common but this.
 ------------------------------------------------------------------ */
 const Engine = (() => {
 
@@ -113,12 +111,12 @@ const Engine = (() => {
     }
     if (view) {
       renderer.render(view.scene, view.camera);
-      // a second pass a mission draws over its own frame (the Descent's rear view)
+      // a second pass a scene may draw over its own frame
       if (view.after) view.after(renderer);
     }
   }
 
-  // handy for missions: dispose an entire subtree's GPU resources
+  // dispose an entire subtree's GPU resources
   function disposeObject(root) {
     if (!root) return;
     root.traverse(o => {
@@ -129,7 +127,7 @@ const Engine = (() => {
       for (const mm of mats) {
         for (const k in mm) {
           const v = mm[k];
-          if (v && v.isTexture && !(v.userData && (v.userData.estateShared || v.userData.shootoutShared || v.userData.boatShared || v.userData.diveShared))) v.dispose();
+          if (v && v.isTexture && !(v.userData && v.userData.estateShared)) v.dispose();
         }
         mm.dispose();
       }

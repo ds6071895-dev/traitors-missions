@@ -30,7 +30,6 @@ const Transports = (() => {
   const EVENTS = [
     ['change',     (s)       => ({ type: 'state',      state: s })],
     ['phase',      (p, prev) => ({ type: 'phase',      phase: p, prev })],
-    ['travel', (j) => ({ type: 'travel', ...j })],
     ['beat',       (n)       => ({ type: 'beat',       n })],
     ['vote',       (v)       => ({ type: 'vote',       ...v })],
     ['decision',   (d)       => ({ type: 'decision',   ...d })],
@@ -41,21 +40,67 @@ const Transports = (() => {
     ['scene',      (s)       => ({ type: 'scene',      ...s })],
     ['sync',       (s)       => ({ type: 'sync',       ...s })],
     ['expose',     (x)       => ({ type: 'expose',     ...x })],
+    ['chore',      (c)       => ({ type: 'chore',      ...c })],
+    ['bell',       (b)       => ({ type: 'bell',       ...b })],
+    ['night',      (n)       => ({ type: 'night',      ...n })],
+    ['arrive',     (a)       => ({ type: 'arrive',     ...a })],
+    ['murder',     (m)       => ({ type: 'murder',     ...m })],
+    ['cue',        (c)       => ({ type: 'cue',        ...c })],
     ['outcome',    (o)       => ({ type: 'outcome',    outcome: o })],
   ];
   /* What a guest is allowed to say. Anything not on this list is
-     dropped on arrival, which is the right default — but a Traitor is
-     a guest two nights in three, and `taskDone` is the one thing only
-     they can say about themselves. Left off, their mark died on the
-     host's doormat while their own chip said it had landed, and they
-     walked into the fire already exposed for a card they had done.
-     Impersonation is not the reason to keep it off: the host stamps
-     every guest action with the peer it actually arrived from, so a
-     guest can only ever mark its own card. */
+     dropped on arrival, which is the right default. Impersonation is not
+     the reason to keep anything off: the host stamps every guest action
+     with the peer it actually arrived from, so a guest can only ever
+     do its own jobs, hand over its own letters, and — if it is the one
+     carrying it — use its own poison. */
   const GUEST_ACTIONS = new Set([
-    'vote', 'name', 'yieldFloor', 'sceneReady', 'syncReady', 'readyResult',
-    'taskDone', 'travelReady', 'travelBoard', 'travelSkip', 'travelGather', 'travelMove',
+    'vote', 'name', 'decide', 'yieldFloor', 'sceneReady', 'syncReady',
+    'chore', 'handover', 'poison', 'turretPick', 'recruitAnswer',
   ]);
+
+  /* Actions a contestant sends about themselves. On the host they are
+     stamped with the host's own id — unless the contestant named is one
+     of the AI seats the host plays for, which only the host can do. */
+  const SELF_ACTIONS = new Set(['chore', 'handover', 'poison', 'turretPick', 'recruitAnswer']);
+  const actsForSelf = (type) => SELF_ACTIONS.has(type);
+  const isBotSeat = (id) => !!(id && Session.state
+    && (Session.state.players.find(p => p.id === id) || {}).bot);
+
+  /* ---------------- the private half of the night ----------------
+     Everything one person may know and the others may not is one
+     object, `Session.privateView(id)`. The host recomputes everybody's
+     after anything moves and sends each person theirs only when it has
+     changed — so a pick in the turret reaches the other Traitor and
+     nobody else, and a reconnect is simply sent the whole view again. */
+  function privateSync(owner, force) {
+    if (!Session.state || !Session.isHost) return;
+    const sent = owner._sentViews || (owner._sentViews = new Map());
+    for (const p of Session.state.players) {
+      const view = Session.privateView(p.id);
+      if (!view) continue;
+      const json = JSON.stringify(view);
+      if (!force && sent.get(p.id) === json) continue;
+      sent.set(p.id, json);
+      if (p.local) { if (owner._emit) owner._emit({ type: 'private' }); continue; }
+      if (p.bot) { if (owner._emit) owner._emit({ type: 'private', bot: p.id }); continue; }
+      if (typeof Party === 'undefined' || !Party.post) continue;
+      /* The role travels inside the view, and at the top as well so an
+         older guest still learns what it is. */
+      Party.post('wire', { ev: { type: 'private', view, role: view.role } }, p.id);
+    }
+  }
+
+  /* Who may hear whom is a fact about the room, so the server enforces
+     it — told by the host, which is the only client that knows. */
+  function routeSync(owner) {
+    if (!Session.isHost || typeof Party === 'undefined' || !Party.setVoiceRoutes) return;
+    const routes = Session.voiceRoutes();
+    const json = JSON.stringify(routes);
+    if (owner._routes === json) return;
+    owner._routes = json;
+    Party.setVoiceRoutes(routes);
+  }
 
   /* ---------------- host ---------------- */
 
@@ -65,12 +110,17 @@ const Transports = (() => {
       this._emit = emit;
       this._sentRoles = new Set();
 
+      this._sentViews = new Map();
+      this._routes = null;
       this._offs = EVENTS.map(([name, shape]) =>
         Session.on(name, (a, b) => {
           const ev = shape(a, b);
           emit(ev);                         // the host is a client too
           this._broadcast(ev);
+          privateSync(this);
+          routeSync(this);
         }));
+      this._offs.push(Session.on('private', () => { privateSync(this); routeSync(this); }));
 
       /* A guest that arrives — or comes back — needs the world as it
          stands, not the next thing that happens in it. */
@@ -86,6 +136,7 @@ const Transports = (() => {
            complete rather than a race the host has to win. */
         if (msg.type === 'hello') {
           this._sentRoles.delete(peerId);
+          if (this._sentViews) this._sentViews.delete(peerId);
           this._catchUp();
           return;
         }
@@ -111,11 +162,12 @@ const Transports = (() => {
 
     send(action) {
       const own = Object.assign({}, action, { authority: true });
-      /* Both of these are the host speaking about itself rather than
-         about the night, and the reducer checks who sent them. A guest
-         gets stamped with the peer the packet arrived from; the host
-         has to stamp itself. */
-      if (own.type === 'readyResult' || own.type === 'taskDone' || own.type.startsWith('travel')) {
+      /* These are the host speaking about itself rather than about the
+         night, and the reducer checks who sent them. A guest gets
+         stamped with the peer the packet arrived from; the host has to
+         stamp itself — or, for an AI seat, the seat it is playing.
+         `leave` names the person who left and is the host's to say. */
+      if (actsForSelf(own.type) && !isBotSeat(own.playerId)) {
         own.playerId = Party.selfId();
       }
       Session.dispatch(own);
@@ -130,21 +182,17 @@ const Transports = (() => {
 
     _catchUp() {
       if (!Session.state) return;
-      const roles = Session.privateRoles();
       for (const p of Session.state.players) {
-        if (p.local) continue;
+        if (p.local || p.bot) continue;
         this._broadcast({ type: 'state', state: Session.snapshot(), catchUp: true }, p.id);
         if (this._sentRoles.has(p.id)) continue;
-        const r = roles.find(x => x.playerId === p.id);
-        if (!r) continue;
         this._sentRoles.add(p.id);
-        /* Only the readable half of a card crosses the wire, and the
-           deck itself decides what that half is — a card is generated
-           from a corpus now and has more on it than a guest needs. */
-        const agendas = (r.agendas || []).map(c => Agendas.wire(c));
-        Party.post('wire', { ev: { type: 'role', role: r.role,
-                                   agendas: r.agendas ? agendas : null } }, p.id);
+        if (this._sentViews) this._sentViews.delete(p.id);
       }
+      /* Only the readable half of a card crosses the wire, and the deck
+         itself decides what that half is. */
+      privateSync(this);
+      routeSync(this);
     },
   };
 
@@ -155,12 +203,10 @@ const Transports = (() => {
      supplied bolted on.
 
      - Every action is stamped `authority`, because there is nobody else
-       to be the authority and an unstamped `readyResult` would sit
-       there forever waiting for a board that is never coming.
-     - `readyResult` is stamped with the local player id, for the same
-       reason and in the same place the host transport stamps it: the
-       press of a Continue button says who pressed it, and nothing else
-       in the message does.
+       to be the authority.
+     - A contestant's own action (a job, a letter, the poison) is
+       stamped with the local player id when it names nobody, for the
+       same reason and in the same place the host transport stamps it.
 
      Nothing else is stamped, and that is load-bearing rather than
      conservative. Half the actions the fire sends are the *ceremony*
@@ -179,6 +225,7 @@ const Transports = (() => {
       this._emit = emit;
       this._offs = EVENTS.map(([name, shape]) =>
         Session.on(name, (a, b) => emit(shape(a, b))));
+      this._offs.push(Session.on('private', () => emit({ type: 'private' })));
     },
 
     close() {
@@ -190,7 +237,7 @@ const Transports = (() => {
     send(action) {
       if (!action) return;
       const own = Object.assign({}, action, { authority: true });
-      if ((own.type === 'readyResult' || own.type === 'taskDone' || own.type.startsWith('travel')) && !own.playerId) {
+      if (actsForSelf(own.type) && !own.playerId) {
         const me = Session.state && Session.state.players.find(p => p.local);
         own.playerId = me ? me.id : null;
       }
@@ -216,14 +263,6 @@ const Transports = (() => {
         /* State first, always. See rule 1 at the top of this file. */
         const before = Session.state && Session.state.phase;
         if (msg.state) {
-          if (Array.isArray(msg.state.missions) && msg.state.missions.some(m => m && (Object.hasOwn(m, 'modId') || Object.hasOwn(m, 'modName') || Object.hasOwn(m, 'modFlags')))) {
-            this._gotState = false;
-            if (typeof Show !== 'undefined' && Show.running) Show.end({ abandon: true });
-            Party.leave();
-            if (typeof Screens !== 'undefined') Screens.show('lobby');
-            if (typeof alert === 'function') alert('This host uses older twist rules. Refresh with the host to play together.');
-            return;
-          }
           /* Host absolute timestamps are meaningless if two device clocks
              differ. Preserve the remaining duration at send time and put
              it onto this device's clock. */
@@ -231,14 +270,28 @@ const Transports = (() => {
             const left = Math.max(0, msg.state.floor.endsAt - msg.at);
             msg.state.floor.endsAt = Date.now() + left;
           }
-          if (msg.state.phase === 'travel' && msg.state.travel && msg.state.travel.startedAt !== null) {
-            msg.state.travel.startedAt = Date.now() - (msg.state.travel.elapsed || 0) * 1000;
+          if (msg.at && msg.state.chores) {
+            const c = msg.state.chores;
+            const shift = Date.now() - msg.at;
+            c.startedAt += shift;
+            c.endsAt += shift;
+          }
+          if (msg.at && msg.state.night && msg.state.night.endsAt) {
+            msg.state.night.endsAt += Date.now() - msg.at;
           }
           Session.adopt(msg.state, Party.selfId());
         }
-        if (msg.ev.type === 'role') {
-          Session.setMyRole(msg.ev.role, msg.ev.agendas);
+        if (msg.ev.type === 'private') {
+          if (msg.ev.view) Session.setPrivate(msg.ev.view);
+          else Session.setMyRole(msg.ev.role);
           this._gotRole = true;
+          emit({ type: 'private' });
+          return;
+        }
+        if (msg.ev.type === 'role') {
+          Session.setMyRole(msg.ev.role);
+          this._gotRole = true;
+          emit({ type: 'private' });
           return;
         }
         if (msg.ev.type === 'state') {
@@ -290,5 +343,5 @@ const Transports = (() => {
     },
   };
 
-  return { HostTransport, GuestTransport, SoloTransport, EVENTS, GUEST_ACTIONS };
+  return { HostTransport, GuestTransport, SoloTransport, EVENTS, GUEST_ACTIONS, SELF_ACTIONS };
 })();

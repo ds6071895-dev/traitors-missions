@@ -1,7 +1,7 @@
 /* Texture cache owns textures; scene-owned materials only borrow them. */
 const EstateMaterials = (() => {
-  const families={bark:['#685748',2,.98],foliage:['#435841',3,1],masonry:['#918a7c',3,.95],paving:['#858780',3,.96],slate:['#39434a',2,.8],
-    gravel:['#8b8271',2,1],ground:['#535c39',7,1],heather:['#746746',5,1],rock:['#76776e',4,.98],
+  const families={bark:['#685748',2,.98],foliage:['#5d9a4f',3,1],masonry:['#918a7c',3,.95],paving:['#858780',3,.96],slate:['#39434a',2,.8],
+    gravel:['#a29a86',2,1],ground:['#7cb84a',7,1],heather:['#8fbf52',5,1],rock:['#76776e',4,.98],
     timber:['#655141',2,.86],iron:['#292d2d',1,.72],paint:['#1e3029',2,.32],rubber:['#222626',1,1],upholstery:['#343c3a',1,.98]};
   const cache=new Map();
   function load(id,low=false){

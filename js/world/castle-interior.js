@@ -1,0 +1,1206 @@
+/* ------------------------------------------------------------------
+   castle-interior.js — the rooms the night happens in.
+
+   Builds `CastleLayout` into a Scottish baronial house: stone walls with
+   real openings, oak panelling to the dado with damask or bare stone
+   above, plaster cornices, coffered ceilings, a ribbed vault over the
+   round table, tall leaded windows looking out over the loch to the
+   hills, carved fireplaces, stag heads, portraits in gilt, tartan, and
+   candles everywhere. Everything static is merged per material, as
+   `estate.js` batches the outside, so the whole house is a few dozen
+   draw calls.
+
+   Two rules keep it from flickering. Walls are centred on the room
+   lines in the layout, so two rooms that share a wall share one wall,
+   not two overlapping ones; and every surface laid on another — panel,
+   paper, rail, rug, sill — stands proud of it by a real distance, so no
+   two faces of different stuff ever sit in the same plane.
+
+   It answers the same questions the estate answers — `heightAt`,
+   `walkable`, `constrain`, `update`, `dispose` — so `stage.js` can
+   stand a scene in a room the way it stands one on the hill.
+
+   Light: daylight (or moonlight) from the windows as a hemisphere and
+   one directional; warm pools from a list of places (`CastleLayout.
+   LIGHTS`), with a handful of real point lights following the camera
+   to the nearest of them. Flames and the view are unlit and cost
+   nothing.
+------------------------------------------------------------------ */
+const CastleInterior = (() => {
+
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const T = 0.5;                  // wall thickness, centred on the layout's lines
+  const DOOR_H = 3.2;             // the top of an ordinary doorway
+  const LAP = 0.004;              // how far trim laps over the edge it covers
+  const TAU = Math.PI * 2;
+
+  const POOL = 6;                 // real point lights, wherever you are
+  const POOL_RANGE = 20;
+
+  /* How each room is finished: oak panelling to `wains`, then `upper`
+     to the ceiling, and what the ceiling is. */
+  const FINISH = {
+    hall:            { wains: 1.3, upper: 'masonry', ceil: 'coffered' },
+    great:           { wains: 1.1, upper: 'masonry', ceil: 'coffered' },
+    round:           { wains: 1.4, upper: 'masonry', ceil: 'vault' },
+    corridor:        { wains: 1.0, upper: 'damaskRed', ceil: 'beams' },
+    'west-passage':  { wains: 1.0, upper: 'masonry', ceil: 'beams' },
+    'north-passage': { wains: 1.0, upper: 'masonry', ceil: 'beams' },
+    stair:           { wains: 0, upper: 'masonry', ceil: 'beams' },
+    turret:          { wains: 0, upper: 'masonry', ceil: 'cone' },
+    bed:             { wains: 0.9, upper: 'damaskGreen', ceil: 'plain' },
+  };
+  const finishOf = (r) => FINISH[r.id] || (r.id.startsWith('bed') ? FINISH.bed : FINISH.stair);
+
+  /* Windows, on walls with nothing outside them but the view. Rect
+     rooms by side and span; round rooms by angle and width. */
+  function windowsFor(r) {
+    const P = Math.PI;
+    if (r.id === 'hall') return [
+      { side: 's', span: [-1.6, 1.6], y: [5.2, 8.3], arch: true },
+      { side: 's', span: [-5.3, -3.3], y: [4.6, 7.9], arch: true },
+      { side: 's', span: [3.3, 5.3], y: [4.6, 7.9], arch: true },
+    ];
+    if (r.id === 'great') return [
+      [0.2, 2.2], [3.8, 5.8], [12.2, 14.2], [15.8, 17.8],
+    ].map(span => ({ side: 'w', span, y: [1.0, 6.2], arch: true, curtains: true })).concat(
+      [[-20.8, -18.8], [-13.2, -11.2]].map(span => ({ side: 'n', span, y: [1.0, 6.2], arch: true, curtains: true })),
+      [[-20.8, -18.8], [-13.2, -11.2]].map(span => ({ side: 's', span, y: [1.0, 6.2], arch: true, curtains: true })));
+    if (r.id === 'corridor') return [{ side: 'e', span: [12.9, 14.1], y: [1.0, 3.5], arch: true }];
+    if (r.id === 'round') return [P, -7 * P / 8, -5 * P / 8, -3 * P / 8, -P / 8, 0]
+      .map(a => ({ a, w: 1.7, y: [1.6, 8.2], arch: true, candles: true }));
+    if (r.id === 'turret') return [-P / 2, -P / 2 - 1.1, -P / 2 + 1.1, 0.25, P - 0.25]
+      .map(a => ({ a, w: 0.9, y: [1.3, 3.9], arch: true }));
+    if (r.id.startsWith('bed')) {
+      const k = +r.id.slice(3), cx = (r.x0 + r.x1) / 2;
+      return [{ side: k < 4 ? 'n' : 's', span: [cx + 0.3, cx + 1.4], y: [1.0, 2.9], arch: true }];
+    }
+    return [];
+  }
+
+  /* What everything is made of. `fam` borrows an estate texture family;
+     `tex` is one of the castle's painted cloths; `uv` is metres per tile. */
+  const MATS = {
+    masonry:  { fam: 'masonry', uv: 2.6, opts: { color: '#f4e8d6' } },
+    dressed:  { fam: 'masonry', uv: 1.4, opts: { color: '#fff3df' } },
+    flags:    { fam: 'paving', uv: 2.4, opts: { color: '#efe4d2' } },
+    boards:   { fam: 'timber', uv: 1.8, opts: { color: '#f0c9a0', roughness: 0.62 } },
+    oak:      { fam: 'timber', uv: 1.4, opts: { color: '#ffe2c2', roughness: 0.5 } },
+    darkoak:  { fam: 'timber', uv: 1.2, opts: { color: '#e2b690', roughness: 0.45 } },
+    beam:     { fam: 'timber', uv: 2.0, opts: { color: '#d6ad86', roughness: 0.7 } },
+    iron:     { flat: '#2d2b2a', rough: 0.55, metal: 0.4 },
+    plaster:  { flat: '#e3d6bc', rough: 0.92 },
+    gold:     { flat: '#d4ab55', rough: 0.35, metal: 0.45 },
+    steel:    { flat: '#b4b8bc', rough: 0.3, metal: 0.45 },
+    wax:      { flat: '#f2ead6', rough: 0.65 },
+    soot:     { flat: '#171211', rough: 1 },
+    linen:    { flat: '#ece5d6', rough: 1 },
+    velvet:   { flat: '#7a1622', rough: 0.85, side: true },
+    green:    { flat: '#1f3f2f', rough: 0.85, side: true },
+    cloak:    { flat: '#141011', rough: 1, side: true },
+    slate:    { fam: 'slate', uv: 1.6 },
+    bone:     { flat: '#e2d3b2', rough: 0.75 },
+    fur:      { flat: '#6e4f35', rough: 1 },
+    lead:     { flat: '#2a2a2c', rough: 0.5, metal: 0.3 },
+    china:    { flat: '#f2efe8', rough: 0.3 },
+    silver:   { flat: '#d0d2d4', rough: 0.25, metal: 0.5 },
+    log:      { fam: 'bark', uv: 0.8 },
+    tartanRed:   { tex: () => CastleProps.tartan('stewart'), uv: 0.7 },
+    tartanGreen: { tex: () => CastleProps.tartan('watch'), uv: 0.7 },
+    tartanHunt:  { tex: () => CastleProps.tartan('hunting'), uv: 1.0 },
+    damaskRed:   { tex: () => CastleProps.damask('red'), uv: 0.7 },
+    damaskGreen: { tex: () => CastleProps.damask('green'), uv: 0.7 },
+    portrait:    { tex: () => CastleProps.portraits(), keepUV: true, rough: 0.55 },
+  };
+
+  function build(scene, opts = {}) {
+    const L = CastleLayout;
+    const focus = L.FOCUS[opts.room] || L.FOCUS.hall;
+    const hour = opts.hour === 'night' ? 'night' : opts.hour === 'morning' ? 'morning' : 'golden';
+    const night = hour === 'night';
+    const low = GameState.data.settings.quality === 'low';
+    const SKY = CastleProps.skyFor(hour);
+
+    /* The castle is built in its own coordinates and moved so the room
+       being used is centred on the world origin. */
+    const group = new THREE.Group();
+    group.name = 'castle-interior';
+    group.position.set(-focus.x, 0, -focus.z);
+    scene.add(group);
+    const toWorld = (x, z) => V(x - focus.x, 0, z - focus.z);
+    const toLocal = (x, z) => ({ x: x + focus.x, z: z + focus.z });
+
+    const mats = {};
+    const batches = new Map();
+    const mat = (id) => mats[id] || (mats[id] = makeMaterial(id));
+    function makeMaterial(id) {
+      const m = MATS[id];
+      if (id === 'glass') {
+        return new THREE.MeshBasicMaterial({ color: night ? '#9fb0d0' : '#f4f1e8', transparent: true,
+          opacity: night ? 0.07 : 0.1, depthWrite: false, side: THREE.DoubleSide, fog: false });
+      }
+      if (!m) return new THREE.MeshStandardMaterial({ color: '#888888', roughness: 0.9 });
+      if (m.fam) return EstateMaterials.material(m.fam, Object.assign({}, m.opts || {}));
+      if (m.tex) return new THREE.MeshStandardMaterial({ map: m.tex(), roughness: m.rough || 0.9 });
+      return new THREE.MeshStandardMaterial({ color: m.flat, roughness: m.rough, metalness: m.metal || 0,
+        side: m.side ? THREE.DoubleSide : THREE.FrontSide });
+    }
+    /* Into a batch, in castle coordinates. UVs are projected after the
+       move, so two faces in the same place get the same texture. */
+    function add(g, id, x = 0, y = 0, z = 0, ry = 0) {
+      if (ry) g.rotateY(ry);
+      g.translate(x, y, z);
+      const spec = MATS[id] || {};
+      if (!spec.keepUV) EstateMaterials.uv(g, spec.uv || 2);
+      else if (!g.attributes.uv) EstateMaterials.uv(g, 1);
+      if (!batches.has(id)) batches.set(id, []);
+      batches.get(id).push(g.index ? g.toNonIndexed() : g);
+    }
+    const box = (id, w, h, d, x, y, z, ry = 0) => add(new THREE.BoxGeometry(w, h, d), id, x, y, z, ry);
+    const cyl = (id, rt, rb, h, seg, x, y, z) => add(new THREE.CylinderGeometry(rt, rb, h, seg), id, x, y, z);
+    const sph = (id, r, x, y, z, sx = 1, sy = 1, sz = 1, seg = 10) =>
+      add(new THREE.SphereGeometry(r, seg, Math.max(4, seg - 3)).scale(sx, sy, sz), id, x, y, z);
+
+    /* Glowing things: flames, embers. Unlit, so they read as the light
+       source whatever the pool of real lights is doing. */
+    const glowBatches = new Map();
+    function glow(g, colour, x = 0, y = 0, z = 0, ry = 0) {
+      if (ry) g.rotateY(ry);
+      g.translate(x, y, z);
+      if (!g.attributes.uv) EstateMaterials.uv(g, 1);
+      if (!glowBatches.has(colour)) glowBatches.set(colour, []);
+      glowBatches.get(colour).push(g.index ? g.toNonIndexed() : g);
+    }
+    function candle(x, y, z, h = 0.2, r = 0.028) {
+      const c = CastleProps.pillar(x, y, z, h, r);
+      add(c.wax, 'wax');
+      add(c.wick, 'soot');
+      glow(c.flame, '#ffb54d');
+      glow(c.core, '#fff3c4');
+    }
+
+    /* A local frame on a wall: x along it, z out into the room, origin on
+       the wall's inner face at floor level. Build a piece in that frame
+       and hand it here to put it on the wall. */
+    function onWall(W, s, g, id, y = 0, glowColour) {
+      const f = W.frame(s);
+      if (glowColour) glow(g, glowColour, f.x, W.fy + y, f.z, f.ry);
+      else add(g, id, f.x, W.fy + y, f.z, f.ry);
+    }
+    const lbox = (w, h, d, x, y, z) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
+    // a point in a wall's local frame, in castle coordinates
+    function wallPoint(W, s, lx, lz) {
+      const f = W.frame(s);
+      return { x: f.x + Math.cos(f.ry) * lx + Math.sin(f.ry) * lz, z: f.z - Math.sin(f.ry) * lx + Math.cos(f.ry) * lz };
+    }
+
+    /* ---------------- walls ---------------- */
+
+    function rectWall(r, side) {
+      const ns = side === 'n' || side === 's';
+      const fy = r.y || 0;
+      const open = r.open || [];
+      const [lo, hi] = ns ? [r.x0, r.x1] : [r.z0, r.z1];
+      const loOpen = open.indexOf(ns ? 'w' : 'n') >= 0, hiOpen = open.indexOf(ns ? 'e' : 's') >= 0;
+      const line = side === 'n' ? r.z0 : side === 's' ? r.z1 : side === 'w' ? r.x0 : r.x1;
+      const inward = side === 'n' || side === 'w' ? 1 : -1;
+      const face = line + inward * T / 2;
+      const ry = side === 'n' ? 0 : side === 's' ? Math.PI : side === 'w' ? Math.PI / 2 : -Math.PI / 2;
+      return {
+        kind: 'rect', room: r, side, fy, h: r.h, ns,
+        a0: lo - (loOpen ? 0 : T / 2), a1: hi + (hiOpen ? 0 : T / 2),
+        in0: lo + T / 2, in1: hi - T / 2,
+        metres: (ds) => ds, toS: (m) => m, outer: (ds) => ds,
+        band(id, s0, s1, y0, y1, d0, d1) {
+          if (s1 - s0 < 0.003 || y1 - y0 < 0.003) return;
+          const len = s1 - s0, hh = y1 - y0, dep = d1 - d0;
+          const sm = (s0 + s1) / 2, dm = face + inward * (d0 + d1) / 2;
+          if (ns) box(id, len, hh, dep, sm, fy + y0 + hh / 2, dm);
+          else box(id, dep, hh, len, dm, fy + y0 + hh / 2, sm);
+        },
+        frame(s) { return ns ? { x: s, z: face, ry } : { x: face, z: s, ry }; },
+      };
+    }
+
+    function circleWall(r) {
+      const fy = r.y || 0;
+      const Ri = r.r - T / 2;
+      const A0 = Math.PI / 4;
+      return {
+        kind: 'circle', room: r, fy, h: r.h,
+        a0: A0, a1: A0 + TAU, in0: A0, in1: A0 + TAU,
+        metres: (ds) => ds * Ri, toS: (m) => m / Ri, outer: (ds) => ds * (r.r + T / 2),
+        norm(a) { while (a < A0) a += TAU; while (a >= A0 + TAU) a -= TAU; return a; },
+        band(id, s0, s1, y0, y1, d0, d1) {
+          if (s1 - s0 < 1e-4 || y1 - y0 < 0.003) return;
+          const R0 = Ri - d0, R1 = Ri - d1;
+          const n = Math.max(1, Math.ceil((s1 - s0) * R0 / 0.7));
+          const dt = (s1 - s0) / n, hh = y1 - y0;
+          for (let k = 0; k < n; k++) {
+            const m = s0 + (k + 0.5) * dt;
+            const Rc = (R0 + R1) / 2;
+            add(new THREE.BoxGeometry(2 * R0 * Math.tan(dt / 2) + 0.004, hh, R0 - R1), id,
+                r.cx + Math.cos(m) * Rc, fy + y0 + hh / 2, r.cz + Math.sin(m) * Rc,
+                Math.atan2(-Math.cos(m), -Math.sin(m)));
+          }
+        },
+        frame(s) {
+          return { x: r.cx + Math.cos(s) * Ri, z: r.cz + Math.sin(s) * Ri, ry: Math.atan2(-Math.cos(s), -Math.sin(s)) };
+        },
+      };
+    }
+
+    function openingsOf(W) {
+      const r = W.room, ops = [];
+      if (W.kind === 'rect') {
+        for (const [g0, g1] of (r.doors[W.side] || [])) {
+          ops.push({ a: g0, b: g1, y0: 0, y1: Math.min(r.h - 0.6, DOOR_H + (g1 - g0 > 2.4 ? 0.8 : 0)), kind: 'door' });
+        }
+        if (r.gate && r.gate.side === W.side) ops.push({ a: r.gate.span[0], b: r.gate.span[1], y0: 0, y1: 4.4, kind: 'gate' });
+        for (const w of windowsFor(r)) {
+          if (w.side === W.side) ops.push({ a: w.span[0], b: w.span[1], y0: w.y[0], y1: w.y[1], kind: 'window', w });
+        }
+      } else {
+        const Ri = r.r - T / 2;
+        for (const d of r.doors) {
+          const half = d.w / 2 / Ri, c = W.norm(d.a);
+          ops.push({ a: c - half, b: c + half, y0: 0, y1: d.w > 2.4 ? 4.0 : DOOR_H, kind: 'door' });
+        }
+        for (const w of windowsFor(r)) {
+          const half = w.w / 2 / Ri, c = W.norm(w.a);
+          ops.push({ a: c - half, b: c + half, y0: w.y[0], y1: w.y[1], kind: 'window', w });
+        }
+      }
+      return ops;
+    }
+
+    // [0, h] less every opening that covers this stretch
+    function freeSpans(ops, s0, s1, h) {
+      let free = [[0, h]];
+      for (const o of ops) {
+        if (!(o.a <= s0 + 1e-5 && o.b >= s1 - 1e-5)) continue;
+        const next = [];
+        for (const [y0, y1] of free) {
+          if (o.y1 <= y0 || o.y0 >= y1) { next.push([y0, y1]); continue; }
+          if (o.y0 > y0) next.push([y0, o.y0]);
+          if (o.y1 < y1) next.push([o.y1, y1]);
+        }
+        free = next;
+      }
+      return free;
+    }
+
+    const doneThresholds = new Set();
+
+    function buildWall(W) {
+      const r = W.room, f = finishOf(r);
+      const ops = openingsOf(W);
+      W.ops = ops;
+      const cuts = [W.a0, W.a1];
+      for (const o of ops) cuts.push(o.a, o.b);
+      if (W.kind === 'circle') {
+        const n = Math.ceil(TAU * r.r / 0.9);
+        for (let i = 1; i < n; i++) cuts.push(W.a0 + i / n * TAU);
+      }
+      cuts.sort((p, q) => p - q);
+      const stretches = [];
+      for (let i = 0; i < cuts.length - 1; i++) {
+        const s0 = cuts[i], s1 = cuts[i + 1];
+        if (s1 - s0 < 1e-4) continue;
+        stretches.push([s0, s1, freeSpans(ops, s0, s1, r.h)]);
+      }
+      // the stone
+      for (const [s0, s1, free] of stretches) {
+        for (const [y0, y1] of free) W.band('masonry', s0, s1, y0, y1, -T, 0);
+      }
+      // what is laid on it, on the room side only
+      const wains = f.wains;
+      const fieldGap = W.toS(0.07);
+      for (const [a, b, free] of stretches) {
+        const s0 = Math.max(a, W.in0), s1 = Math.min(b, W.in1);
+        if (s1 - s0 < 1e-4) continue;
+        for (const [y0, y1] of free) {
+          if (wains > 0 && y0 < wains) {
+            const top = Math.min(wains, y1);
+            W.band('oak', s0, s1, y0, top, 0, 0.05);
+            if (y0 < 0.01) W.band('darkoak', s0, s1, 0, 0.16, 0, 0.075);
+            // the rail, unless a window sill sits on the panelling here instead
+            if (top >= wains - 0.01 && y1 > wains + 0.05) W.band('darkoak', s0, s1, wains - 0.06, wains + 0.03, 0, 0.09);
+            // raised fields, about ninety centimetres apiece
+            if (y0 < 0.01 && wains > 0.7) {
+              const len = W.metres(s1 - s0);
+              const n = Math.max(1, Math.round(len / 0.9));
+              const step = (s1 - s0) / n;
+              if (W.metres(step) > 0.3) {
+                for (let k = 0; k < n; k++) {
+                  W.band('darkoak', s0 + k * step + fieldGap, s0 + (k + 1) * step - fieldGap,
+                         0.28, wains - 0.15, 0.05, 0.072);
+                }
+              }
+            }
+          }
+          if (f.upper !== 'masonry') {
+            const b0 = Math.max(y0, wains);
+            if (y1 > b0) W.band(f.upper, s0, s1, b0, y1, 0, 0.02);
+          }
+        }
+      }
+      /* Where a passage's wall runs out into the next room's doorway, a
+         casing covers the ends of its panelling and paper. */
+      if (W.kind === 'rect' && (wains > 0 || f.upper !== 'masonry')) {
+        const open = r.open || [];
+        const loOpen = open.indexOf(W.ns ? 'w' : 'n') >= 0, hiOpen = open.indexOf(W.ns ? 'e' : 's') >= 0;
+        if (loOpen) W.band('darkoak', W.in0 - LAP, W.in0 + 0.12, 0, r.h, 0, 0.1);
+        if (hiOpen) W.band('darkoak', W.in1 - 0.12, W.in1 + LAP, 0, r.h, 0, 0.1);
+      }
+      // the cornice, all the way round
+      const cMat = f.ceil === 'beams' || f.ceil === 'cone' ? 'beam' : 'plaster';
+      W.band(cMat, W.in0, W.in1, r.h - 0.3, r.h, 0, 0.16);
+      W.band(cMat, W.in0, W.in1, r.h - 0.4, r.h - 0.3, 0, 0.08);
+
+      for (const o of ops) {
+        if (o.kind === 'window') windowIn(W, o);
+        else doorIn(W, o);
+      }
+    }
+
+    /* A doorway: a carved oak case on this room's face, and a stone
+       threshold across the wall's thickness. */
+    function doorIn(W, o) {
+      const c = (o.a + o.b) / 2;
+      const w = W.metres(o.b - o.a), wo = W.outer(o.b - o.a);
+      const stone = o.kind === 'gate' || W.room.id === 'stair' || W.room.id === 'turret';
+      const id = stone ? 'dressed' : 'darkoak';
+      const jw = W.toS(o.kind === 'gate' ? 0.32 : 0.16), lap = W.toS(LAP);
+      /* The case laps a few millimetres into the opening, so the ends of
+         the panelling and paper finish inside it rather than flush with
+         its face. */
+      W.band(id, o.a - jw, o.a + lap, 0, o.y1 + 0.2, 0, 0.1);
+      W.band(id, o.b - lap, o.b + jw, 0, o.y1 + 0.2, 0, 0.1);
+      W.band(id, o.a + lap, o.b - lap, o.y1 - 0.012, o.y1 + 0.2, 0, 0.1);
+      W.band(id, o.a - jw - W.toS(0.1), o.b + jw + W.toS(0.1), o.y1 + 0.2, o.y1 + 0.29, 0, 0.16);
+      void w;
+      const f = W.frame(c);
+      const key = Math.round(f.x * 10) + ':' + Math.round(f.z * 10) + ':' + W.fy;
+      if (!doneThresholds.has(key)) {
+        doneThresholds.add(key);
+        onWall(W, c, lbox(wo + 0.02, 0.112, T + 0.06, 0, -0.044, -T / 2), 'dressed');
+      }
+    }
+
+    /* A window: an arched head of stone, stone mullions and a transom,
+       leaded lights, a moulded surround and a deep sill — and the view. */
+    function windowIn(W, o) {
+      const spec = o.w;
+      const c = (o.a + o.b) / 2;
+      const w = W.metres(o.b - o.a), wo = W.outer(o.b - o.a);
+      const y0 = o.y0, y1 = o.y1, h = y1 - y0;
+      const hw = wo / 2 + 0.01;
+      const rise = spec.arch ? Math.min(hw + 0.12, h * 0.45) : 0;
+      // glass, in the middle of the wall
+      onWall(W, c, new THREE.PlaneGeometry(wo, h).translate(0, y0 + h / 2, -T / 2), 'glass');
+      if (spec.arch) {
+        const s = new THREE.Shape();
+        const ar = Math.min(hw, rise - 0.04);
+        s.moveTo(hw, 0); s.lineTo(hw, rise); s.lineTo(-hw, rise); s.lineTo(-hw, 0);
+        if (ar < hw) s.lineTo(-ar, 0);
+        s.absarc(0, 0, ar, Math.PI, 0, true);
+        if (ar < hw) s.lineTo(hw, 0);
+        const g = new THREE.ExtrudeGeometry(s, { depth: T + 0.01, bevelEnabled: false, curveSegments: 16 });
+        g.translate(0, y1 - rise, -T - 0.01);
+        onWall(W, c, g, 'masonry');
+      }
+      const spring = y1 - rise;
+      // mullion and transom, in dressed stone
+      if (wo > 1.25) onWall(W, c, lbox(0.11, spring - y0 + 0.02, T * 0.7, 0, y0 + (spring - y0) / 2, -T / 2), 'dressed');
+      const transom = y0 + (spring - y0) * 0.68;
+      if (h > 2.6) onWall(W, c, lbox(wo, 0.1, T * 0.7, 0, transom, -T / 2), 'dressed');
+      // leading
+      const bars = [];
+      const nv = Math.max(1, Math.round(wo / 0.27));
+      for (let i = 1; i < nv; i++) bars.push(lbox(0.014, h, 0.014, -wo / 2 + i * wo / nv, y0 + h / 2, -T / 2 + 0.05));
+      for (let y = y0 + 0.34; y < y1 - 0.05; y += 0.34) bars.push(lbox(wo, 0.014, 0.014, 0, y, -T / 2 + 0.05));
+      for (const b of bars) onWall(W, c, b, 'lead');
+      // the surround on the room side
+      const jw = 0.17;
+      for (const sx of [-1, 1]) {
+        onWall(W, c, lbox(jw + LAP, spring - y0 + 0.1, 0.08, sx * (w / 2 + (jw - LAP) / 2), y0 - 0.05 + (spring - y0 + 0.1) / 2, 0.04), 'dressed');
+      }
+      if (spec.arch) {
+        onWall(W, c, new THREE.TorusGeometry(Math.min(w / 2, rise - 0.04) + jw / 2, 0.075, 6, 22, Math.PI)
+          .translate(0, spring, 0.05), 'dressed');
+      } else {
+        onWall(W, c, lbox(w + jw * 2, 0.18, 0.08, 0, y1 + 0.09, 0.04), 'dressed');
+      }
+      // the sill stands proud of the stone it sits on, so they never share a plane
+      onWall(W, c, lbox(w + 0.42, 0.085, T / 2 + 0.27, 0, y0 + 0.0025, 0.27 - (T / 2 + 0.27) / 2), 'dressed');
+      if (spec.candles) {
+        [[-0.28, 0.24, 0.05], [0.0, 0.34, 0.06], [0.26, 0.18, 0.045]].forEach(([dx, hh, rr]) => {
+          const p = wallPoint(W, c, dx, 0.12);
+          candle(p.x, W.fy + y0 + 0.03, p.z, hh, rr);
+        });
+      }
+      if (spec.curtains) curtains(W, c, w, y1);
+    }
+
+    /* Velvet curtains on a pole, with a tartan pelmet over them. They
+       hang from the pole to the floor, so they are held, not hovering. */
+    function curtains(W, c, w, top) {
+      const poleY = top + 0.28;
+      onWall(W, c, new THREE.CylinderGeometry(0.025, 0.025, w + 1.3, 10).rotateZ(Math.PI / 2).translate(0, poleY, 0.17), 'iron');
+      for (const sx of [-1, 1]) {
+        onWall(W, c, lbox(0.04, 0.04, 0.17, sx * (w / 2 + 0.55), poleY, 0.085), 'iron');
+        onWall(W, c, new THREE.SphereGeometry(0.045, 10, 7).translate(sx * (w / 2 + 0.68), poleY, 0.17), 'gold');
+        const H = poleY - 0.04;
+        const g = new THREE.PlaneGeometry(0.62, H, 16, 1);
+        const p = g.attributes.position;
+        for (let i = 0; i < p.count; i++) {
+          const u = p.getX(i) / 0.62 + 0.5, v = (p.getY(i) + H / 2) / H;
+          const gather = 1 - 0.35 * Math.max(0, 0.45 - Math.abs(v - 0.35)) * 2;   // tied back a little
+          p.setX(i, p.getX(i) * gather);
+          p.setZ(i, Math.sin(u * Math.PI * 7) * 0.045);
+        }
+        g.computeVertexNormals();
+        g.translate(sx * (w / 2 + 0.22), H / 2 + 0.02, 0.24);
+        onWall(W, c, g, 'velvet');
+        onWall(W, c, new THREE.TorusGeometry(0.1, 0.018, 5, 12).rotateX(Math.PI / 2).translate(sx * (w / 2 + 0.22), 1.1, 0.24), 'gold');
+      }
+      onWall(W, c, lbox(w + 1.45, 0.36, 0.1, 0, poleY + 0.06, 0.3), 'tartanRed');
+      onWall(W, c, lbox(w + 1.5, 0.05, 0.11, 0, poleY - 0.13, 0.325), 'gold');
+    }
+
+    /* ---------------- floors and ceilings ---------------- */
+
+    const walls = {};
+    const flip = (g) => {
+      const idx = g.index.array;
+      for (let i = 0; i < idx.length; i += 3) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
+      const n = g.attributes.normal;
+      for (let i = 0; i < n.count; i++) n.setXYZ(i, -n.getX(i), -n.getY(i), -n.getZ(i));
+      return g;
+    };
+    const FLOOR = { paving: 'flags', timber: 'boards', masonry: 'dressed' };
+
+    for (const r of L.ROOMS) {
+      const fy = r.y || 0, f = finishOf(r);
+      const floorId = FLOOR[r.floor] || 'flags';
+      if (r.shape === 'rect') {
+        const w = r.x1 - r.x0, d = r.z1 - r.z0, cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2;
+        box(floorId, w, 0.2, d, cx, fy - 0.1, cz);
+        const ceilId = f.ceil === 'beams' ? 'beam' : 'plaster';
+        // over the walls, except on an open side, where it stops on the
+        // line inside the next room's wall instead of poking through it
+        const op = (sd) => ((r.open || []).indexOf(sd) >= 0 ? 0 : T / 2);
+        const sx0 = r.x0 - op('w'), sx1 = r.x1 + op('e'), sz0 = r.z0 - op('n'), sz1 = r.z1 + op('s');
+        box(ceilId, sx1 - sx0, 0.3, sz1 - sz0, (sx0 + sx1) / 2, fy + r.h + 0.15, (sz0 + sz1) / 2);
+        if (f.ceil === 'coffered' || f.ceil === 'beams') {
+          const across = w < d, span = across ? d : w, other = across ? w : d;
+          const n = Math.max(1, Math.round(span / 2.6));
+          for (let i = 1; i < n; i++) {
+            const s = (across ? r.z0 : r.x0) + i * span / n;
+            if (across) box('beam', w - T, 0.34, 0.28, cx, fy + r.h - 0.17, s);
+            else box('beam', 0.28, 0.34, d - T, s, fy + r.h - 0.17, cz);
+          }
+          if (f.ceil === 'coffered') {
+            const m = Math.max(1, Math.round(other / 2.6));
+            for (let i = 1; i < m; i++) {
+              const s = (across ? r.x0 : r.z0) + i * other / m;
+              if (across) box('beam', 0.22, 0.26, d - T, s, fy + r.h - 0.13, cz);
+              else box('beam', w - T, 0.26, 0.22, cx, fy + r.h - 0.13, s);
+            }
+          }
+        }
+        if (r.ramp) buildStair(r);
+        walls[r.id] = {};
+        for (const side of ['n', 's', 'e', 'w']) {
+          if ((r.open || []).indexOf(side) >= 0) continue;
+          const W = rectWall(r, side);
+          walls[r.id][side] = W;
+          buildWall(W);
+        }
+      } else {
+        add(new THREE.CylinderGeometry(r.r, r.r, 0.2, 64), floorId, r.cx, fy - 0.1, r.cz);
+        const W = circleWall(r);
+        walls[r.id] = { circle: W };
+        buildWall(W);
+        if (f.ceil === 'vault') vault(r, fy);
+        else cone(r, fy);
+      }
+    }
+
+    /* The round chamber's ceiling: a shallow plaster dome on twelve oak
+       ribs, springing from the cornice, with a gilt boss at the crown. */
+    function vault(r, fy) {
+      const R = r.r + T / 2, rise = 3.2, top = fy + r.h;
+      add(flip(new THREE.SphereGeometry(R, 56, 14, 0, TAU, 0, Math.PI / 2)).scale(1, rise / R, 1), 'plaster', r.cx, top, r.cz);
+      for (let i = 0; i < 12; i++) {
+        const a = i / 12 * TAU;
+        const pts = [];
+        for (let k = 0; k <= 12; k++) {
+          const t = k / 12 * Math.PI / 2;
+          const rr = (r.r - T / 2 - 0.05) * Math.cos(t);
+          pts.push(V(Math.cos(a) * rr, Math.sin(t) * (rise - 0.08), Math.sin(a) * rr));
+        }
+        add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 18, 0.085, 6), 'darkoak', r.cx, top, r.cz);
+      }
+      add(new THREE.TorusGeometry(r.r - T / 2 - 0.08, 0.12, 8, 64).rotateX(Math.PI / 2), 'darkoak', r.cx, top + 0.02, r.cz);
+      sph('gold', 0.32, r.cx, top + rise - 0.12, r.cz, 1, 0.6, 1, 16);
+      add(new THREE.CylinderGeometry(0.75, 0.75, 0.06, 32), 'plaster', r.cx, top + rise - 0.06, r.cz);
+      r._crown = top + rise - 0.2;
+      add(new THREE.ConeGeometry(R + 0.35, 5.5, 40, 1, true), 'slate', r.cx, top + 2.75, r.cz);
+    }
+
+    /* The turret's: a cone of boards on rafters. */
+    function cone(r, fy) {
+      const R = r.r + T / 2, rise = 2.6, top = fy + r.h;
+      add(flip(new THREE.ConeGeometry(R, rise, 40, 1, true)), 'beam', r.cx, top + rise / 2, r.cz);
+      for (let i = 0; i < 10; i++) {
+        const a = i / 10 * TAU, rr = r.r - T / 2 - 0.12;
+        add(CastleProps.stick(V(Math.cos(a) * rr, 0, Math.sin(a) * rr), V(0, rise - 0.15, 0), 0.07, 0.05, 6),
+            'darkoak', r.cx, top, r.cz);
+      }
+      add(new THREE.TorusGeometry(r.r - T / 2 - 0.1, 0.1, 6, 40).rotateX(Math.PI / 2), 'darkoak', r.cx, top + 0.02, r.cz);
+      r._crown = top + rise - 0.2;
+      add(new THREE.ConeGeometry(R + 0.4, 4.6, 32, 1, true), 'slate', r.cx, top + 2.3, r.cz);
+    }
+
+    function buildStair(r) {
+      const steps = 14;
+      for (let i = 0; i < steps; i++) {
+        const z = -14.0 - (i + 0.5) * (3.6 / steps);
+        const y = (i + 1) * (3 / steps);
+        box('dressed', r.x1 - r.x0, y, 3.6 / steps + 0.004, 0, y / 2, z);
+        box('tartanRed', 1.0, 0.009, 3.6 / steps - 0.04, 0, y + 0.0045, z + 0.01);
+      }
+    }
+
+    /* ---------------- furniture ---------------- */
+
+    function chandelier(x, y, z, r, n, ceilY) {
+      box('iron', 0.035, ceilY - (y + 0.55), 0.035, x, (ceilY + y + 0.55) / 2, z);
+      add(CastleProps.lathe([[0.02, -0.4], [0.07, -0.33], [0.05, -0.2], [0.11, -0.05], [0.12, 0.05],
+                             [0.06, 0.15], [0.05, 0.45], [0.09, 0.5], [0.03, 0.56]], 14), 'iron', x, y, z);
+      add(new THREE.TorusGeometry(r, 0.035, 6, 48).rotateX(Math.PI / 2), 'iron', x, y, z);
+      add(new THREE.TorusGeometry(r * 0.5, 0.03, 6, 32).rotateX(Math.PI / 2), 'iron', x, y + 0.42, z);
+      const cnt = low ? Math.ceil(n * 0.6) : n;
+      for (let i = 0; i < cnt; i++) {
+        const a = i / cnt * TAU;
+        const cx = x + Math.cos(a) * r, cz = z + Math.sin(a) * r;
+        if (i % 2 === 0) add(CastleProps.stick(V(x, y, z), V(cx, y, cz), 0.018), 'iron');
+        cyl('iron', 0.045, 0.03, 0.035, 10, cx, y + 0.02, cz);
+        candle(cx, y + 0.035, cz, 0.17, 0.024);
+      }
+      const inner = Math.ceil(cnt / 2);
+      for (let i = 0; i < inner; i++) {
+        const a = (i + 0.5) / inner * TAU;
+        const cx = x + Math.cos(a) * r * 0.5, cz = z + Math.sin(a) * r * 0.5;
+        cyl('iron', 0.04, 0.028, 0.03, 10, cx, y + 0.44, cz);
+        candle(cx, y + 0.455, cz, 0.15, 0.022);
+      }
+      for (let i = 0; i < 4; i++) {
+        const a = i / 4 * TAU;
+        add(CastleProps.stick(V(x + Math.cos(a) * r * 0.5, y + 0.42, z + Math.sin(a) * r * 0.5),
+                              V(x, y + 0.55, z), 0.014), 'iron');
+      }
+    }
+
+    /* A twin-candle sconce with a backplate on the wall. `d` is how far
+       the wall's surface stands proud of its stone at that height. */
+    function sconce(W, s, y, d = 0.02) {
+      onWall(W, s, lbox(0.13, 0.34, 0.03, 0, y, d + 0.015), 'gold');
+      onWall(W, s, lbox(0.03, 0.03, 0.18, 0, y - 0.05, d + 0.11), 'iron');
+      for (const sx of [-1, 1]) {
+        onWall(W, s, lbox(0.26, 0.022, 0.022, sx * 0.13, y - 0.05, d + 0.2), 'iron');
+        const p = wallPoint(W, s, sx * 0.24, d + 0.2);
+        cyl('gold', 0.045, 0.025, 0.04, 10, p.x, W.fy + y - 0.04, p.z);
+        candle(p.x, W.fy + y - 0.02, p.z, 0.18, 0.022);
+      }
+    }
+
+    /* How far a flat thing `w` wide must stand off a curved wall so its
+       edges clear the stone. Nothing, on a straight one. */
+    const sag = (W, w) => W.kind === 'circle'
+      ? (W.room.r - T / 2) * (1 - Math.cos((w / 2) / (W.room.r - T / 2))) + 0.006 : 0;
+
+    /* An oil portrait in a gilt frame. */
+    function portrait(W, s, y, w, h, tile, d = 0.02) {
+      d += sag(W, w + 0.2);
+      const g = CastleProps.portraitUV(new THREE.PlaneGeometry(w, h), tile).translate(0, y, d + 0.035);
+      onWall(W, s, g, 'portrait');
+      const fw = 0.09;
+      onWall(W, s, lbox(w + fw * 2, fw, 0.07, 0, y + h / 2 + fw / 2, d + 0.035), 'gold');
+      onWall(W, s, lbox(w + fw * 2, fw, 0.07, 0, y - h / 2 - fw / 2, d + 0.035), 'gold');
+      for (const sx of [-1, 1]) onWall(W, s, lbox(fw, h, 0.07, sx * (w / 2 + fw / 2), y, d + 0.035), 'gold');
+      onWall(W, s, lbox(w + 0.06, 0.012, 0.012, 0, y + h / 2 + 0.003, d + 0.075), 'darkoak');
+    }
+
+    /* A stag's head on a shield of oak: neck, muzzle, ears, and a royal
+       of antlers. */
+    function stagHead(W, s, y, d = 0.0, scale = 1) {
+      d += sag(W, 0.55 * scale);
+      const k = scale;
+      const parts = { darkoak: [], fur: [], bone: [], soot: [] };
+      parts.darkoak.push(new THREE.CylinderGeometry(0.26 * k, 0.26 * k, 0.05, 20).rotateX(Math.PI / 2).scale(1, 1.25, 1).translate(0, 0, d + 0.025));
+      parts.fur.push(new THREE.CylinderGeometry(0.12 * k, 0.17 * k, 0.3 * k, 12).rotateX(Math.PI / 2 - 0.35).translate(0, -0.04 * k, d + 0.18 * k));
+      parts.fur.push(new THREE.SphereGeometry(0.11 * k, 12, 9).scale(1, 1, 1.7).rotateX(0.5).translate(0, -0.02 * k, d + 0.38 * k));
+      parts.fur.push(new THREE.SphereGeometry(0.06 * k, 10, 7).scale(1, 0.9, 1.3).translate(0, -0.12 * k, d + 0.5 * k));
+      parts.soot.push(new THREE.SphereGeometry(0.03 * k, 8, 6).translate(0, -0.12 * k, d + 0.57 * k));
+      for (const sx of [-1, 1]) {
+        parts.soot.push(new THREE.SphereGeometry(0.018 * k, 6, 5).translate(sx * 0.075 * k, 0.03 * k, d + 0.42 * k));
+        parts.fur.push(new THREE.ConeGeometry(0.045 * k, 0.16 * k, 6).rotateZ(-sx * 1.2).translate(sx * 0.14 * k, 0.06 * k, d + 0.3 * k));
+        // the beam, then tines off it
+        const base = V(sx * 0.06 * k, 0.08 * k, d + 0.34 * k);
+        const p1 = V(sx * 0.22 * k, 0.3 * k, d + 0.3 * k);
+        const p2 = V(sx * 0.32 * k, 0.56 * k, d + 0.22 * k);
+        const p3 = V(sx * 0.3 * k, 0.8 * k, d + 0.2 * k);
+        parts.bone.push(CastleProps.stick(base, p1, 0.026 * k, 0.022 * k));
+        parts.bone.push(CastleProps.stick(p1, p2, 0.022 * k, 0.018 * k));
+        parts.bone.push(CastleProps.stick(p2, p3, 0.018 * k, 0.01 * k));
+        parts.bone.push(CastleProps.stick(p1, V(sx * 0.18 * k, 0.36 * k, d + 0.52 * k), 0.016 * k, 0.006 * k));
+        parts.bone.push(CastleProps.stick(p2, V(sx * 0.42 * k, 0.66 * k, d + 0.34 * k), 0.014 * k, 0.005 * k));
+        parts.bone.push(CastleProps.stick(V(sx * 0.31 * k, 0.7 * k, d + 0.21 * k), V(sx * 0.4 * k, 0.86 * k, d + 0.3 * k), 0.012 * k, 0.004 * k));
+        parts.bone.push(CastleProps.stick(V(sx * 0.31 * k, 0.72 * k, d + 0.21 * k), V(sx * 0.22 * k, 0.9 * k, d + 0.26 * k), 0.011 * k, 0.004 * k));
+      }
+      for (const id in parts) for (const g of parts[id]) onWall(W, s, g.translate(0, y, 0), id);
+    }
+
+    /* A hanging banner on an iron pole with brackets to the wall. */
+    function banner(W, s, top, w, len, id, d = 0.0) {
+      d += sag(W, w + 0.45);
+      onWall(W, s, new THREE.CylinderGeometry(0.022, 0.022, w + 0.3, 8).rotateZ(Math.PI / 2).translate(0, top, d + 0.14), 'iron');
+      for (const sx of [-1, 1]) {
+        onWall(W, s, lbox(0.03, 0.03, 0.14, sx * (w / 2 + 0.05), top, d + 0.07), 'iron');
+        onWall(W, s, new THREE.SphereGeometry(0.04, 8, 6).translate(sx * (w / 2 + 0.17), top, d + 0.14), 'gold');
+      }
+      onWall(W, s, lbox(w, len, 0.025, 0, top - len / 2 - 0.02, d + 0.14), id);
+      onWall(W, s, lbox(w, 0.06, 0.035, 0, top - len - 0.05, d + 0.14), 'gold');
+      onWall(W, s, lbox(w * 0.35, w * 0.35, 0.035, 0, top - len * 0.4, d + 0.14).rotateZ(0), 'gold');
+    }
+
+    function candleStand(x, z, fy = 0, h = 1.45) {
+      add(CastleProps.lathe([[0.02, 0.06], [0.06, 0.1], [0.035, 0.25], [0.025, h * 0.5], [0.05, h * 0.55],
+                             [0.025, h * 0.6], [0.022, h - 0.06], [0.12, h - 0.03], [0.13, h], [0.0, h]], 12), 'iron', x, fy, z);
+      for (let i = 0; i < 3; i++) {
+        const a = i / 3 * TAU;
+        add(CastleProps.stick(V(0, 0.12, 0), V(Math.cos(a) * 0.3, 0.0, Math.sin(a) * 0.3), 0.018), 'iron', x, fy, z);
+        sph('iron', 0.03, x + Math.cos(a) * 0.3, fy + 0.02, z + Math.sin(a) * 0.3);
+      }
+      candle(x, fy + h, z, 0.34, 0.065);
+    }
+
+    function rug(id, x, z, w, d, fy = 0, ry = 0) {
+      box(id, w, 0.02, d, x, fy + 0.01, z, ry);
+      const fr = (dx, dz, ww, dd) => box('linen', ww, 0.012, dd, x + dx, fy + 0.006, z + dz, ry);
+      if (ry) return;
+      fr(0, -d / 2 - 0.04, w, 0.08); fr(0, d / 2 + 0.04, w, 0.08);
+    }
+
+    function sideboard(W, s, len, d = 0.0, items = true) {
+      const g = (w, h, dd, x, y, z) => lbox(w, h, dd, x, y, z);
+      onWall(W, s, g(len, 0.1, 0.5, 0, 0.05, d + 0.27), 'darkoak');
+      onWall(W, s, g(len - 0.04, 0.78, 0.52, 0, 0.49, d + 0.27), 'oak');
+      onWall(W, s, g(len + 0.08, 0.05, 0.6, 0, 0.905, d + 0.3), 'darkoak');
+      const n = Math.max(2, Math.round(len / 0.7));
+      for (let i = 0; i < n; i++) {
+        const x = -len / 2 + (i + 0.5) * len / n;
+        onWall(W, s, g(len / n - 0.08, 0.6, 0.03, x, 0.48, d + 0.545), 'darkoak');
+        onWall(W, s, new THREE.SphereGeometry(0.02, 8, 6).translate(x + (i % 2 ? -1 : 1) * (len / n / 2 - 0.12), 0.5, d + 0.57), 'gold');
+      }
+      if (!items) return;
+      // a pair of candelabra and a row of plates stood on edge
+      for (const sx of [-1, 1]) {
+        const x = sx * (len / 2 - 0.35);
+        onWall(W, s, CastleProps.lathe([[0.08, 0], [0.07, 0.03], [0.025, 0.06], [0.02, 0.32], [0.04, 0.34], [0, 0.35]], 12)
+          .translate(x, 0.93, d + 0.3), 'silver');
+        onWall(W, s, lbox(0.3, 0.018, 0.018, x, 1.255, d + 0.3), 'silver');
+        for (const ax of [-0.14, 0, 0.14]) {
+          const p = wallPoint(W, s, x + ax, d + 0.3);
+          cyl('silver', 0.03, 0.02, 0.04, 8, p.x, W.fy + 1.284, p.z);
+          candle(p.x, W.fy + 1.304, p.z, 0.2, 0.022);
+        }
+      }
+      for (let i = -2; i <= 2; i++) {
+        onWall(W, s, new THREE.CylinderGeometry(0.16, 0.16, 0.02, 20).rotateX(Math.PI / 2 - 0.15).translate(i * 0.36, 1.085, d + 0.12), 'china');
+      }
+    }
+
+    function fireplace(W, s, opts = {}) {
+      const w = opts.w || 3.6, d = opts.d || 0.0, top = W.h;
+      const g = lbox;
+      // the hearth stone, standing just proud of the floor
+      onWall(W, s, g(w + 0.6, 0.05, 1.0, 0, 0.025, d + 0.5), 'dressed');
+      // jambs, lintel and mantel shelf
+      for (const sx of [-1, 1]) {
+        onWall(W, s, g(0.5, 1.75, 0.62, sx * (w / 2 - 0.25), 0.875, d + 0.31), 'dressed');
+        onWall(W, s, g(0.6, 0.12, 0.7, sx * (w / 2 - 0.25), 0.06, d + 0.35), 'dressed');
+        onWall(W, s, g(0.36, 1.2, 0.08, sx * (w / 2 - 0.25), 0.95, d + 0.64), 'dressed');
+      }
+      onWall(W, s, g(w, 0.42, 0.66, 0, 1.96, d + 0.33), 'dressed');
+      onWall(W, s, g(w + 0.3, 0.1, 0.82, 0, 2.22, d + 0.41), 'dressed');
+      // the chimney breast, to the ceiling, with a carved shield
+      onWall(W, s, g(w - 0.5, top - 2.27, 0.48, 0, 2.27 + (top - 2.27) / 2, d + 0.24), 'masonry');
+      onWall(W, s, g(w - 0.3, 0.14, 0.56, 0, 2.34, d + 0.28), 'dressed');
+      onWall(W, s, new THREE.CylinderGeometry(0.45, 0.45, 0.08, 6).rotateX(Math.PI / 2).scale(1, 1.25, 1)
+        .translate(0, 3.5, d + 0.52), 'gold');
+      onWall(W, s, new THREE.CylinderGeometry(0.36, 0.36, 0.08, 6).rotateX(Math.PI / 2).scale(1, 1.25, 1)
+        .translate(0, 3.5, d + 0.55), 'velvet');
+      // the firebox: soot at the back and sides, logs, and the fire
+      const ow = w - 1.0;
+      onWall(W, s, g(ow, 1.55, 0.06, 0, 0.8, d + 0.13), 'soot');
+      for (const sx of [-1, 1]) onWall(W, s, g(0.05, 1.55, 0.5, sx * (ow / 2 - 0.02), 0.8, d + 0.36), 'soot');
+      onWall(W, s, g(ow - 0.1, 0.05, 0.55, 0, 0.07, d + 0.32), 'soot');
+      onWall(W, s, g(ow * 0.7, 0.03, 0.04, 0, 0.18, d + 0.52), 'iron');
+      for (let i = 0; i < 3; i++) {
+        onWall(W, s, new THREE.CylinderGeometry(0.08, 0.09, ow * 0.6, 10).rotateZ(Math.PI / 2).rotateY((i - 1) * 0.25)
+          .translate((i - 1) * 0.1, 0.19 + (i === 1 ? 0.13 : 0), d + 0.3 + (i - 1) * 0.06), 'log');
+      }
+      for (let i = 0; i < 7; i++) {
+        const x = -ow * 0.3 + i * ow * 0.1, hh = 0.35 + (i % 3) * 0.15;
+        onWall(W, s, new THREE.ConeGeometry(0.1 + (i % 2) * 0.04, hh, 6).translate(x, 0.32 + hh / 2, d + 0.3 + (i % 2 ? 0.05 : -0.05)),
+               null, 0, i % 2 ? '#ff8a2a' : '#ffc062');
+      }
+      onWall(W, s, g(ow * 0.6, 0.04, 0.3, 0, 0.11, d + 0.3), null, 0, '#ff6a1a');
+      if (opts.overmantel === 'stag') stagHead(W, s, 4.8, d + 0.48, 1.2);
+      else if (opts.overmantel === 'portrait') portrait(W, s, 4.9, 1.3, 1.6, opts.tile || 0, d + 0.48);
+      const hw = (w + 0.6) / 2;
+      const cs = [[-hw, 0], [hw, 0], [-hw, d + 1.0], [hw, d + 1.0]].map(([lx, lz]) => wallPoint(W, s, lx, lz));
+      solid.push({ x0: Math.min(...cs.map(p => p.x)), x1: Math.max(...cs.map(p => p.x)),
+                   z0: Math.min(...cs.map(p => p.z)), z1: Math.max(...cs.map(p => p.z)) });
+    }
+
+    function armour(x, z, ry) {
+      const p = { dressed: [], steel: [], soot: [], darkoak: [], velvet: [] };
+      const at = (g) => g;
+      p.dressed.push(lbox(0.7, 0.42, 0.7, 0, 0.21, 0));
+      p.dressed.push(lbox(0.8, 0.06, 0.8, 0, 0.45, 0));
+      for (const sx of [-1, 1]) {
+        p.steel.push(lbox(0.12, 0.06, 0.24, sx * 0.1, 0.51, 0.04));
+        p.steel.push(CastleProps.lathe([[0.055, 0], [0.065, 0.12], [0.075, 0.3], [0.06, 0.42], [0.075, 0.48], [0.07, 0.8], [0.05, 0.82]], 12)
+          .translate(sx * 0.1, 0.54, 0));
+        p.steel.push(new THREE.SphereGeometry(0.075, 10, 8).translate(sx * 0.1, 0.98, 0.02));
+      }
+      p.steel.push(CastleProps.lathe([[0.2, 0], [0.17, 0.2], [0.15, 0.24]], 16).translate(0, 1.32, 0));
+      p.steel.push(CastleProps.lathe([[0.15, 0], [0.17, 0.12], [0.19, 0.3], [0.17, 0.46], [0.12, 0.52], [0.06, 0.54]], 16)
+        .scale(1, 1, 0.8).translate(0, 1.54, 0));
+      for (const sx of [-1, 1]) {
+        p.steel.push(new THREE.SphereGeometry(0.12, 10, 8).scale(1, 0.8, 1).translate(sx * 0.22, 1.98, 0));
+        p.steel.push(CastleProps.stick(V(sx * 0.25, 1.95, 0), V(sx * 0.28, 1.62, 0.04), 0.055, 0.05, 10));
+        p.steel.push(CastleProps.stick(V(sx * 0.28, 1.62, 0.04), V(sx * 0.26, 1.36, 0.16), 0.05, 0.045, 10));
+        p.steel.push(new THREE.SphereGeometry(0.055, 8, 6).translate(sx * 0.26, 1.33, 0.18));
+      }
+      p.steel.push(new THREE.SphereGeometry(0.13, 14, 10).scale(1, 1.15, 1.05).translate(0, 2.2, 0));
+      p.steel.push(lbox(0.2, 0.03, 0.1, 0, 2.06, 0.08));
+      p.soot.push(lbox(0.16, 0.025, 0.02, 0, 2.2, 0.135));
+      p.velvet.push(new THREE.ConeGeometry(0.035, 0.24, 8).translate(0, 2.42, -0.02));
+      // a halberd in the right hand
+      p.darkoak.push(CastleProps.stick(V(0.3, 0.48, 0.2), V(0.3, 2.8, 0.2), 0.02));
+      p.steel.push(lbox(0.02, 0.32, 0.18, 0.3, 2.5, 0.28));
+      p.steel.push(new THREE.ConeGeometry(0.03, 0.26, 6).translate(0.3, 2.93, 0.2));
+      for (const id in p) for (const g of p[id]) add(at(g), id, x, 0, z, ry);
+      solid.push({ x0: x - 0.42, x1: x + 0.42, z0: z - 0.42, z1: z + 0.42 });
+    }
+
+    /* ---------------- the house, room by room ---------------- */
+
+    const solid = [];
+    const P = Math.PI;
+
+    /* The entrance hall: a stone hall with a grand stair up the west side,
+       a fire in the east wall, armour either side of the way through to
+       the round table, and the great door shut behind you. */
+    {
+      const hall = L.byId('hall'), Wn = walls.hall.n, We = walls.hall.e, Ww = walls.hall.w, Ws = walls.hall.s;
+      // the great door, shut, with its studs and straps
+      for (const sx of [-1, 1]) {
+        box('darkoak', 1.99, 4.4, 0.14, sx * 1.0, 2.2, hall.z1);
+        for (const y of [0.7, 2.2, 3.7]) box('iron', 1.8, 0.07, 0.03, sx * 1.0, y, hall.z1 - 0.085);
+        for (let i = 0; i < 5; i++) for (let j = 0; j < 3; j++) {
+          sph('iron', 0.03, sx * (0.35 + j * 0.6), 0.4 + i * 0.85, hall.z1 - 0.08, 1, 1, 0.6, 6);
+        }
+        add(new THREE.TorusGeometry(0.12, 0.022, 6, 16), 'iron', sx * 0.32, 1.25, hall.z1 - 0.1);
+      }
+      rug('tartanRed', 0, 11, 2.4, 11.6);
+      // armour, either side of the round chamber's door
+      for (const sx of [-1, 1]) armour(sx * 3.1, 4.95, 0);
+      portrait(Wn, -4.9, 4.4, 1.3, 1.7, 0, 0);
+      portrait(Wn, 4.9, 4.4, 1.3, 1.7, 1, 0);
+      stagHead(Wn, 0, 5.3, 0, 1.25);
+      banner(Wn, -3.1, 8.1, 1.0, 2.6, 'tartanRed');
+      banner(Wn, 3.1, 8.1, 1.0, 2.6, 'tartanGreen');
+      sconce(Wn, -2.3, 2.7, 0); sconce(Wn, 2.3, 2.7, 0);
+      // the fire in the east wall
+      fireplace(We, 7.8, { w: 3.4, overmantel: 'portrait', tile: 2 });
+      sconce(We, 5.0, 2.8, 0); sconce(We, 10.7, 2.8, 0);
+      portrait(We, 16.4, 4.0, 1.0, 1.3, 3, 0);
+      // the west wall: a portrait, then the stair
+      portrait(Ww, 6.6, 3.6, 1.1, 1.45, 4, 0);
+      sconce(Ww, 8.3, 2.7, 0);
+      portrait(Ww, 14.2, 4.6, 1.0, 1.3, 5, 0);
+      // the stair: eight stone steps up to a landing and a shut door
+      /* Seven risers and the landing. The handrail follows the nosings,
+         and every baluster is cut to meet it. */
+      const sx0 = -6.75, sx1 = -4.6, rise = 0.375, run = 0.45, z0 = 12.6, bx = sx1 - 0.12;
+      const top7 = z0 + 7 * run;                               // the last nosing: the landing's edge
+      const railY = (z) => z >= top7 ? 3.0 + 0.9 : rise + 0.9 + (z - z0) * rise / run;
+      for (let i = 0; i < 8; i++) {
+        const top = (i + 1) * rise;
+        box('dressed', sx1 - sx0, top, run + 0.002, (sx0 + sx1) / 2, top / 2, z0 + (i + 0.5) * run);
+        if (i < 7) box('tartanRed', 1.2, 0.014, run - 0.03, (sx0 + sx1) / 2, top + 0.007, z0 + (i + 0.5) * run + 0.01);
+        if (i < 7) for (const k of [0.3, 0.75]) {
+          const z = z0 + (i + k) * run;
+          add(CastleProps.turnedLeg(railY(z) - top, 0.026), 'darkoak', bx, top, z);
+        }
+      }
+      const land0 = z0 + 8 * run;
+      box('dressed', sx1 - sx0, 3.0, 17.75 - land0, (sx0 + sx1) / 2, 1.5, (land0 + 17.75) / 2);
+      for (let z = top7 + 0.25; z < 17.6; z += 0.24) add(CastleProps.turnedLeg(0.9, 0.026), 'darkoak', bx, 3.0, z);
+      add(CastleProps.stick(V(bx, railY(z0), z0), V(bx, railY(top7), top7), 0.04, 0.04, 8), 'darkoak');
+      add(CastleProps.stick(V(bx, railY(top7), top7), V(bx, railY(top7), 17.75), 0.04, 0.04, 8), 'darkoak');
+      box('darkoak', 0.2, railY(z0) + 0.1, 0.2, bx, (railY(z0) + 0.1) / 2, z0 - 0.02);
+      add(CastleProps.lathe([[0.1, 0], [0.11, 0.04], [0.05, 0.1], [0.09, 0.2], [0.0, 0.28]], 12), 'darkoak', bx, railY(z0) + 0.1, z0 - 0.02);
+      box('darkoak', 0.18, 1.0, 0.18, bx, 3.5, top7);
+      add(CastleProps.lathe([[0.09, 0], [0.1, 0.04], [0.04, 0.1], [0.08, 0.18], [0.0, 0.26]], 12), 'darkoak', bx, 4.0, top7);
+      onWall(Ww, 16.95, lbox(1.0, 2.3, 0.06, 0, 3.0 + 1.15, 0.03), 'oak');
+      for (const y of [3.5, 4.6]) onWall(Ww, 16.95, lbox(0.8, 0.5, 0.03, 0, y, 0.075), 'darkoak');
+      for (const sx of [-1, 1]) onWall(Ww, 16.95, lbox(0.14, 2.45, 0.1, sx * 0.57, 3.0 + 1.225, 0.05), 'darkoak');
+      onWall(Ww, 16.95, lbox(1.28, 0.16, 0.1, 0, 5.53, 0.05), 'darkoak');
+      onWall(Ww, 16.95, new THREE.SphereGeometry(0.035, 8, 6).translate(0.35, 4.1, 0.1), 'gold');
+      solid.push({ x0: sx0, x1: sx1 + 0.05, z0: z0 - 0.2, z1: 17.75 });
+      // a console table under the east window, with a pair of candlesticks
+      {
+        const x = 4.3, z = 17.4;
+        box('oak', 1.4, 0.05, 0.5, x, 0.82, z);
+        box('darkoak', 1.3, 0.12, 0.42, x, 0.74, z);
+        for (const [dx, dz] of [[-0.6, -0.17], [0.6, -0.17], [-0.6, 0.17], [0.6, 0.17]]) add(CastleProps.turnedLeg(0.68, 0.03), 'darkoak', x + dx, 0, z + dz);
+        for (const dx of [-0.4, 0.4]) {
+          add(CastleProps.lathe([[0.07, 0], [0.03, 0.04], [0.02, 0.3], [0.04, 0.32], [0, 0.33]], 12), 'silver', x + dx, 0.845, z);
+          candle(x + dx, 1.17, z, 0.22, 0.024);
+        }
+        add(CastleProps.lathe([[0.06, 0], [0.12, 0.08], [0.13, 0.2], [0.07, 0.34], [0.09, 0.4], [0, 0.4]], 16), 'china', x, 0.845, z - 0.02);
+        solid.push({ x0: x - 0.72, x1: x + 0.72, z0: z - 0.3, z1: 17.75 });
+      }
+      chandelier(0, 6.2, 11, 1.6, 12, hall.h);
+      chandelier(0, 6.6, 6.2, 0.9, 8, hall.h);
+    }
+
+    /* The great hall: breakfast. Panelled, tall windows down the west
+       side onto the loch, a fire between them, and the long table under
+       two chandeliers. */
+    {
+      const great = L.byId('great'), Ww = walls.great.w, We = walls.great.e, Wn = walls.great.n, Ws = walls.great.s;
+      fireplace(Ww, 9.0, { w: 3.8, overmantel: 'stag' });
+      sconce(Ww, 3.0, 2.6, 0); sconce(Ww, 15.0, 2.6, 0);
+      // behind Claudia: a great portrait over a sideboard, banners either side
+      sideboard(Wn, -16, 3.0, 0.09);
+      solid.push({ x0: -17.6, x1: -14.4, z0: great.z0, z1: great.z0 + 0.95 });
+      portrait(Wn, -16, 3.9, 1.6, 2.1, 0, 0);
+      banner(Wn, -17.6, 7.3, 0.8, 2.6, 'tartanRed');
+      banner(Wn, -14.4, 7.3, 0.8, 2.6, 'tartanRed');
+      // the east wall: portraits, a sideboard of silver, stag heads
+      for (const [z, t] of [[1.6, 1], [5.4, 3], [14.2, 4]]) portrait(We, z, 3.5, 1.1, 1.45, t, 0);
+      sideboard(We, 17.0, 2.6, 0.09);
+      solid.push({ x0: great.x1 - 0.95, x1: great.x1, z0: 15.6, z1: 18.4 });
+      portrait(We, 17.0, 3.4, 2.0, 1.3, 6, 0.0);
+      for (const z of [3.5, 15.8]) stagHead(We, z, 5.6, 0);
+      sconce(We, 7.6, 2.6, 0); sconce(We, 13.0, 2.6, 0); sconce(We, 0.0, 2.6, 0);
+      // the south wall: a landscape and a dresser
+      portrait(Ws, -16, 3.6, 2.4, 1.6, 7, 0);
+      sconce(Ws, -17.9, 2.6, 0); sconce(Ws, -14.1, 2.6, 0);
+      rug('tartanHunt', -16, 7.85, 4.6, 9.8);
+      chandelier(-16, 5.6, 3.6, 1.35, 10, great.h);
+      chandelier(-16, 5.6, 12.0, 1.35, 10, great.h);
+    }
+
+    /* The round table chamber, under its vault. Panelled low, stone
+       above, six tall windows round the north side where the hills are,
+       stag heads and portraits on the south side, a circle of tartan
+       under the table, and tall church candles on iron stands. */
+    {
+      const round = L.byId('round'), W = walls.round.circle;
+      add(new THREE.CylinderGeometry(4.3, 4.3, 0.02, 72), 'tartanRed', round.cx, 0.01, round.cz);
+      add(new THREE.TorusGeometry(4.3, 0.03, 4, 72).rotateX(P / 2), 'gold', round.cx, 0.02, round.cz);
+      const wallAt = (a) => W.norm(a);
+      for (const a of [-3 * P / 4, -P / 4]) stagHead(W, wallAt(a), 5.6, 0, 1.15);
+      for (const a of [-3 * P / 4, -P / 4, -P / 16, -15 * P / 16]) sconce(W, wallAt(a), 2.8, 0);
+      // the south side, round the door
+      portrait(W, wallAt(P / 5), 4.0, 1.3, 1.75, 0, 0);
+      portrait(W, wallAt(4 * P / 5), 4.0, 1.3, 1.75, 1, 0);
+      stagHead(W, wallAt(P / 5), 6.6, 0, 1.0);
+      stagHead(W, wallAt(4 * P / 5), 6.6, 0, 1.0);
+      banner(W, wallAt(0.38 * P), 8.4, 1.0, 3.6, 'tartanRed');
+      banner(W, wallAt(0.62 * P), 8.4, 1.0, 3.6, 'tartanRed');
+      for (const a of [P / 10, 0.3 * P, 0.7 * P, 0.9 * P]) sconce(W, wallAt(a), 2.8, 0);
+      // the candles, on tall stands round the room
+      for (const a of [-3 * P / 4, -P / 4, P / 12, P / 3.2, P - P / 3.2, P - P / 12, -15 * P / 16, -P / 16]) {
+        const rr = round.r - 1.05;
+        const x = round.cx + Math.cos(a) * rr, z = round.cz + Math.sin(a) * rr;
+        candleStand(x, z, 0, 1.5);
+        solid.push({ x0: x - 0.3, x1: x + 0.3, z0: z - 0.3, z1: z + 0.3 });
+      }
+      chandelier(0, 6.4, -6, 2.0, 16, round._crown);
+      chandelier(0, 7.4, -6, 1.0, 8, round._crown);
+    }
+
+    /* The turret: where the Traitors meet. Bare stone, lancet windows,
+       black cloaks on pegs either side of the door, iron stands of
+       candles, red velvet. */
+    {
+      const turret = L.byId('turret'), W = walls.turret.circle, ty = turret.y;
+      const at = (a) => W.norm(a);
+      for (const [a0, a1] of [[0.45, 1.22], [1.92, 2.69]]) {
+        W.band('darkoak', at(a0), at(a0) + (a1 - a0), 2.0, 2.1, 0, 0.05);
+        for (let k = 0; k < 3; k++) {
+          const a = at(a0 + (k + 0.5) / 3 * (a1 - a0));
+          onWall(W, a, CastleProps.stick(V(0, 2.04, 0.05), V(0, 2.1, 0.2), 0.015), 'iron');
+          onWall(W, a, new THREE.ConeGeometry(0.32, 1.48, 12, 1, true).scale(1, 1, 0.55).translate(0, 2.05 - 0.74, 0.24), 'cloak');
+          onWall(W, a, new THREE.SphereGeometry(0.17, 12, 9).scale(1, 1.15, 0.9).translate(0, 1.98, 0.24), 'cloak');
+        }
+      }
+      for (const a of [-P / 2 - 0.55, -P / 2 + 0.55]) banner(W, at(a), 5.4, 0.75, 2.2, 'velvet');
+      for (const a of [-P / 2 - 0.55, -P / 2 + 0.55, 3.27, -0.1]) {
+        const rr = turret.r - 0.95;
+        const x = turret.cx + Math.cos(a) * rr, z = turret.cz + Math.sin(a) * rr;
+        candleStand(x, z, ty, 1.3);
+        solid.push({ x0: x - 0.3, x1: x + 0.3, z0: z - 0.3, z1: z + 0.3 });
+      }
+      add(new THREE.CylinderGeometry(2.2, 2.2, 0.02, 48), 'velvet', turret.cx, ty + 0.01, turret.cz);
+      chandelier(turret.cx, ty + 4.4, turret.cz, 0.8, 8, turret._crown);
+    }
+
+    /* The stair up: two sconces on its walls. */
+    {
+      const Ws = walls.stair;
+      if (Ws.e) sconce(Ws.e, -15.0, 3.2, 0);
+      if (Ws.w) sconce(Ws.w, -16.4, 4.2, 0);
+      for (const id of ['north-passage', 'west-passage']) {
+        const ws = walls[id];
+        for (const k in ws) {
+          const W = ws[k];
+          sconce(W, (W.in0 + W.in1) / 2, 2.7, 0);
+        }
+      }
+    }
+
+    /* The bedroom corridor: a red damask passage, portraits between the
+       doors, a tartan runner and a window at the end. */
+    {
+      const corridor = L.byId('corridor'), Wn = walls.corridor.n, Ws = walls.corridor.s;
+      rug('tartanGreen', 16.5, 13.5, 17.6, 1.3);
+      [12, 16, 20].forEach((x, i) => {
+        portrait(Wn, x, 2.3, 0.75, 0.95, i, 0.02);
+        portrait(Ws, x, 2.3, 0.75, 0.95, 3 + i, 0.02);
+      });
+      for (const x of [8.1, 24.0]) { sconce(Wn, x, 2.4, 0.02); sconce(Ws, x, 2.4, 0.02); }
+      void corridor;
+    }
+
+    /* The bedrooms: a four-poster in tartan against the outside wall, a
+       candle by it, a wardrobe, a rug, a window onto the dark. */
+    for (let k = 0; k < 8; k++) {
+      const r = L.byId('bed' + k), north = k < 4, ws = walls['bed' + k];
+      const cx = (r.x0 + r.x1) / 2;
+      const wallZ = north ? r.z0 + T / 2 : r.z1 - T / 2, dir = north ? 1 : -1;
+      const bx = r.x0 + T / 2 + 0.95, len = 2.15, bw = 1.55;
+      const bz = wallZ + dir * len / 2;
+      box('darkoak', bw, 0.3, len, bx, 0.25, bz);
+      box('linen', bw - 0.1, 0.22, len - 0.12, bx, 0.51, bz + dir * 0.04);
+      box('tartanGreen', bw + 0.04, 0.1, len * 0.62, bx, 0.6, bz + dir * len * 0.2);
+      for (const sx of [-0.35, 0.35]) box('linen', 0.6, 0.14, 0.36, bx + sx, 0.69, wallZ + dir * 0.32);
+      box('darkoak', bw + 0.1, 1.25, 0.08, bx, 0.62, wallZ + dir * 0.04);
+      for (const [px, pz] of [[-1, 0.06], [1, 0.06], [-1, len - 0.04], [1, len - 0.04]]) {
+        add(CastleProps.turnedLeg(2.25, 0.04), 'darkoak', bx + px * (bw / 2 + 0.02), 0, wallZ + dir * pz);
+      }
+      box('darkoak', bw + 0.14, 0.1, len + 0.04, bx, 2.3, bz);
+      for (const sx of [-1, 1]) box('tartanGreen', 0.025, 0.32, len, bx + sx * (bw / 2 + 0.08), 2.12, bz);
+      box('tartanGreen', bw + 0.18, 0.32, 0.025, bx, 2.12, wallZ + dir * (len + 0.06));
+      // bedside table and its candle, under the window
+      const tx = bx + bw / 2 + 0.45, tz = wallZ + dir * 0.3;
+      box('oak', 0.5, 0.04, 0.42, tx, 0.62, tz);
+      box('darkoak', 0.44, 0.5, 0.38, tx, 0.35, tz);
+      box('darkoak', 0.46, 0.1, 0.4, tx, 0.05, tz);
+      add(CastleProps.lathe([[0.06, 0], [0.025, 0.03], [0.02, 0.1], [0.035, 0.11], [0, 0.12]], 10), 'silver', tx, 0.64, tz);
+      candle(tx, 0.76, tz, 0.16, 0.022);
+      // a wardrobe on the far side wall
+      const wx = r.x1 - T / 2 - 0.32, wz = north ? r.z1 - T / 2 - 1.4 : r.z0 + T / 2 + 1.4;
+      box('darkoak', 0.6, 2.1, 1.2, wx, 1.05, wz);
+      box('oak', 0.03, 1.7, 0.5, wx - 0.31, 1.1, wz - 0.28);
+      box('oak', 0.03, 1.7, 0.5, wx - 0.31, 1.1, wz + 0.28);
+      box('darkoak', 0.68, 0.1, 1.3, wx + 0.02, 2.15, wz);
+      rug('tartanRed', bx + 1.25, bz + dir * 0.3, 1.0, 1.6);
+      const Wside = ws.w, Wout = north ? ws.n : ws.s;
+      if (Wside) portrait(Wside, north ? r.z0 + 2.8 : r.z1 - 2.8, 2.0, 0.6, 0.78, k % 6, 0.02);
+      if (Wside) sconce(Wside, wallZ + dir * 1.15, 1.75, 0.02);
+      void Wout;
+      solid.push({ x0: bx - bw / 2 - 0.1, x1: bx + bw / 2 + 0.1, z0: Math.min(wallZ, wallZ + dir * len), z1: Math.max(wallZ, wallZ + dir * len) });
+      solid.push({ x0: wx - 0.35, x1: wx + 0.35, z0: wz - 0.65, z1: wz + 0.65 });
+    }
+
+    /* The bedroom doors: real ones, on hinges, standing open all day.
+       At night yours swings shut and locks, and a locked door is a wall.
+       Each leaf hangs on the side away from the bed, so it swings back
+       against clear floor rather than into a bedpost. */
+    const doors = new Map();
+    const doorMat = mat('darkoak');
+    const doorPanel = mat('oak');
+    const doorBrass = new THREE.MeshStandardMaterial({ color: '#d4ab55', roughness: 0.35, metalness: 0.5 });
+    for (let k = 0; k < 8; k++) {
+      const north = k < 4, i = k % 4;
+      const x0 = 8 + 4 * i, c = x0 + 2, wallZ = north ? 12 : 15;
+      const pivot = new THREE.Group();
+      pivot.position.set(c + 0.78, 0, wallZ);
+      const leaf = new THREE.Mesh(new THREE.BoxGeometry(1.54, 3.1, 0.07).translate(-0.77, 1.55, 0), doorMat);
+      pivot.add(leaf);
+      for (const side of [-1, 1]) {
+        for (const py of [0.95, 2.25]) {
+          const panel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.9, 0.02), doorPanel);
+          panel.position.set(-0.77 + side * 0.36, py, 0.047);
+          pivot.add(panel);
+          const back = panel.clone(); back.position.z = -0.047; pivot.add(back);
+        }
+      }
+      for (const z of [0.07, -0.07]) {
+        const knob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), doorBrass);
+        knob.position.set(-1.38, 1.1, z); pivot.add(knob);
+      }
+      const open = north ? -Math.PI / 2 : Math.PI / 2;
+      pivot.rotation.y = open;
+      group.add(pivot);
+      doors.set('bed' + k, { pivot, open, want: open, locked: false, c, wallZ, block: null });
+    }
+    function setDoor(id, shut, locked) {
+      const d = doors.get(id);
+      if (!d) return;
+      d.want = shut ? 0 : d.open;
+      if (locked && !d.locked) {
+        d.locked = true;
+        d.block = { x0: d.c - 0.85, x1: d.c + 0.85, z0: d.wallZ - 0.32, z1: d.wallZ + 0.32 };
+        solid.push(d.block);
+      } else if (!locked && d.locked) {
+        d.locked = false;
+        const at = solid.indexOf(d.block);
+        if (at >= 0) solid.splice(at, 1);
+        d.block = null;
+      }
+    }
+    function stepDoors(dt) {
+      for (const d of doors.values()) {
+        const r = d.pivot.rotation.y;
+        if (Math.abs(r - d.want) < 0.001) continue;
+        d.pivot.rotation.y = U.damp(r, d.want, 5.5, dt);
+      }
+    }
+
+    /* ---------------- merge ---------------- */
+
+    const meshes = [];
+    for (const [id, geos] of batches) {
+      if (!geos.length) continue;
+      const merged = EstateMaterials.merge(geos);
+      geos.forEach(g => g.dispose());
+      const m = new THREE.Mesh(merged, mat(id));
+      m.matrixAutoUpdate = false;
+      if (id === 'glass') m.renderOrder = 2;
+      group.add(m); meshes.push(m);
+    }
+    for (const [colour, geos] of glowBatches) {
+      const merged = EstateMaterials.merge(geos);
+      geos.forEach(g => g.dispose());
+      const m = new THREE.Mesh(merged, new THREE.MeshBasicMaterial({ color: colour, side: THREE.DoubleSide, fog: false }));
+      m.matrixAutoUpdate = false;
+      group.add(m);
+    }
+
+    /* The view out: the loch and the hills, round the whole house. */
+    const outside = CastleProps.view(hour, 2, -3.5);
+    group.add(outside);
+    group.updateMatrixWorld(true);
+
+    /* ---------------- light ---------------- */
+
+    const hemi = new THREE.HemisphereLight('#fff1de', '#7c5e45', SKY.hemi);
+    const sun = new THREE.DirectionalLight(SKY.light, SKY.lightI);
+    sun.position.copy(outside.userData.sun).multiplyScalar(60);
+    scene.add(hemi, sun, sun.target);
+    const pool = [];
+    const poolSize = low ? 3 : POOL;
+    const poolI = night ? 26 : hour === 'morning' ? 12 : 18;
+    for (let i = 0; i < poolSize; i++) {
+      const l = new THREE.PointLight('#ffb877', poolI, POOL_RANGE, 2);
+      scene.add(l); pool.push(l);
+    }
+    const anchors = L.LIGHTS.map(([x, y, z]) => V(x - focus.x, y, z - focus.z));
+    let lightClock = 0;
+    function placeLights(camPos, t) {
+      const order = anchors.map((a, i) => [a.distanceToSquared(camPos), i]).sort((p, q) => p[0] - q[0]);
+      pool.forEach((l, k) => {
+        l.position.copy(anchors[order[k][1]]);
+        l.intensity = poolI * (0.92 + Math.sin(t * (5.3 + k * 1.9) + k) * 0.05);
+      });
+    }
+
+    scene.background = new THREE.Color(SKY.top);
+    scene.fog = null;
+
+    /* ---------------- walking ---------------- */
+
+    function heightAt(x, z) {
+      const l = toLocal(x, z);
+      return L.heightAt(l.x, l.z);
+    }
+    function walkable(x, z) {
+      const l = toLocal(x, z);
+      return L.walkable(l.x, l.z);
+    }
+    function blocked(lx, lz) {
+      for (const b of solid) if (lx > b.x0 - 0.25 && lx < b.x1 + 0.25 && lz > b.z0 - 0.25 && lz < b.z1 + 0.25) return true;
+      return false;
+    }
+    function constrain(pos, prev) {
+      const l = toLocal(pos.x, pos.z);
+      if (L.walkable(l.x, l.z) && !blocked(l.x, l.z)) return true;
+      // slide along whichever axis still works, so walls are not sticky
+      const lx = toLocal(pos.x, prev.z), lz = toLocal(prev.x, pos.z);
+      if (L.walkable(lx.x, lx.z) && !blocked(lx.x, lx.z)) { pos.z = prev.z; return true; }
+      if (L.walkable(lz.x, lz.z) && !blocked(lz.x, lz.z)) { pos.x = prev.x; return true; }
+      pos.x = prev.x; pos.z = prev.z;
+      return false;
+    }
+
+    function update(dt, camPos, t) {
+      stepDoors(dt);
+      lightClock -= dt;
+      if (lightClock <= 0) { placeLights(camPos, t); lightClock = 0.12; }
+      else pool.forEach((l, k) => { l.intensity = poolI * (0.92 + Math.sin(t * (5.3 + k * 1.9) + k) * 0.05); });
+    }
+
+    function dispose() {
+      scene.remove(group, hemi, sun, sun.target);
+      pool.forEach(l => scene.remove(l));
+      Engine.disposeObject(group);
+      Object.values(mats).forEach(m => m.dispose());
+    }
+
+    const roomAnchor = (id) => {
+      const s = L.SPAWN[id];
+      if (s) return toWorld(s[0], s[1]);
+      const r = L.byId(id);
+      if (!r) return toWorld(0, 11);
+      return r.shape === 'rect' ? toWorld((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2) : toWorld(r.cx, r.cz);
+    };
+    placeLights(V(0, 1.6, 0), 0);
+
+    return {
+      group, interior: true, room: opts.room || 'hall', solid,
+      heightAt, walkable, constrain, update, dispose,
+      toWorld, toLocal, roomAnchor, setDoor,
+      doorAt: (id) => { const d = doors.get(id); return d ? toWorld(d.c, d.wallZ) : null; },
+      landmark: V(0, 6, -8),
+      anchors: {},
+      road: null,
+      colliders: [],
+      setWind() {}, setGates() {}, setNight() {},
+    };
+  }
+
+  return { build, FINISH, windowsFor };
+})();

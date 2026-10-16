@@ -1,15 +1,14 @@
 /* ------------------------------------------------------------------
    fireplace.js — the endgame.
 
-   Night, the crest, a fire, and the one question the whole show is
-   built to arrive at: which of the three of you is it. Everything that
-   has happened up to here has been earning money; this is the only
-   part where anything is at stake.
+   Night, the terrace, a fire, and the question the whole show is
+   built to arrive at: is there still a Traitor sitting here?
 
-   There used to be a Fire of Truth in front of that — end the game, or
-   banish again, unanimous to stop — and it went when the last night
-   with no Traitor in it did. "Shall we bother" is not a question worth
-   asking twice a round when the answer is always yes.
+   The Fire of Truth, as on the programme. Everybody speaks in turn;
+   then everybody puts End or Banish Again in a pouch, and the pouches
+   burn one at a time. Ending needs every pouch. One Banish and the
+   circle names somebody, burns their pouch, and asks again — down to
+   two, where the game stops whatever anybody wants.
 
    The scene is a loop rather than a script, because the number of
    rounds depends on what burns, so it is written as an async driver
@@ -223,40 +222,10 @@ class FinaleScene {
     });
     this._tallyCount = 0;
 
-    /* Everything waits on one question, exactly as it does at the round
-       table: is anybody about to be exposed? If somebody left a task
-       unfinished out on that mission, the fire never gets lit as a
-       ballot at all — Claudia stops the room and the night is over. */
-    this._exposure().then((e) => {
-      if (!this._alive) return;
-      if (e && e.playerId) {
-        Scenes.run(Exposed.beats(this, e, Session.state.seed), this);
-        return;
-      }
-      this._drive();
-    });
-  }
-
-  _exposure() {
-    if (Session.state.exposure && Session.state.exposure.checked) {
-      return Promise.resolve(Session.state.exposure);
-    }
-    return new Promise((resolve) => {
-      let done = false;
-      const finish = (ev) => { if (done) return; done = true; off(); resolve(ev); };
-      const off = Net.on((ev) => {
-        if (ev.type === 'expose') finish(ev);
-        else if (Session.state.exposure && Session.state.exposure.checked) {
-          finish(Session.state.exposure);
-        }
-      });
-      this._waits.add(() => finish(null));
-      Exposed.request();
-      if (Session.state.exposure && Session.state.exposure.checked) {
-        finish(Session.state.exposure);
-      }
-      setTimeout(() => finish(null), 4000);
-    });
+    /* The fire has nothing to expose any more — an unused poison is the
+       round table's business, and the day ended before anybody walked
+       down here — so it goes straight to the question. */
+    this._drive();
   }
 
   /* `exposed.js` plays in two rooms and only one of them has something
@@ -350,10 +319,13 @@ class FinaleScene {
      gets the same words three times running. */
   _say(set, vars, shot, salt) {
     const seed = Session.state.seed + this._round() * 13 + (salt | 0) * 101;
-    const lines = ClaudiaLines.beats(set, vars, seed);
+    const all = Object.assign({ count: Session.alive().length }, vars);
+    const lines = ClaudiaLines.beats(set, all, seed);
+    const pub = ClaudiaLines.isPublic(set);
+    if (pub && typeof AIDirector !== 'undefined') AIDirector.claudiaLine(set, all, seed);
     return Scenes.run(lines.map((b, i) => ({
       shot: i === 0 ? shot : null,
-      line: { text: b.text, who: 'claudia' },
+      line: { text: b.text, who: 'claudia', public: pub },
       hold: i === lines.length - 1 ? 0.6 : 0.3,
     })), this);
   }
@@ -388,9 +360,11 @@ class FinaleScene {
     await this._say('fireWarn', {}, 'claudiaTight');
 
     let guard = 0;
-    while (this._alive && Session.state.phase === 'finale' && guard++ < 32) {
+    while (this._alive && Session.state.phase === 'finale' && guard++ < 48) {
       const stage = Session.state.finale.stage;
-      if (stage === 'name') await this._name();
+      if (stage === 'decide') await this._decide();
+      else if (stage === 'decisions') await this._decisions();
+      else if (stage === 'name') await this._name();
       else if (stage === 'names') await this._names();
       else if (stage === 'reveal') await this._reveal();
       else if (stage === 'pouches') await this._pouches();
@@ -399,11 +373,87 @@ class FinaleScene {
     if (this._alive) await this._verdict();
   }
 
-  /* The one ballot of the night. There used to be a Fire of Truth in
-     front of it — end the game, or banish again — and the thirty
-     seconds each lived inside that. There is always a Traitor now, so
-     the only question left is who, and the floor moved here with it:
-     everyone talks, then everyone names. */
+  /* ---------------- the Fire of Truth ----------------
+     The floor goes round, the board is up, and then one question:
+     end it, or banish again. */
+  async _decide() {
+    const f = Session.state.finale;
+    if (f.round > 0) await this._say('againAfterFaithful', {}, 'players');
+    if (!this._alive || Session.state.finale.stage !== 'decide') return;
+    RoomUI.hideBoard();
+    this._floorWho = null;
+    this._floorN = 0;
+    this._cue('floor', { at: 'bar', glide: 3 });
+    if (this.music) { this.music.setIntensity(0.7); this.music.speakerDuck(true); }
+    await this._say('floorOpen', {}, 'players');
+    if (!this._alive) return;
+    await this._floorRound();
+    if (this.music) this.music.speakerDuck(false);
+    RoomUI.hideBoard();
+    if (!this._alive || Session.state.finale.stage !== 'decide') return;
+
+    this._cue('ballot', { at: 'bar', fill: true });
+    if (this.music) this.music.setIntensity(1);
+    await this._say('fireOfTruth', {}, 'claudia');
+    if (!this._alive || Session.state.finale.stage !== 'decide') return;
+    this._tallyCount = 0;
+    const you = Session.state.players.find(p => p.local);
+    if (you && you.alive) {
+      this._openVote({
+        kicker: 'The Fire of Truth · round ' + (this._round() + 1),
+        title: 'End the game, or banish again?',
+        note: 'Ending needs every pouch. One Banish and somebody else goes.',
+        options: [
+          { label: 'END THE GAME', sub: 'I believe there is no Traitor left', tone: 'end',
+            action: { type: 'decide', choice: 'end' } },
+          { label: 'BANISH AGAIN', sub: 'There is still a Traitor here', tone: 'banish',
+            action: { type: 'decide', choice: 'banish' } },
+        ],
+      });
+    }
+    await this._waitFor(() => Session.state.finale.stage !== 'decide' || Session.state.phase !== 'finale');
+    this._closeVote();
+    await Scenes.wait(0.7);
+  }
+
+  /* The pouches of the decision, burned one by one: the Ends first, so
+     the room hears hope before it hears the Banish that kills it. */
+  async _decisions() {
+    this._cue('names', { at: 'beat', glide: 0.6 });
+    let guard = 0, said = 0;
+    while (this._alive && guard++ < 10 && Session.state.phase === 'finale'
+           && Session.state.finale.stage === 'decisions') {
+      const f = Session.state.finale;
+      const voter = Session.playerById(f.decisionQueue[0]);
+      if (!voter) break;
+      const choice = f.votes[voter.id];
+      await Scenes.run([{ shot: 'on:' + voter.id, wait: 0.5 }], this);
+      if (!this._alive) return;
+      Scenes.Cine.card({ kicker: voter.local ? 'Your pouch' : voter.name + '\u2019s pouch',
+                         title: choice === 'end' ? 'END' : 'BANISH',
+                         tone: choice === 'end' ? 'faithful' : 'traitor' });
+      if (this.music) this.music.stinger(choice === 'end' ? 'vote' : 'name', { n: said++ });
+      else AudioBus.play('vote-in', { index: said++ });
+      await Scenes.wait(1.3);
+      if (!this._alive) return;
+      await Scenes.barrier('decision-' + this._round() + '-' + voter.id);
+      const before = voter.id;
+      if (Session.isHost) Net.send({ type: 'decisionPouch', playerId: voter.id });
+      await this._waitFor(() => Session.state.phase !== 'finale'
+        || Session.state.finale.stage !== 'decisions'
+        || Session.state.finale.decisionQueue[0] !== before);
+      await Scenes.wait(0.3);
+    }
+    Scenes.Cine.card(null);
+    if (!this._alive || Session.state.phase !== 'finale') return;
+    const t = Session.state.finale.lastTally;
+    if (t && t.stage === 'decide') {
+      await this._say(t.result === 'end' ? 'decideEnd' : 'decideBanish', {}, 'claudia');
+    }
+  }
+
+  /* The banishment ballot at the fire. The floor has already gone round
+     in the decision, so this goes straight to the names. */
   async _name() {
     const revote = Session.state.finale.nameRound > 0;
     if (revote) {
@@ -414,11 +464,11 @@ class FinaleScene {
     await this._say(revote ? 'voteNameTie' : 'voteName', {}, 'players');
     if (!this._alive || Session.state.finale.stage !== 'name') return;
 
-    /* Talk first, name second — and one at a time. The board from the
-       mission is up while they do it. A revote has already had its
-       floor and goes straight back to the ballot. */
-    if (!revote) {
-      RoomUI.showBoard(Session.state.debrief);
+    /* Talk first, name second — and one at a time. At the fire the
+       floor went round before the decision; it is only run here for a
+       night whose finale opens straight on the names. */
+    if (!revote && Session.state.finale.round === 0 && !Session.state.finale.decisionsShown.length) {
+      RoomUI.hideBoard();
       /* The floor: plucked, low, and ducking under anybody who talks.
          Every new speaker pushes it up a notch — see `_floorTurn`. */
       this._floorWho = null;
@@ -440,12 +490,13 @@ class FinaleScene {
 
     this._tallyCount = 0;
     const you = Session.state.players.find(p => p.local);
-    const targets = Session.alive().filter(p => p.id !== you.id);
-    this._openVote({
+    const tied = Session.state.finale.tied;
+    const targets = Session.alive().filter(p => p.id !== you.id && (!tied || tied.indexOf(p.id) >= 0));
+    if (you && you.alive && targets.length) this._openVote({
       kicker: (revote ? 'Banishment revote' : 'Round '
               + (this._round() + 1)),
       title: 'Who goes to the fire?',
-      note: 'You cannot name yourself.',
+      note: tied ? 'Only the tied names can go.' : 'You cannot name yourself.',
       options: targets.map(p => ({
         label: p.name.toUpperCase(), sub: 'Send them to the fire',
         tone: 'name', action: { type: 'name', targetId: p.id },
@@ -517,9 +568,6 @@ class FinaleScene {
     });
     if (!this._alive) return;
 
-    if (Session.state.phase === 'finale' && Session.state.finale.stage === 'name') {
-      await this._say('againAfterFaithful', {}, 'players');
-    }
   }
 
   /* Ending the game: everybody's, one at a time, and yours last. The
@@ -748,7 +796,8 @@ class FinaleScene {
     const set = o.reason === 'you-burned' ? 'lostBurned'
               : (o.role === 'traitor'
                   ? (o.won ? 'wonTraitor' : 'lostTraitorCaught')
-                  : (o.won ? (o.hadTraitor ? 'wonFaithful' : 'wonFaithfulClean') : 'lostFaithful'));
+                  : (o.won ? (o.hadTraitor ? 'wonFaithful' : 'wonFaithfulClean')
+                     : (o.fate && !o.traitorAlive ? 'lostOut' : 'lostFaithful')));
 
     await this._say(set, { pot: U.money(o.pot) }, 'claudia');
     if (!this._alive) return;
@@ -779,7 +828,7 @@ class FinaleScene {
         [...root.children].forEach(c => { c.disabled = true; });
         b.classList.add('chosen');
         AudioBus.play('ui-click');
-        Net.send(Object.assign({ playerId: you.id }, opt.action));
+        Net.send(Object.assign({ playerId: you ? you.id : null }, opt.action));
       });
       root.appendChild(b);
     }
@@ -800,10 +849,10 @@ class FinaleScene {
     const s = Session.state;
     if (!s || !s.finale) return;
     const f = s.finale;
-    const cast = f.stage === 'name' ? f.names : f.votes;
+    const cast = (f.stage === 'name' ? f.names : f.votes) || {};
     wrap.innerHTML = Session.alive().map(p => {
       const inYet = !!cast[p.id];
-      return `<span class="vt ${inYet ? 'in' : ''}">${p.name}`
+      return `<span class="vt ${inYet ? 'in' : ''}">${castleEsc(p.local ? 'You' : p.name)}`
            + `<i>${inYet ? 'decided' : 'thinking…'}</i></span>`;
     }).join('');
   }

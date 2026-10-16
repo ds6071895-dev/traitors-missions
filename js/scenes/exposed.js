@@ -1,25 +1,19 @@
 /* ------------------------------------------------------------------
-   exposed.js — the task that was left undone.
+   exposed.js — the poison that was never used.
 
-   A Traitor is given one small thing to do inside each mission. Not
-   hard: the deck in `agendas.js` is written so that anybody who reads
-   their card and pays attention will manage it. The risk was never the
-   difficulty — it is that every task has a public tell, and the other
-   two are out there watching.
+   Every day one Traitor carries the poison, and the rule is on the
+   card they were handed on the first day: use it before the bell, or
+   be exposed. Not hard — anybody standing next to anybody for a couple
+   of seconds can do it. The risk was never the difficulty; it is that
+   somebody might be watching when they do.
 
-   Fail it and this happens. Not out on the water where it could be
-   argued about, and not privately either: at the next gathering,
-   before anybody has sat down, in front of both of the people you have
-   spent the evening lying to. The Faithfuls win on the spot.
-
-   The Traitor is not told they failed. They walk into this room
-   believing they got away with it, which is the only version of it
-   worth watching.
+   Lose your nerve and this happens: at the round table, before anybody
+   has sat down properly, in front of everybody you spent the day lying
+   to. It is that table's banishment, and the Traitor's flare goes up.
 
    This is a list of beats rather than a scene, because it has to play
-   inside two rooms that already exist — a table with candles on it and
-   a fire — and neither of them should have to know how the other one
-   stages this.
+   inside a room that already exists, and that room should not have to
+   know how this one stages it.
 ------------------------------------------------------------------ */
 const Exposed = (() => {
 
@@ -34,9 +28,12 @@ const Exposed = (() => {
     const L = (set, vars) => ClaudiaLines.beats(set, vars, salt);
     const speak = (set, vars, shots) => {
       const lines = L(set, vars);
+      const pub = ClaudiaLines.isPublic(set);
       return lines.map((b, i) => ({
         shot: shots && shots[i],
-        line: { text: b.text, who: 'claudia' },
+        then: i === 0 && pub && typeof AIDirector !== 'undefined'
+          ? () => AIDirector.claudiaLine(set, vars, salt) : undefined,
+        line: { text: b.text, who: 'claudia', public: pub },
         hold: i === lines.length - 1 ? 0.7 : 0.3,
       }));
     };
@@ -94,7 +91,11 @@ const Exposed = (() => {
       {
         then: async () => {
           if (Session.isHost) Net.send({ type: 'exposeDone' });
-          const out = await outcome(8000);
+          /* With five or more at the table, an exposure is a Traitor down
+             and the night goes on; only the last Traitor's exposure ends
+             it. The host knows at once; a guest waits for the snapshot
+             that says which, and gives up on a verdict after a moment. */
+          const out = await outcome(Session.isHost ? 50 : 2500);
           if (out && typeof Show !== 'undefined') Show.showVerdict(out);
         },
       },

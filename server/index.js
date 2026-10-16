@@ -6,19 +6,21 @@ const path = require('node:path');
 const { randomUUID, randomBytes, randomInt } = require('node:crypto');
 const { WebSocketServer, WebSocket } = require('ws');
 const { createGzip } = require('node:zlib');
+const { createAIBridge, CLAUDIA_ID, CLAUDIA_LINE_ID } = require('./ai-bridge');
 
 const ROOT = path.resolve(__dirname, '..');
 const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-const CHANNELS = new Set(['go', 'wire', 'sync', 'mev', 'mp']);
+const CHANNELS = new Set(['go', 'wire', 'sync']);
 const LIVE_BUFFER = 16 * 1024;
-const livePost = msg => msg.channel === 'sync'
-  || (msg.channel === 'mev' && msg.data?.k === 'event' && ['flock', 'reef'].includes(msg.data.data?.kind));
+const MAX_MEMBERS = 8;              // the most the castle seats
+const MIN_NIGHT = 5;                // the fewest a full night is written for
+const livePost = msg => msg.channel === 'sync';
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.png': 'image/png', '.svg': 'image/svg+xml', '.jpg': 'image/jpeg', '.woff2': 'font/woff2' };
 
 // One process owns all live rooms. Run one instance (see README for deployment).
 function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 1000,
-  allowedOrigins = [], root = ROOT } = {}) {
+  allowedOrigins = [], root = ROOT, ai: aiOptions = {} } = {}) {
   const rooms = new Map();
   const sessions = new Map();
   let stopping = false;
@@ -116,6 +118,7 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
     endSocket(p, reason);
     if (p.id === room.hostId) {
       rooms.delete(room.code);
+      ai.end(room);
       for (const other of room.members.values()) endSocket(other, 'The host left the room.');
       room.members.clear();
     } else roster(room);
@@ -125,18 +128,82 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
       look: data?.look && typeof data.look === 'object' && JSON.stringify(data.look).length < 4096
         ? data.look : null };
   }
+  /* A night needs five seats filled — people, or the AI contestants
+     the host has seated — and no more than eight. Every person in the
+     room has to be in it, so nobody is left in the lobby by mistake. */
+  function goValid(room, data) {
+    const players = Array.isArray(data?.players) ? data.players : null;
+    if (!players) return false;
+    if (players.length < MIN_NIGHT || players.length > MAX_MEMBERS) return false;
+    const ids = new Set(players.map(x => x && x.id));
+    for (const id of room.members.keys()) if (!ids.has(id)) return false;
+    for (const x of players) if (!room.members.has(x?.id) && !x?.bot) return false;
+    return true;
+  }
   function permitted(p, msg) {
     const isHost = p.id === p.room.hostId;
     if (!CHANNELS.has(msg.channel)) return false;
-    if (msg.channel === 'go') return isHost;
+    // a night needs five
+    if (msg.channel === 'go') return isHost && goValid(p.room, msg.data);
     if (msg.channel === 'wire') {
-      if (msg.data?.ev?.type === 'role' && !p.room.members.has(msg.to)) return false;
+      const kind = msg.data?.ev?.type;
+      if ((kind === 'role' || kind === 'private') && !p.room.members.has(msg.to)) return false;
       return isHost || (msg.to === p.room.hostId && ['action', 'hello'].includes(msg.data?.type));
     }
-    if (msg.channel === 'mp') return isHost || (msg.to === p.room.hostId && msg.data?.k === 'want');
-    if (msg.channel === 'mev' && ['board', 'start'].includes(msg.data?.k)) return isHost;
     return true;
   }
+  /* Who may hear whom, as the host last said. The host is the only
+     client that knows the roles, so it is the only one that may say;
+     the server only enforces it, which is what makes it true on the
+     wire rather than a courtesy the receiving browsers extend.
+
+       open   the living; anybody not in it is out of the game and is
+              heard only by others who are out of it
+       night  while the castle sleeps, the Traitors in the turret hear
+              each other and nobody else hears anybody */
+  function cleanRoutes(r) {
+    if (!r || typeof r !== 'object') return null;
+    const ids = (v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, 16) : null);
+    return { open: ids(r.open), night: ids(r.night) };
+  }
+  function hears(room, listenerId, speakerId) {
+    const r = room.routes;
+    if (!r || !r.open || speakerId === CLAUDIA_ID || speakerId === CLAUDIA_LINE_ID) return true;   // the host is heard everywhere
+    const speakerIn = r.open.includes(speakerId), listenerIn = r.open.includes(listenerId);
+    if (!speakerIn) return !listenerIn;           // the dead talk among the dead
+    if (r.night) return r.night.includes(speakerId) && r.night.includes(listenerId);
+    return true;
+  }
+  function relayAudio(room, speakerId, pcm) {
+    const packet = Buffer.concat([Buffer.from(String(speakerId).padEnd(36).slice(0, 36), 'ascii'), pcm]);
+    for (const p of room.members.values()) {
+      if (p.id === speakerId || !hears(room, p.id, speakerId)) continue;
+      if (p.ws?.readyState === WebSocket.OPEN && p.ws.bufferedAmount < LIVE_BUFFER) {
+        p.ws.send(packet, { binary: true }); // audio is live; never replay it on reconnect
+      }
+    }
+  }
+  /* One voice frame to one person, for a line only they are meant to hear. */
+  function audioTo(room, memberId, speakerId, pcm) {
+    const p = room.members.get(memberId);
+    if (!p || p.ws?.readyState !== WebSocket.OPEN || p.ws.bufferedAmount >= LIVE_BUFFER * 4) return;
+    const packet = Buffer.concat([Buffer.from(String(speakerId).padEnd(36).slice(0, 36), 'ascii'), pcm]);
+    p.ws.send(packet, { binary: true });
+  }
+  /* AI voices: Deepgram behind the host's back, never the guests'. */
+  const ai = createAIBridge(Object.assign({
+    relayAudio,
+    audioTo,
+    toHost(room, message) {
+      const host = room.members.get(room.hostId);
+      if (host) deliver(host, message);
+    },
+    toMember(room, memberId, message) {
+      const p = room.members.get(memberId);
+      if (p) deliver(p, message);
+    },
+  }, aiOptions));
+
   function relay(member, msg) {
     const data = { type: 'post', channel: msg.channel, data: msg.data, from: member.id };
     for (const p of member.room.members.values()) {
@@ -161,12 +228,8 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
       if (member && member.ws !== ws) return; // replaced by an authenticated resume
       if (binary) {
         if (!member || data.length !== 960) return; // 20 ms of 24 kHz, mono PCM16
-        const packet = Buffer.concat([Buffer.from(member.id, 'ascii'), data]);
-        for (const p of member.room.members.values()) {
-          if (p !== member && p.ws?.readyState === WebSocket.OPEN && p.ws.bufferedAmount < LIVE_BUFFER) {
-            p.ws.send(packet, { binary: true }); // audio is live; never replay it on reconnect
-          }
-        }
+        relayAudio(member.room, member.id, data);
+        ai.heard(member.room, member.id, data);
         return;
       }
       let msg;
@@ -189,12 +252,12 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
             let code;
             do { code = Array.from({ length: 4 }, () => LETTERS[randomInt(LETTERS.length)]).join(''); }
             while (rooms.has(code));
-            room = { code, members: new Map(), hostId: null, started: false };
+            room = { code, members: new Map(), hostId: null, started: false, routes: null };
             rooms.set(code, room);
           } else {
             room = rooms.get(msg.code);
             if (!room) return fail('Room not found. Check the four letters.');
-            if (room.members.size >= 3) return fail('That room is already full.');
+            if (room.members.size >= MAX_MEMBERS) return fail('That room is already full.');
             if (room.started) return fail('That game has already started.');
           }
           const occupied = new Set([...room.members.values()].map(p => p.seat));
@@ -236,6 +299,15 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
         roster(member.room);
       } else if (msg.type === 'lobby' && member.id === member.room.hostId) {
         member.room.started = false;
+        member.room.routes = null;
+      } else if (msg.type === 'routes' && member.id === member.room.hostId) {
+        member.room.routes = cleanRoutes(msg.routes);
+      } else if (msg.type === 'ai' && member.id === member.room.hostId) {
+        ai.handle(member.room, msg);
+      } else if (msg.type === 'claudia') {
+        // anybody may ask for their own copy of Claudia's line, and only their own
+        if (msg.op === 'hush') ai.hushReader(member.room, member.id);
+        else ai.speak(member.room, member.id, msg);
       } else if (msg.type === 'post' && permitted(member, msg)) {
         if (msg.channel === 'go') member.room.started = true;
         relay(member, msg);
@@ -257,8 +329,9 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
     }
   }, heartbeatMs);
   heartbeat.unref();
-  return { server, rooms, wss, async close() {
+  return { server, rooms, wss, relayAudio, hears, ai, async close() {
     stopping = true;
+    for (const room of rooms.values()) ai.end(room);
     clearInterval(heartbeat);
     for (const p of sessions.values()) clearTimeout(p.expiry);
     sessions.clear(); rooms.clear();

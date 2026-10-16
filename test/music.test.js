@@ -179,50 +179,55 @@ test('a stinger asked for on the beat lands on a beat you have not heard yet', (
   ok(near(k, Math.round(k), 1e-6), 'not on a beat: ' + k);
 });
 
-/* ---------------- the dive's beat ---------------- */
+/* ---------------- the day's jig ---------------- */
 
-test('the dive holds ninety-six in every section', () => {
-  const { Music } = load();
-  for (const g of Music.DIVE_GEARS) eq(g.bpm, 96, 'dive bpm');
-  eq(Music.DIVE_GEARS.length, 4, 'dive gears');
-  eq(Music.SKI_GEARS.length, 5, 'descent gears');
+test('the day is an epic jig: six-eight, D Dorian, and it speeds up when the bell goes', () => {
+  const { Music, ac } = load();
+  const C = Music.CUES.tasks;
+  eq(C.gears, ['work', 'bell']);
+  for (const name of C.gears) eq(C.sections[name].steps, 12, name + ' is in six-eight');
+  ok(C.sections.bell.bpm > C.sections.work.bpm, 'the bell is quicker');
+  ok(C.sections.work.bpm >= 116, 'and it is not a stroll');
+  eq(JSON.stringify(Music.PROGRESSIONS.jig[0]), JSON.stringify([0, 3, 7]), 'it opens on D minor');
+  ok(C.sections.work.layers.some(l => l.inst === 'taiko'), 'with the big drums');
+  const s = Music.tasks();
+  ok(s.ok, 'it plays');
+  let worst = 0;
+  run([s], ac, 30, () => { worst = Math.max(worst, s.voices); });
+  ok(worst > 6, 'suspiciously quiet jig: ' + worst);
+  s.section('bell', { at: 'bar' });
+  run([s], ac, 20, () => { worst = Math.max(worst, s.voices); });
+  eq(s.sectionName, 'bell', 'the bell landed');
+  ok(worst <= 140, 'live voices peaked at ' + worst);
 });
 
-test('the dive keeps its grid through gear changes and a pause', () => {
-  const { Music, ac } = load();
-  const s = Music.play('dive');
-  const sps = 60 / 96 / 4;
-  run([s], ac, 3);
-  s.setGear(2, 1.6);
-  run([s], ac, 4.1);
-  s.setPaused(true);
-  run([s], ac, 1.337);
-  s.setPaused(false);
-  const from = ac.log.starts.length;
-  run([s], ac, 5);
-  s.setGear(3, 1.6);
-  run([s], ac, 3);
-  const starts = ac.log.starts.slice(from).filter(x => x.kind === 'osc');
-  ok(starts.length > 20, 'dive went quiet');
-  for (const { t } of starts) {
-    const k = (t - s.t0) / sps;
-    ok(near(k, Math.round(k), 1e-4), 'dive note off its grid after a pause: step ' + k);
+test('the front of house is epic, not cheerful: minor, driving, with drums', () => {
+  const { Music } = load();
+  const T = Music.CUES.title.sections;
+  for (const [name, sec] of [['gate', T.gate], ['anthem', T.anthem], ['welcome', Music.CUES.ceremony.sections.title]]) {
+    ok(sec.prog !== 'victory' && sec.prog !== 'hymn', name + ' is not in the major');
+    ok(sec.bpm >= 90, name + ' moves');
+    ok(sec.layers.some(l => l.inst === 'taiko'), name + ' has drums');
   }
-  const b = s.beat();
-  ok(near(b.spb, 60 / 96), 'beat length');
+});
+
+test('a banishment has a drumroll and a walk out', () => {
+  const { Music, ac } = load();
+  const R = Music.CUES.roundtable.sections;
+  ok(R.drumroll && R.walkout, 'both sections exist');
+  ok(Music.STINGERS.walkout, 'and the hit that starts the walk');
+  const s = Music.roundtable();
+  s.section('drumroll', { at: 'beat' });
+  run([s], ac, 4);
+  s.stinger('walkout', { at: 'beat' });
+  s.section('walkout', { at: 'bar' });
+  let loud = 0;
+  run([s], ac, 12, () => { loud = Math.max(loud, s.voices); });
+  eq(s.sectionName, 'walkout');
+  ok(loud > 20 && loud <= 140, 'big, and inside the budget: ' + loud);
 });
 
 /* ---------------- the budget ---------------- */
-
-test('the owl at full fury stays inside the voice budget', () => {
-  const { Music, ac } = load();
-  const s = Music.play('boss', { section: 'owl3' });
-  s.setIntensity(1.5);
-  let worst = 0;
-  run([s], ac, 60, () => { worst = Math.max(worst, s.voices); });
-  ok(worst <= 130, 'live voices peaked at ' + worst);
-  ok(worst > 30, 'suspiciously quiet owl: ' + worst);
-});
 
 test('the title overture lifts into its anthem and stays inside the budget', () => {
   const { Music, ac } = load();

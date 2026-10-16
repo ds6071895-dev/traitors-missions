@@ -539,27 +539,19 @@ const Music = (() => {
 
   /* ---------------- the cues ---------------- */
 
-  // the owl: the whole orchestra, one layer per phase
-  const boss = () => play('boss');
-  // the hunt between owls: lighter, with a horn from the trees
-  const stage = () => play('stage');
   /* the front door: an overture that starts as the theme and becomes
      an anthem when the caller lifts it — see `main.js` */
   const title = () => play('title', { section: 'gate' });
   // the hill: the main title
   const ceremony = () => play('ceremony');
-  /* The dive. It has to be a factory rather than `new Music.Score`: a
-     Score built outside this module is not in `LIVE`, and `duckAll` —
-     which voice.js calls every time Claudia speaks — would sail past. */
-  const dive = () => play('dive');
-  // the descent: five gears, and the only one with a kick drum
-  const descent = () => play('descent');
-  // the boat race, which used to have no music at all
-  const boat = () => play('boat', { section: 'count' });
+  // the day in the castle: a jig, and faster when the bell goes
+  const tasks = () => play('tasks', { section: 'work' });
   // the fire
   const finale = () => play('finale', { section: 'arrival' });
   const verdict = finale;
-  const journey = (returning = false) => play('journey', { section: returning ? 'home' : 'out' });
+  // the castle: the round table and the night
+  const roundtable = () => play('roundtable', { section: 'gather' });
+  const murder = (section = 'nightfall') => play('murder', { section });
 
   /* Which verdict the night earned, as music. From *your* seat: a
      Faithful whose Traitor got away hears the Traitor's anthem, because
@@ -576,13 +568,9 @@ const Music = (() => {
     return { section: 'verdictLoss', credits: 'creditsLoss', sting: 'lose' };
   }
 
-  const sectionsOf = (cue) => CUES[cue] ? (CUES[cue].gears || Object.keys(CUES[cue].sections)) : [];
-  const SKI_GEARS = sectionsOf('descent').map(n => CUES.descent.sections[n]);
-  const DIVE_GEARS = sectionsOf('dive').map(n => CUES.dive.sections[n]);
-  const GEARS = sectionsOf('boss').map(n => CUES.boss.sections[n]);
-
-  return { title, journey, boss, stage, ceremony, verdict, finale, dive, descent, boat, play,
+  return { title, ceremony, tasks, verdict, finale, play,
+           roundtable, murder,
            duckAll, stopAll, pauseAll, sectionAll, stingerAll, verdictCue,
-           Score, SILENT, GEARS, DIVE_GEARS, SKI_GEARS, PROGRESSIONS, STINGERS, CUES,
+           Score, SILENT, PROGRESSIONS, STINGERS, CUES,
            get live() { return LIVE; } };
 })();

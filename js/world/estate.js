@@ -204,7 +204,10 @@ const Estate = (() => {
       const x=xs[i],z=zs[j],tr=Math.hypot(x-T.x,z-T.z),pad=tr<12.4+reach*EstateLayout.terraceWall(Math.atan2(z-T.z,x-T.x));
       const bed=F.nearest(x,z,2.45).distance<2.45||pad?.38:.08,h=EstateLayout.heightAt(x,z);
       positions.push(x,(pad?Math.min(h,T.y):h)-bed,z);uvs.push(x/7,z/7);
-      c.set('#c1c9aa').multiplyScalar(.86+.12*Math.sin(x*.021)*Math.sin(z*.018));colors.push(c.r,c.g,c.b);
+      /* A lit summer glen: bright grass, with drifts of purple heather and
+         golden gorse where two slow waves agree. */
+      const heath=Math.sin(x*.031+z*.012)*Math.sin(z*.027-x*.009),gorse=Math.sin(x*.019-z*.024)*Math.cos(z*.015+x*.02);
+      c.set(heath>.42?'#f2dcf6':gorse>.5?'#fff6c8':'#f4fbe6').multiplyScalar(.96+.08*Math.sin(x*.021)*Math.sin(z*.018));colors.push(c.r,c.g,c.b);
       if(i&&j){const n=j*xs.length+i;indices.push(n-xs.length-1,n-1,n-xs.length,n-xs.length,n-1,n);}
     }
     const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
@@ -231,7 +234,7 @@ const Estate = (() => {
       cells.get(key).push([x,EstateLayout.heightAt(x,z),z,rng.range(5,14),rng.range(.7,1.4)]);
     }
     const trunkGeo=new THREE.CylinderGeometry(.12,.25,1,7),leafGeo=new THREE.ConeGeometry(1,1,8),dummy=new THREE.Object3D();
-    const leaves=EstateMaterials.material('foliage',{color:'#81937a',roughness:1});
+    const leaves=EstateMaterials.material('foliage',{color:'#6aa856',roughness:1});
     const wind={value:0},leafSurface=leaves.onBeforeCompile;leaves.onBeforeCompile=shader=>{leafSurface(shader);shader.uniforms.estateTime=wind;shader.vertexShader='uniform float estateTime;\n'+shader.vertexShader;shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n transformed.x += sin(estateTime * 1.5 + instanceMatrix[3].x * .14) * .018 * (position.y + .5);');};
     for(const list of cells.values()){
       const trunks=new THREE.InstancedMesh(trunkGeo,mat('bark'),list.length),canopies=new THREE.InstancedMesh(leafGeo,leaves,list.length*2);
@@ -247,7 +250,7 @@ const Estate = (() => {
         const yy=p.getY(i),t=(yy+h/2)/h,angle=Math.atan2(p.getZ(i),p.getX(i));
         const rough=1+.16*Math.sin(angle*5+t*3)+.12*Math.cos(angle*9-t*6);
         p.setX(i,p.getX(i)*rough+t*t*radius*.21);p.setZ(i,p.getZ(i)*rough+t*radius*.15);
-        c.set(t>.84&&h>300?'#c9d1ce':t>.5?'#969b99':'#778276');c.multiplyScalar(.88+.12*Math.sin(angle*7));col.push(c.r,c.g,c.b);
+        c.set(t>.8&&h>280?'#f6f8fb':t>.62?'#a9b3ae':t>.35?'#8fae80':'#76a463');c.multiplyScalar(.88+.12*Math.sin(angle*7));col.push(c.r,c.g,c.b);
       }
       geo.computeVertexNormals();geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));EstateMaterials.uv(geo,8);
       const mountain=new THREE.Mesh(geo,EstateMaterials.material('rock',{vertexColors:true,roughness:1}));mountain.position.set(x,h/2+15,z);group.add(mountain);
@@ -275,12 +278,35 @@ const Estate = (() => {
     const grassGeo=new THREE.BufferGeometry();grassGeo.setAttribute('position',new THREE.Float32BufferAttribute(blades,3));grassGeo.setAttribute('uv',new THREE.Float32BufferAttribute(bladeUV,2));grassGeo.computeVertexNormals();
     mat('heather').side=THREE.DoubleSide;const grass=new THREE.InstancedMesh(grassGeo,mat('heather'),cover.length);
     cover.forEach((p,i)=>{dummy.position.set(p[0],p[1]-.06,p[2]);dummy.rotation.set(0,rng()*6.28,0);dummy.scale.setScalar(rng.range(.6,1.5));dummy.updateMatrix();grass.setMatrixAt(i,dummy.matrix);});grass.computeBoundingSphere();group.add(grass);
+    /* Wildflowers among the grass: heather, gorse, harebells and the odd
+       white daisy, each a small bright head on the tuft it grew from. */
+    {
+      const FLOWERS=['#b35bc4','#c46fd6','#f2c230','#ffd84a','#6f8fe8','#ffffff','#e85b7a'];
+      const heads=[];
+      for(const p of cover){ if(rng()<.55) heads.push(p); }
+      for(let i=0;i<(low?200:700);i++){
+        const x=rng.range(-60,120),z=rng.range(-60,115);
+        if(EstateLayout.walkable(x,z)||Math.hypot(x-T.x,z-T.z)<13.3||Math.abs(x)<30&&z<40||EstateLayout.route.nearest(x,z).distance<3||EstateLayout.lakes.some(l=>EstateLayout.basin(x,z,l)<1.02))continue;
+        heads.push([x,EstateLayout.heightAt(x,z),z]);
+      }
+      const fg=new THREE.IcosahedronGeometry(.09,0);
+      const fm=new THREE.MeshStandardMaterial({color:'#ffffff',roughness:.6,emissive:'#222222'});
+      const flowers=new THREE.InstancedMesh(fg,fm,heads.length);
+      const fc=new THREE.Color();
+      heads.forEach((p,i)=>{
+        dummy.position.set(p[0]+rng.range(-.3,.3),p[1]+rng.range(.18,.42),p[2]+rng.range(-.3,.3));
+        dummy.rotation.set(0,0,0);dummy.scale.set(1,.6,1).multiplyScalar(rng.range(.8,1.6));dummy.updateMatrix();
+        flowers.setMatrixAt(i,dummy.matrix);
+        flowers.setColorAt(i,fc.set(FLOWERS[Math.floor(rng()*FLOWERS.length)]));
+      });
+      flowers.computeBoundingSphere();group.add(flowers);
+    }
     for(const [id,parts]of batches){const merged=EstateMaterials.merge(parts);group.add(new THREE.Mesh(merged,mat(id)));parts.forEach(p=>p.dispose());}
     const paneParts=windows.map(w=>{const g=w.geometry.clone();g.translate(w.position.x,w.position.y,w.position.z);group.remove(w);w.geometry.dispose();w.material.dispose();return g;});
     windows.length=0;
     if(paneParts.length){const m=new THREE.Mesh(EstateMaterials.merge(paneParts),new THREE.MeshBasicMaterial({color:'#d1b285'}));group.add(m);windows.push(m);paneParts.forEach(g=>g.dispose());}
     let night=!!opts.night;
-    function setNight(on){night=!!on;windows.forEach(w=>w.material.color.set(night?'#ffc887':'#777469'));lights.forEach(l=>l.intensity=night?2.2:.15);water.forEach(w=>w.material.color.set(night?'#1e394b':'#435f67'));}
+    function setNight(on){night=!!on;windows.forEach(w=>w.material.color.set(night?'#ffc887':'#777469'));lights.forEach(l=>l.intensity=night?2.2:.15);water.forEach(w=>w.material.color.set(night?'#1e394b':'#3d86a3'));}
     setNight(night);
     const local=p=>toLocal(V(p[0]-origin[0],p[1],p[2]-origin[2]));
     const anchors=Object.fromEntries(Object.entries(EstateLayout.anchors).map(([k,p])=>[k,local(p)]));
@@ -299,9 +325,9 @@ const Estate = (() => {
     Sky.setPreset(night?{id:'estate-night',zenith:'#101f34',middle:'#263b51',horizon:'#586676',fog:'#4c5c6a',glow:'#93b1c6',sunDir:[-.4,.52,-.6],sunScale:750,
       sunInner:'rgba(217,234,245,.8)',sunOuter:'rgba(133,170,211,.12)',cloud:'#455769',cloudEmissive:'#233244',cloudIntensity:.12,
       peakRock:'#4c5a68',peakGrass:'#344852',nearRock:'#425361',nearGrass:'#344c4c'}:
-      {id:'estate-golden',zenith:'#59788f',middle:'#9ba9b2',horizon:'#ddc7a8',fog:'#b7b8ac',glow:'#e8be86',sunDir:[-.82,.3,-.56],sunScale:1100,
-      sunInner:'rgba(255,237,205,.8)',sunOuter:'rgba(247,203,139,.18)',cloud:'#d0c6b4',cloudEmissive:'#bda98b',cloudIntensity:.18,
-      peakRock:'#75858a',peakGrass:'#576f68',nearRock:'#6e7b7c',nearGrass:'#577167'});
+      {id:'estate-golden',zenith:'#2d7fda',middle:'#86c8f0',horizon:'#e3f3ff',fog:'#cde6f4',glow:'#fff0c2',sunDir:[-.55,.6,-.58],sunScale:1150,
+      sunInner:'rgba(255,251,236,.95)',sunOuter:'rgba(255,238,196,.24)',cloud:'#ffffff',cloudEmissive:'#e4edf6',cloudIntensity:.42,
+      peakRock:'#8f9ead',peakGrass:'#5f9c66',nearRock:'#86928f',nearGrass:'#5fa05c'});
   }
   return {build,atmosphere};
 })();

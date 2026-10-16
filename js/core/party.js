@@ -20,7 +20,8 @@
 const Party = (() => {
 
   const APP_ID   = 'the-traitors-loch';
-  const MAX      = 3;
+  const MAX      = 8;                    // the castle seats eight
+  const MIN      = 5;                    // and a night needs five
 
   /* ---------------- reaching each other ----------------
 
@@ -42,7 +43,7 @@ const Party = (() => {
 
   /* Trystero caps an action name at 12 bytes, so these are short on
      purpose rather than terse for its own sake. */
-  const CHANNELS = ['hello', 'roster', 'go', 'wire', 'sync', 'mev', 'mp'];
+  const CHANNELS = ['hello', 'roster', 'go', 'wire', 'sync'];
 
   let room = null;
   let code = null;
@@ -77,13 +78,8 @@ const Party = (() => {
     go:     new Set(),   // ({ seed, players }) — the host has started the night
     wire:   new Set(),   // (envelope, fromPeer)
     sync:   new Set(),   // (payload, fromPeer)
-    mev:    new Set(),   // (payload, fromPeer)
-    /* A mission party: three people in a room for one mission rather
-       than a whole night. It gets its own channel because the host is
-       broadcasting a *setup* — a seed, whether to skip to the
-       owl — and that is neither a pose nor a mission event, and it has
-       to keep arriving on a screen where no mission is running. */
-    mp:     new Set(),   // (payload, fromPeer)
+    ai:     new Set(),   // (message) — the AI bridge, to the host only
+    claudia:new Set(),   // (message) — one of Claudia's lines, read to you, has finished
     error:  new Set(),   // (message)
   };
 
@@ -375,6 +371,8 @@ const Party = (() => {
     candidate.onMessage = (channel, data, from) => {
       if (current()) emit(channel, data, from);
     };
+    candidate.onAI = (msg) => { if (current()) emit('ai', msg); };
+    candidate.onClaudia = (msg) => { if (current()) emit('claudia', msg); };
     candidate.onRoster = (players, authority) => {
       if (!current()) return;
       const previous = seats;
@@ -571,7 +569,14 @@ const Party = (() => {
     ready, host: hostRoom, join: joinRoom, leave, on, post, setProfile, setLobby, hook,
     roster, self, selfId, peerIds, randomCode, normaliseCode, validCode,
     publishRoster,
-    MAX, CODE_LEN, ALPHABET,
+    MAX, MIN, CODE_LEN, ALPHABET,
+    /* Host-only: who may hear whom, enforced by the room server. */
+    setVoiceRoutes(routes) { if (host && joined && room && room.setRoutes) room.setRoutes(routes || null); },
+    /* Host-only: a message to the room's AI bridge on the server. */
+    ai(message) { if (host && joined && room && room.sendAI) room.sendAI(message); },
+    /* Anybody: Claudia's line, read aloud by the server, to this browser only. */
+    claudia(message) { if (joined && room && room.sendClaudia) room.sendClaudia(message); },
+    get serverRoom() { return !!(room && room.server); },
     get isHost() { return host; },
     get hostId() { return hostPeer; },
     get code() { return code; },

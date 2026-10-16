@@ -52,9 +52,11 @@ const Input = (() => {
        with this, so it costs one key and nothing else. The chip on the
        HUD is a real button, which is how a phone presses it. */
     task:      ['KeyT'],
-    grabMute: ['KeyQ', 'Touch6'],
-    grabTail: ['KeyE', 'Touch7'],
-    sectionReset: ['KeyR'],
+    // the castle by day: use a station or hand a letter, the poison, your notebook
+    interact:  ['KeyE'],
+    run:       ['ShiftLeft', 'ShiftRight'],
+    poison:    ['KeyF'],
+    notes:     ['KeyN', 'Tab'],
   };
 
   const down = new Set();          // codes currently held
@@ -285,10 +287,6 @@ const Input = (() => {
     initTouchAim('touch-shoot', {
       pads: [['.draw-pad', 'Touch0'], ['.focus-pad', 'Touch2'], ['.sprint-pad', 'Touch3']],
       stick: '.move-zone', knob: '.move-knob',
-    });
-    initTouchAim('touch-dive', {
-      pads: [['.kick-pad', 'Touch0']],
-      stick: '.scull-zone', knob: '.scull-knob',
     });
     watchScreens();
   }
@@ -562,7 +560,7 @@ const Input = (() => {
 
   return { init, held, pressed, released, steer, throttle, endFrame,
            aimDelta, aimStick, moveAxes, setMouseAim, setTouchMode, setDrivePad,
-           requestLock, onLockChange,
+           requestLock, releaseLock, onLockChange,
            haptic, setEnabled, rebind, BINDINGS,
            get isTouch() { return isTouch; },
            get aimReady() { return aimReady(); },

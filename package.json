@@ -5,13 +5,7 @@
   "scripts": {
     "start": "node server/index.js",
     "test": "node test/run.js",
-    "test:browser": "node test/browser.test.js && node test/game-browser.test.js",
-    "test:interaction-browser": "node test/interaction-browser.test.js",
-    "test:travel": "node test/travel.test.js && node test/transport.test.js",
-    "test:travel-browser": "node test/travel-cancellation-browser.test.js && node test/travel-browser.test.js",
-    "test:estate-render": "node test/estate-browser.test.js",
-    "test:shootout-render": "node test/shootout-browser.test.js",
-    "test:boat-render": "node test/boat-browser.test.js"
+    "test:browser": "node test/browser.test.js"
   },
   "engines": {
     "node": ">=22"

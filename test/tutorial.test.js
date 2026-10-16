@@ -1,11 +1,10 @@
 /* ------------------------------------------------------------------
    tutorial.test.js — the first-time tours.
 
-   Three promises matter more than how the card looks: what has been
-   seen survives a reload (and a broken storage never breaks the game),
-   a solo tour holds the mission clock only until the controls are
-   learnt, and nothing about it ever holds a clock that two other
-   people are sharing. The overlay is faked to the few properties the
+   Two promises matter more than how the card looks: what has been seen
+   survives a reload (and a broken storage never breaks the game), and
+   a room screen is never blocked by a tour, because somebody has to be
+   able to press start. The overlay is faked to the few properties the
    module touches; the step tables are the real ones.
 ------------------------------------------------------------------ */
 const fs = require('fs');
@@ -161,147 +160,6 @@ test('storage that throws never breaks anything', () => {
 
 /* ---------------- the clock ---------------- */
 
-section('tutorial — the mission clock');
-
-function boat() { return { state: 'countdown', gatesHit: 0 }; }
-
-function playBoatTour(w, m) {
-  w.T.missionStarted('boat-race', m);
-  ok(w.T.active, 'the tour started');
-  w.frames(m, 30);
-  eq(w.T.current.step, 0, 'the first card waits out the countdown');
-  m.state = 'racing';
-  w.frames(m, 50);                              // tick, then the next card
-  eq(w.T.current.step, 1, 'on to the throttle');
-  w.input._throttle = 1; w.frames(m, 120); w.input._throttle = 0;
-  eq(w.T.current.step, 2, 'on to steering');
-  w.input._steer = -1; w.frames(m, 120); w.input._steer = 0;
-  eq(w.T.current.step, 3, 'on to boost');
-  w.input._held.add('boost'); w.frames(m, 90); w.input._held.delete('boost');
-  eq(w.T.current.step, 4, 'on to the first gate');
-}
-
-test('a solo first run holds the clock until the controls are learnt', () => {
-  const w = world();
-  const m = boat();
-  w.T.missionStarted('boat-race', m);
-  ok(w.T.holdsClock(), 'held from the start');
-  w.T.missionEnded();
-  const w2 = world();
-  playBoatTour(w2, m);
-  ok(w2.T.holdsClock(), 'still held until a gate is threaded');
-  m.gatesHit = 1; w2.frames(m, 50);
-  eq(w2.T.current.step, 5, 'on to the go card');
-  ok(!w2.T.holdsClock(), 'the go card lets the clock run');
-  w2.frames(m, 60 * 4);
-  ok(!w2.T.active, 'and the tour ends on its own');
-  ok(w2.T.seen('mission:boat-race'), 'seen');
-});
-
-test('a holding step does not finish on a tap', () => {
-  const w = world();
-  const m = boat();
-  w.T.missionStarted('boat-race', m);
-  m.state = 'racing'; w.frames(m, 50);
-  w.input._throttle = 1; w.frames(m, 5); w.input._throttle = 0; w.frames(m, 5);
-  eq(w.T.current.step, 1, 'a twelfth of a second of W is not learning W');
-});
-
-test('a second run of the same mission has no tour', () => {
-  const w = world();
-  w.T.markSeen('mission:boat-race');
-  w.T.missionStarted('boat-race', boat());
-  ok(!w.T.active && !w.T.holdsClock());
-});
-
-test('turned off means no tours at all', () => {
-  const w = world();
-  w.T.setOff(true);
-  w.T.missionStarted('dive', { state: 'countdown' });
-  ok(!w.T.active);
-});
-
-test('skip releases the clock and counts as seen', () => {
-  const w = world();
-  w.T.missionStarted('ski', { state: 'countdown' });
-  ok(w.T.holdsClock());
-  w.T.skip();
-  ok(!w.T.holdsClock() && !w.T.active);
-  ok(w.T.seen('mission:ski'));
-});
-
-test('quitting mid-tour is not seen, and the clock is not left held', () => {
-  const w = world();
-  w.T.missionStarted('shootout', { state: 'countdown' });
-  w.T.missionEnded();
-  ok(!w.T.holdsClock() && !w.T.active);
-  ok(!w.T.seen('mission:shootout'), 'it runs again next time');
-});
-
-test('finishing the mission before the tour ends it quietly', () => {
-  const w = world();
-  const m = { state: 'countdown', carry: [] };
-  w.T.missionStarted('dive', m);
-  m.state = 'finished'; w.frames(m, 1);
-  ok(!w.T.active && !w.T.holdsClock() && w.T.seen('mission:dive'));
-});
-
-test('a tour for a different instance is not driven by this one', () => {
-  const w = world();
-  const a = boat(), b = boat();
-  w.T.missionStarted('boat-race', a);
-  b.state = 'racing'; w.frames(b, 60);
-  eq(w.T.current.step, 0);
-});
-
-/* ---------------- multiplayer ---------------- */
-
-section('tutorial — multiplayer never holds a shared clock');
-
-test('in a room the mission tour is hints and never holds the clock', () => {
-  const w = world();
-  w.net.live = true;
-  w.T.missionStarted('boat-race', boat());
-  ok(w.T.active, 'hints still show');
-  eq(w.T.current.mode, 'hints');
-  ok(!w.T.holdsClock());
-});
-
-test('a room arriving mid-tour lets go of the clock at once', () => {
-  const w = world();
-  w.T.missionStarted('boat-race', boat());
-  ok(w.T.holdsClock());
-  w.net.live = true;
-  ok(!w.T.holdsClock());
-});
-
-test('hints leave by themselves', () => {
-  const w = world();
-  w.net.live = true;
-  const m = boat();
-  m.state = 'racing';
-  w.T.missionStarted('boat-race', m);
-  w.frames(m, 60 * 80);              // nobody touches anything for 80 s
-  ok(!w.T.active, 'every hint timed out');
-  ok(w.T.seen('mission:boat-race'));
-});
-
-test('the task hint needs a room and a task chip on this screen', () => {
-  const w = world();
-  const m = { state: 'racing' };
-  w.T.markSeen('mission:boat-race');
-  w.frames(m, 5);
-  ok(!w.T.active, 'solo: nothing');
-  w.net.live = true;
-  w.frames(m, 5);
-  ok(!w.T.active, 'no chip showing: not the Traitor, nothing');
-  w.chip.classList.add('on');
-  w.frames(m, 1);
-  ok(w.T.active, 'the Traitor gets it');
-  eq(w.T.current.id, 'traitor-task');
-  ok(!w.T.holdsClock());
-});
-
 /* ---------------- menus ---------------- */
 
 section('tutorial — the menus');
@@ -314,29 +172,26 @@ test('the front door runs its tour once, after the screen settles', () => {
   ok(w.T.active);
   eq(w.T.current.kind, 'menu');
   ok(w.root.classList.contains('blocking'), 'a solo menu tour holds the pointer');
-  w.screen('title');
+  w.screen('lobby');
   ok(!w.T.active, 'leaving the screen ends it');
   ok(w.T.seen('menu:play'));
   w.runTimers();
-  eq(w.T.current && w.T.current.id, 'menu:title', 'and the next screen has its own');
+  eq(w.T.current && w.T.current.id, 'menu:lobby', 'and the next screen has its own');
 });
 
 test('room screens never block the pointer', () => {
   const w = world();
-  w.screen('mparty'); w.runTimers();
+  w.screen('lobby'); w.runTimers();
   ok(w.T.active);
   ok(!w.root.classList.contains('blocking'), 'the host can always press start');
 });
 
-test('a click step finishes when its button is clicked', () => {
+test('walking to the end of a tour with Next finishes it', () => {
   const w = world();
-  w.screen('brief'); w.runTimers();
-  const last = w.S.menus.brief.length - 1;
-  // walk to the last card with Next
-  for (let i = 0; i < last; i++) w.part('.tut-next').fire('click');
-  eq(w.T.current.step, last);
-  w.target('#brief-go').fire('click');
-  ok(!w.T.active && w.T.seen('menu:brief'));
+  w.screen('play'); w.runTimers();
+  const n = w.S.menus.play.length;
+  for (let i = 0; i < n; i++) w.part('.tut-next').fire('click');
+  ok(!w.T.active && w.T.seen('menu:play'), 'seen, and gone');
 });
 
 /* ---------------- the tables themselves ---------------- */
@@ -354,7 +209,6 @@ test('every target in the step tables exists in index.html', () => {
       for (const part of sel.split(/\s+/)) {
         for (const tok of part.match(/[#.][\w-]+/g) || []) {
           const name = tok.slice(1);
-          // the mission list is drawn by main.js rather than written in the page
           const src = tok[0] === '#' ? html : html + fs.readFileSync(path.join(H.ROOT, 'js/main.js'), 'utf8');
           const re = tok[0] === '#' ? new RegExp('id="' + name + '"')
                                     : new RegExp('["\\s\'.]' + name + '["\\s\']');
@@ -366,14 +220,10 @@ test('every target in the step tables exists in index.html', () => {
   eq(missing, [], 'selectors with nothing to point at');
 });
 
-test('every playable mission has a tour ending in a go card', () => {
+test('there are no mission tours left to run', () => {
   const w = world();
-  for (const id of ['boat-race', 'shootout', 'dive', 'ski']) {
-    const t = w.S.missions[id];
-    ok(t && t.length >= 3, id + ' has a tour');
-    ok(t[t.length - 1].go, id + ' ends by letting the clock run');
-    ok(t.filter(s => s.go).length === 1, id + ' releases the clock once');
-  }
+  eq(Object.keys(w.S.missions), [], 'the missions are gone, and so are their tours');
+  eq(Object.keys(w.S.menus).sort(), ['lobby', 'play']);
 });
 
 H.report();

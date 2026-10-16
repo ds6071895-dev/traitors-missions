@@ -2,6 +2,12 @@
    VoiceChat UI still owns permission, track muting, and whose turn it is. */
 const ServerAudio = (() => {
   let current = null;
+  /* A voice that is not a person in the room: Claudia, or an AI seat the
+     night has dealt in. Anything else with no seat is dropped. */
+  const CLAUDIA = 'c1a0d1a0-0000-4000-8000-00000000c1a0';
+  const CLAUDIA_LINE = 'c1a0d1a0-0000-4000-8000-00000000c1a1';   // her scripted lines, read to you alone
+  const aiVoice = (id) => id === CLAUDIA || id === CLAUDIA_LINE || !!(typeof Session !== 'undefined' && Session.state
+    && Session.state.players.some(p => p.bot && p.id === id));
   function listen(room, attach, failed) {
     if (current && current.room === room) return;
     stop();
@@ -26,7 +32,7 @@ const ServerAudio = (() => {
     room.onAudio = async packet => {
       if (state.closed || packet.byteLength !== 996) return;
       const id = String.fromCharCode(...new Uint8Array(packet, 0, 36));
-      if (!room.players.some(p => p.id === id)) return;
+      if (!room.players.some(p => p.id === id) && !aiVoice(id)) return;
       try {
         await state.ready;
         if (state.closed) return;
@@ -95,5 +101,5 @@ const ServerAudio = (() => {
     if (state.ctx) state.ctx.close().catch(() => {});
     current = null;
   }
-  return { listen, publish, detach, stop };
+  return { listen, publish, detach, stop, CLAUDIA, CLAUDIA_LINE };
 })();

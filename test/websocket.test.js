@@ -35,10 +35,54 @@ async function until(fn) {
       eq(C.Party.roster().length, 3);
     });
     await atest('full and nonexistent rooms return explicit errors', async () => {
+      const extra = [client(), client(), client(), client(), client()];
+      for (const x of extra) await x.Party.join(code, { name: 'Pat' });
+      await until(() => A.Party.roster().length === 8);
       const D = client();
-      await assert.rejects(D.Party.join(code, {}), /full/);
+      await assert.rejects(D.Party.join(code, {}), /full/, 'the ninth is refused');
       ok(!D.Party.connected && !D.Party.connecting);
       await assert.rejects(D.Party.join('ZZZZ', {}), /not found/);
+      extra.forEach(x => x.Party.leave());
+      await until(() => A.Party.roster().length === 3);
+    });
+    await atest('a night needs five at the table', async () => {
+      let heard = 0;
+      const off = B.Party.on('go', () => heard++);
+      const three = A.Party.roster().map(p => ({ id: p.id, name: p.name }));
+      A.Party.post('go', { seed: 1, players: three });
+      await delay(40);
+      eq(heard, 0, 'three people cannot start a night');
+      const bots = ['ai-1', 'ai-2'].map(id => ({ id, name: id, bot: true }));
+      A.Party.post('go', { seed: 2, players: three.concat(bots) });
+      await until(() => heard === 1);
+      eq(heard, 1, 'three people and two AI contestants can');
+      A.Party.post('go', { kind: 'mission', missionId: 'boat-race', players: three.slice(0, 2) });
+      await delay(40);
+      eq(heard, 1, 'and a two-player mission party is not a thing any more');
+      eq(app.rooms.get(code).started, true, 'and the room is closed to newcomers');
+      A.Party.setLobby();
+      await delay(30);
+      off();
+    });
+    await atest('voice follows the host\'s routes: the night, and the dead', async () => {
+      const room = app.rooms.get(code);
+      const [a, b, c] = [A, B, C].map(x => x.Party.selfId());
+      eq(app.hears(room, b, a), true, 'with no routes, everybody hears everybody');
+      room.routes = { open: [a, b], night: null };
+      eq(app.hears(room, b, c), false, 'the living do not hear the dead');
+      eq(app.hears(room, c, a), true, 'the dead hear the living');
+      room.routes = { open: [a, b, c], night: [a, c] };
+      eq(app.hears(room, c, a), true, 'one Traitor hears the other in the turret');
+      eq(app.hears(room, b, a), false, 'and a Faithful hears neither');
+      eq(app.hears(room, a, b), false, 'nor is heard from their bedroom');
+      const heard = [[], [], []];
+      [A, B, C].forEach((x, i) => { x.Party.room.onAudio = p => heard[i].push(p); });
+      A.Party.room.sendAudio(new Int16Array(480).fill(7).buffer);
+      await until(() => heard[2].length === 1);
+      await delay(30);
+      eq(heard[1].length, 0, 'the Faithful\'s socket was never sent it');
+      A.Party.setVoiceRoutes(null);
+      await until(() => room.routes === null);
     });
     await atest('private roles reach only their target, with server-stamped identity', async () => {
       const b = [], c = [];
@@ -60,14 +104,15 @@ async function until(fn) {
       eq(forged, 0);
       off(); offGo();
     });
-    await atest('mission poses, setup, and actions keep their existing channels', async () => {
+    await atest('castle poses ride the live channel; the old mission channels are gone', async () => {
       const heard = [];
       const offs = ['sync', 'mp', 'mev'].map(channel => B.Party.on(channel, (data, from) => heard.push([channel, data, from])));
-      A.Party.post('sync', { k: 'pose', p: { x: 4 } });
+      A.Party.post('sync', { k: 'cpose', d: 'd0', p: [4, 5, 0, 0] });
       A.Party.post('mp', { k: 'setup', missionId: 'shootout' });
       A.Party.post('mev', { k: 'start', m: 'shootout' });
-      await until(() => heard.length === 3);
-      eq(heard.map(x => x[0]), ['sync', 'mp', 'mev']);
+      await until(() => heard.length >= 1);
+      await delay(40);
+      eq(heard.map(x => x[0]), ['sync']);
       offs.forEach(off => off());
     });
     await atest('voice frames travel through the server to the other two players only', async () => {
@@ -85,13 +130,13 @@ async function until(fn) {
       const socket = A.sockets.at(-1), sent = [], original = socket.send;
       socket.send = function(data, ...args) { sent.push(JSON.parse(data)); return original.call(this, data, ...args); };
       try {
-        A.Party.post('sync', { k: 'pose', p: { x: 10 } });
-        A.Party.post('mev', { k: 'event', data: { kind: 'flock', a: [] } });
+        A.Party.post('sync', { k: 'cpose', p: [1, 0, 0, 0] });
+        A.Party.post('sync', { k: 'cposes', list: [] });
         eq(sent.length, 2);
         ok(sent.every(msg => msg.live === true && msg.seq === undefined));
         Object.defineProperty(socket, 'bufferedAmount', { configurable: true, value: 20000 });
-        A.Party.post('sync', { k: 'pose', p: { x: 20 } });
-        A.Party.post('mev', { k: 'event', data: { kind: 'reef' } });
+        A.Party.post('sync', { k: 'cpose', p: [2, 0, 0, 0] });
+        A.Party.post('sync', { k: 'cposes', list: [] });
         eq(sent.length, 2);
         A.Party.post('wire', { ev: { type: 'vote' } }, B.Party.selfId());
         ok(Number.isSafeInteger(sent[2].seq), 'votes remain reliable during congestion');

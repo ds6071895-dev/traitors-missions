@@ -10,7 +10,7 @@
    still a shared night, which is the rule everywhere else in this
    codebase and there is no reason for the words to break it.
 
-   `{name}`, `{mission}`, `{pot}` and `{count}` are filled by
+   `{name}`, `{pot}` and `{count}` are filled by
    the caller. Sentences are kept short on purpose: `Voice` speaks one
    at a time and puts a real pause at every full stop, so full stops are
    the timing, and a line written as one long clause is a line delivered
@@ -55,109 +55,441 @@ const ClaudiaLines = (() => {
       ],
       [
         "Stop there.",
-        "All three of you."
+        "All of you."
       ]
     ],
     "exposeTask": [
       [
-        "One of you was given something to say out there tonight.",
-        "It was never said."
+        "Yesterday, one of you was carrying poison.",
+        "It never left their pocket."
       ],
       [
-        "A Traitor gets one job on a night like this.",
-        "This one went undone."
+        "A Traitor had one job today.",
+        "Nobody died of it."
       ],
       [
-        "There was a task tonight. A quiet one.",
-        "It was left."
+        "There was poison in this castle today.",
+        "It is still in the bottle."
       ]
     ],
     "exposeName": [
-      [ "{name}.", "You had one job, and you did not do it." ],
-      [ "It was you, {name}.", "And you left it undone." ],
-      [ "{name}.", "Look at me. You know exactly what this is." ]
+      [
+        "{name}.",
+        "You had it all day, and you did nothing with it."
+      ],
+      [
+        "It was you, {name}.",
+        "And you lost your nerve."
+      ],
+      [
+        "{name}.",
+        "Turn out your pocket."
+      ]
     ],
     "exposeAfter": [
       [
         "{name} was a Traitor.",
-        "The pot is yours."
+        "And now every one of you knows it."
       ],
       [
-        "{name} was the Traitor, and has just handed you the money.",
-        "That is the night."
+        "{name} was a Traitor, and has just handed you that for nothing.",
+        "No vote today. Go to bed."
       ]
     ],
     "welcome": [
       [
-        "Welcome to the Highlands."
+        "Welcome to the Highlands.",
+        "Welcome to my castle."
       ],
       [
-        "Three of you. One pot. And a whole evening to get through."
+        "{count} of you. One pot. And a castle full of secrets."
       ],
       [
-        "Good. You made it up the hill."
+        "You made it. Look at that view.",
+        "Enjoy it. It is the last easy thing you will do."
       ]
     ],
     "theRules": [
       [
-        "It's time for the first mission."
+        "Here is how it works.",
+        "By day, you work the castle. Every job you finish puts money in the pot.",
+        "But the Traitors carry poison. And they use it in broad daylight, right under your noses.",
+        "At the round table, you banish the one you think did it."
+      ],
+      [
+        "Every day, the castle needs work, and the work pays.",
+        "Every day, a Traitor slips poison to one of you, in plain sight.",
+        "Watch each other. Then decide who goes."
       ]
     ],
     "roleIntro": [
       [
-        "One of the three of you is a Traitor."
+        "Among the {count} of you, there is a Traitor."
+      ],
+      [
+        "One of you is a Traitor. Only one of you knows it."
+      ]
+    ],
+    "roleIntroTwo": [
+      [
+        "Among the {count} of you, there are two Traitors."
+      ],
+      [
+        "Two of you are Traitors. They are about to meet each other."
+      ]
+    ],
+    "traitorPartner": [
+      [
+        "You are not alone.",
+        "Your fellow Traitor is {name}."
+      ],
+      [
+        "Look for {name} tonight.",
+        "You are in this together."
       ]
     ],
     "roleFaithful": [
       [
-        "You are a Faithful."
+        "You are a Faithful.",
+        "Keep your eyes open. Whoever hands you something today may be killing you."
       ]
     ],
     "roleTraitor": [
       [
-        "You are a Traitor."
+        "You are a Traitor.",
+        "Every day, one of you carries the poison.",
+        "Get it into a Faithful before the bell. Fail, and I will expose you myself."
       ]
     ],
-    /* The task, spoken.
-
-       It used to be a card and nothing else, on the grounds that two
-       other people are standing right there. They are not: Claudia is
-       heard on the browser she is talking to and on no other, exactly
-       as the role line above is, and a Traitor who has to read their
-       one instruction off a card in five seconds while the camera moves
-       is a Traitor who arrives at the mission still guessing at it.
-       So she says it, and `{task}` is the card itself, word for word.
-
-       The alibi is deliberately not in here. It is the harder way to do
-       the one task, not a second instruction, and a player handed it in
-       words plays the sentence instead of the mission. */
-    "taskGiven": [
+    "toCastle": [
       [
-        "One thing you have to say out loud tonight, with both of them listening.",
-        "{task}",
-        "Say it, then mark your card. Unmarked and I tell them."
+        "The castle is yours.",
+        "In you go."
       ],
       [
-        "Something quiet, before you go.",
-        "{task}",
-        "Out loud, while they can hear you. Then mark it."
-      ],
-      [
-        "Only you are hearing this.",
-        "{task}",
-        "Say it, mark the card. Everything else you can lie about."
+        "Up to the house. Your jobs are waiting."
       ]
     ],
-    /* The second card, at the table. She is shorter about it: they have
-       done this once already and know exactly what it is. */
-    "firstMission": [
+    "nightFalls": [
       [
-        "Your mission is {mission}."
+        "That is the day done.",
+        "Go to your rooms."
+      ],
+      [
+        "The castle is going to sleep.",
+        "Go to bed. Some of you will not need to."
+      ]
+    ],
+    "nightFaithful": [
+      [
+        "Your door is locked.",
+        "Whatever was done today, it is done.",
+        "Sleep, if you can."
+      ],
+      [
+        "Lock it. Good.",
+        "It will not help. The poison is already in somebody."
+      ]
+    ],
+    "conclaveOpen": [
+      [
+        "Traitors.",
+        "Welcome to the turret.",
+        "It is done for today. Now, tomorrow."
+      ],
+      [
+        "Sit down.",
+        "Somebody downstairs is not waking up.",
+        "Let us talk about tomorrow."
+      ]
+    ],
+    "conclaveRecruit": [
+      [
+        "You have lost one of your own.",
+        "You may offer a Faithful a seat at this table.",
+        "They are allowed to say no."
+      ]
+    ],
+    "conclaveAgree": [
+      [
+        "One of you carries it tomorrow.",
+        "Agree on who."
+      ]
+    ],
+    "conclaveDone": [
+      [
+        "It is decided.",
+        "Go back to bed. Look surprised at breakfast."
+      ],
+      [
+        "Done.",
+        "Get some sleep. You will need your face in the morning."
+      ]
+    ],
+    "murderedYou": [
+      [
+        "There is a letter under your door.",
+        "Whatever you were handed today, it was poison.",
+        "You may watch the rest of it. You may not speak to the living."
+      ],
+      [
+        "A knock. Nobody there.",
+        "Just a letter. You were poisoned, and you never felt it."
+      ]
+    ],
+    "recruitOffer": [
+      [
+        "The Traitors have chosen you.",
+        "Join them.",
+        "Or say no, and go back to sleep a Faithful."
+      ]
+    ],
+    "recruitedYou": [
+      [
+        "Welcome to the turret.",
+        "You are a Traitor now."
+      ]
+    ],
+    "breakfastOpen": [
+      [
+        "Good morning.",
+        "Come down for breakfast. Not all of you will."
+      ],
+      [
+        "Breakfast.",
+        "Let us see who made it through the night."
+      ]
+    ],
+    "breakfastWait": [
+      [ "Somebody is late." ],
+      [ "Still a chair empty." ],
+      [ "We wait." ]
+    ],
+    "breakfastAbsent": [
+      [
+        "{name} will not be joining us.",
+        "Somebody handed {name} the poison yesterday. It took in the night.",
+        "{name} was a Faithful."
+      ],
+      [
+        "That chair is staying empty.",
+        "{name} was poisoned. In front of some of you, probably.",
+        "A Faithful."
+      ]
+    ],
+    "breakfastSpared": [
+      [
+        "Everybody is here.",
+        "Somebody was poisoned yesterday.",
+        "You banished them before it could take."
+      ],
+      [
+        "Every chair is full.",
+        "The poison found somebody yesterday. The round table found them first."
+      ]
+    ],
+    "breakfastNobody": [
+      [
+        "Everybody is here.",
+        "Nobody died in the night.",
+        "Which means the poison never left its bottle."
+      ]
+    ],
+    "breakfastSend": [
+      [
+        "Eat.",
+        "Then back to work. Somebody has poison again."
+      ],
+      [
+        "Finish your coffee.",
+        "The castle is waiting. So are they."
+      ]
+    ],
+    "tableOpen": [
+      [
+        "Sit down.",
+        "Today somebody handed one of you poison.",
+        "Who was where? Who was with whom? Talk."
+      ],
+      [
+        "Take your seats.",
+        "You were all in that house today. Somebody saw something.",
+        "Speak."
+      ]
+    ],
+    "inviteQuiet": [
+      [
+        "{name}. You have been very quiet.",
+        "What do you think?"
+      ],
+      [
+        "{name}, we have not heard from you.",
+        "Who are you looking at?"
+      ],
+      [
+        "{name}. Say something. Silence is a choice, too."
+      ]
+    ],
+    "tableClose": [
+      [
+        "That is enough talking.",
+        "Pick up your slates."
+      ],
+      [
+        "I have heard enough.",
+        "Write a name."
+      ]
+    ],
+    "slateIntro": [
+      [
+        "Write a name.",
+        "When I come to you, turn it over and say it out loud."
+      ]
+    ],
+    "tableTie": [
+      [
+        "It is a tie.",
+        "Only {names} can go now. Vote again."
+      ]
+    ],
+    "tableLot": [
+      [
+        "Still tied.",
+        "Then the castle decides. I will draw."
+      ]
+    ],
+    "banishName": [
+      [
+        "{name}.",
+        "The table has spoken. You have been banished."
+      ]
+    ],
+    "banishNameYou": [
+      [
+        "The table has spoken.",
+        "You have been banished."
+      ]
+    ],
+    "lastWords": [
+      [
+        "{name}. Before you go.",
+        "Who are you?"
+      ]
+    ],
+    "lastWordsYou": [
+      [
+        "Before you go.",
+        "Tell them who you are."
+      ]
+    ],
+    "banishedTraitor": [
+      [
+        "{name}...",
+        "was a Traitor."
+      ],
+      [
+        "{name} was a Traitor.",
+        "Well done. Do not get comfortable."
+      ]
+    ],
+    "banishedFaithful": [
+      [
+        "{name}...",
+        "was a Faithful.",
+        "You have sent home an innocent person."
+      ],
+      [
+        "{name} was Faithful.",
+        "And the Traitors thank you for it."
+      ]
+    ],
+    "banishedTraitorYou": [
+      [
+        "You were a Traitor.",
+        "And now everybody knows."
+      ]
+    ],
+    "banishedFaithfulYou": [
+      [
+        "You were a Faithful.",
+        "And they sent you home anyway."
+      ]
+    ],
+    "tableNight": [
+      [
+        "Go to bed.",
+        "The poison is already in somebody."
+      ],
+      [
+        "That is the table.",
+        "Sleep well. Some of you."
+      ]
+    ],
+    "tableToFire": [
+      [
+        "{count} of you left.",
+        "Tonight we go to the fire."
+      ]
+    ],
+    "traitorsGone": [
+      [
+        "That was the last Traitor in this castle.",
+        "It is over."
       ]
     ],
     "sendOff": [
       [
+        "Go."
+      ],
+      [
         "Off you go."
+      ]
+    ],
+    "tasksFirst": [
+      [
+        "Three minutes. Every job you finish is five hundred pounds.",
+        "Somebody in this house is carrying poison.",
+        "When they hand it to you, you will not feel a thing."
+      ],
+      [
+        "The castle is yours for three minutes. Jobs on your list, money in the pot.",
+        "And watch who stands too close to whom."
+      ]
+    ],
+    "tasksOpen": [
+      [
+        "Another day. {count} of you.",
+        "The jobs are waiting. So is the poison."
+      ],
+      [
+        "Morning has been and gone.",
+        "Three minutes. Work, and watch."
+      ],
+      [
+        "Back to work.",
+        "Somebody is carrying it again."
+      ]
+    ],
+    "poisonYou": [
+      [
+        "It is in your pocket.",
+        "Stand beside a Faithful and hold still. Nobody will know.",
+        "Before the bell."
+      ],
+      [
+        "The poison is yours today.",
+        "Pick your moment. Pick your Faithful.",
+        "Do it before the bell, or I will."
+      ]
+    ],
+    "poisonPartner": [
+      [
+        "{name} has the poison today.",
+        "Keep them covered."
+      ],
+      [
+        "Today it is {name}'s turn.",
+        "Make sure nobody is watching."
       ]
     ],
     /* The open table. She says out loud that there are no turns,
@@ -174,8 +506,31 @@ const ClaudiaLines = (() => {
     ],
     "fireRules": [
       [
-        "One of you is a Traitor.",
-        "You name somebody. The fire says what they were."
+        "There may still be a Traitor sitting at this fire.",
+        "First, you decide whether to end the game. It must be unanimous.",
+        "If it is not, you banish again."
+      ]
+    ],
+    "fireOfTruth": [
+      [
+        "End the game. Or banish again.",
+        "Put it in the pouch."
+      ],
+      [
+        "Are you done?",
+        "Or is there still a Traitor here?"
+      ]
+    ],
+    "decideEnd": [
+      [
+        "It is unanimous.",
+        "The game is over."
+      ]
+    ],
+    "decideBanish": [
+      [
+        "Not unanimous.",
+        "Somebody here is not sure. Then we banish again."
       ]
     ],
     "fireWarn": [
@@ -329,7 +684,7 @@ const ClaudiaLines = (() => {
     ],
     "wonFaithful": [
       [
-        "No Traitor left by this fire.",
+        "No Traitor left in this castle.",
         "{pot}. Yours."
       ]
     ],
@@ -349,6 +704,12 @@ const ClaudiaLines = (() => {
       [
         "You ended the night with a Traitor at your side.",
         "They take the pot. You take the drive home."
+      ]
+    ],
+    "lostOut": [
+      [
+        "You did not make it to the end.",
+        "The Faithfuls who did take {pot} between them."
       ]
     ],
     "lostBurned": [
@@ -379,7 +740,7 @@ const ClaudiaLines = (() => {
   const TABLE = [
     { id: 't-quiet', text: '{name} has been very quiet. That is usually something.', accuse: true },
     { id: 't-keen', text: 'I think {name} was a bit too keen to agree with everyone out there.', accuse: true },
-    { id: 't-watch', text: 'I watched {name} the whole way through that mission. I did not like what I saw.', accuse: true },
+    { id: 't-watch', text: 'I watched {name} all day in that house. I did not like what I saw.', accuse: true },
     { id: 't-name', text: 'If I had to say a name right now it would be {name}. I am sorry.', accuse: true },
     { id: 't-trust', text: 'I trust {name}. I do not know why, and that worries me.', accuse: true },
     { id: 't-late', text: '{name} was the last one to say anything last time. I noticed.', accuse: true },
@@ -398,7 +759,7 @@ const ClaudiaLines = (() => {
     { id: 'y-accuse', label: 'Point at somebody',
       text: 'I have been watching {name}, and I do not believe a word of it.' },
     { id: 'y-hold', label: 'Give nothing away',
-      text: 'I am not naming anyone yet. I want to see the second mission first.' },
+      text: 'I am not naming anyone yet. I want to see who goes where tomorrow.' },
     { id: 'y-open', label: 'Say you are lost',
       text: 'I genuinely do not know. I would rather say that than pretend.' },
   ];
@@ -432,5 +793,17 @@ const ClaudiaLines = (() => {
 
   const has = (setName) => !!SETS[setName];
 
-  return { SETS, TABLE, YOU, beats, line, fill, has };
+  /* What only one screen may hear. Everything else Claudia says, she
+     says to the room — which matters once she is a live AI voice, since
+     then the room is exactly who hears it. */
+  const PRIVATE = new Set(['roleTraitor', 'roleFaithful', 'traitorPartner', 'poisonYou', 'poisonPartner',
+    'murderedYou', 'recruitOffer', 'recruitedYou', 'conclaveOpen', 'conclaveAgree',
+    'conclaveRecruit', 'conclaveDone', 'nightFaithful']);
+  /* A "You" twin is the second-person version of a public line: the room
+     hears the third-person one, and the person it is about reads theirs. */
+  const baseOf = (setName) => (setName && setName.endsWith('You') && SETS[setName.slice(0, -3)]
+    ? setName.slice(0, -3) : setName);
+  const isPublic = (setName) => !!setName && !PRIVATE.has(setName) && !PRIVATE.has(baseOf(setName));
+
+  return { SETS, TABLE, YOU, beats, line, fill, has, isPublic, baseOf, PRIVATE };
 })();
