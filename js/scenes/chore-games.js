@@ -88,7 +88,7 @@ const ChoreGames = (() => {
     const rng = U.makeRng(((task.seed || 7) >>> 0) || 7);
     const meta = (typeof Chores !== 'undefined' && Chores.TYPES[type]) || { title: type };
     const root = el('div', 'cg-wrap');
-    const panel = el('div', 'cg-panel cg-' + type);
+    const panel = el('div', 'cg-panel cg-game-' + type);
     const head = el('div', 'cg-head');
     head.appendChild(el('div', 'cg-title', esc(meta.title)));
     const shut = el('button', 'cg-close', '✕');
@@ -424,7 +424,7 @@ const ChoreGames = (() => {
       body.append(target, opts);
       let round = 0;
       const next = () => {
-        hint.textContent = 'The clan’s tartan is on the left. Find it. (' + (round + 1) + ' of 3)';
+        hint.textContent = 'The clan’s tartan is above. Find it. (' + (round + 1) + ' of 3)';
         const want = make();
         target.setAttribute('style', css(want));
         const choices = [want];
@@ -524,7 +524,8 @@ const ChoreGames = (() => {
           if (bat.gone) continue;
           const x = 160 + Math.sin(t * bat.sp + bat.ph) * 120 + Math.sin(t * 2.3 * bat.sp + bat.ph * 2) * 22;
           const y = 100 + Math.cos(t * bat.sp * 1.3 + bat.ph) * 62;
-          bat.b.style.transform = 'translate(' + x.toFixed(0) + 'px,' + y.toFixed(0) + 'px)';
+          const px = Math.max(20, Math.min(box.clientWidth - 20, x * box.clientWidth / 340));
+          bat.b.style.transform = 'translate(' + px.toFixed(0) + 'px,' + y.toFixed(0) + 'px)';
         }
         raf = requestAnimationFrame(step);
       };
