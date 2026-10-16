@@ -68,8 +68,13 @@ const Session = (() => {
   const MAX_DAYS = 8;              // a guard, never a plan: the table count decides
   const FLOOR_SECONDS = 30;        // one turn, when the floor goes round
   const LAST_WORDS_SECONDS = 12;   // the banished, before their pouch
-  const TASK_SECONDS = 180;        // the day loose in the castle
-  const BELL_AT = 30;              // seconds left when the bell goes
+  const TASK_SECONDS = 180;        // the day loose in the castle, unless the host shortened it
+  const TASK_MIN = 30;             // the shortest day the host may set
+  const BELL_AT = 30;              // seconds left when the bell goes (a third of a short day)
+  const clampTask = (v) => {
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) ? Math.max(TASK_MIN, Math.min(TASK_SECONDS, n)) : TASK_SECONDS;
+  };
   const NOTE_EVERY = 4;            // seconds between looks round the room
   const NIGHT_SECONDS = 20;        // every night lasts exactly this, whatever was decided
   const PICK_SECONDS = 12;         // the Traitors have this long (from lights out) to agree
@@ -239,6 +244,7 @@ const Session = (() => {
       phase: 'hill',            // hill | tasks | table | night | breakfast | finale | verdict
       parts: parts && parts.length ? parts.slice() : PARTS.slice(),
       ai: opts && opts.ai ? { claudia: !!opts.ai.claudia } : null,
+      taskSeconds: clampTask(opts && opts.taskSeconds === undefined ? TASK_SECONDS : opts && opts.taskSeconds),
       dealt: players.length ? Math.min(traitorCount(players.length), players.length - 1) : 0,  // how many were dealt, which the room is told
       beat: 0,                  // shared scene beat, for when scenes sync
       day: 0,
@@ -537,8 +543,10 @@ const Session = (() => {
     const now = Date.now();
     const done = {};
     for (const p of alive()) done[p.id] = 0;
-    state.chores = { day: state.day, startedAt: now, endsAt: now + TASK_SECONDS * 1000,
-                     seconds: TASK_SECONDS, bell: false, done, closed: false };
+    const seconds = clampTask(state.taskSeconds);
+    state.chores = { day: state.day, startedAt: now, endsAt: now + seconds * 1000,
+                     seconds, bellAt: Math.min(BELL_AT, Math.floor(seconds / 3)),
+                     bell: false, done, closed: false };
     setPhase('tasks', true);
     armTasks();
     emit('private');
@@ -554,7 +562,7 @@ const Session = (() => {
     const now = Date.now();
     let moved = false;
     lookRound();
-    if (!c.bell && now >= c.endsAt - BELL_AT * 1000) {
+    if (!c.bell && now >= c.endsAt - (c.bellAt || BELL_AT) * 1000) {
       c.bell = true;
       emit('bell', { left: Math.max(0, Math.round((c.endsAt - now) / 1000)) });
       moved = true;
@@ -737,6 +745,14 @@ const Session = (() => {
     const next = state.day + 1;
     if (!bigNight() || alive().length <= FINALE_AT || next >= MAX_DAYS) return beginFinale();
     return beginDay(next);
+  }
+
+  /* Whether breakfast is the last morning: the next thing is the fire, not
+     another day's work. The same test `afterBreakfast` makes. */
+  function finaleNext() {
+    if (!state) return false;
+    return traitorsAlive().length === 0 || !bigNight() || alive().length <= FINALE_AT
+      || state.day + 1 >= MAX_DAYS;
   }
 
   function beginFinale() {
@@ -1603,7 +1619,8 @@ const Session = (() => {
       if (!state) return null;
       return JSON.parse(JSON.stringify(state));
     },
-    SEATS, MIN_PLAYERS, FINALE_AT, NIGHT_SECONDS, PICK_SECONDS, TASK_SECONDS, BELL_AT,
+    finaleNext,
+    SEATS, MIN_PLAYERS, FINALE_AT, NIGHT_SECONDS, PICK_SECONDS, TASK_SECONDS, TASK_MIN, BELL_AT,
     RECRUIT_SECONDS, LAST_WORDS_SECONDS, FLOOR_SECONDS,
     tableSeconds, traitorCount,
 

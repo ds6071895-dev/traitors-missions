@@ -103,6 +103,7 @@ const Lobby = (() => {
       start.disabled = !enough || n > Party.MAX || aiWaiting || Party.reconnecting;
       const opts = el('lobby-opts');
       if (opts) opts.hidden = !Party.isHost;
+      paintTask();
       if (Party.isHost && typeof AIPlayers !== 'undefined') AIPlayers.paintPanel(el('lobby-ai'), list.length);
     }
 
@@ -208,11 +209,28 @@ const Lobby = (() => {
     const players = list.map(p => ({ id: p.id, name: p.name, look: p.look }))
       .concat(ai.map(b => ({ id: b.id, name: b.name, look: b.look, bot: true, voice: b.voice })));
     const aiOn = { claudia: !!(typeof AIPlayers !== 'undefined' && AIPlayers.claudia) };
-    Party.post('go', { seed, players, ai: aiOn });
-    launch(seed, players, aiOn);
+    const taskSeconds = taskTime();
+    Party.post('go', { seed, players, ai: aiOn, taskSeconds });
+    launch(seed, players, aiOn, taskSeconds);
   }
 
-  function launch(seed, players, aiOn) {
+  /* How long the day in the castle lasts: the host's to set, never under
+     thirty seconds, and remembered on this machine. */
+  function taskTime() {
+    const n = Math.round(Number(GameState.settings.taskSeconds));
+    return Number.isFinite(n) ? Math.max(Session.TASK_MIN, Math.min(Session.TASK_SECONDS, n)) : Session.TASK_SECONDS;
+  }
+  function paintTask() {
+    const r = el('lobby-task'), out = el('lobby-task-out');
+    if (!r || !out) return;
+    const n = taskTime();
+    r.min = String(Session.TASK_MIN);
+    r.max = String(Session.TASK_SECONDS);
+    if (document.activeElement !== r) r.value = String(n);
+    out.textContent = Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0');
+  }
+
+  function launch(seed, players, aiOn, taskSeconds) {
     const mine = Party.selfId();
     const seated = players.map(p => Object.assign({}, p, { local: p.id === mine }));
     const launchRoom = Party.room;
@@ -221,7 +239,7 @@ const Lobby = (() => {
     Screens.transition(() => {
       if (Party.room !== launchRoom || !Party.connected) return;
       Game.enterShow();
-      Show.beginParty({ seed, players: seated, host: Party.isHost, ai: aiOn || null });
+      Show.beginParty({ seed, players: seated, host: Party.isHost, ai: aiOn || null, taskSeconds });
     }, 420);
   }
 
@@ -253,6 +271,12 @@ const Lobby = (() => {
     el('lobby-name').addEventListener('change', () => profile());
     el('lobby-name').addEventListener('blur', () => profile());
 
+    const task = el('lobby-task');
+    if (task) task.addEventListener('input', () => {
+      GameState.settings.taskSeconds = Number(task.value);
+      GameState.save();
+      paintTask();
+    });
     el('lobby-host').onclick = host;
     el('lobby-join').onclick = join;
     el('lobby-leave').onclick = leave;
@@ -281,7 +305,7 @@ const Lobby = (() => {
     Party.on('go', (data) => {
       if (Party.isHost || started || !data) return;
       started = true;
-      launch(data.seed, data.players || [], data.ai || null);
+      launch(data.seed, data.players || [], data.ai || null, data.taskSeconds);
     });
     VoiceChat.on('state', paint);
 

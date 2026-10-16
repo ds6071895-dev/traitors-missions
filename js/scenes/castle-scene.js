@@ -276,10 +276,10 @@ class CastleScene {
       Scenes.Cine.card({ kicker: voter.local ? 'Your slate' : voter.name + '’s slate',
                          title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'bad' });
       if (this.music) this.music.stinger('slate-turn', { n: said++ });
-      const voice = { pitch: 0.82 + (voter.seat % 4) * 0.1, rate: 0.9 + (voter.seat % 3) * 0.06 };
+      // nobody announces their own vote: Claudia reads each slate out
       await Scenes.run([{
-        line: { text: 'My vote is for ' + (target.local ? 'you' : target.name) + '.',
-                speaker: voter.name, who: voter.id, pitch: voice.pitch, rate: voice.rate },
+        line: { text: (voter.local ? 'You vote' : voter.name + ' votes') + ' for '
+                      + (target.local ? 'you' : target.name) + '.' },
         hold: 0.2,
       }], this);
       if (!this._alive) return;

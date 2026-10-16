@@ -128,7 +128,8 @@ class BreakfastScene extends CastleScene {
     if (!this._alive) return;
     void s;
 
-    await this._say('breakfastSend', {}, null);
+    // the last morning does not send anybody back to work: the fire is next
+    await this._say(Session.finaleNext() ? 'breakfastSendFinale' : 'breakfastSend', {}, null);
     if (!this._alive) return;
     await Scenes.barrier('breakfast-done-' + Session.state.day);
     if (Session.isHost) Net.send({ type: 'advance' });

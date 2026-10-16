@@ -150,7 +150,12 @@ class TasksScene {
   async _intro() {
     const s = Session.state;
     const say = (set, vars) => this._say(set, vars);
-    await say(s.day === 0 ? 'tasksFirst' : 'tasksOpen', { count: Session.alive().length });
+    const secs = (s.chores && s.chores.seconds) || s.taskSeconds || 180;
+    const words = secs % 60 === 0
+      ? ['one', 'two', 'three'][secs / 60 - 1] + (secs === 60 ? ' minute' : ' minutes')
+      : secs === 90 ? 'a minute and a half' : ({ 30: 'thirty seconds', 45: 'forty-five seconds', 120: 'two minutes' }[secs] || secs + ' seconds');
+    await say(s.day === 0 ? 'tasksFirst' : 'tasksOpen',
+              { count: Session.alive().length, time: words, Time: words.charAt(0).toUpperCase() + words.slice(1) });
     if (!this._alive) return;
     const v = Session.myPrivate() || {};
     if (v.role === 'traitor' && v.poison && !this._dead) {
@@ -188,7 +193,8 @@ class TasksScene {
       AudioBus.play('estate-door');
       if (this.music && this.music.stinger) this.music.stinger('bell', { at: 'beat' });
       if (this.music && this.music.section) this.music.section('bell', { at: 'bar', glide: 1 });
-      Scenes.Cine.card({ kicker: 'The bell', title: 'THIRTY SECONDS', tone: 'bad' });
+      const bl = Session.state.chores && Session.state.chores.bellAt || Session.BELL_AT;
+      Scenes.Cine.card({ kicker: 'The bell', title: (bl === 30 ? 'THIRTY' : String(bl)) + ' SECONDS', tone: 'bad' });
       setTimeout(() => { if (this._alive) Scenes.Cine.card(null); }, 2200);
     }
     if (e.type === 'chore' && e.playerId === this._meId) this._popup('+' + U.money(Chores.VALUE));
@@ -288,7 +294,7 @@ class TasksScene {
     if (!d) return;
     const left = c ? Math.max(0, Math.ceil(((c.closed ? Date.now() : c.endsAt) - Date.now()) / 1000)) : 0;
     d.clock.textContent = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
-    d.clockBox.classList.toggle('bell', !!(c && left <= Session.BELL_AT));
+    d.clockBox.classList.toggle('bell', !!(c && left <= (c.bellAt || Session.BELL_AT)));
     d.clockRing.style.setProperty('--p', c ? U.clamp(left / (c.seconds || 180), 0, 1).toFixed(3) : '0');
     d.pot.textContent = U.money(s.pot || 0);
     if (!this._dirty) return;
@@ -492,8 +498,8 @@ class TasksScene {
       const q = CastleNet.get(p.id);
       if (!q) { VoiceChat.setVolume(p.id, 0.5); continue; }
       const d = Math.hypot(q.x - this._myLocal.x, q.z - this._myLocal.z);
-      let v = U.clamp(1 - (d - 3) / 16, 0.06, 1);
-      if (q.room && this._myRoom && q.room !== this._myRoom) v *= 0.45;
+      let v = U.clamp(1 - (d - 4) / 24, 0.15, 1);
+      if (q.room && this._myRoom && q.room !== this._myRoom) v *= 0.6;
       VoiceChat.setVolume(p.id, v);
     }
   }

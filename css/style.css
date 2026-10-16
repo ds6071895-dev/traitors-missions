@@ -1394,6 +1394,11 @@ select.nav-on{outline-offset:2px}
   border-top:1px solid rgba(255,255,255,.08)}
 .lr-opt{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); cursor:pointer}
 .lr-opt small{opacity:.6}
+.lr-task{display:grid; grid-template-columns:1fr minmax(90px,1.2fr) 38px; align-items:center; gap:10px; font-size:13px; color:var(--muted)}
+.lr-task b{display:block; color:var(--ink, #f4efe6); font-weight:700}
+.lr-task small{display:block; font-size:11px; opacity:.65}
+.lr-task input{accent-color:var(--gold, #f2c14e); width:100%}
+.lr-task output{font-variant-numeric:tabular-nums; text-align:right; color:var(--gold, #f2c14e); font-weight:700}
 .lr-opt input{accent-color:var(--gold, #f2c14e)}
 .lr-actions{display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
 

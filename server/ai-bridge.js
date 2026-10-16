@@ -316,24 +316,35 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
     return false;
   }
 
+  /* Deepgram answers a busy moment with a 429 or a 5xx, and a socket can
+     drop mid-request. None of that should reach the browser as "read it
+     yourself": ask again, a few times, before giving up. */
   async function fetchLine(s, text) {
     const q = new URLSearchParams({ model: CLAUDIA_VOICE, encoding: 'linear16', sample_rate: '24000', container: 'none' });
-    const res = await fetchImpl(speakUrl + '?' + q, {
-      method: 'POST',
-      headers: { Authorization: 'Token ' + s.key, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-    if (!res || !res.ok) throw new Error('Deepgram speak ' + (res ? res.status : 'failed'));
-    return Buffer.from(await res.arrayBuffer());
+    let last = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt) await new Promise(r => setTimeout(r, 250 * attempt * attempt));
+      try {
+        const res = await fetchImpl(speakUrl + '?' + q, {
+          method: 'POST',
+          headers: { Authorization: 'Token ' + (s.key || process.env.DEEPGRAM_API_KEY), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        if (res && res.ok) return Buffer.from(await res.arrayBuffer());
+        last = new Error('Deepgram speak ' + (res ? res.status : 'failed'));
+        if (res && res.status >= 400 && res.status < 500 && res.status !== 429 && res.status !== 408) break;
+      } catch (e) { last = e; }
+    }
+    throw last || new Error('Deepgram speak failed');
   }
 
   function speak(room, memberId, msg) {
     const s = rooms.get(room.code);
     const line = str(msg.line, 40);
-    const text = str(msg.text, 600).replace(/\s+/g, ' ').trim();
+    const text = str(msg.text, 1800).replace(/\s+/g, ' ').trim();
     const reply = (m) => { try { toMember(room, memberId, Object.assign({ type: 'claudia', line }, m)); } catch (e) {} };
     if (!text) return reply({ op: 'done' });
-    if (!s || !s.key || !fetchImpl) return reply({ op: 'error', message: 'No Deepgram key.' });
+    if (!s || !(s.key || process.env.DEEPGRAM_API_KEY) || !fetchImpl) return reply({ op: 'error', message: 'No Deepgram key.' });
     const r = readerOf(s, memberId);
     if (overBudget(r, text.length)) return reply({ op: 'error', message: 'Too much speech this minute.' });
     const serial = r.serial;

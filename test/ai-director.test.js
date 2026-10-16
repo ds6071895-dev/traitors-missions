@@ -191,10 +191,36 @@ test('nobody talks over Claudia, and one already talking gives way', () => {
   eq(W.asked.length, 0, 'they wait while she speaks');
   W.ctx.Voice.speaking = false;
   W.step(1.5);
+  eq(W.asked.length, 0, 'and a few seconds after she stops, not the instant she does');
+  W.step(3);
   eq(W.asked.length, 1, 'then they answer');
   W.ctx.Voice.speaking = true;
   W.step(1);
   ok(!W.speaking.has(W.asked[0].id), 'and an AI mid-sentence stops for her');
+});
+
+test('the silent gaps inside her ceremony are still hers', () => {
+  const W = world({ scenes: true });
+  W.ctx.Scenes = { performing: true };
+  W.say('p1', 'Has anybody seen the turret?');
+  W.step(6);
+  eq(W.asked.length, 0, 'between two of her sentences nobody cuts in');
+  W.ctx.Scenes.performing = false;
+  W.step(5);
+  eq(W.asked.length, 1, 'they answer once the ceremony and its pause are over');
+});
+
+test('at the round table nobody starts talking before she has opened the floor', () => {
+  const W = world();
+  W.phase = 'table';
+  W.ctx.Session.state.finale = null;          // no ballot cues to muddy the water
+  W.say('p1', 'Has anybody seen the turret?');
+  W.step(8);
+  ok(!W.asked.some(a => /Ana just said/.test(a.text)), 'the table is not open yet');
+  W.ctx.Session.state.floor = { all: true, done: false, ready: [], endsAt: Date.now() + 90000 };
+  W.say('p1', 'Has anybody seen the turret?');
+  W.step(6);
+  ok(W.asked.some(a => /Ana just said/.test(a.text)), 'once she has opened it, they answer');
 });
 
 test('a refused turn gives the room back instead of holding it for half a minute', () => {

@@ -561,4 +561,27 @@ test('a tied naming is voted again between the tied', () => {
   eq(ctx.Session.alive().length, 5, 'nobody was banished on a tie');
 });
 
+test('the host can shorten the day, but never below thirty seconds', () => {
+  for (const [ask, want] of [[undefined, 180], [90, 90], [30, 30], [5, 30], [-1, 30], [9999, 180], ['x', 180]]) {
+    const ctx = fresh();
+    start(ctx, FIVE, 7, { taskSeconds: ask });
+    toTasks(ctx);
+    const c = ctx.Session.state.chores;
+    eq(c.seconds, want, 'asked for ' + ask);
+    eq(c.endsAt - c.startedAt, want * 1000, 'and the clock agrees');
+  }
+  const ctx = fresh();
+  start(ctx, FIVE, 7, { taskSeconds: 30 });
+  toTasks(ctx);
+  ok(ctx.Session.state.chores.bellAt < 30, 'the bell does not ring the moment a short day starts');
+});
+
+test('breakfast knows when the next thing is the fire', () => {
+  const ctx = fresh();
+  start(ctx, SEVEN, 7);
+  ok(!ctx.Session.finaleNext(), 'a full house goes back to work');
+  ctx.Session.state.players.slice(0, 4).forEach(p => { p.alive = false; });
+  ok(ctx.Session.finaleNext(), 'four or fewer goes to the fire');
+});
+
 H.report();

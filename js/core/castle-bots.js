@@ -305,7 +305,12 @@ const CastleBots = (() => {
 
   /* Somebody is going to see eventually. Early on, nobody may; with a
      minute to go, one may; at the bell, it does not matter any more. */
-  const allowedEyes = (t) => (t < 35 ? 9 : t < 70 ? 1 : 0);
+  const allowedEyes = (t) => {
+    // the thresholds were written for a three-minute day; a shorter one squeezes them
+    const c = Session.state && Session.state.chores;
+    const k = Math.max(0.3, Math.min(1, ((c && c.seconds) || 180) / 180));
+    return t < 35 * k ? 9 : t < 70 * k ? 1 : 0;
+  };
 
   function chase(b, dt, t) {
     const p = b.plan;

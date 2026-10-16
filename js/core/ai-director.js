@@ -272,7 +272,7 @@ const AIDirector = (() => {
         : 'SECRET: You are FAITHFUL. Win by finding and banishing every Traitor. You do not know who they are. Every day a Traitor slips poison to somebody by standing next to them and handing something over — but Faithfuls hand each other letters for their jobs the same way, so a hand-over is a lead, not proof. Reason from what you saw, who was alone with whom, how many jobs people did, who defends whom, and the votes.',
       dead ? 'You are OUT of the game now: stay silent unless spoken to.' : '',
       '',
-      'HOW THE GAME WORKS: by day everybody walks the castle for three minutes doing little jobs that pay into the pot; one Traitor carries poison and must slip it to a Faithful before the bell or be exposed. The poisoned person dies in the night and is found missing at breakfast. At the round table everyone discusses then votes to banish one person, who reveals if they were Faithful or Traitor. When four or fewer remain, the Fire of Truth: everyone votes to END the game or BANISH AGAIN; ending must be unanimous. If any Traitor is left at the end, the Traitors take all the money.',
+      'HOW THE GAME WORKS: by day everybody walks the castle for ' + taskTime() + ' doing little jobs that pay into the pot; one Traitor carries poison and must slip it to a Faithful before the bell or be exposed. The poisoned person dies in the night and is found missing at breakfast. At the round table everyone discusses then votes to banish one person, who reveals if they were Faithful or Traitor. When four or fewer remain, the Fire of Truth: everyone votes to END the game or BANISH AGAIN; ending must be unanimous. If any Traitor is left at the end, the Traitors take all the money.',
       '',
       'WHAT EVERYBODY KNOWS:', publicPicture(),
       '',
@@ -287,7 +287,7 @@ const AIDirector = (() => {
       '',
       'RECENT CONVERSATION:', transcriptFor(b.id, traitor),
       '',
-      'TOOLS: Only call vote_banish, fire_decision, turret_choice or recruit_answer when the game asks you to decide. When you call a tool, do not read your choice out loud unless asked.',
+      'TOOLS: Only call vote_banish, fire_decision, turret_choice or recruit_answer when the game asks you to decide. When you call a tool, do not read your choice out loud unless asked. Never announce who you voted for: Claudia reads every vote out herself at the end, and you may argue your case but keep your slate to yourself until then.',
     ].filter(x => x !== '').join('\n');
   }
 
@@ -342,14 +342,18 @@ const AIDirector = (() => {
      By day the house is big and made of stone. An AI hears what was
      said near it, and nothing from three rooms away — so a word in the
      turret stays in the turret, exactly as it does for the people. */
-  const EARSHOT = 11;
+  const EARSHOT = 14;
+  function taskTime() {
+    const n = (Session.state && Session.state.taskSeconds) || 180;
+    return n % 60 === 0 ? (n / 60) + (n === 60 ? ' minute' : ' minutes') : n + ' seconds';
+  }
   function inEarshot(aId, bId) {
     const s = Session.state;
     if (!s || s.phase !== 'tasks' || typeof CastleNet === 'undefined') return true;
     const a = CastleNet.get(aId), b = CastleNet.get(bId);
     if (!a || !b) return true;
     const d = Math.hypot(a.x - b.x, a.z - b.z);
-    return d <= EARSHOT && (a.room === b.room || d <= 5);
+    return d <= EARSHOT && (a.room === b.room || d <= 8);
   }
   function earsOf(id) {
     const s = Session.state;
@@ -699,14 +703,33 @@ const AIDirector = (() => {
   let thread = null;     // { origin, said: [{ id, name, text }], left, waiting, nextAt, used: Set }
   let lastBanter = 0;
 
+  /* Claudia has the room while she is speaking, in the breath after she
+     has, and anywhere between two sentences of a ceremony she is still in
+     the middle of (the cameras and cards between lines are silent). */
+  const AFTER_CLAUDIA_MS = 3500;     // a few seconds of room after she stops
+  let claudiaLastBusy = 0;
   function claudiaBusy() {
-    return (claudiaLive && AI.speaking(AI.CLAUDIA)) || (typeof Voice !== 'undefined' && !!Voice.speaking);
+    const now = Date.now();
+    const talking = (claudiaLive && AI.speaking(AI.CLAUDIA))
+      || (typeof Voice !== 'undefined' && !!Voice.speaking)
+      || (typeof Scenes !== 'undefined' && !!Scenes.performing);
+    if (talking) claudiaLastBusy = now;
+    return talking || now - claudiaLastBusy < AFTER_CLAUDIA_MS;
+  }
+
+  /* The round table and the fire open with her: until the floor has been
+     opened to the room nobody there starts a conversation. */
+  let tableOpened = false;
+  function tableNotOpen(s) {
+    if (s.phase !== 'table' && s.phase !== 'finale') return false;
+    if (s.floor && !s.floor.done) tableOpened = true;
+    return !tableOpened;
   }
 
   function chatTick(s, quiet) {
     if (speaking) return;
     // Claudia has the room; nobody talks over her
-    if (claudiaBusy()) return;
+    if (claudiaBusy() || tableNotOpen(s)) return;
     if (thread && !thread.waiting) return followUp(s, quiet);
     const h = heardLast;
     if (!h) return s.floor && s.floor.all ? openTurn(s, quiet) : banter(s, quiet);
@@ -1028,6 +1051,7 @@ const AIDirector = (() => {
       if (speaking) { AI.hush(speaking.id, true); speaking = null; }
       heardLast = null;
       thread = null;
+      tableOpened = false;
       for (const st of state.values()) st.said = 0;
       const s = Session.state;
       AI.listen(s.players.filter(p => !p.bot && p.alive).map(p => ({ id: p.id, name: p.name })));

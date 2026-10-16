@@ -89,7 +89,18 @@ const Scenes = (() => {
 
   /* ---------------- the beat runner ---------------- */
 
+  /* How many beat lists are mid-ceremony right now. A list parked on an
+     `until` is waiting for the room, not performing, so it does not
+     count. This is what the AI players ask before they speak: Claudia's
+     pauses between sentences are silent, and a gate that only watched for
+     her voice let them in. */
+  let performing = 0;
   async function run(beats, scene) {
+    performing++;
+    try { return await runBeats(beats, scene); } finally { performing--; }
+  }
+
+  async function runBeats(beats, scene) {
     const mine = token;
     for (const raw of beats) {
       if (mine !== token) return false;
@@ -122,7 +133,9 @@ const Scenes = (() => {
       if (b.line && b.keep !== true) Voice.clear();
       if (b.until) {
         // park here until something outside says otherwise
-        const ok = await b.until();
+        performing--;
+        let ok;
+        try { ok = await b.until(); } finally { performing++; }
         if (mine !== token || ok === false) return false;
       }
     }
@@ -255,5 +268,6 @@ const Scenes = (() => {
 
   return { play, stop, run, wait, barrier, Cine,
            get active() { return active; },
-           get running() { return !!active; } };
+           get running() { return !!active; },
+           get performing() { return performing > 0; } };
 })();

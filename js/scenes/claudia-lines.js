@@ -98,28 +98,23 @@ const ClaudiaLines = (() => {
     ],
     "welcome": [
       [
-        "Welcome to the Highlands.",
         "Welcome to my castle."
       ],
       [
-        "{count} of you. One pot. And a castle full of secrets."
+        "{count} of you. One pot. A castle full of secrets."
       ],
       [
-        "You made it. Look at that view.",
-        "Enjoy it. It is the last easy thing you will do."
+        "You made it. Enjoy the view. It is the last easy thing you will do."
       ]
     ],
     "theRules": [
       [
-        "Here is how it works.",
-        "By day, you work the castle. Every job you finish puts money in the pot.",
-        "But the Traitors carry poison. And they use it in broad daylight, right under your noses.",
-        "At the round table, you banish the one you think did it."
+        "By day, you work. Every job fills the pot.",
+        "But a Traitor slips poison in plain sight. At the round table, you banish who you think did it."
       ],
       [
-        "Every day, the castle needs work, and the work pays.",
-        "Every day, a Traitor slips poison to one of you, in plain sight.",
-        "Watch each other. Then decide who goes."
+        "Work the castle. Fill the pot.",
+        "A Traitor will poison one of you in plain sight. Watch each other, then decide who goes."
       ]
     ],
     "roleIntro": [
@@ -295,6 +290,16 @@ const ClaudiaLines = (() => {
         "Which means the poison never left its bottle."
       ]
     ],
+    "breakfastSendFinale": [
+      [
+        "Eat.",
+        "There is no more work. Tonight we go to the Fire of Truth."
+      ],
+      [
+        "Finish your coffee.",
+        "No more jobs. Next, you face the fire."
+      ]
+    ],
     "breakfastSend": [
       [
         "Eat.",
@@ -447,12 +452,12 @@ const ClaudiaLines = (() => {
     ],
     "tasksFirst": [
       [
-        "Three minutes. Every job you finish is five hundred pounds.",
+        "{Time}. Every job you finish is five hundred pounds.",
         "Somebody in this house is carrying poison.",
         "When they hand it to you, you will not feel a thing."
       ],
       [
-        "The castle is yours for three minutes. Jobs on your list, money in the pot.",
+        "The castle is yours for {time}. Jobs on your list, money in the pot.",
         "And watch who stands too close to whom."
       ]
     ],
@@ -463,7 +468,7 @@ const ClaudiaLines = (() => {
       ],
       [
         "Morning has been and gone.",
-        "Three minutes. Work, and watch."
+        "{Time}. Work, and watch."
       ],
       [
         "Back to work.",

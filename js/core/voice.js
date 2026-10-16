@@ -151,6 +151,7 @@ const Voice = (() => {
 
   function settle(t, resolve) {
     if (t !== token || !live) return;
+    lastSpoke.at = Date.now();
     const l = live;
     live = null;
     if (l.timer) clearTimeout(l.timer);
@@ -187,6 +188,7 @@ const Voice = (() => {
   }
   const canRemote = () => remote && typeof Party !== 'undefined' && Party.connected
     && Party.serverRoom && typeof Party.claudia === 'function';
+  const lastSpoke = { at: 0 };
   function hushRemote() {
     for (const fn of remoteWaits.values()) fn({ ok: false, hushed: true });
     remoteWaits.clear();
@@ -230,20 +232,35 @@ const Voice = (() => {
          speech synthesis at all. */
       const duration = readTime(body, opts.rate === undefined ? 0.94 : opts.rate);
 
-      if (claudia && !opts.silent && !muted && canRemote()) {
+      /* With an AI Claudia the browser's voice is never used for her, not
+         even for a line the server stumbled over: the line is asked for
+         again (the room may be reconnecting, or Deepgram busy), and if it
+         still will not come it is held as subtitles for its reading time.
+         A robot voice halfway through a night of Deepgram is worse than a
+         line read in silence. */
+      if (claudia && remote && !opts.silent && !muted) {
         if (typeof Music !== 'undefined' && Music.duckAll) Music.duckAll(0.45, 0.6);
         let clock = false, heard = false;
-        live.timer = setTimeout(done, duration * 1.6 + 2500);
+        live.timer = setTimeout(done, duration * 1.6 + 6000);
         setTimeout(() => { clock = true; if (heard) done(); }, duration);
-        askRemote(body).then((r) => {
+        const attempt = (n) => {
           if (t !== token || !live) return;
-          if (r.ok) { heard = true; if (clock) done(); return; }
-          if (r.hushed) return;
-          // the server could not read it: this one line in the browser's voice
-          console.warn('Claudia line fell back to the browser voice:', r.message);
-          if (live.timer) clearTimeout(live.timer);
-          speakLocal(body, opts, t, done, false, duration);
-        });
+          if (!canRemote()) {
+            // not in a room that can read it right now: wait for the connection
+            if (n < 12) setTimeout(() => attempt(n + 1), 500);
+            else { heard = true; if (clock) done(); }
+            return;
+          }
+          askRemote(body).then((r) => {
+            if (t !== token || !live) return;
+            if (r.ok) { heard = true; lastSpoke.at = Date.now(); if (clock) done(); return; }
+            if (r.hushed) return;
+            console.warn('Claudia line did not come back from the server:', r.message);
+            if (n < 3 && !/No Deepgram key/.test(r.message || '')) setTimeout(() => attempt(n + 1), 400 + n * 700);
+            else { heard = true; if (clock) done(); }        // silent: the subtitles carry it
+          });
+        };
+        attempt(0);
         return;
       }
       speakLocal(body, opts, t, done, busy, duration);
@@ -362,6 +379,9 @@ const Voice = (() => {
               know. Used as a liveness signal: a room that is still
               talking is a room whose ceremony has not stalled. */
            get speaking() { return !!live; },
+           /* Milliseconds since a line last finished, for anybody who needs
+              to leave a breath after her before speaking themselves. */
+           get sinceSpoke() { return live ? 0 : Date.now() - lastSpoke.at; },
            get supported() { return supported; },
            get muted() { return muted; },
            get current() { const v = best(); return v ? { uri: v.voiceURI, name: v.name, lang: v.lang } : null; } };

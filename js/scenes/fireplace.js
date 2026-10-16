@@ -524,13 +524,11 @@ class FinaleScene {
       const target = voter && Session.playerById(f.names[voter.id]);
       if (!voter || !target) break;
 
-      const voice = { pitch: 0.84 + (voter.seat % 3) * 0.15,
-                      rate: 0.90 + (voter.seat % 2) * 0.09 };
+      // nobody announces their own vote: Claudia reads each one out
       await Scenes.run([{
         shot: 'on:' + voter.id,
-        line: { text: 'My vote is for ' + (target.local ? 'you' : target.name) + '.',
-                speaker: voter.name, who: voter.id,
-                pitch: voice.pitch, rate: voice.rate },
+        line: { text: (voter.local ? 'You vote' : voter.name + ' votes') + ' for '
+                      + (target.local ? 'you' : target.name) + '.' },
         hold: 0,
       }], this);
       if (!this._alive) return;
