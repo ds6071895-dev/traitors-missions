@@ -534,7 +534,7 @@ const AIDirector = (() => {
         asked.add(key);
         const lastWords = s.finale && s.finale.stage === 'reveal' && s.finale.pending === f.playerId;
         speak(f.playerId, lastWords
-          ? 'You have just been banished by the table. Say your last words to them in two sentences. Do not say whether you were a Traitor or Faithful.'
+          ? 'You have just been banished by the table. Say your last words to them in two sentences. Never say or hint whether you were a Traitor or a Faithful — no "I am a…", no "I was a…" — because the castle reveals it right after you finish.'
           : 'It is your turn to speak by the fire, and nobody may interrupt. Make your case in three sentences: who you suspect and why, or why you should be trusted.',
         () => setTimeout(() => {
           const st = Session.state;
@@ -872,6 +872,14 @@ const AIDirector = (() => {
     if (!active) return;
     if (e.type === 'phase' || e.type === 'state' || e.type === 'murder' || e.type === 'reveal'
         || e.type === 'nameReveal' || e.type === 'tally') promptDirty = true;
+    /* The banished have had their last words; the role is the card's to
+       announce (big text, sound, Claudia). An AI still mid-sentence when
+       the floor closes or the reveal lands is cut off, so nobody says
+       "I'm a Traitor" over — or after — the card. */
+    if (((e.type === 'floor' && e.done) || e.type === 'reveal') && speaking && speaking.id !== AI.CLAUDIA) {
+      const f = Session.state && Session.state.finale;
+      if (e.type === 'reveal' || (f && f.stage === 'reveal')) { AI.hush(speaking.id, true); finishTurn(speaking.id); }
+    }
     if (e.type === 'phase') {
       // a new room: nobody is mid-sentence in it
       if (speaking) { AI.hush(speaking.id, true); speaking = null; }
