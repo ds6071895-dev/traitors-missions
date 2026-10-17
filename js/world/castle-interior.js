@@ -522,6 +522,9 @@ const CastleInterior = (() => {
         add(new THREE.CylinderGeometry(r.r, r.r, 0.2, 64), floorId, r.cx, fy - 0.1, r.cz);
         const W = circleWall(r);
         walls[r.id] = { circle: W };
+        // Raised towers need stone below the floor too: this is visible
+        // through neighbouring windows. Carry the walls below the lawn.
+        if (fy > 0) W.band('masonry', W.a0, W.a1, -fy - 0.5, 0, -T, 0);
         buildWall(W);
         if (f.ceil === 'vault') vault(r, fy);
         else cone(r, fy);
