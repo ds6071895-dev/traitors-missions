@@ -269,5 +269,9 @@ const Scenes = (() => {
   return { play, stop, run, wait, barrier, Cine,
            get active() { return active; },
            get running() { return !!active; },
-           get performing() { return performing > 0; } };
+           get performing() { return performing > 0; },
+           get botSpeechBlocked() {
+             const s = typeof Session !== 'undefined' && Session.state;
+             return performing > 0 || !!(active && active.botIntroPending) || !!(s && s.phase === 'hill');
+           } };
 })();

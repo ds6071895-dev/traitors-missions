@@ -33,21 +33,39 @@ const Chores = (() => {
   const HOLD = 2.4;                // seconds a hand-over takes, letter or poison
   const REACH = 2.0;               // metres: close enough to hand somebody something
 
-  /* What the puzzles are called, and the verb on the prompt. Every type
-     plays differently; a day's list never repeats one if it can help it. */
+  /* What the puzzles are called, the verb on the prompt, and how to do
+     one: `how` is a sentence for anybody, finger or mouse, and `keys`
+     is the shortcut a keyboard gets on top. Every type plays
+     differently; a day's list never repeats one if it can help it. */
   const TYPES = {
-    safe:    { title: 'Crack the portrait safe',   verb: 'Crack the safe' },
-    wires:   { title: 'Rewire the chandelier',     verb: 'Rewire it' },
-    candles: { title: 'Light the candelabra',      verb: 'Light the candles' },
-    pour:    { title: 'Pour a dram for the laird', verb: 'Pour the dram' },
-    bells:   { title: 'Ring the bells in order',   verb: 'Ring the bells' },
-    letters: { title: 'Sort the post by its seal', verb: 'Sort the post' },
-    tartan:  { title: 'Find the clan tartan',      verb: 'Match the tartan' },
-    tune:    { title: 'Tune the clàrsach',         verb: 'Tune the harp' },
-    bats:    { title: 'Shoo the bats from the rafters', verb: 'Shoo the bats' },
-    lock:    { title: 'Pick the old lock',         verb: 'Pick the lock' },
-    bellows: { title: 'Work the bellows',          verb: 'Stoke the fire' },
-    brew:    { title: 'Brew the laird’s tonic',    verb: 'Brew the tonic' },
+    safe:    { title: 'Crack the portrait safe',   verb: 'Crack the safe',
+               how: 'A four-digit code flashes on the note. Remember it, then tap it in. ↺ shows it again.',
+               keys: 'Number keys, Enter' },
+    wires:   { title: 'Rewire the chandelier',     verb: 'Rewire it',
+               how: 'Tap a wire end on the left, then the same colour on the right. Join all four.' },
+    candles: { title: 'Light the candelabra',      verb: 'Light the candles',
+               how: 'Tap the candles in number order, 1 to 6. A wrong one blows them all out.' },
+    pour:    { title: 'Pour a dram for the laird', verb: 'Pour the dram',
+               how: 'Hold POUR to fill the glass. Let go while the whisky is inside the green band.',
+               keys: 'Hold Space' },
+    bells:   { title: 'Ring the bells in order',   verb: 'Ring the bells',
+               how: 'Watch the bells ring a tune, then tap them back in the same order. Two tunes.' },
+    letters: { title: 'Sort the post by its seal', verb: 'Sort the post',
+               how: 'Tap a letter, then the pigeonhole with the same colour seal. Post them all.' },
+    tartan:  { title: 'Find the clan tartan',      verb: 'Match the tartan',
+               how: 'Tap the pattern that matches the one at the top exactly. Three in a row.' },
+    tune:    { title: 'Tune the clàrsach',         verb: 'Tune the harp',
+               how: 'Drag the peg until the gold wave sits on the faint one, then hold it still.' },
+    bats:    { title: 'Shoo the bats from the rafters', verb: 'Shoo the bats',
+               how: 'Tap every bat as it swoops past to chase it out of the window.' },
+    lock:    { title: 'Pick the old lock',         verb: 'Pick the lock',
+               how: 'Tap SET when the white pick is inside the gold. Three pins, each one faster.',
+               keys: 'Space' },
+    bellows: { title: 'Work the bellows',          verb: 'Stoke the fire',
+               how: 'Tap PUMP each time the glow swells out to the ring. Four good pumps.',
+               keys: 'Space' },
+    brew:    { title: 'Brew the laird’s tonic',    verb: 'Brew the tonic',
+               how: 'Tap the ingredients in the order on the recipe. A wrong one spoils the pot.' },
   };
 
   /* Things to fetch and carry: pick it up in one room, put it down in

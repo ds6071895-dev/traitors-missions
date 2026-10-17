@@ -166,6 +166,7 @@ const VoiceChat = (() => {
 
     const entry = { stream: peerStream, el, analyser: null, data: null };
     peers.set(peerId, entry);
+    refreshSpeechGate();
     if (volumes.has(peerId)) el.volume = volumes.get(peerId);
     meter(peerId, entry);
   }
@@ -221,6 +222,7 @@ const VoiceChat = (() => {
   }
 
   function pump() {
+    refreshSpeechGate();
     meterSelf();
     if (selfMeter && stream) {
       selfMeter.an.getByteFrequencyData(selfMeter.data);
@@ -304,6 +306,16 @@ const VoiceChat = (() => {
      how far away they are standing, which is what makes a quiet word in
      the turret quiet. 1 everywhere else. */
   const volumes = new Map();
+  function refreshSpeechGate() {
+    const s = typeof Session !== 'undefined' && Session.state;
+    if (!s) return;
+    const blocked = (typeof Voice !== 'undefined' && (Voice.speaking || Voice.sinceSpoke < 3500))
+      || (typeof Scenes !== 'undefined' && Scenes.botSpeechBlocked)
+      || (typeof AI !== 'undefined' && AI.speaking(AI.CLAUDIA));
+    for (const [id, e] of peers) {
+      if (s.players.some(p => p.id === id && p.bot)) e.el.muted = !!blocked;
+    }
+  }
   function setVolume(peerId, v) {
     const vol = Math.max(0, Math.min(1, Number(v)));
     if (!Number.isFinite(vol)) return;
@@ -324,7 +336,7 @@ const VoiceChat = (() => {
   }
 
   return {
-    init, listen, start, stop, on, setMuted, toggleMuted, setFloor, openFloor, setVolume, resetVolumes,
+    init, listen, start, stop, on, setMuted, toggleMuted, setFloor, openFloor, setVolume, resetVolumes, refreshSpeechGate,
     level, levels, loudest,
     get selfLevel() { return selfLevel; },
     get available() { return available; },

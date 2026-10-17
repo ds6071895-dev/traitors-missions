@@ -25,8 +25,13 @@
      bellows  pump the fire up, in time with its breath
      brew     the tonic: the ingredients, in the order of the recipe
 
+   Every panel says how it is played in one line under its title, so
+   nobody has to work a puzzle out with a Traitor walking up behind
+   them; the line under the puzzle is how it is going.
+
    `open(task, opts)` puts one up and resolves true when it is done,
-   false if it was walked away from. Escape closes it.
+   false if it was walked away from. Escape closes it. `opts.practice`
+   marks it as a practice run, for the empty castle.
 ------------------------------------------------------------------ */
 const ChoreGames = (() => {
 
@@ -87,17 +92,22 @@ const ChoreGames = (() => {
     if (!game) return Promise.resolve(false);
     const rng = U.makeRng(((task.seed || 7) >>> 0) || 7);
     const meta = (typeof Chores !== 'undefined' && Chores.TYPES[type]) || { title: type };
-    const root = el('div', 'cg-wrap');
+    const touch = typeof Input !== 'undefined' && Input.isTouch;
+    const root = el('div', 'cg-wrap' + (touch ? ' touch' : ''));
     const panel = el('div', 'cg-panel cg-game-' + type);
     const head = el('div', 'cg-head');
-    head.appendChild(el('div', 'cg-title', esc(meta.title)));
+    head.appendChild(el('div', 'cg-title', (opts.practice ? '<small>Practice</small>' : '') + esc(meta.title)));
     const shut = el('button', 'cg-close', '✕');
     shut.type = 'button';
     shut.title = 'Walk away (Esc)';
+    shut.setAttribute('aria-label', 'Walk away');
     head.appendChild(shut);
+    const how = el('div', 'cg-how', '<b>How</b><span>' + esc(meta.how || '') + '</span>'
+      + (meta.keys && !touch ? '<kbd>' + esc(meta.keys) + '</kbd>' : ''));
+    if (!meta.how) how.hidden = true;
     const body = el('div', 'cg-body');
     const hint = el('div', 'cg-hint', '');
-    panel.append(head, body, hint);
+    panel.append(head, how, body, hint);
     root.appendChild(panel);
     document.body.appendChild(root);
     requestAnimationFrame(() => root.classList.add('on'));
@@ -114,8 +124,10 @@ const ChoreGames = (() => {
           setTimeout(() => close(true), 750);
         } else close(false);
       };
+      // stopped here, so the Escape that shuts a puzzle does not also
+      // leave the castle behind it
       const onKey = (e) => {
-        if (e.code === 'Escape') { e.preventDefault(); finish(false); }
+        if (e.code === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
       };
       window.addEventListener('keydown', onKey, true);
       shut.onclick = () => { click(); finish(false); };
@@ -168,7 +180,8 @@ const ChoreGames = (() => {
         peekT = setTimeout(() => note.classList.remove('on'), ms);
       };
       peek(2300);
-      hint.textContent = 'Remember it, then key it in.';
+      hint.textContent = 'Watch the note…';
+      setTimeout(() => { if (entry === '') hint.textContent = 'Now key it in.'; }, 2300);
       const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '↺', '0', '⏎'];
       const press = (k) => {
         click();
@@ -212,16 +225,22 @@ const ChoreGames = (() => {
       svg.classList.add('cg-wire-svg');
       box.appendChild(svg);
       body.appendChild(box);
-      hint.textContent = 'Join each wire to its own colour.';
+      hint.textContent = '0 of 4 joined';
       const ys = [30, 85, 140, 195];
       const joined = new Set();
       let held = null;
       const dot = (x, y, col, side, idx) => {
+        // a fingertip is wider than the brass terminal it is aiming at
+        const hit = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        hit.setAttribute('cx', x); hit.setAttribute('cy', y); hit.setAttribute('r', 26);
+        hit.setAttribute('class', 'cg-whit');
         const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        c.setAttribute('cx', x); c.setAttribute('cy', y); c.setAttribute('r', 13);
+        c.setAttribute('cx', x); c.setAttribute('cy', y); c.setAttribute('r', 14);
         c.setAttribute('fill', col); c.setAttribute('class', 'cg-wdot');
-        c.addEventListener('pointerdown', (e) => { e.preventDefault(); pick(side, idx); });
-        svg.appendChild(c);
+        const down = (e) => { e.preventDefault(); pick(side, idx); };
+        hit.addEventListener('pointerdown', down);
+        c.addEventListener('pointerdown', down);
+        svg.append(hit, c);
         return c;
       };
       const stub = (x1, y, x2, col) => {
@@ -251,6 +270,7 @@ const ChoreGames = (() => {
         l.setAttribute('stroke', COLS[li][0]); l.setAttribute('stroke-width', 9); l.setAttribute('stroke-linecap', 'round');
         svg.insertBefore(l, svg.firstChild);
         tone(420 + joined.size * 110, 0.12, 'sine', 0.1);
+        hint.textContent = joined.size + ' of 4 joined';
         if (joined.size === COLS.length) done();
       }
     },
@@ -263,23 +283,25 @@ const ChoreGames = (() => {
       for (let i = order.length - 1; i > 0; i--) { const j = rng.int(0, i); [order[i], order[j]] = [order[j], order[i]]; }
       const row = el('div', 'cg-candles');
       body.appendChild(row);
-      hint.textContent = 'Light them in the order scratched into the wax.';
       let next = 1;
+      const say = () => { hint.textContent = 'Next: candle ' + next; };
+      say();
       const nodes = order.map((num) => {
         const c = el('button', 'cg-candle', '<i class="cg-flame"></i><span>' + num + '</span>');
         c.type = 'button';
-        c.style.height = (70 + rng.int(0, 40)) + 'px';
+        c.style.height = (50 + rng.int(0, 28)) + '%';
         c.onclick = () => {
           if (c.classList.contains('lit')) return;
           if (num !== next) {
             bad(); shake(panel); next = 1;
             nodes.forEach(x => x.classList.remove('lit'));
+            hint.textContent = 'Blown out. Start again from 1.';
             return;
           }
           c.classList.add('lit');
           tone(320 + num * 70, 0.15, 'sine', 0.1);
           next++;
-          if (next > n) done();
+          if (next > n) done(); else say();
         };
         row.appendChild(c);
         return c;
@@ -295,7 +317,7 @@ const ChoreGames = (() => {
       body.append(glass, btn);
       const band = glass.querySelector('.cg-band'), dram = glass.querySelector('.cg-dram');
       band.style.bottom = lo + '%'; band.style.height = (hi - lo) + '%';
-      hint.textContent = 'Hold to pour. Let go in the band.';
+      hint.textContent = 'Steady…';
       let level = 0, pouring = false, raf = 0, last = 0;
       const step = (t) => {
         const dt = last ? Math.min(0.05, (t - last) / 1000) : 0;
@@ -346,9 +368,9 @@ const ChoreGames = (() => {
       };
       const play = () => {
         playing = true; at = 0;
-        hint.textContent = 'Listen…';
+        hint.textContent = 'Listen… (tune ' + (round + 1) + ' of 2)';
         tune.forEach((n, k) => timers.push(setTimeout(() => flash(n), 500 + k * 520)));
-        timers.push(setTimeout(() => { playing = false; hint.textContent = 'Ring it back.'; }, 500 + tune.length * 520));
+        timers.push(setTimeout(() => { playing = false; hint.textContent = 'Your turn — ring it back'; }, 500 + tune.length * 520));
       };
       const newRound = () => {
         tune = Array.from({ length: 3 + round }, () => rng.int(0, 3));
@@ -376,15 +398,15 @@ const ChoreGames = (() => {
       const holes = el('div', 'cg-holes');
       const pile = el('div', 'cg-pile');
       body.append(holes, pile);
-      hint.textContent = 'Pick up a letter, then put it in its family’s hole.';
       let held = null, left = 0;
+      const say = () => { hint.textContent = left + (left === 1 ? ' letter' : ' letters') + ' to post'; };
       SEALS.forEach((s, i) => {
         const h = el('button', 'cg-hole', '<i style="background:' + s[0] + '"></i><span>' + s[1] + '</span>');
         h.type = 'button';
         h.onclick = () => {
           if (!held) return;
-          if (held.dataset.seal !== String(i)) { bad(); held.classList.remove('held'); held = null; return; }
-          click(); held.remove(); held = null; left--;
+          if (held.dataset.seal !== String(i)) { bad(); held.classList.remove('held'); held = null; hint.textContent = 'Wrong seal — check the colour.'; return; }
+          click(); held.remove(); held = null; left--; say();
           h.classList.add('fed'); setTimeout(() => h.classList.remove('fed'), 200);
           if (left <= 0) done();
         };
@@ -403,6 +425,7 @@ const ChoreGames = (() => {
         pile.appendChild(l); left++;
       }
       [...pile.children].sort(() => rng() - 0.5).forEach(c => pile.appendChild(c));
+      say();
     },
 
     /* Which of these is the clan's tartan? Three of them, quickly. */
@@ -424,7 +447,7 @@ const ChoreGames = (() => {
       body.append(target, opts);
       let round = 0;
       const next = () => {
-        hint.textContent = 'The clan’s tartan is above. Find it. (' + (round + 1) + ' of 3)';
+        hint.textContent = 'Tartan ' + (round + 1) + ' of 3';
         const want = make();
         target.setAttribute('style', css(want));
         const choices = [want];
@@ -460,7 +483,7 @@ const ChoreGames = (() => {
       const slider = el('input', 'cg-slider');
       slider.type = 'range'; slider.min = '0'; slider.max = '1000'; slider.value = String(rng() < 0.5 ? 80 : 920);
       body.append(cv, slider);
-      hint.textContent = 'Turn the peg until the string matches the ghost.';
+      hint.textContent = 'Closer…';
       const want = 0.25 + rng() * 0.5;
       const g = cv.getContext('2d');
       let raf = 0, held = 0, last = 0, t = 0, fin = false;
@@ -484,6 +507,8 @@ const ChoreGames = (() => {
           held += dt;
           if (held > 0.8) { fin = true; done(); }
         } else held = 0;
+        const say = fin ? 'In tune.' : off < 0.02 ? 'Hold it there…' : off < 0.08 ? 'Nearly…' : 'Further ' + (v < want ? 'right' : 'left');
+        if (hint.textContent !== say) hint.textContent = say;
         raf = requestAnimationFrame(draw);
       };
       raf = requestAnimationFrame(draw);
@@ -500,9 +525,10 @@ const ChoreGames = (() => {
     bats({ body, hint, rng, done }) {
       const box = el('div', 'cg-rafters');
       body.appendChild(box);
-      hint.textContent = 'Tap the bats to shoo them out.';
       const n = 6 + rng.int(0, 2);
       let left = n, raf = 0, t0 = performance.now();
+      const say = () => { hint.textContent = left + (left === 1 ? ' bat' : ' bats') + ' left'; };
+      say();
       const bats = [];
       for (let i = 0; i < n; i++) {
         const b = el('button', 'cg-bat', '<i></i><i></i>');
@@ -513,19 +539,24 @@ const ChoreGames = (() => {
           bat.gone = true; left--;
           b.classList.add('gone');
           tone(900 + left * 70, 0.08, 'square', 0.06);
+          say();
           if (left <= 0) done();
         };
         bats.push(bat);
         box.appendChild(b);
       }
+      // the flight is drawn on a 340 × 230 loft and stretched to whatever
+      // box the screen gave it, so a short phone still has room to swoop
       const step = (now) => {
         const t = (now - t0) / 1000;
+        const W = box.clientWidth || 340, H = box.clientHeight || 230;
         for (const bat of bats) {
           if (bat.gone) continue;
           const x = 160 + Math.sin(t * bat.sp + bat.ph) * 120 + Math.sin(t * 2.3 * bat.sp + bat.ph * 2) * 22;
           const y = 100 + Math.cos(t * bat.sp * 1.3 + bat.ph) * 62;
-          const px = Math.max(20, Math.min(box.clientWidth - 20, x * box.clientWidth / 340));
-          bat.b.style.transform = 'translate(' + px.toFixed(0) + 'px,' + y.toFixed(0) + 'px)';
+          const px = Math.max(20, Math.min(W - 20, x * W / 340));
+          const py = Math.max(14, Math.min(H - 14, (y + 12) * H / 230));
+          bat.b.style.transform = 'translate(' + px.toFixed(0) + 'px,' + py.toFixed(0) + 'px)';
         }
         raf = requestAnimationFrame(step);
       };
@@ -541,7 +572,7 @@ const ChoreGames = (() => {
       const btn = el('button', 'cg-pour-btn', 'SET THE PIN');
       btn.type = 'button';
       body.append(pins, bar, btn);
-      hint.textContent = 'Press when the pick is in the gold. (Space works too.)';
+      hint.textContent = 'Pin 1 of 3';
       const pinEls = [0, 1, 2].map(() => { const p = el('i', 'cg-pin'); pins.appendChild(p); return p; });
       const zone = bar.querySelector('.cg-zone'), pick = bar.querySelector('.cg-pick');
       let set = 0, pos = 0, dir = 1, raf = 0, last = 0, lo = 0, hi = 0;
@@ -561,10 +592,12 @@ const ChoreGames = (() => {
           pinEls[set].classList.add('up'); set++;
           tone(500 + set * 160, 0.12, 'triangle', 0.12);
           if (set >= 3) { done(); return; }
+          hint.textContent = 'Pin ' + (set + 1) + ' of 3 — quicker now';
           place();
         } else {
           bad(); shake(panel);
           if (set > 0) { set--; pinEls[set].classList.remove('up'); }
+          hint.textContent = 'Slipped. Pin ' + (set + 1) + ' of 3';
         }
       };
       btn.onclick = press;
@@ -581,7 +614,7 @@ const ChoreGames = (() => {
       const btn = el('button', 'cg-pour-btn', 'PUMP');
       btn.type = 'button';
       body.append(hearth, btn);
-      hint.textContent = 'Pump when the glow fills the ring.';
+      hint.textContent = '0 of 4 pumps';
       const glow = hearth.querySelector('.cg-glow'), flames = hearth.querySelector('.cg-flames');
       let heat = 0, raf = 0, t0 = performance.now(), size = 0;
       const step = (now) => {
@@ -597,8 +630,12 @@ const ChoreGames = (() => {
           heat++;
           tone(120 + heat * 40, 0.25, 'sawtooth', 0.05);
           hearth.classList.add('puff'); setTimeout(() => hearth.classList.remove('puff'), 200);
+          hint.textContent = heat + ' of 4 pumps';
           if (heat >= 4) done();
-        } else { bad(); shake(panel); heat = Math.max(0, heat - 1); }
+        } else {
+          bad(); shake(panel); heat = Math.max(0, heat - 1);
+          hint.textContent = 'Too soon — wait for the ring. ' + heat + ' of 4';
+        }
       };
       btn.onclick = pump;
       const onKey = (e) => { if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) pump(); } };
@@ -616,8 +653,8 @@ const ChoreGames = (() => {
       const pot = el('div', 'cg-cauldron', '<i></i>');
       const row = el('div', 'cg-shelf');
       body.append(card, pot, row);
-      hint.textContent = 'Add them in the order on the recipe.';
       let at = 0;
+      hint.textContent = 'First: ' + recipe[0][1];
       const marks = [...card.children];
       for (const ing of shelf) {
         const b = el('button', 'cg-ingredient', '<b>' + ing[0] + '</b><span>' + ing[1] + '</span>');
@@ -628,8 +665,10 @@ const ChoreGames = (() => {
             pot.classList.remove('bubble'); void pot.offsetWidth; pot.classList.add('bubble');
             tone(300 + at * 90, 0.15, 'sine', 0.12);
             if (at >= recipe.length) done();
+            else hint.textContent = 'Next: ' + recipe[at][1];
           } else {
             bad(); shake(panel); at = 0;
+            hint.textContent = 'Spoilt. Start again: ' + recipe[0][1];
             marks.forEach(m => m.classList.remove('in'));
             pot.classList.add('spoilt'); setTimeout(() => pot.classList.remove('spoilt'), 500);
           }

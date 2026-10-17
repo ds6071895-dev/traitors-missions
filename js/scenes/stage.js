@@ -429,12 +429,33 @@ const Stage = (() => {
       figures.forEach(f => f && Figure.setSpeaking(f, f.userData.playerId === who));
     }
 
+    /* Elimination belongs to the stage, whatever scene is using it.
+       Remove the whole rig as soon as the public state changes; hiding
+       a label or waiting for an exit animation can leave a frozen body. */
+    function removeEliminated() {
+      if (typeof Session === 'undefined') return;
+      figures.forEach((f, i) => {
+        if (!f) return;
+        const player = Session.playerById(f.userData.playerId);
+        if (!player || player.alive !== false) return;
+        figures[i] = null;                 // late arrivals cannot bring them back
+        f.visible = false;
+        f.userData.walk = null;
+        if (tracking === f) tracking = null;
+        if (f.userData.envelope) f.userData.envelope.visible = false;
+        Nametag.hide(f.userData.tag);
+        Engine.disposeObject(f.userData.tag);
+        Figure.dispose(f);
+      });
+    }
+
     /* ---------------- the frame ---------------- */
 
     let t = 0;
     let fireBoost = 1;
 
     function update(dt) {
+      removeEliminated();
       t += dt;
 
       if (firstPerson.controls) {
@@ -525,10 +546,8 @@ const Stage = (() => {
           : camera.position));
       for (const f of figures) {
         if (!f) continue;
-        const player = typeof Session !== 'undefined'
-          ? Session.playerById(f.userData.playerId) : null;
         stepWalk(f, dt);
-        f.visible = (!player || player.alive || f.userData.keepVisible) && !f.userData.hidden
+        f.visible = !f.userData.hidden
           && f.position.distanceTo(camera.position)<65;
         /* Not over a scripted shot. The pouch going into the fire is
            the one minute of this game that is direction rather than
@@ -564,6 +583,7 @@ const Stage = (() => {
     }
 
     function dispose() {
+      if (offEliminated) offEliminated();
       Input.setMouseAim(false);
       Input.setTouchMode('drive');
       offLock();
@@ -641,6 +661,9 @@ const Stage = (() => {
       firstPerson.walk = !(on && seatedDress);
     }
     function setWalk(on) { firstPerson.walk = !!on; }
+
+    removeEliminated();
+    const offEliminated = typeof Net !== 'undefined' ? Net.on(removeEliminated) : null;
 
     return {
       view: { scene, camera }, scene, camera,

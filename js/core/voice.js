@@ -31,6 +31,7 @@ const Voice = (() => {
   let muted = false;
   let token = 0;              // bumps on cancellation to orphan old callbacks
   let live = null;            // { resolve, timer }
+  let hostSpeaking = false;   // Claudia's unscripted room-wide voice
   let held = [];              // the utterances of the line in the air — see `next`
   let started = false;
 
@@ -98,6 +99,8 @@ const Voice = (() => {
 
   function show(speaker, text) {
     if (!dom.text) cache();
+    // Claudia's speeches are audio-only. Late bot captions cannot cover them either.
+    if (speaker === 'Claudia' || hostSpeaking || (live && live.claudia)) { speaker = ''; text = ''; }
     if (dom.speaker) dom.speaker.textContent = speaker || '';
     if (dom.text) dom.text.textContent = text || '';
     if (dom.wrap) dom.wrap.classList.toggle('on', !!text);
@@ -189,6 +192,11 @@ const Voice = (() => {
   const canRemote = () => remote && typeof Party !== 'undefined' && Party.connected
     && Party.serverRoom && typeof Party.claudia === 'function';
   const lastSpoke = { at: 0 };
+  function setHostSpeaking(on) {
+    hostSpeaking = !!on;
+    if (hostSpeaking) clear(); else lastSpoke.at = Date.now();
+    if (typeof VoiceChat !== 'undefined' && VoiceChat.refreshSpeechGate) VoiceChat.refreshSpeechGate();
+  }
   function hushRemote() {
     for (const fn of remoteWaits.values()) fn({ ok: false, hushed: true });
     remoteWaits.clear();
@@ -222,14 +230,15 @@ const Voice = (() => {
 
     return new Promise((resolve) => {
       const done = () => settle(t, resolve);
-      live = { resolve, timer: null };
+      live = { resolve, timer: null, claudia };
+      if (claudia) {
+        clear();
+        if (typeof AIDirector !== 'undefined' && AIDirector.pauseBots) AIDirector.pauseBots();
+        if (typeof VoiceChat !== 'undefined' && VoiceChat.refreshSpeechGate) VoiceChat.refreshSpeechGate();
+      }
 
-      /* Speech engines and installed voices have wildly different
-         `onend` timing. Resolve the beat on one text-derived clock on
-         every machine; the synthesiser is presentation, never the show
-         clock. This is what keeps subtitles, cameras and public actions
-         together when one player has a neural voice and another has no
-         speech synthesis at all. */
+      /* Every listener holds the shared reading clock. A voice that takes
+         longer also holds its room until the audio finishes. */
       const duration = readTime(body, opts.rate === undefined ? 0.94 : opts.rate);
 
       /* With an AI Claudia the browser's voice is never used for her, not
@@ -285,15 +294,15 @@ const Voice = (() => {
       let i = 0, finished = false;
       held = [];
 
-      /* The same deadline is used with or without a synthesiser. It ends
-         the beat but does not cut the sentence she is in the middle of:
-         nothing further is queued once `live` is gone, and the next line
-         cancels whatever is left. */
-      live.timer = setTimeout(done, duration);
+      // Hold the beat until the final utterance ends as well as the shared
+      // text clock. Slow local voices must not release the bots mid-speech.
+      let clock = false;
+      live.timer = setTimeout(done, duration * 1.6 + 6000);
+      setTimeout(() => { clock = true; if (finished && t === token) done(); }, duration);
 
       const next = () => {
         if (t !== token || !live || finished) return;
-        if (i >= parts.length) { finished = true; return; }
+        if (i >= parts.length) { finished = true; if (clock) done(); return; }
         const u = new SpeechSynthesisUtterance(parts[i++]);
         u.voice = voice;
         u.lang = voice.lang || 'en-GB';
@@ -335,7 +344,7 @@ const Voice = (() => {
     }
   }
 
-  function stop() { skip(); clear(); }
+  function stop() { hostSpeaking = false; skip(); clear(); }
 
   function setMuted(m) {
     muted = !!m;
@@ -370,7 +379,7 @@ const Voice = (() => {
     } catch (e) {}
   }
 
-  return { init, unlock, say, stop, clear, show, list, setVoice, setMuted, refresh, setRemote,
+  return { init, unlock, say, stop, clear, show, list, setVoice, setMuted, refresh, setRemote, setHostSpeaking,
            get remote() { return remote; },
            /* Whether a line is still running its clock. Not "is the
               synthesiser making a noise" — a muted player and a machine
@@ -378,10 +387,10 @@ const Voice = (() => {
               time, and that is the thing anybody outside here wants to
               know. Used as a liveness signal: a room that is still
               talking is a room whose ceremony has not stalled. */
-           get speaking() { return !!live; },
+           get speaking() { return !!live || hostSpeaking; },
            /* Milliseconds since a line last finished, for anybody who needs
               to leave a breath after her before speaking themselves. */
-           get sinceSpoke() { return live ? 0 : Date.now() - lastSpoke.at; },
+           get sinceSpoke() { return live || hostSpeaking ? 0 : Date.now() - lastSpoke.at; },
            get supported() { return supported; },
            get muted() { return muted; },
            get current() { const v = best(); return v ? { uri: v.voiceURI, name: v.name, lang: v.lang } : null; } };

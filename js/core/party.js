@@ -43,7 +43,7 @@ const Party = (() => {
 
   /* Trystero caps an action name at 12 bytes, so these are short on
      purpose rather than terse for its own sake. */
-  const CHANNELS = ['hello', 'roster', 'go', 'wire', 'sync'];
+  const CHANNELS = ['hello', 'roster', 'lobby', 'go', 'wire', 'sync'];
 
   let room = null;
   let code = null;
@@ -73,6 +73,7 @@ const Party = (() => {
     closed: new Set(),   // unrecoverable server connection loss
     status: new Set(),   // opening, joined, or left
     roster: new Set(),   // (roster)
+    lobby:  new Set(),   // ({ seats }, fromPeer) — the host's public AI seats
     peer:   new Set(),   // (peerId, entry)
     left:   new Set(),   // (peerId, seat) — seat is null if they never had one
     go:     new Set(),   // ({ seed, players }) — the host has started the night

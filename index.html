@@ -57,7 +57,11 @@
        pure CSS, and inert: nothing here is in the way of a click. -->
   <div class="play-embers" aria-hidden="true">
     <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+    <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
   </div>
+  <!-- The loch's mist rolling in under the deck. Same rules as the
+       embers: decoration, and inert. -->
+  <div class="play-mist" aria-hidden="true"><i></i><i></i></div>
 
   <div class="play-inner">
 
@@ -73,7 +77,7 @@
       </div>
 
       <div class="brand-kicker">Ardross Castle · The Highlands</div>
-      <h1 class="brand-title">THE<span>TRAITORS</span></h1>
+      <h1 class="brand-title"><small>THE</small><span>TRAITORS</span></h1>
       <div class="pm-rule"><i></i></div>
 
       <p class="play-blurb">
@@ -133,7 +137,7 @@
   <div class="lobby-inner">
     <header class="brand small">
       <div class="brand-kicker">The Party</div>
-      <h1 class="brand-title">THE<span>TRAITORS</span></h1>
+      <h1 class="brand-title"><small>THE</small><span>TRAITORS</span></h1>
       <div class="brand-rule"></div>
     </header>
 
@@ -149,14 +153,14 @@
 
     <div class="lobby-cols" id="lobby-cols">
       <div class="panel lobby-panel">
-        <div class="lp-head">Create a room</div>
+        <div class="lp-head"><svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7.5" cy="12" r="4"/><path d="M11.5 12H21M18 12v3.2M15 12v2.2"/></svg>Create a room</div>
         <p class="lp-note">You become the host. Read the four letters out to the
           other two.</p>
         <button class="btn primary wide" id="lobby-host" data-nav>CREATE ROOM</button>
       </div>
 
       <div class="panel lobby-panel">
-        <div class="lp-head">Join a room</div>
+        <div class="lp-head"><svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V10a6 6 0 0 1 12 0v11M3.5 21h17"/><circle cx="14.6" cy="15" r=".6"/></svg>Join a room</div>
         <p class="lp-note">Type the four letters somebody read out to you.</p>
         <div class="code-entry">
           <input id="code-input" class="code-field" type="text" maxlength="4"
@@ -169,9 +173,17 @@
     </div>
 
     <div class="panel lobby-room" id="lobby-room" hidden>
-      <div class="lr-code-label">Room code</div>
-      <div class="lr-code" id="lobby-code">····</div>
-      <div class="lobby-roster" id="lobby-roster"></div>
+      <!-- The seats go round the table, the way they will at the fire,
+           with the code on the table where everybody can read it. On a
+           narrow screen it falls back to a plain list under the code. -->
+      <div class="lr-table">
+        <div class="lr-hub">
+          <div class="lr-code-label">Room code</div>
+          <div class="lr-code" id="lobby-code">····</div>
+          <div class="lr-code-hint">read it out</div>
+        </div>
+        <div class="lobby-roster" id="lobby-roster"></div>
+      </div>
       <div class="lr-status" id="lobby-status">Waiting for players… 1/8</div>
       <div class="lr-opts" id="lobby-opts" hidden>
         <label class="lr-task" for="lobby-task">

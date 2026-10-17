@@ -3,8 +3,8 @@
 
    The great hall in the morning, one long table, a chair for every
    person who went to bed. They come down one or two at a time, and it
-   is staged like the programme stages it: the camera on the door, the
-   table turning to look every time it opens, whoever it is pausing on
+   is staged like the programme stages it: the table turning to look
+   every time the door opens, whoever it is pausing on
    the threshold, then walking the long way round to their own chair,
    pulling it out and sitting. Nobody is told who is dead; they are
    shown, by a chair that stays empty while everybody else arrives — and
@@ -82,7 +82,6 @@ class BreakfastScene extends CastleScene {
     const st = this.stage;
     // everybody at the table looks at the door
     st.setGaze(new THREE.Vector3(6.2, 1.5, 3.5));
-    st.setCinematic(true, 'door');
     ids.forEach((id, k) => {
       const p = Session.playerById(id);
       if (!p || p.local) return;
@@ -94,7 +93,6 @@ class BreakfastScene extends CastleScene {
     this._gazeT = setTimeout(() => {
       if (!this._alive || !this.stage) return;
       this.stage.setGaze(null);
-      this.stage.setShot('longTable');
     }, 2600);
   }
 
@@ -110,7 +108,7 @@ class BreakfastScene extends CastleScene {
     await this._waitFor(() => !!(Session.state.breakfast && Session.state.breakfast.revealed)
                               || Session.state.phase !== 'breakfast');
     if (!this._alive || Session.state.phase !== 'breakfast') return;
-    if (this.stage) { this.stage.setGaze(null); this.stage.setCinematic(false); }
+    if (this.stage) this.stage.setGaze(null);
 
     const b = Session.state.breakfast;
     if (b.victim) {

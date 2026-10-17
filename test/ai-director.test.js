@@ -3,7 +3,7 @@
 
    Say something to the room and somebody answers; often somebody else
    picks it up, and with a crowd sometimes a third. Never two at once,
-   never silence for a remark to the room, and the moment a person
+   alternate opportunities for remarks to the room, and the moment a person
    speaks the AIs stop and listen. By day, only the AIs in earshot hear
    you at all.
 
@@ -58,7 +58,8 @@ function world(opts = {}) {
     { id: 'm', name: 'Morag', bot: true }, { id: 'f', name: 'Fergus', bot: true },
     { id: 'i', name: 'Isla', bot: true }, { id: 's', name: 'Struan', bot: true },
   ].slice(0, opts.n || 6);
-  ctx.Session.startParty({ seed: 7, players, mode: 'host' });
+  ctx.Session.startParty({ seed: opts.seed || 7, players, mode: 'host' });
+  ctx.Session.state.phase = opts.phase || 'breakfast';
   ctx.AIDirector.start();
   function emit(evt, m) { (listeners[evt] || []).forEach(fn => fn(m)); }
   const W = {
@@ -87,6 +88,89 @@ function world(opts = {}) {
 
 section('ai — answering the room');
 
+test('bots stay silent throughout the hill and the first castle introduction', () => {
+  const W = world({ phase: 'hill' });
+  W.say('p1', 'Morag, hello!');
+  W.step(10);
+  eq(W.asked.length, 0, 'even a named bot waits through the welcome');
+  W.phase = 'tasks';
+  W.net({ type: 'phase' });
+  W.ctx.Scenes = { botSpeechBlocked: true, performing: false };
+  W.say('p1', 'Morag, what do you think?');
+  W.step(8);
+  eq(W.asked.length, 0, 'the castle intro includes its quiet gaps');
+  W.ctx.Scenes.botSpeechBlocked = false;
+  W.step(5);
+  eq(W.asked.length, 1, 'conversation begins after the introduction and a breath');
+});
+
+test('unsolicited replies use alternate opportunities while direct questions always get answers', () => {
+  const W = world({ random: [0.9] });
+  W.say('p1', 'This castle is huge');
+  W.step(1.5);
+  eq(W.asked.length, 1);
+  W.reply(W.asked[0].id);
+  W.step(9);
+  W.say('p1', 'The staircase is spooky');
+  W.step(2);
+  eq(W.asked.length, 1, 'leave the second remark to the humans');
+  W.step(9);
+  W.say('p1', 'I like the suits of armour');
+  W.step(2);
+  eq(W.asked.length, 2, 'join the third remark');
+  W.reply(W.asked[1].id);
+  W.say('p1', 'Morag, what do you reckon?');
+  W.step(2);
+  eq(W.asked.length, 3, 'a direct question bypasses the alternating rhythm');
+});
+
+test('Claudia blocks assigned turns as well as queued ballot decisions', () => {
+  const W = world();
+  W.phase = 'finale';
+  const s = W.ctx.Session.state;
+  s.floor = { playerId: 'm', done: false, endsAt: 123 };
+  W.ctx.Voice.speaking = true;
+  W.step(5);
+  eq(W.asked.length, 0, 'an assigned floor cannot bypass Claudia');
+  W.ctx.Voice.speaking = false;
+  W.step(5);
+  eq(W.asked.length, 1, 'the floor starts when she has finished');
+  W.ctx.Voice.speaking = true;
+  W.ctx.AIDirector.pauseBots();
+  ok(!W.speaking.has('m'), 'even an uninterruptible floor gives way to Claudia');
+  W.ctx.Voice.speaking = false;
+  W.step(5);
+  eq(W.asked.length, 2, 'the interrupted floor can resume');
+  W.reply('m');
+  s.floor = null;
+  s.finale = { stage: 'name', round: 0, nameRound: 0, names: {}, votes: {} };
+  W.step(1);
+  const count = W.asked.length;
+  W.ctx.Voice.speaking = true;
+  W.ctx.AIDirector.pauseBots();
+  W.step(5);
+  eq(W.asked.length, count, 'already queued decisions also wait');
+  s.finale.stage = 'reveal';
+  W.ctx.Voice.speaking = false;
+  W.step(6);
+  eq(W.asked.length, count, 'stale decision requests do not play after the vote');
+});
+
+test('personalities invite human interaction and Traitors are coached to plant grounded doubts', () => {
+  const W = world({ seed: 1 });
+  const prompts = W.prompts.filter(p => p.id !== 'claudia-id');
+  ok(prompts.every(p => /YOUR PERSONALITY:/.test(p.text) && /sometimes ask them a short question/.test(p.text)), 'personality and interactive cues');
+  ok(new Set(prompts.map(p => p.text.match(/YOUR PERSONALITY: (.*)/)[1])).size > 1, 'different contestants have different personalities');
+  ok(prompts.some(p => /SECRET: You are a TRAITOR/.test(p.text) && /actively plant seeds of doubt/.test(p.text)), 'Traitors have a social strategy');
+  W.phase = 'table';
+  W.ctx.Session.state.floor = { all: true, done: false, ready: [] };
+  const traitor = W.ctx.Session.state.players.find(p => p.bot && W.ctx.Session.privateView(p.id).role === 'traitor');
+  ok(traitor, 'the seeded cast has a Traitor bot');
+  W.say('p1', traitor.name + ', do you believe Bo?');
+  W.step(2);
+  ok(/plant one believable seed of doubt/.test(W.asked[0].text), 'the actual table turn reinforces the strategy');
+});
+
 test('a remark to the room gets an answer, from one of them, after a breath', () => {
   const W = world();
   W.say('p1', 'This castle is SO cool');
@@ -97,7 +181,7 @@ test('a remark to the room gets an answer, from one of them, after a breath', ()
   ok(/Ana just said/.test(W.asked[0].text) && /This castle is SO cool/.test(W.asked[0].text), 'to what was said');
 });
 
-test('a second and sometimes a third pick it up — one at a time, never together', () => {
+test('one occasional follow-up picks it up, then leaves room for the humans', () => {
   // a low random number says "yes" to every chance of another voice
   const W = world({ random: [0.05] });
   W.say('p1', 'This castle is SO cool');
@@ -114,11 +198,10 @@ test('a second and sometimes a third pick it up — one at a time, never togethe
   ok(/It is a bit grand/.test(W.asked[1].text), 'that heard the first');
   W.reply(W.asked[1].id, 'Wait till you see the turret.');
   W.step(2);
-  eq(W.asked.length, 3, 'and with four of them in the room, a third');
-  eq(new Set(W.asked.map(a => a.id)).size, 3, 'three different voices');
-  W.reply(W.asked[2].id, 'Creepy, mind.');
+  eq(W.asked.length, 2, 'two voices are enough, even with a crowd');
+  eq(new Set(W.asked.map(a => a.id)).size, 2, 'two different voices');
   W.step(5);
-  eq(W.asked.length, 3, 'and then it lets the room breathe');
+  eq(W.asked.length, 2, 'and then it lets the room breathe');
 });
 
 test('with few AIs in the room, it stops at two', () => {
@@ -144,7 +227,10 @@ test('the moment a person speaks, the follow-ups stop and the AIs listen', () =>
   W.step(1.5);
   eq(W.asked.length, 1, 'two people are talking to each other: the AIs keep out of it');
   W.step(4);
-  eq(W.asked.length, 2, 'and answer Bo, not the old thread, once there is a real lull');
+  eq(W.asked.length, 1, 'this is the alternate opportunity: leave it to the people');
+  W.say('p2', 'Morag, did you go up there?');
+  W.step(1.5);
+  eq(W.asked.length, 2, 'a direct question still gets an answer');
   ok(/Bo just said/.test(W.asked[1].text));
 });
 
@@ -153,7 +239,7 @@ test('people talking among themselves are not talked over, but are listened to',
   W.say('p1', 'Bo what did you make of the library?');
   W.step(0.5);
   W.say('p2', 'Honestly I thought it was creepy');
-  W.step(2.5);
+  W.step(1.2);
   eq(W.asked.length, 0, 'no AI cuts in on a conversation between people');
   W.step(3);
   ok(W.asked.length <= 1, 'at most one joins, after a real gap');
@@ -229,7 +315,7 @@ test('a refused turn gives the room back instead of holding it for half a minute
   W.step(1.5);
   eq(W.asked.length, 1);
   W.emit('refused', { id: W.asked[0].id, final: true });
-  W.say('p1', 'Hello?');
+  W.say('p1', 'Fergus, hello?');
   W.step(2);
   eq(W.asked.length, 2, 'somebody else answers straight away');
 });
@@ -289,6 +375,54 @@ test('a name inside another word is not a name', () => {
 });
 
 section('ai — by day, only those in earshot');
+
+test('job-time visits are occasional across the cast and do not crowd the same person', () => {
+  const W = world({ phase: 'tasks' });
+  const visits = [];
+  W.ctx.CastleBots = { running: true, canApproach: () => true,
+    approach(id, target) { visits.push({ id, target }); return true; } };
+  const N = W.ctx.CastleNet;
+  N.start('d0');
+  N.publish('p1', 0, 10, 0);
+  N.publish('p2', 0, -25, 0);
+  for (const id of ['m', 'f', 'i', 's']) N.publish(id, 5, 10, 0);
+  W.net({ type: 'phase' });
+  W.step(39);
+  eq(visits.length, 0, 'no immediate rush after entering the castle');
+  W.step(2);
+  eq(visits.length, 1, 'one bot takes an occasional detour');
+  eq(W.asked.length, 0, 'walking over does not speak from across the room');
+  W.step(50);
+  eq(visits.length, 1, 'the next opportunity is left quiet');
+  W.step(31);
+  eq(visits.length, 2, 'another visit can happen much later');
+});
+
+test('an arriving Traitor shares real observations and uses conversation as poison cover', () => {
+  const W = world({ phase: 'tasks', seed: 1 });
+  const N = W.ctx.CastleNet;
+  N.start('d0');
+  N.publish('p1', 0, 10, 0);
+  N.publish('i', 6, 10, 0);
+  W.step(1);
+  ok(!W.ctx.AIDirector.startEncounter('i', 'p1'), 'must walk over before speaking');
+  N.publish('i', 1.2, 10, 0);
+  const privateView = W.ctx.Session.privateView;
+  W.ctx.Session.privateView = id => {
+    const v = privateView(id);
+    return id === 'i' ? Object.assign({}, v, { notes: [{ kind: 'handover', day: 0, t: 25, a: 'f', b: 'm', room: 'hall' }] }) : v;
+  };
+  let spoken = 0;
+  ok(W.ctx.AIDirector.startEncounter('i', 'p1', () => spoken++));
+  const cue = W.asked[0].text;
+  ok(/Fergus hand something to Morag/.test(cue), 'the actual sighting is in the prompt');
+  ok(/never invent a sighting/.test(cue));
+  ok(/plant a subtle seed of doubt/.test(cue), 'Traitors can steer the private chat');
+  ok(/keep them chatting while you get close enough to slip the poison/.test(cue));
+  eq(spoken, 0, 'an unfinished generation is not yet conversation cover');
+  W.emit('text', { id: 'i', text: 'Ana, did you see Fergus with that envelope?' });
+  eq(spoken, 1, 'the movement controller is told once the bot actually has words');
+});
 
 test('in the castle, an AI three rooms away never hears you', () => {
   const W = world();

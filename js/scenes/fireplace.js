@@ -813,6 +813,10 @@ class FinaleScene {
     document.getElementById('vote-title').textContent = spec.title || '';
     document.getElementById('vote-note').textContent = spec.note || '';
     root.innerHTML = '';
+    // how many there are decides the grid, so a full table of names fits
+    // a phone without scrolling
+    if (root.dataset) root.dataset.n = String(spec.options.length);
+    if (root.parentElement) root.parentElement.classList.toggle('many', spec.options.length > 4);
     const you = Session.state.players.find(p => p.local);
 
     for (const opt of spec.options) {

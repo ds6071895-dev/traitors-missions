@@ -10,7 +10,7 @@ const { createAIBridge, CLAUDIA_ID, CLAUDIA_LINE_ID } = require('./ai-bridge');
 
 const ROOT = path.resolve(__dirname, '..');
 const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-const CHANNELS = new Set(['go', 'wire', 'sync']);
+const CHANNELS = new Set(['lobby', 'go', 'wire', 'sync']);
 const LIVE_BUFFER = 16 * 1024;
 const MAX_MEMBERS = 8;              // the most the castle seats
 const MIN_NIGHT = 5;                // the fewest a full night is written for
@@ -143,6 +143,7 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
   function permitted(p, msg) {
     const isHost = p.id === p.room.hostId;
     if (!CHANNELS.has(msg.channel)) return false;
+    if (msg.channel === 'lobby') return isHost;
     // a night needs five
     if (msg.channel === 'go') return isHost && goValid(p.room, msg.data);
     if (msg.channel === 'wire') {

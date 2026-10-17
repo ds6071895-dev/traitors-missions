@@ -269,6 +269,8 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
     if (agent.pace) { clearInterval(agent.pace); agent.pace = null; }
     agent.audioDone = false;
     if (msg.on === false) { if (agent.hushed) settle(s, agent); return; }
+    // Claudia taking the room also cancels any next turn waiting behind this one.
+    agent.deferred = null;
     if (agent.hushed) return;
     // only while Deepgram is still producing the turn: if it has finished, the queue was all there was
     if (agent.inflight) {

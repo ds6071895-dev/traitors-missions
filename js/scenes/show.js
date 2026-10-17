@@ -104,6 +104,13 @@ const Show = (() => {
   let captionTimer = null;
   function caption(e) {
     if (e.quiet) return;
+    if (e.id === 'claudia') {
+      clearTimeout(captionTimer);
+      if (e.vars && e.vars.speaking !== undefined) Voice.setHostSpeaking(e.vars.speaking === 'true');
+      Voice.clear();
+      return;
+    }
+    if (Voice.speaking || Scenes.botSpeechBlocked) return;
     // by day, a voice from the other end of the house is not on your screen
     if (Array.isArray(e.near)) {
       const me = Session.state && Session.state.players.find(p => p.local);
@@ -111,7 +118,6 @@ const Show = (() => {
     }
     const p = e.id && e.id !== 'claudia' ? Session.playerById(e.id) : null;
     const who = e.id === 'claudia' ? 'Claudia' : (p ? p.name : '');
-    if (Voice.speaking && who === 'Claudia') return;    // a scripted line is on screen
     Voice.show(who, e.text);
     clearTimeout(captionTimer);
     captionTimer = setTimeout(() => { if (!Voice.speaking) Voice.clear(); }, Math.max(2600, e.text.length * 75));

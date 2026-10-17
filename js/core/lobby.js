@@ -19,6 +19,8 @@ const Lobby = (() => {
   let msgTimer = null;
   let started = false;
   let seated = false;              // a guest has heard its first roster
+  let sharedAI = [];               // public seats received from the host
+  let publishedAI = null;          // last room/roster/AI snapshot sent
 
   /* ---------------- the code control ----------------
      `Party.normaliseCode` is the whole of it: it upper-cases, drops
@@ -52,6 +54,7 @@ const Lobby = (() => {
 
   function paint() {
     const inRoom = Party.connected;
+    if (!inRoom) { sharedAI = []; publishedAI = null; }
     for (const id of ['lobby-host', 'lobby-join']) {
       const button = el(id);
       if (button) button.disabled = !!Party.connecting;
@@ -65,9 +68,11 @@ const Lobby = (() => {
       el('lobby-code').textContent = Party.code || '····';
       const list = Party.roster();
       const mine = Party.selfId();
+      if (Party.isHost && typeof AIPlayers !== 'undefined') AIPlayers.paintPanel(el('lobby-ai'), list.length);
       /* AI contestants sit in the empty chairs the host has given them,
          after the people. They are the host's to add and nobody else's. */
       const ai = aiSeats(list.length);
+      if (Party.isHost) publishAI(list, ai);
       el('lobby-roster').innerHTML = list.map(p => {
         const you = p.id === mine;
         return '<div class="lr-seat' + (you ? ' you' : '') + '">'
@@ -104,7 +109,6 @@ const Lobby = (() => {
       const opts = el('lobby-opts');
       if (opts) opts.hidden = !Party.isHost;
       paintTask();
-      if (Party.isHost && typeof AIPlayers !== 'undefined') AIPlayers.paintPanel(el('lobby-ai'), list.length);
     }
 
     RoomUI.paintMic();
@@ -118,12 +122,20 @@ const Lobby = (() => {
     UINav.scan();
   }
 
-  /* The AI contestants the host has asked for, if the AI panel exists
-     and this is the host's lobby. A guest learns of them only when the
-     night starts, as players like any other. */
+  /* Everybody sees the same chairs; only the host opens AI agents. */
   function aiSeats(humans) {
-    if (!Party.isHost || typeof AIPlayers === 'undefined') return [];
+    if (!Party.isHost) return sharedAI.slice(0, Math.max(0, Party.MAX - humans));
+    if (typeof AIPlayers === 'undefined') return [];
     return AIPlayers.seats(humans);
+  }
+
+  function publishAI(humans, ai) {
+    // Share display data only, never the host's key or agent configuration.
+    const seats = ai.map(b => ({ id: b.id, name: b.name, ready: !!b.ready, status: b.status }));
+    const snapshot = JSON.stringify([Party.code, humans.map(p => p.id), seats]);
+    if (snapshot === publishedAI) return;
+    publishedAI = snapshot;
+    Party.post('lobby', { seats });
   }
 
   function emptySeats(n) {
@@ -294,6 +306,12 @@ const Lobby = (() => {
     });
     Party.on('status', paint);
     Party.on('left', paint);
+    Party.on('lobby', (data, from) => {
+      if (Party.isHost || from !== Party.hostId || !Array.isArray(data && data.seats)) return;
+      sharedAI = data.seats.slice(0, Party.MAX).filter(b => b && typeof b.name === 'string')
+        .map(b => ({ id: b.id, name: b.name, ready: !!b.ready, status: String(b.status || 'waking') }));
+      paint();
+    });
     Party.on('error', (m) => {
       /* Some errors drop the room from under us — a refusal, a code
          nobody answered. If we are out, the flags that describe being

@@ -65,13 +65,8 @@ class RoundtableScene extends CastleScene {
     const e = await this._exposure();
     if (!this._alive) return;
     if (e && e.playerId) {
-      const exposed = Session.playerById(e.playerId);
-      const efig = this.stage && this.stage.figureOf ? this.stage.figureOf(e.playerId) : null;
-      if (efig) efig.userData.keepVisible = true;
       await Scenes.run(Exposed.beats(this, e, Session.state.seed + Session.state.day), this);
       if (!this._alive || Session.state.phase === 'verdict') return;
-      if (exposed) { this._standUp(exposed, efig); await this._sleep(1.0); await this._walkOut(exposed, efig); }
-      if (!this._alive) return;
       await this._waitFor(() => Session.state.finale.stage === 'done' || Session.state.phase !== 'table', 4000);
       if (!this._alive || Session.state.phase !== 'table') return;
       return this._close();
@@ -214,8 +209,7 @@ class RoundtableScene extends CastleScene {
   /* The banishment, staged the way the programme stages it: the name,
      the chair pushed back, the walk to stand where everybody can see,
      their own last words — then a drumroll, and they say what they
-     are. And then they leave: across the chamber and out of the door,
-     with the whole band behind them. */
+     are. The stage removes their character at the reveal. */
   async _banish() {
     const f = Session.state.finale;
     const target = Session.playerById(f.pending);
@@ -244,7 +238,6 @@ class RoundtableScene extends CastleScene {
     Voice.show(target.local ? 'You' : target.name, 'I am…');
     await this._sleep(2.6);
     if (!this._alive) return;
-    if (fig) fig.userData.keepVisible = true;
     const role = await this._burn(target.id);
     if (!this._alive || !role) return;
     Voice.show(target.local ? 'You' : target.name, role === 'traitor' ? 'I am a Traitor.' : 'I am a Faithful.');
@@ -254,8 +247,7 @@ class RoundtableScene extends CastleScene {
     Voice.clear();
     await this._say(this._setFor(role === 'traitor' ? 'banishedTraitor' : 'banishedFaithful', target),
                     { name: target.name }, null);
-    if (!this._alive) return;
-    await this._walkOut(target, fig);
+    if (this._alive && this.stage) this.stage.setCinematic(false);
   }
 
   /* On their feet, a step back from the table, facing the room. */
@@ -296,43 +288,6 @@ class RoundtableScene extends CastleScene {
       st.rig.walk = true;
       st.setControls(false);
     }
-  }
-
-  /* Out of the chamber. Everybody watches them go; the band gives them
-     the whole of itself; the door is the last you see of them. */
-  async _walkOut(target, fig) {
-    const st = this.stage;
-    if (!st) return;
-    const V = (x, z) => new THREE.Vector3(x, 0, z);
-    const door = V(0, 8.0), beyond = V(0, 11.5);
-    if (this.music) {
-      this.music.stinger('walkout', { at: 'beat' });
-      this.music.section('walkout', { at: 'bar', glide: 0.6 });
-    }
-    st.setGaze(null);
-    if (fig) {
-      const from = fig.position.clone();
-      const side = from.x >= 0 ? 1 : -1;
-      const a = Math.atan2(from.z, from.x);
-      const ring = V(Math.cos(a) * 3.5, Math.sin(a) * 3.5);
-      st.walkPath(target.id, [from, ring, V(side * 2.6, 5.4), door, beyond],
-        { speed: 1.25, sit: false, onArrive: (f) => { f.userData.hidden = true; } });
-      st.track(fig);
-      st.aim(new THREE.Vector3(-side * 1.6, 1.9, -2.6), null, { fov: 44, speed: 0.9 });
-      st.setGaze(null);
-    } else {
-      // first person: the room turns to watch you go, and you go
-      const seat = st.seats.find(x => x.id === target.id);
-      const p0 = seat ? seat.home.clone() : V(0, 4);
-      st.aim(new THREE.Vector3(p0.x, 1.62, p0.z), new THREE.Vector3(door.x, 1.5, door.z), { speed: 2.0 });
-      setTimeout(() => { if (this._alive && this.stage) this.stage.aim(new THREE.Vector3(0, 1.62, 7.6), new THREE.Vector3(0, 1.55, 12), { speed: 0.55 }); }, 900);
-    }
-    await this._sleep(fig ? 7.0 : 6.0);
-    if (!this._alive || !this.stage) return;
-    this.stage.track(null);
-    this.stage.setCinematic(false);
-    if (fig) fig.userData.keepVisible = false;
-    if (this.music) this.music.section('gather', { at: 'bar', glide: 3 });
   }
 
   /* ---------------- and then ---------------- */

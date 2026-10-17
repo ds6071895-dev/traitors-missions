@@ -342,7 +342,7 @@ const ClaudiaLines = (() => {
       ],
       [
         "I have heard enough.",
-        "Write a name."
+        "Pick up your slates."
       ]
     ],
     "slateIntro": [

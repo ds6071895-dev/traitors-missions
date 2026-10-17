@@ -142,7 +142,7 @@ const CastleBots = (() => {
     bots = ids.map((id, n) => {
       const at = (opts.spawn && opts.spawn(id)) || { x: (n - ids.length / 2) * 1.2, z: 12 };
       return { id, x: at.x, z: at.z, h: Math.PI, route: [], plan: null, wait: rng.range(0.4, 2.2),
-               g: null, hold: 0, stalkAfter: rng.range(28, 55), rethink: 0, repick: 0, speed: SPEED * rng.range(0.9, 1.1) };
+               g: null, hold: 0, social: null, stalkAfter: rng.range(28, 55), rethink: 0, repick: 0, speed: SPEED * rng.range(0.9, 1.1) };
     });
     running = true;
   }
@@ -178,6 +178,67 @@ const CastleBots = (() => {
   }
 
   function face(b, x, z) { b.h = Math.atan2(x - b.x, z - b.z); }
+
+  /* A short detour between jobs, requested by the voice director. Only one
+     contestant approaches at a time; they never abandon a hand-over or a
+     puzzle already in progress to do it. */
+  function canApproach(id) {
+    const b = bots.find(b => b.id === id);
+    return running && !!b && alive(id) && !bots.some(b => b.social) && !b.hold
+      && !(b.plan && b.plan.kind === 'station' && b.plan.arrived);
+  }
+
+  function approach(id, targetId) {
+    const b = bots.find(b => b.id === id);
+    const target = Session.playerById(targetId), pose = poseOf(targetId);
+    if (!canApproach(id) || !target || target.bot || !target.alive || !pose
+        || Session.state.phase !== 'tasks') return false;
+    b.social = { target: targetId, expires: Date.now() + 20000, arrived: false, talkingAt: 0, spokeAt: 0, poisonDone: false };
+    b.rethink = 0;
+    b.wait = 0;
+    goTo(b, pose.x, pose.z);
+    return true;
+  }
+
+  function endVisit(b) {
+    b.social = null;
+    b.route = [];
+    b.rethink = 0;
+    if (b.plan && b.plan.kind === 'station' && !b.plan.arrived) goTo(b, b.plan.sx, b.plan.sz);
+  }
+
+  function visit(b, dt, v, t) {
+    const social = b.social, to = poseOf(social.target);
+    if (!to || !alive(social.target) || Date.now() >= social.expires
+        || (typeof Scenes !== 'undefined' && Scenes.botSpeechBlocked)) { endVisit(b); return; }
+    const d = Math.hypot(to.x - b.x, to.z - b.z);
+    // If somebody walks away, let them go rather than following them all day.
+    if (social.arrived && d > 4) { endVisit(b); return; }
+    if (d > 1.65) {
+      if ((b.rethink -= dt) <= 0 || !b.route.length) { goTo(b, to.x, to.z); b.rethink = 1; }
+      step(b, dt);
+      return;
+    }
+    b.route = [];
+    face(b, to.x, to.z);
+    if (!social.arrived) { social.arrived = true; social.expires = Date.now() + 16000; }
+    if (!social.talkingAt && typeof AIDirector !== 'undefined'
+        && AIDirector.startEncounter(b.id, social.target, () => {
+          if (b.social === social) social.spokeAt = Date.now();
+        })) social.talkingAt = Date.now();
+
+    // A chat is cover, not a free kill: the carrier must still get close,
+    // reach for the full hold time, and respect the usual witnesses.
+    const carrier = v.poison && v.poison.mine && !v.poison.used;
+    const faithful = (v.partners || []).indexOf(social.target) < 0;
+    if (social.spokeAt && Date.now() - social.spokeAt > 1500 && carrier && faithful
+        && !social.poisonDone && (elapsed() > b.stalkAfter || t < 75)) {
+      if (!b.plan || b.plan.kind !== 'poison' || b.plan.target !== social.target) {
+        b.plan = { kind: 'poison', target: social.target, wait: 0 };
+      }
+      chase(b, dt, t);
+    }
+  }
 
   function nextJob(b, v) {
     const jobs = (v && v.jobs) || [];
@@ -233,12 +294,15 @@ const CastleBots = (() => {
       b.hold += dt;
       if (b.hold >= Chores.HOLD) {
         const target = b.plan.target;
+        if (b.social && b.plan.kind === 'poison') b.social.poisonDone = true;
         Net.send({ type: b.plan.kind === 'poison' ? 'poison' : 'handover', playerId: b.id, targetId: target });
         b.hold = 0; b.g = null; b.plan = null;
         b.wait = rng.range(0.8, 2.0);
       }
       return;
     }
+
+    if (b.social) { visit(b, dt, v, t); return; }
 
     if (b.wait > 0) { b.wait -= dt; return; }
 
@@ -342,6 +406,6 @@ const CastleBots = (() => {
     if (rows.length && typeof CastleNet !== 'undefined') CastleNet.publishBots(rows);
   }
 
-  return { start, stop, update, path, buildGrid, free,
+  return { start, stop, update, path, buildGrid, free, canApproach, approach,
            get running() { return running; }, get bots() { return bots; } };
 })();

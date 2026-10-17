@@ -172,6 +172,17 @@ function fakeDeepgram() {
         'one "done", for the turn that was actually finished — not one for the one thrown away');
     });
 
+    await atest('hushing again cancels a deferred turn before Claudia speaks', async () => {
+      const before = dg.seen.injected.length;
+      A.Party.ai({ op: 'ask', id: BOT, text: 'SLOW interrupted' });
+      await until(() => dg.seen.injected.length === before + 1);
+      A.Party.ai({ op: 'hush', id: BOT, on: true });
+      A.Party.ai({ op: 'ask', id: BOT, text: 'A queued comment' });
+      A.Party.ai({ op: 'hush', id: BOT, on: true });
+      await delay(400);
+      eq(dg.seen.injected.length, before + 1, 'the deferred comment never starts during her speech');
+    });
+
     await atest('voice routes apply to an AI exactly as to a person', async () => {
       const room = app.rooms.get(A.Party.code);
       const heard = [];

@@ -33,6 +33,7 @@ class TasksScene {
     this.stage = null;
     this.music = null;
     this._alive = true;
+    this.botIntroPending = true;
     this._offs = [];
     this._hold = null;          // { kind: 'letter'|'poison', target, t }
     this._busy = false;         // a puzzle is open
@@ -171,6 +172,9 @@ class TasksScene {
       }
       Scenes.Cine.card(null);
     }
+    // Private poison instructions can outlast the public welcome on another screen.
+    await Scenes.barrier('tasksIntro:' + s.day);
+    if (this._alive) this.botIntroPending = false;
   }
 
   _say(set, vars = {}) {
@@ -212,7 +216,7 @@ class TasksScene {
         <div class="tk-pot"><small>THE POT</small><b>£0</b><i class="tk-pot-pop"></i></div>
       </div>
       <div class="tk-list">
-        <div class="tk-list-head"><h4>YOUR JOBS</h4><span class="tk-count">0 done</span></div>
+        <div class="tk-list-head"><h4>YOUR JOBS<i class="tk-fold">▾</i></h4><span class="tk-count">0 done</span></div>
         <ul></ul>
         <div class="tk-carry" hidden></div>
       </div>
@@ -232,6 +236,8 @@ class TasksScene {
       prompt: q('.tk-prompt'), promptText: q('.tk-prompt-text'), use: q('.tk-use'), poison: q('.tk-poison'),
     };
     q('.tk-notes-btn').onclick = () => this._toggleNotes();
+    // on a phone the list folds down to the next job, out of the view
+    q('.tk-list-head').onclick = () => q('.tk-list').classList.toggle('min');
     const hold = (btn, key) => {
       btn.addEventListener('pointerdown', (e) => { e.preventDefault(); this._touchHeld.add(key); this._touchPressed = key; });
       const up = () => this._touchHeld.delete(key);
@@ -369,20 +375,15 @@ class TasksScene {
       else g.arc(X(r.cx), Z(r.cz), r.r * k, 0, Math.PI * 2);
       g.fill(); g.stroke();
     }
-    const v = Session.myPrivate() || {};
     const pulse = 3.6 + Math.sin(this._t * 5) * 1.1;
-    for (const j of (v.jobs || [])) {
+    for (const j of this._mapJobs()) {
       if (j.done) continue;
       const st = this._stationAt.get(Chores.placeOf(j));
       if (!st) continue;
       g.fillStyle = j.kind === 'carry' ? '#7cc8ff' : '#ffd66b';
       g.beginPath(); g.arc(X(st.x), Z(st.z), pulse, 0, Math.PI * 2); g.fill();
     }
-    // the people you can actually see: those in your room
-    for (const p of Session.alive()) {
-      if (p.id === this._meId) continue;
-      const q = CastleNet.now(p.id);
-      if (!q || !myRoom || q.room !== myRoom) continue;
+    for (const q of this._mapPeople()) {
       g.fillStyle = '#eef3fb';
       g.beginPath(); g.arc(X(q.x), Z(q.z), 3, 0, Math.PI * 2); g.fill();
     }
@@ -394,6 +395,19 @@ class TasksScene {
       g.beginPath(); g.moveTo(0, 7); g.lineTo(-4.5, -4); g.lineTo(4.5, -4); g.closePath(); g.fill();
       g.restore();
     }
+  }
+
+  _mapJobs() { return (Session.myPrivate() || {}).jobs || []; }
+
+  // the people you can actually see: those in your room
+  _mapPeople() {
+    const out = [];
+    for (const p of Session.alive()) {
+      if (p.id === this._meId) continue;
+      const q = CastleNet.now(p.id);
+      if (q && this._myRoom && q.room === this._myRoom) out.push(q);
+    }
+    return out;
   }
 
   /* ---------------- the frame ---------------- */
@@ -504,15 +518,18 @@ class TasksScene {
     }
   }
 
-  _setPrompt(html, cls) {
+  /* `use` lights the USE button on a touchscreen: there is something
+     in front of you it would do. */
+  _setPrompt(html, cls, use) {
     const d = this._dom;
     if (!html) {
-      if (this._prompt) { d.prompt.classList.remove('on'); this._prompt = ''; }
+      if (this._prompt) { d.prompt.classList.remove('on'); this._prompt = ''; d.use.classList.remove('ready'); }
       return;
     }
-    const key = cls + '|' + html;
+    const key = cls + '|' + html + '|' + !!use;
     if (key === this._prompt) return;
     this._prompt = key;
+    d.use.classList.toggle('ready', !!use);
     d.promptText.innerHTML = html;
     d.prompt.className = 'tk-prompt on' + (cls ? ' ' + cls : '');
   }
@@ -608,7 +625,7 @@ class TasksScene {
     }
     if (!rows.length) { this._setPrompt(''); return; }
     this._setPrompt(rows.map(r => '<kbd>' + r[0] + '</kbd> ' + castleEsc(r[1])).join('<em></em>'),
-                    canPoison ? 'poison' : '');
+                    canPoison ? 'poison' : '', rows.some(r => r[0] === 'E'));
     if (canPoison && want('poison')) { this._hold = { kind: 'poison', target: who.id, t: 0 }; return; }
     if (letter && want('interact')) { this._hold = { kind: 'letter', target: who.id, t: 0 }; return; }
     if (job && pressed('interact')) this._doJob(job);
