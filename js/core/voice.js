@@ -99,8 +99,11 @@ const Voice = (() => {
 
   function show(speaker, text) {
     if (!dom.text) cache();
-    // Claudia's speeches are audio-only. Late bot captions cannot cover them either.
-    if (speaker === 'Claudia' || hostSpeaking || (live && live.claudia)) { speaker = ''; text = ''; }
+    // Contestants speak without captions; Claudia keeps hers even if a
+    // delayed contestant line arrives while she owns the room.
+    const bot = speaker && typeof Session !== 'undefined' && Session.state
+      && Session.state.players.some(p => p.bot && p.name === speaker);
+    if (text && speaker !== 'Claudia' && (bot || hostSpeaking || (live && live.claudia))) return;
     if (dom.speaker) dom.speaker.textContent = speaker || '';
     if (dom.text) dom.text.textContent = text || '';
     if (dom.wrap) dom.wrap.classList.toggle('on', !!text);
@@ -223,7 +226,8 @@ const Voice = (() => {
     if (supported) { try { busy = synth.speaking || synth.pending; synth.cancel(); } catch (e) {} }
 
     const body = String(text || '').trim();
-    show(opts.speaker || '', body);
+    clear();
+    show(opts.speaker === undefined ? 'Claudia' : opts.speaker, body);
     if (!body) return Promise.resolve();
 
     const claudia = opts.speaker === undefined || opts.speaker === 'Claudia';
@@ -232,7 +236,6 @@ const Voice = (() => {
       const done = () => settle(t, resolve);
       live = { resolve, timer: null, claudia };
       if (claudia) {
-        clear();
         if (typeof AIDirector !== 'undefined' && AIDirector.pauseBots) AIDirector.pauseBots();
         if (typeof VoiceChat !== 'undefined' && VoiceChat.refreshSpeechGate) VoiceChat.refreshSpeechGate();
       }

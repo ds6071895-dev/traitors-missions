@@ -36,6 +36,8 @@ const THINK_PROVIDER = process.env.DEEPGRAM_THINK_PROVIDER || 'open_ai';
 const FRAME = 960;                 // 20 ms of 24 kHz mono PCM16
 const MAX_SOCKETS = Number(process.env.DEEPGRAM_MAX_SOCKETS || 15);
 const KEEPALIVE_MS = 5000;
+const LISTEN_TAIL_MS = 1500;        // enough audio silence for endpointing and UtteranceEnd
+const SILENCE = Buffer.alloc(FRAME);
 
 const VOICES = new Set(['aura-2-pandora-en', 'aura-2-draco-en', 'aura-2-thalia-en', 'aura-2-andromeda-en',
   'aura-2-apollo-en', 'aura-2-arcas-en', 'aura-2-aries-en', 'aura-2-asteria-en', 'aura-2-athena-en',
@@ -163,9 +165,10 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
           agent.outbox.splice(0).forEach(x => ws.send(x));
           break;
         case 'ConversationText':
-          if (m.role === 'assistant') say(s, { op: 'text', id, text: str(m.content, 1200) });
+          if (!agent.hushed && m.role === 'assistant') say(s, { op: 'text', id, text: str(m.content, 1200) });
           break;
         case 'AgentStartedSpeaking':
+          if (agent.hushed) break;
           agent.speaking = true; say(s, { op: 'speaking', id }); break;
         case 'AgentAudioDone':
           agent.inflight = false;
@@ -413,7 +416,7 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
       let ws;
       try { ws = new WebSocketImpl(listenUrl + '?' + q, { headers: { Authorization: 'Token ' + s.key } }); }
       catch (e) { say(s, { op: 'error', id, message: 'Could not open transcription.' }); continue; }
-      const ear = { id, ws, keepalive: null, closed: false };
+      const ear = { id, ws, keepalive: null, silence: null, lastAudio: 0, closed: false };
       s.ears.set(id, ear);
       ws.on('open', () => {
         ear.keepalive = setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'KeepAlive' })); }, KEEPALIVE_MS);
@@ -429,13 +432,17 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
         } else if (m.type === 'UtteranceEnd') say(s, { op: 'pause', id });
       });
       ws.on('error', (e) => say(s, { op: 'error', id, message: 'Transcription failed: ' + str(e && e.message, 200) }));
-      ws.on('close', () => { clearInterval(ear.keepalive); if (s.ears.get(id) === ear) s.ears.delete(id); });
+      ws.on('close', () => {
+        clearInterval(ear.keepalive); clearInterval(ear.silence);
+        if (s.ears.get(id) === ear) s.ears.delete(id);
+      });
     }
   }
 
   function closeEar(ear) {
     ear.closed = true;
     clearInterval(ear.keepalive);
+    clearInterval(ear.silence);
     try { if (ear.ws.readyState === 1) ear.ws.send(JSON.stringify({ type: 'CloseStream' })); ear.ws.close(1000); } catch (e) {}
   }
 
@@ -444,7 +451,18 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
     const s = rooms.get(room.code);
     if (!s) return;
     const ear = s.ears.get(speakerId);
-    if (ear && ear.ws.readyState === 1) ear.ws.send(pcm);
+    if (!ear || ear.closed || ear.ws.readyState !== 1) return;
+    ear.ws.send(pcm);
+    ear.lastAudio = Date.now();
+    /* Capture drops silence after 250 ms, before the recogniser's 400 ms
+       endpoint. Keep its audio clock moving after a short name or question,
+       without sending silent packets to players or streaming them forever. */
+    if (!ear.silence) ear.silence = setInterval(() => {
+      const gap = Date.now() - ear.lastAudio;
+      if (ear.closed || ear.ws.readyState !== 1 || gap > LISTEN_TAIL_MS) {
+        clearInterval(ear.silence); ear.silence = null;
+      } else if (gap >= 40) ear.ws.send(SILENCE);
+    }, 20);
   }
 
   /* ---------------- the host's control channel ---------------- */

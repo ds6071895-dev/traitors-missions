@@ -3,9 +3,9 @@
 
    Say something to the room and somebody answers; often somebody else
    picks it up, and with a crowd sometimes a third. Never two at once,
-   alternate opportunities for remarks to the room, and the moment a person
-   speaks the AIs stop and listen. By day, only the AIs in earshot hear
-   you at all.
+   alternate opportunities for remarks to the room, occasional assertive
+   turns and a protected opening before sustained speech can interrupt.
+   By day, only the AIs in earshot hear you at all.
 
    The bridge to Deepgram is faked to the calls the director makes; the
    session is the real one; the clock is this file's.
@@ -43,7 +43,7 @@ function world(opts = {}) {
   };
   const ctx = H.load(FILES, {
     Date: FakeDate, Math: math,
-    setInterval: (fn) => { intervals.push(fn); return intervals.length; },
+    setInterval: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; },
     clearInterval: () => {},
     setTimeout: (fn, ms) => { timeouts.push({ fn, at: now + ms }); return timeouts.length; },
     clearTimeout: () => {},
@@ -70,7 +70,7 @@ function world(opts = {}) {
       while (now < end) {
         now += 100;
         for (const t of timeouts.splice(0)) { if (t.at <= now) t.fn(); else timeouts.push(t); }
-        if (now % 400 < 100) intervals.forEach(fn => fn());
+        intervals.forEach(t => { if (now % t.ms < 100) t.fn(); });
       }
     },
     say(id, text) { emit('hearing', { id }); emit('heard', { id, text, final: true }); },
@@ -181,6 +181,173 @@ test('a remark to the room gets an answer, from one of them, after a breath', ()
   ok(/Ana just said/.test(W.asked[0].text) && /This castle is SO cool/.test(W.asked[0].text), 'to what was said');
 });
 
+test('microphone noise cannot starve a direct reply or the open discussion', () => {
+  const W = world();
+  W.ctx.VoiceChat.selfLevel = 0.4;
+  W.ctx.VoiceChat.levels.set('p2', 0.6);
+  W.say('p1', 'Morag, what do you think?');
+  W.step(0.6);
+  eq(W.asked.length, 1, 'recognized words get a prompt reply despite noisy microphones');
+  eq(W.asked[0].id, 'm');
+  W.reply('m');
+  W.phase = 'table';
+  W.ctx.Session.state.floor = { all: true, done: false, ready: [] };
+  W.step(6);
+  ok(W.asked.length > 1, 'background noise cannot keep the open table silent either');
+});
+
+test('empty events and filler sounds neither cancel nor postpone an AI reply', () => {
+  const W = world();
+  W.say('p1', 'Morag, can you hear me?');
+  for (let i = 0; i < 6; i++) {
+    W.emit('hearing', { id: 'p2' });
+    W.emit('hearing', { id: 'p2', text: 'Um...' });
+    W.emit('heard', { id: 'p2', text: 'Hmm.', final: true });
+    W.step(0.1);
+  }
+  eq(W.asked.length, 1, 'small sounds do not reset the response timer');
+  eq(W.asked[0].id, 'm', 'the original question is still answered');
+  ok(W.speaking.has('m'), 'small sounds do not cut the answer off');
+});
+
+test('sustained speech can interrupt after the protected opening, via either transcript event', () => {
+  for (const event of ['hearing', 'heard']) {
+    const W = world();
+    W.say('p1', 'Morag, what do you think?');
+    W.step(0.6);
+    ok(W.speaking.has('m'));
+    W.emit('speaking', { id: 'm' });
+    W.step(2);
+    W.emit(event, { id: 'p2', text: 'No!', final: true });
+    ok(W.speaking.has('m'), 'one overlapping word does not cancel the turn');
+    W.step(0.6);
+    W.emit(event, { id: 'p2', text: 'No, I disagree with that theory.', final: true });
+    ok(!W.speaking.has('m'), 'continued speech can take the room via ' + event);
+  }
+});
+
+test('the protected opening starts at actual audio and is not renewed by later audio segments', () => {
+  const W = world();
+  W.say('p1', 'Morag, what do you think?');
+  W.step(0.6);
+  for (let i = 0; i < 15; i++) {
+    W.emit('hearing', { id: 'p2', text: 'I have another theory about the timing' });
+    W.step(0.2);
+  }
+  ok(W.speaking.has('m'), 'generation latency cannot use up the opening');
+  W.emit('speaking', { id: 'm' });
+  for (let i = 0; i < 8; i++) {
+    W.emit('hearing', { id: 'p2', text: 'I have another theory about the timing' });
+    W.step(0.2);
+  }
+  ok(W.speaking.has('m'), 'the voice gets its opening despite continuing overlap');
+  W.emit('speaking', { id: 'm' });
+  W.step(0.2);
+  W.emit('hearing', { id: 'p2', text: 'Please listen to my explanation' });
+  ok(!W.speaking.has('m'), 'later segments cannot keep renewing protection');
+});
+
+test('separate brief interjections do not accumulate into a sustained interruption', () => {
+  const W = world();
+  W.say('p1', 'Morag, what do you think?');
+  W.step(0.6);
+  W.emit('speaking', { id: 'm' });
+  W.step(2);
+  for (let i = 0; i < 3; i++) {
+    W.emit('hearing', { id: 'p2', text: 'Yes' });
+    W.emit('heard', { id: 'p2', text: 'Yes', final: true });
+    W.step(1.4);
+  }
+  ok(W.speaking.has('m'), 'scattered acknowledgements leave the AI speaking');
+});
+
+test('repeated recognition of one phrase does not count as continued human speech', () => {
+  const W = world();
+  W.say('p1', 'Morag, what do you think?');
+  W.step(0.6);
+  W.emit('speaking', { id: 'm' });
+  W.step(2);
+  W.emit('hearing', { id: 'p2', text: 'I disagree with that' });
+  W.step(0.6);
+  W.emit('heard', { id: 'p2', text: 'I disagree with that.', final: true });
+  ok(W.speaking.has('m'), 'the final result repeats the interim; it is not another spoken phrase');
+  W.step(0.2);
+  W.emit('hearing', { id: 'p2', text: 'I disagree with that because Bo was in the kitchen' });
+  ok(!W.speaking.has('m'), 'new words still allow a genuine interruption');
+});
+
+test('short acknowledgements cannot cut off a contestant mid-sentence', () => {
+  const W = world();
+  W.say('p1', 'Morag, what do you think?');
+  W.step(0.6);
+  W.emit('speaking', { id: 'm' });
+  W.step(2);
+  W.emit('hearing', { id: 'p2', text: 'Yes' });
+  W.step(0.6);
+  W.emit('heard', { id: 'p2', text: 'Yes, right.', final: true });
+  ok(W.speaking.has('m'), 'a brief acknowledgement is not taking over the room');
+});
+
+test('assigned AI turns hold their floor against human speech', () => {
+  const W = world({ phase: 'finale' });
+  W.ctx.Session.state.floor = { playerId: 'm', done: false, endsAt: 123 };
+  W.step(0.4);
+  W.emit('speaking', { id: 'm' });
+  for (let i = 0; i < 20; i++) {
+    W.say('p2', 'I would like to speak instead');
+    W.step(0.2);
+  }
+  ok(W.speaking.has('m'), 'a dedicated floor lasts until the contestant finishes');
+});
+
+test('an AI occasionally cuts into continuing speech, with space between assertive turns', () => {
+  const W = world({ random: [0.1] });
+  function talking(seconds) {
+    for (let i = 0; i < seconds * 5; i++) {
+      W.say('p1', 'The timing of that handover does not add up');
+      W.step(0.2);
+    }
+  }
+  talking(5.8);
+  eq(W.asked.length, 0, 'the human gets time to make their point first');
+  talking(2.2);
+  eq(W.asked.length, 1, 'the AI can join without waiting for silence');
+  ok(/Briefly cut in/.test(W.asked[0].text), 'the interjection is prompted as a short relevant point');
+  W.emit('speaking', { id: W.asked[0].id });
+  talking(1);
+  ok(W.speaking.has(W.asked[0].id), 'the interjection is not immediately cancelled by the ongoing voice');
+  W.reply(W.asked[0].id, 'That handover happened before the bell.');
+  talking(11);
+  eq(W.asked.length, 1, 'the AI leaves space before cutting in again');
+  talking(5);
+  eq(W.asked.length, 2, 'another assertive turn can happen later');
+});
+
+test('cutting in is occasional and respects Claudia and human-only floors', () => {
+  for (const mode of ['unlucky', 'claudia', 'floor']) {
+    const W = world({ random: [mode === 'unlucky' ? 0.9 : 0.1] });
+    if (mode === 'claudia') W.ctx.Voice.speaking = true;
+    if (mode === 'floor') W.ctx.Session.state.floor = { playerId: 'p2', done: false };
+    for (let i = 0; i < 50; i++) {
+      W.say('p1', 'The timing of that handover does not add up');
+      W.step(0.2);
+    }
+    eq(W.asked.length, 0, 'no assertive turn during ' + mode);
+  }
+});
+
+test('ongoing recognized speech holds the room until a short pause', () => {
+  const W = world();
+  W.say('p1', 'Morag, what do you think?');
+  for (let i = 0; i < 8; i++) {
+    W.emit('hearing', { id: 'p1', text: 'I am still explaining my theory' });
+    W.step(0.2);
+  }
+  eq(W.asked.length, 0, 'a continuing sentence is not talked over');
+  W.step(0.4);
+  eq(W.asked.length, 1, 'the answer follows a short pause');
+});
+
 test('one occasional follow-up picks it up, then leaves room for the humans', () => {
   // a low random number says "yes" to every chance of another voice
   const W = world({ random: [0.05] });
@@ -239,7 +406,7 @@ test('people talking among themselves are not talked over, but are listened to',
   W.say('p1', 'Bo what did you make of the library?');
   W.step(0.5);
   W.say('p2', 'Honestly I thought it was creepy');
-  W.step(1.2);
+  W.step(0.5);
   eq(W.asked.length, 0, 'no AI cuts in on a conversation between people');
   W.step(3);
   ok(W.asked.length <= 1, 'at most one joins, after a real gap');
@@ -267,6 +434,19 @@ test('their own voices coming back through a microphone are not a person talking
   W.emit('hearing', { id: 'p1', text: 'up the long stair past the kitchen' });
   W.emit('heard', { id: 'p1', text: 'up the long stair past the kitchen', final: true });
   ok(W.speaking.has(id), 'the speaker is not cut off by its own echo');
+});
+
+test('short echoes from the current AI line do not become human conversation', () => {
+  const W = world({ random: [0.9] });
+  W.say('p1', 'Morag, where was Bo?');
+  W.step(0.6);
+  W.emit('speaking', { id: 'm' });
+  W.emit('text', { id: 'm', text: 'Bo was standing by the kitchen door before the bell.' });
+  W.step(2);
+  W.say('p2', 'kitchen door');
+  W.reply('m');
+  W.step(3);
+  eq(W.asked.length, 1, 'a two-word speaker echo is not answered as a new human remark');
 });
 
 test('nobody talks over Claudia, and one already talking gives way', () => {
@@ -375,6 +555,25 @@ test('a name inside another word is not a name', () => {
 });
 
 section('ai — by day, only those in earshot');
+
+test('calling a nearby contestant by name during jobs gets an answer, including a repeated call', () => {
+  const W = world({ phase: 'tasks', random: [0.9] });
+  const N = W.ctx.CastleNet;
+  N.start('d0');
+  N.publish('p1', 0, 10, 0);
+  N.publish('m', 1, 10, 0);
+  for (const id of ['p2', 'f', 'i', 's']) N.publish(id, 0, -22, 0);
+  W.say('p1', 'Morag!');
+  W.step(1.5);
+  eq(W.asked.length, 1);
+  eq(W.asked[0].id, 'm');
+  ok(/to you: "Morag!"/.test(W.asked[0].text), 'the short call is addressed to her');
+  W.reply('m', 'Hello Ana.');
+  W.say('p1', 'Morag, can you hear me?');
+  W.step(1.5);
+  eq(W.asked.length, 2, 'a direct call is not swallowed by a cooldown or alternate-comment rule');
+  eq(W.asked[1].id, 'm');
+});
 
 test('job-time visits are occasional across the cast and do not crowd the same person', () => {
   const W = world({ phase: 'tasks' });

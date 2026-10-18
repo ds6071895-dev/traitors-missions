@@ -82,6 +82,7 @@ const Show = (() => {
     const errorPanel=document.getElementById('destination-error');if(errorPanel)errorPanel.remove();
     clearTimeout(verdictGuard);
     verdictGuard = null;
+    clearTimeout(captionTimer);
     // a rehearsal's two bots have nothing left to act in
     if (solo && typeof Bots !== 'undefined') Bots.stop();
     solo = false;
@@ -98,27 +99,18 @@ const Show = (() => {
     if (opts.abandon) Session.abandon();
   }
 
-  /* Live AI speech, captioned on every screen, with the speaker's name.
-     Claudia's scripted lines already have their subtitle from the beat
-     list, so the host marks those `quiet` and they are not shown twice. */
+  /* Only Claudia's live dialogue is captioned. Her scripted lines already
+     have subtitles from the beat list, and contestant voices stay audio-only. */
   let captionTimer = null;
   function caption(e) {
-    if (e.quiet) return;
-    if (e.id === 'claudia') {
+    if (e.quiet || e.id !== 'claudia') return;
+    if (e.vars && e.vars.speaking !== undefined) {
       clearTimeout(captionTimer);
-      if (e.vars && e.vars.speaking !== undefined) Voice.setHostSpeaking(e.vars.speaking === 'true');
-      Voice.clear();
+      Voice.setHostSpeaking(e.vars.speaking === 'true');
+      if (!Voice.speaking) Voice.clear();
       return;
     }
-    if (Voice.speaking || Scenes.botSpeechBlocked) return;
-    // by day, a voice from the other end of the house is not on your screen
-    if (Array.isArray(e.near)) {
-      const me = Session.state && Session.state.players.find(p => p.local);
-      if (me && me.alive && e.id !== me.id && e.near.indexOf(me.id) < 0) return;
-    }
-    const p = e.id && e.id !== 'claudia' ? Session.playerById(e.id) : null;
-    const who = e.id === 'claudia' ? 'Claudia' : (p ? p.name : '');
-    Voice.show(who, e.text);
+    Voice.show('Claudia', e.text);
     clearTimeout(captionTimer);
     captionTimer = setTimeout(() => { if (!Voice.speaking) Voice.clear(); }, Math.max(2600, e.text.length * 75));
   }

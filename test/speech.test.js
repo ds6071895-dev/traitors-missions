@@ -13,7 +13,7 @@ function world() {
     createElement: element, body: { appendChild() {} }, addEventListener() {},
   };
   class FakeDate extends Date { static now() { return now; } }
-  const ctx = H.load(['js/core/voice.js', 'js/core/scenes.js', 'js/scenes/tasks.js', 'js/core/voicechat.js'], {
+  const ctx = H.load(['js/core/voice.js', 'js/core/scenes.js', 'js/scenes/tasks.js', 'js/core/voicechat.js', 'js/scenes/show.js'], {
     document, Date: FakeDate,
     setTimeout(fn, ms) { const id = ++serial; timers.set(id, { fn, at: now + ms }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -23,7 +23,7 @@ function world() {
     GameState: { settings: {}, save() {} },
     AudioBus: { define() {}, play() {}, init() { return null; } },
     addEventListener() {},
-    Session: { state: { day: 0, phase: 'tasks', players: [{ id: 'bot', bot: true }, { id: 'human' }] },
+    Session: { state: { day: 0, phase: 'tasks', players: [{ id: 'bot', name: 'Morag', bot: true }, { id: 'human' }] },
       alive: () => [{}, {}], myPrivate: () => ({ role: 'traitor', poison: { mine: true } }) },
     Party: { room: { server: true }, on() {} },
   });
@@ -41,19 +41,21 @@ function world() {
 }
 
 (async () => {
-  await atest('Claudia hides old captions and late bot subtitles for her whole speech', async () => {
+  await atest('Claudia has subtitles throughout her speech and contestant captions stay hidden', async () => {
     const W = world();
     W.ctx.Voice.show('Morag', 'Look at this castle!');
-    eq(W.elements.get('cine-sub').textContent, 'Look at this castle!');
+    eq(W.elements.get('cine-sub').textContent, '');
     const speech = W.ctx.Voice.say('Welcome to the castle.', { speaker: 'Claudia' });
-    eq(W.elements.get('cine-sub').textContent, '', 'her own subtitle is hidden');
-    W.ctx.Voice.show('Fergus', 'A delayed bot caption');
-    eq(W.elements.get('cine-sub').textContent, '', 'late captions cannot cover her');
+    eq(W.elements.get('cine-speaker').textContent, 'Claudia');
+    eq(W.elements.get('cine-sub').textContent, 'Welcome to the castle.', 'her own subtitle is visible');
+    W.ctx.Voice.show('Morag', 'A delayed bot caption');
+    eq(W.elements.get('cine-sub').textContent, 'Welcome to the castle.', 'late captions cannot cover her');
     W.utterances[0].onend();
     W.step(10000);
     await speech;
+    W.ctx.Voice.clear();
     W.ctx.Voice.show('Morag', 'Your turn!');
-    eq(W.elements.get('cine-sub').textContent, 'Your turn!', 'ordinary captions return afterwards');
+    eq(W.elements.get('cine-sub').textContent, '', 'contestant captions stay hidden afterwards');
   });
 
   await atest('a slow local voice retains the room until its last sentence finishes', async () => {
@@ -75,23 +77,53 @@ function world() {
   test('unscripted Claudia speech reserves subtitles and playback until the room-wide end signal', () => {
     const W = world();
     W.ctx.Voice.setHostSpeaking(true);
+    W.ctx.Voice.show('Claudia', 'Tell me what you think.');
     W.step(10000);
     W.ctx.Voice.show('Morag', 'A late caption');
-    eq(W.elements.get('cine-sub').textContent, '');
+    eq(W.elements.get('cine-sub').textContent, 'Tell me what you think.');
     ok(W.ctx.Voice.speaking, 'a guest holds the room while the live host speaks');
     W.ctx.Voice.setHostSpeaking(false);
     ok(!W.ctx.Voice.speaking);
     eq(W.ctx.Voice.sinceSpoke, 0, 'the after-speech pause starts at the actual end');
   });
 
-  await atest('muted speech still finishes on its reading clock without showing subtitles', async () => {
+  await atest('muted Claudia speech shows subtitles and finishes on its reading clock', async () => {
     const W = world();
     W.ctx.Voice.setMuted(true);
     const speech = W.ctx.Voice.say('Welcome.');
-    eq(W.elements.get('cine-sub').textContent, '');
+    eq(W.elements.get('cine-sub').textContent, 'Welcome.');
+    eq(W.elements.get('cine-speaker').textContent, 'Claudia');
     W.step(5000);
     await speech;
     ok(!W.ctx.Voice.speaking);
+  });
+
+  test('live Claudia cues show dialogue, hide control messages and ignore AI contestant cues', () => {
+    const W = world();
+    const handlers = [];
+    W.ctx.Session.startParty = () => {};
+    W.ctx.Net = { connect() {}, on(fn) { handlers.push(fn); return () => {}; } };
+    W.ctx.Transports = { HostTransport: {} };
+    W.ctx.Screens = { cover() { return Promise.resolve(); } };
+    W.ctx.AbortController = AbortController;
+    W.ctx.ServerAudio = { listen() {} };
+    W.ctx.VoiceChat.init = () => {};
+    W.ctx.GameState.logEvent = () => {};
+    W.ctx.Show.beginParty({ host: true });
+    const cue = data => handlers.forEach(fn => fn({ type: 'cue', voice: true, ...data }));
+    cue({ id: 'claudia', text: 'Claudia is speaking.', vars: { speaking: 'true' } });
+    eq(W.elements.get('cine-sub').textContent, '', 'control messages are not dialogue');
+    cue({ id: 'claudia', text: 'Who has been keeping quiet?' });
+    eq(W.elements.get('cine-sub').textContent, 'Who has been keeping quiet?');
+    cue({ id: 'bot', text: 'I suspect somebody.' });
+    cue({ id: 'claudia', text: 'A duplicate scripted line.', quiet: true });
+    eq(W.elements.get('cine-sub').textContent, 'Who has been keeping quiet?', 'only her live dialogue owns this subtitle');
+    W.step(10000);
+    eq(W.elements.get('cine-sub').textContent, 'Who has been keeping quiet?', 'caption lasts through the live speech');
+    cue({ id: 'claudia', text: 'Claudia has finished.', vars: { speaking: 'false' } });
+    eq(W.elements.get('cine-sub').textContent, '', 'the end signal clears the caption');
+    cue({ id: 'bot', text: 'Your turn.' });
+    eq(W.elements.get('cine-sub').textContent, '', 'contestant captions remain hidden on an open floor');
   });
 
   await atest('castle introduction waits for private instructions and every listener before opening bot chat', async () => {

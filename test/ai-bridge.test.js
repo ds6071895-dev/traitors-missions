@@ -72,6 +72,11 @@ function fakeDeepgram() {
           }
           if (m.type === 'InjectUserMessage' && /^SLOW/.test(m.content)) {
             // a turn still being produced when the host cuts it off
+            setTimeout(() => {
+              ws.send(JSON.stringify({ type: 'AgentStartedSpeaking' }));
+              ws.send(Buffer.alloc(4800, 2), { binary: true });
+              ws.send(JSON.stringify({ type: 'ConversationText', role: 'assistant', content: 'The cancelled tail.' }));
+            }, 160);
             setTimeout(() => ws.send(JSON.stringify({ type: 'AgentAudioDone' })), 250);
           } else ws.send(JSON.stringify({ type: 'AgentAudioDone' }));
         }
@@ -80,11 +85,20 @@ function fakeDeepgram() {
       ws.on('close', () => seen.closed++);
     } else if (req.url.startsWith('/v1/listen')) {
       seen.ears.push({ auth, url: req.url });
+      let pending = false, silence = 0, utterances = 0;
       ws.on('message', (data, binary) => {
         if (!binary) return;
         seen.audioIn++;
-        if (seen.audioIn === 3) ws.send(JSON.stringify({ type: 'Results', is_final: true, speech_final: true,
-          channel: { alternatives: [{ transcript: 'I think Morag is lying' }] } }));
+        if (data.some(byte => byte !== 0)) {
+          pending = true; silence = 0;
+        } else if (pending) {
+          silence += data.length / 48; // milliseconds at 24 kHz PCM16
+          if (silence >= 400) {
+            pending = false;
+            ws.send(JSON.stringify({ type: 'Results', is_final: true, speech_final: true,
+              channel: { alternatives: [{ transcript: utterances++ ? 'Morag!' : 'I think Morag is lying' }] } }));
+          }
+        }
       });
     }
   });
@@ -183,6 +197,21 @@ function fakeDeepgram() {
       eq(dg.seen.injected.length, before + 1, 'the deferred comment never starts during her speech');
     });
 
+    await atest('cancelled speech cannot keep sending text or speaking notifications after its audio is dropped', async () => {
+      const before = dg.seen.injected.length;
+      const heard = [];
+      B.Party.room.onAudio = p => heard.push(p);
+      A.Party.ai({ op: 'ask', id: BOT, text: 'SLOW cancelled response' });
+      await until(() => dg.seen.injected.length === before + 1);
+      A.Party.ai({ op: 'hush', id: BOT, on: true });
+      await delay(60);
+      const start = fromHost.length, frames = heard.length;
+      await delay(250);
+      eq(heard.length, frames, 'the cancelled tail is silent');
+      eq(fromHost.slice(start).filter(m => m.id === BOT && ['text', 'speaking', 'done'].includes(m.op)), [],
+        'its text and lifecycle events are dropped with its audio');
+    });
+
     await atest('voice routes apply to an AI exactly as to a person', async () => {
       const room = app.rooms.get(A.Party.code);
       const heard = [];
@@ -254,10 +283,24 @@ function fakeDeepgram() {
       A.Party.ai({ op: 'listen', humans: [{ id: B.Party.selfId(), name: 'Bo' }, { id: 'not-in-room', name: 'X' }] });
       await until(() => dg.seen.ears.length === 1);
       ok(/keyterm=Bo/.test(dg.seen.ears[0].url) && /keyterm=Morag/.test(dg.seen.ears[0].url), 'names are key terms');
-      for (let i = 0; i < 3; i++) B.Party.room.sendAudio(new Int16Array(480).buffer);
+      for (let i = 0; i < 3; i++) B.Party.room.sendAudio(new Int16Array(480).fill(1000).buffer);
       await until(() => fromHost.some(m => m.op === 'heard'));
       const h = fromHost.find(m => m.op === 'heard');
       eq([h.id, h.text], [B.Party.selfId(), 'I think Morag is lying'], 'labelled with the speaker');
+    });
+
+    await atest('a short name finalizes after capture stops, and transcription padding ends when idle', async () => {
+      const heard = [];
+      A.Party.room.onAudio = p => heard.push(Buffer.from(p));
+      B.Party.room.sendAudio(new Int16Array(480).fill(1000).buffer);
+      await until(() => fromHost.some(m => m.op === 'heard' && m.text === 'Morag!'));
+      const h = fromHost.find(m => m.op === 'heard' && m.text === 'Morag!');
+      eq(h.id, B.Party.selfId(), 'the final name reaches the director without another spoken word');
+      eq(heard.length, 1, 'recogniser silence is never relayed to players');
+      await delay(1600);
+      const frames = dg.seen.audioIn;
+      await delay(100);
+      eq(dg.seen.audioIn, frames, 'padding is bounded, not an endless silent stream');
     });
 
     await atest('the socket cap holds, and is said', async () => {
