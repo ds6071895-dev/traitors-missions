@@ -68,15 +68,26 @@ const Look = (() => {
     { id: 'cowl',  name: 'Cowl' },
   ];
 
-  /* A narrower spread of heights and a wider one of girth than a
-     real crowd has: the figures are stylised chunky, and a tall thin
-     option on top of that is a stick with a coat on. */
+  /* Heights and girths at real proportions now the figures are seven
+     heads tall: girth widens the shoulders, hips and limbs, and only
+     a little of it reaches the depth or the skull. */
   const BUILD = [
-    { id: 'slight', name: 'Slight', height: 1.62, girth: 0.96 },
-    { id: 'lean',   name: 'Lean',   height: 1.68, girth: 1.00 },
-    { id: 'solid',  name: 'Solid',  height: 1.72, girth: 1.10 },
-    { id: 'tall',   name: 'Tall',   height: 1.78, girth: 1.04 },
-    { id: 'broad',  name: 'Broad',  height: 1.74, girth: 1.20 },
+    { id: 'slight', name: 'Slight', height: 1.62, girth: 0.92 },
+    { id: 'lean',   name: 'Lean',   height: 1.68, girth: 0.97 },
+    { id: 'solid',  name: 'Solid',  height: 1.72, girth: 1.06 },
+    { id: 'tall',   name: 'Tall',   height: 1.80, girth: 1.00 },
+    { id: 'broad',  name: 'Broad',  height: 1.75, girth: 1.14 },
+  ];
+
+  /* The shape of the face. A look saved before this row existed gets
+     one from a hash of its other choices, so it is the same face on
+     every screen and the old crowd does not all share one. */
+  const FACE = [
+    { id: 'oval',   name: 'Oval' },
+    { id: 'square', name: 'Square' },
+    { id: 'heart',  name: 'Heart' },
+    { id: 'round',  name: 'Round' },
+    { id: 'long',   name: 'Long' },
   ];
 
   /* The rows the dressing room walks. Keeping them as data means the
@@ -85,6 +96,7 @@ const Look = (() => {
   const ROWS = [
     { key: 'build',      label: 'Build',   list: BUILD,        show: (v) => BUILD[v].name },
     { key: 'skin',       label: 'Skin',    list: SKIN,         swatch: (v) => SKIN[v] },
+    { key: 'face',       label: 'Face',    list: FACE,         show: (v) => FACE[v].name },
     { key: 'hair',       label: 'Hair',    list: HAIR,         show: (v) => HAIR[v].name },
     { key: 'hairColour', label: 'Colour',  list: HAIR_COLOUR,  swatch: (v) => HAIR_COLOUR[v] },
     { key: 'coat',       label: 'Coat',    list: COAT,         show: (v) => COAT[v].name,
@@ -94,7 +106,7 @@ const Look = (() => {
     { key: 'scarf',      label: 'Neck',    list: SCARF,        show: (v) => SCARF[v].name },
   ];
 
-  const LISTS = { SKIN, HAIR, HAIR_COLOUR, COAT, ACCENT, HAT, SCARF, BUILD };
+  const LISTS = { SKIN, HAIR, HAIR_COLOUR, COAT, ACCENT, HAT, SCARF, BUILD, FACE };
 
   const clampIdx = (v, list) => {
     const i = Math.floor(Number(v));
@@ -103,20 +115,26 @@ const Look = (() => {
   };
 
   function fresh() {
-    return { build: 1, skin: 1, hair: 1, hairColour: 1, coat: 0, accent: 0,
+    return { build: 1, skin: 1, face: 0, hair: 1, hairColour: 1, coat: 0, accent: 0,
              hat: 0, scarf: 0 };
   }
 
   function random() {
     const pick = (list) => Math.floor(Math.random() * list.length);
-    return { build: pick(BUILD), skin: pick(SKIN), hair: pick(HAIR),
+    return { build: pick(BUILD), skin: pick(SKIN), face: pick(FACE), hair: pick(HAIR),
              hairColour: pick(HAIR_COLOUR), coat: pick(COAT), accent: pick(ACCENT),
              hat: pick(HAT), scarf: pick(SCARF) };
   }
 
   function normalise(raw) {
+    const hadFace = !!raw && raw.face !== undefined && raw.face !== null;
     const o = Object.assign(fresh(), raw || {});
     for (const row of ROWS) o[row.key] = clampIdx(o[row.key], row.list);
+    if (!hadFace && raw) {
+      let h = 7;
+      for (const row of ROWS) if (row.key !== 'face') h = (h * 31 + o[row.key]) >>> 0;
+      o.face = h % FACE.length;
+    }
     return o;
   }
 
@@ -136,6 +154,7 @@ const Look = (() => {
       accent: ACCENT[o.accent],
       hat: HAT[o.hat].id,
       scarf: SCARF[o.scarf].id,
+      face: FACE[o.face].id,
       height: build.height,
       girth: build.girth,
       boot: '#241f1a',

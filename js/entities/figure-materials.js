@@ -79,6 +79,8 @@ const FigureMaterials = (() => {
       map.wrapS = map.wrapT = THREE.RepeatWrapping;
       map.colorSpace = THREE.SRGBColorSpace;
       map.anisotropy = Math.min(8, Engine.renderer.capabilities.getMaxAnisotropy());
+      // shared by every figure: disposing one person must not drop it
+      map.userData.estateShared = true;
       maps[name] = map;
       gain[name] = { value: 1 };
     }

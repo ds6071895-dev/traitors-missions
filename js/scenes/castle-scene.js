@@ -279,6 +279,7 @@ class CastleScene {
       }
       Scenes.Cine.card({ kicker: voter.local ? 'Your slate' : voter.name + '’s slate',
                          title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'bad' });
+      this._accuse(voter.id, target.id);
       if (this.music) this.music.stinger('slate-turn', { n: said++ });
       // nobody announces their own vote: Claudia reads each slate out
       await Scenes.run([{
@@ -296,6 +297,37 @@ class CastleScene {
       await this._sleep(0.3);
     }
     Scenes.Cine.card(null);
+  }
+
+  /* A slate turned: the voter points across the table at the name on
+     it, and whoever it names takes it — a shake of the head, a hand to
+     the chest — and stays uneasy for the rest of the table. */
+  _accuse(voterId, targetId) {
+    const st = this.stage;
+    if (!st || !st.pointAt) return;
+    const tf = st.figureOf(targetId);
+    const who = Session.playerById(targetId);
+    const at = tf ? tf.position.clone().setY(tf.position.y + 1.2 * (tf.scale.y || 1))
+             : who && who.local ? st.camera.position.clone() : null;
+    if (!at) return;
+    st.pointAt(voterId, at);
+    if (tf) {
+      st.setMood(targetId, 'nervous');
+      if (Math.random() < 0.7) st.act(targetId, Math.random() < 0.5 ? 'shake' : 'handChest');
+    }
+    clearTimeout(this._pointT);
+    this._pointT = setTimeout(() => { if (st.pointAt) st.pointAt(voterId, null); }, 2400);
+  }
+
+  /* The room takes a reveal: a few of them at a time, not in unison. */
+  _react(pool, exceptId, chance = 0.75) {
+    const st = this.stage;
+    if (!st || !st.figures) return;
+    st.figures.forEach((f) => {
+      if (!f || f.userData.hidden || f.userData.playerId === exceptId || Math.random() > chance) return;
+      const name = pool[Math.floor(Math.random() * pool.length)];
+      setTimeout(() => { if (this._alive) Figure.act(f, name, { hold: false }); }, 150 + Math.random() * 1100);
+    });
   }
 
   /* The role, said by the room. The flare, the card, the score — and

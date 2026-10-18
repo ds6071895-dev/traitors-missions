@@ -72,8 +72,10 @@ const CastleNet = (() => {
       vz = U.clamp((p[1] - prev.z) / dt, -9, 9);
       if (prev.vx !== undefined) { vx = prev.vx * 0.35 + vx * 0.65; vz = prev.vz * 0.35 + vz * 0.65; }
     }
+    /* `w`, a fifth field, is "working at a station" — only how they are
+       drawn. A build that predates it sends four and ignores a fifth. */
     poses.set(id, { x: p[0], z: p[1], h: p[2], g: typeof p[3] === 'string' ? p[3] : null,
-                    t: now, room, vx, vz });
+                    w: p[4] === 1, t: now, room, vx, vz });
   }
 
   /* Rooms are where you are standing; a doorway is still the room you
@@ -86,13 +88,13 @@ const CastleNet = (() => {
   const wire = (v) => Math.round(v * 100) / 100;
 
   /* Our own person: kept here at once, sent at ten a second. */
-  function publish(id, x, z, h, g) {
-    take(id, [x, z, h, g || 0]);
+  function publish(id, x, z, h, g, w) {
+    take(id, [x, z, h, g || 0, w ? 1 : 0]);
     const now = Date.now();
     if (now - lastSend < SEND_MS) return;
     lastSend = now;
     if (typeof Party === 'undefined' || !Party.connected || !Party.post) return;
-    Party.post('sync', { k: 'cpose', d: day, p: [wire(x), wire(z), wire(h), g || 0] });
+    Party.post('sync', { k: 'cpose', d: day, p: [wire(x), wire(z), wire(h), g || 0, w ? 1 : 0] });
   }
 
   /* The host's AI contestants, in one packet. */
@@ -103,7 +105,7 @@ const CastleNet = (() => {
     botSend = now;
     if (typeof Party === 'undefined' || !Party.connected || !Party.isHost || !Party.post) return;
     Party.post('sync', { k: 'cposes', d: day,
-                         list: rows.map(r => [r[0], wire(r[1]), wire(r[2]), wire(r[3]), r[4] || 0]) });
+                         list: rows.map(r => [r[0], wire(r[1]), wire(r[2]), wire(r[3]), r[4] || 0, r[5] ? 1 : 0]) });
   }
 
   const get = (id) => poses.get(id) || null;
@@ -115,7 +117,7 @@ const CastleNet = (() => {
     const p = poses.get(id);
     if (!p) return null;
     const ahead = Math.min(0.2, Math.max(0, (Date.now() - p.t) / 1000));
-    return { x: p.x + (p.vx || 0) * ahead, z: p.z + (p.vz || 0) * ahead, h: p.h, g: p.g, room: p.room };
+    return { x: p.x + (p.vx || 0) * ahead, z: p.z + (p.vz || 0) * ahead, h: p.h, g: p.g, w: p.w, room: p.room };
   }
 
   /* ---------------- the host's eyes ---------------- */

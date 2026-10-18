@@ -401,7 +401,8 @@ const CastleBots = (() => {
     for (const b of bots) {
       if (!alive(b.id)) continue;
       try { think(b, Math.min(dt, 0.1)); } catch (e) { console.warn('castle bot:', e); }
-      rows.push([b.id, b.x, b.z, b.h, b.g || 0]);
+      const working = b.plan && b.plan.kind === 'station' && b.plan.arrived;
+      rows.push([b.id, b.x, b.z, b.h, b.g || 0, working ? 1 : 0]);
     }
     if (rows.length && typeof CastleNet !== 'undefined') CastleNet.publishBots(rows);
   }

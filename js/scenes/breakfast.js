@@ -39,7 +39,7 @@ class BreakfastScene extends CastleScene {
       if (!f) return;
       const id = this.stage.seats[i].id;
       f.userData.hidden = !arrived.has(id);
-      if (arrived.has(id)) Figure.setSeated(f, true);
+      if (arrived.has(id)) Figure.setSeated(f, true, { instant: true });
     });
     if (this._spectator) {
       this.stage.rig.pos.set(0, 0, 5.4);
@@ -89,6 +89,8 @@ class BreakfastScene extends CastleScene {
       if (!pts) return;
       st.walkPath(id, pts, { speed: 1.45, pause: 0.55 + k * 0.7 });
     });
+    // somebody you were afraid for has walked in: a breath out, a nod
+    this._react(['relief', 'nod', 'relief'], null, 0.3);
     clearTimeout(this._gazeT);
     this._gazeT = setTimeout(() => {
       if (!this._alive || !this.stage) return;
@@ -117,10 +119,12 @@ class BreakfastScene extends CastleScene {
       const empty = this.stage && this.stage.seats.find(x => x.id === b.victim);
       if (empty && this.stage) this.stage.setGaze(empty.home.clone().setY(1.0));
       await this._sleep(1.2);
+      this._react(['handsFace', 'gasp', 'headDown', 'shake'], b.victim);
       await this._say('breakfastAbsent', { name: b.name }, null);
       if (this.stage) this.stage.setGaze(null);
     } else {
       if (this.music) { this.music.stinger('all-here'); this.music.section('saved', { at: 'bar', glide: 2 }); }
+      this._react(['relief', 'clap', 'laugh', 'relief'], null);
       await this._say(b.spared ? 'breakfastSpared' : 'breakfastNobody', {}, null);
     }
     if (!this._alive) return;

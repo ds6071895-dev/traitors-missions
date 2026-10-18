@@ -421,7 +421,7 @@ class TasksScene {
     const h = rig.yaw + Math.PI;
     this._myLocal = { x: l.x, z: l.z, h };
     this._myRoom = CastleNet.roomOf(l.x, l.z, this._myRoom);
-    if (!this._dead && this._meId) CastleNet.publish(this._meId, l.x, l.z, h, this._hold ? this._hold.target : 0);
+    if (!this._dead && this._meId) CastleNet.publish(this._meId, l.x, l.z, h, this._hold ? this._hold.target : 0, this._busy);
     if (Session.isHost) CastleBots.update(dt);
     this._drawOthers(dt);
     this._voices();
@@ -473,8 +473,14 @@ class TasksScene {
       Figure.setLocomotion(f, f.userData.pace > 0.3 ? f.userData.pace : 0, 0);
       f.rotation.y = U.angLerp(f.rotation.y, q.h, 1 - Math.exp(-10 * dt));
       Figure.setHolding(f, !!q.g);
+      // at a station, head down over the job
+      if (!!q.w !== !!f.userData.working) {
+        f.userData.working = !!q.w;
+        if (q.w) Figure.act(f, 'work', { loop: true }); else Figure.stopAct(f, 'work');
+      }
       /* Something small and pale in the reaching hand. A letter and the
-         poison are the same envelope: that is the whole point. */
+         poison are the same envelope: that is the whole point — and the
+         same reach, toward the same place on the person, either way. */
       const env = this._envelope(f);
       env.visible = !!q.g && f.visible && (f.userData.holding || 0) > 0.45;
       if (env.visible) {
@@ -482,8 +488,14 @@ class TasksScene {
         env.rotation.y = f.rotation.y;
       }
       const tgt = q.g ? this.stage.figures.find(o => o && o.userData.playerId === q.g) : null;
-      if (tgt) Figure.lookAt(f, tgt.position.clone().setY(tgt.position.y + 1.2));
-      else if (q.g === this._meId) Figure.lookAt(f, this.stage.camera.position);
+      if (tgt) {
+        const at = tgt.position.clone().setY(tgt.position.y + 1.05 * (tgt.scale.y || 1));
+        Figure.lookAt(f, at);
+        Figure.reachTo(f, at);
+      } else if (q.g === this._meId) {
+        Figure.lookAt(f, this.stage.camera.position);
+        Figure.reachTo(f, this.stage.camera.position.clone().setY(this.stage.camera.position.y - 0.5));
+      } else Figure.reachTo(f, null);
     }
   }
 

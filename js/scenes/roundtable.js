@@ -136,7 +136,7 @@ class RoundtableScene extends CastleScene {
         f.userData.walk = null;
         f.position.copy(st.seats[i].home);
         f.rotation.y = Math.atan2(-st.seats[i].home.x, -st.seats[i].home.z);
-        Figure.setSeated(f, true);
+        Figure.setSeated(f, true, { instant: true });
       }
       f.userData.hidden = false;
     });
@@ -188,7 +188,12 @@ class RoundtableScene extends CastleScene {
         });
       }
     }
-    const offVote = Net.on((e) => { if (e.type === 'vote') this._paintTally(); });
+    const offVote = Net.on((e) => {
+      if (e.type !== 'vote') return;
+      this._paintTally();
+      // head down over the slate: who they wrote stays theirs until it turns
+      if (e.stage === 'name' && this.stage && this.stage.act) this.stage.act(e.playerId, 'write');
+    });
     await this._waitFor(() => Session.state.phase !== 'table' || Session.state.finale.stage !== 'name');
     offVote();
     this._closeVote();
@@ -220,6 +225,7 @@ class RoundtableScene extends CastleScene {
       this.music.stinger('banish', { at: 'beat' });
       this.music.section('reveal', { at: 'bar', glide: 2 });
     }
+    if (st && st.act) { st.act(target.id, 'gasp'); st.setMood(target.id, 'nervous'); }
     await this._say(this._setFor('banishName', target), { name: target.name }, 'on:' + target.id);
     if (!this._alive) return;
     // the chair goes back, and they stand
@@ -242,6 +248,8 @@ class RoundtableScene extends CastleScene {
     if (!this._alive || !role) return;
     Voice.show(target.local ? 'You' : target.name, role === 'traitor' ? 'I am a Traitor.' : 'I am a Faithful.');
     this._flare(role, target.id, role === 'traitor' ? 'banishTraitor' : 'banishFaithful');
+    this._react(role === 'traitor' ? ['clap', 'relief', 'nod', 'relief'] : ['handsFace', 'gasp', 'shake', 'headDown'],
+                target.id);
     await this._sleep(3.0);
     Scenes.Cine.card(null);
     Voice.clear();

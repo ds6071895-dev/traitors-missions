@@ -139,7 +139,9 @@ const Stage = (() => {
       const facing = spot.face || cPos;
       fig.rotation.y = Math.atan2(facing.x - x, facing.z - z);
       fig.userData.playerId = p.id;
-      if (o.seated && seatedDress) Figure.setSeated(fig, true);
+      // at a table the hands rest on it; anywhere else, in the lap
+      fig.userData.seatOpts = { table: o.dress === 'table' || o.dress === 'breakfast' };
+      if (o.seated && seatedDress) Figure.setSeated(fig, true, { instant: true });
       scene.add(fig);
       /* Two other people, arranged in an arc, in the coats they chose
          in a dressing room half an hour ago. The whole of the round
@@ -423,10 +425,22 @@ const Stage = (() => {
     let speakingId = null;
     let claudiaFocus = null;           // overrides who she is looking at
     let gaze = null;                   // overrides who everybody is looking at
+    /* Somebody new has the floor. Everybody turns to them anyway (the
+       gaze below); a few of the listeners also react, a beat later and
+       not all at once — a nod, a glance, a lean in — which is most of
+       what makes a table of people look like it is listening. */
+    const reactions = [];
     function setSpeaking(who) {
+      const changed = who !== speakingId;
       speakingId = who;
       Figure.setSpeaking(claudia, who === 'claudia');
       figures.forEach(f => f && Figure.setSpeaking(f, f.userData.playerId === who));
+      if (!changed || !who) return;
+      for (const f of figures) {
+        if (!f || f.userData.playerId === who || Math.random() > 0.4) continue;
+        const pool = who === 'claudia' ? ['nod', 'leanIn', 'glance'] : ['nod', 'glance', 'leanIn', 'leanBack', 'think'];
+        reactions.push({ f, at: 0.4 + Math.random() * 2.2, name: pool[Math.floor(Math.random() * pool.length)] });
+      }
     }
 
     /* Elimination belongs to the stage, whatever scene is using it.
@@ -544,6 +558,13 @@ const Stage = (() => {
         || (speakingId && speakingId !== 'claudia'
           ? (seats.find(s => s.id === speakingId) || { pos: camera.position }).pos
           : camera.position));
+      for (let i = reactions.length - 1; i >= 0; i--) {
+        const r = reactions[i];
+        r.at -= dt;
+        if (r.at > 0) continue;
+        reactions.splice(i, 1);
+        if (figures.includes(r.f) && !r.f.userData.walk) Figure.act(r.f, r.name);
+      }
       for (const f of figures) {
         if (!f) continue;
         stepWalk(f, dt);
@@ -612,22 +633,38 @@ const Stage = (() => {
       if (!f) return 0;
       const pts = points.map(p => { const q = p.clone(); q.y = land.heightAt(q.x, q.z); return q; });
       const speed = opts2.speed || 1.25;
+      const sit = opts2.sit === undefined ? o.seated && seatedDress : !!opts2.sit;
+      const face = opts2.face || seat.face || cPos;
+      /* Somebody who is going to sit walks to the front of the chair,
+         not into it; arriving, the figure's root moves back to the seat
+         and its body is held where it stood, so nothing jumps. */
+      let home = null;
+      if (sit && pts.length >= 2) {
+        home = pts[pts.length - 1].clone();
+        const fwd = face.clone().sub(home).setY(0);
+        if (fwd.lengthSq() > 1e-6) {
+          const s = f.scale.y || 1;
+          pts[pts.length - 1] = home.clone().addScaledVector(fwd.normalize(), 0.30 * s);
+        }
+      }
       let dist = 0;
       for (let k = 1; k < pts.length; k++) dist += pts[k].distanceTo(pts[k - 1]);
+      // getting out of a chair takes a moment before the first step
+      const rise = Math.min(1.1, (f.userData.seated || 0) * 1.1);
       f.userData.hidden = false;
       Figure.setSeated(f, false);
       f.position.copy(pts[0]);
       const first = pts[1].clone().sub(pts[0]);
-      f.rotation.y = Math.atan2(first.x, first.z);
-      f.userData.walk = { pts, k: 1, speed, pause: opts2.pause || 0,
-                          sit: opts2.sit === undefined ? o.seated && seatedDress : !!opts2.sit,
-                          face: opts2.face || seat.face || cPos, settle: 0, onArrive: opts2.onArrive || null };
-      return dist / speed + (opts2.pause || 0) + 0.8;
+      if (!rise) f.rotation.y = Math.atan2(first.x, first.z);
+      f.userData.walk = { pts, k: 1, speed, pause: (opts2.pause || 0) + rise, sit, home,
+                          face, settle: 0, onArrive: opts2.onArrive || null };
+      return dist / speed + (opts2.pause || 0) + rise + 0.8;
     }
     function stepWalk(f, dt) {
       const w = f.userData.walk;
       if (!w) return;
       if (w.pause > 0) { w.pause -= dt; Figure.setLocomotion(f, 0, 0); return; }
+      if (!w.cleared) { w.cleared = true; Figure.leaveChair(f); }
       if (w.k < w.pts.length) {
         const to = w.pts[w.k];
         const dx = to.x - f.position.x, dz = to.z - f.position.z;
@@ -648,7 +685,10 @@ const Stage = (() => {
       if (w.settle > 0.55) {
         f.userData.walk = null;
         f.rotation.y = want;
-        if (w.sit) Figure.setSeated(f, true);
+        if (w.sit) {
+          if (w.home) f.position.copy(w.home);
+          Figure.setSeated(f, true, { fromFront: !!w.home });
+        }
         if (w.onArrive) w.onArrive(f);
       }
     }
@@ -685,6 +725,19 @@ const Stage = (() => {
       },
       track(fig) { tracking = fig || null; },
       figureOf(id) { const i = seats.findIndex(x => x.id === id); return i >= 0 ? figures[i] : null; },
+      // acting: an act from figure-clips.js, a mood, a pointed finger
+      act(id, name, opts3) {
+        const f = id === 'claudia' ? claudia : this.figureOf(id);
+        return f ? Figure.act(f, name, opts3) : 0;
+      },
+      actAll(name, filter) {
+        figures.forEach(f => { if (f && (!filter || filter(f.userData.playerId))) Figure.act(f, name, { speed: 0.85 + Math.random() * 0.3 }); });
+      },
+      setMood(id, mood) { const f = this.figureOf(id); if (f) Figure.setMood(f, mood); },
+      pointAt(id, target) {
+        const f = id === 'claudia' ? claudia : this.figureOf(id);
+        if (f) Figure.pointAt(f, target);
+      },
       // for a scene that wants to flare the fire on a reveal
       flare(v) { if (fire) fire.userData.want = v; },
       // knock the camera about: 1 is the pouch answering

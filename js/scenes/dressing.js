@@ -72,15 +72,18 @@ const Dressing = (() => {
   }
 
   /* ---------------- the loop ----------------
-     Idle, then a walk, then a wave, then round again. Each state runs
-     long enough to read and short enough that nobody has to wait for
-     the bit they wanted to see. */
+     Idle, then a walk, then a wave, then a few words, then round
+     again. Each state runs long enough to read and short enough that
+     nobody has to wait for the bit they wanted to see — and the last
+     one is the face doing what it will do at the round table. */
 
   const BEATS = [
     { name: 'idle', dur: 3.2 },
     { name: 'walk', dur: 4.0 },
     { name: 'wave', dur: 2.4 },
+    { name: 'talk', dur: 3.0 },
   ];
+  let lastBeat = null;
 
   function frame(dt) {
     clock += dt;
@@ -94,9 +97,13 @@ const Dressing = (() => {
     const beat = BEATS[i].name;
 
     if (fig) {
-      Figure.setLocomotion(fig, beat === 'walk' ? 1.55 : 0, 0);
-      Figure.setCheering(fig, beat === 'wave');
-      Figure.setSpeaking(fig, false);
+      if (beat !== lastBeat) {
+        if (beat === 'wave') Figure.act(fig, 'wave');
+        lastBeat = beat;
+      }
+      Figure.setLocomotion(fig, beat === 'walk' ? 1.4 : 0, 0);
+      Figure.setSpeaking(fig, beat === 'talk');
+      Figure.setMood(fig, beat === 'wave' || beat === 'talk' ? 'happy' : 'calm');
       // the turntable only turns when you turn it: drag to spin, and a
       // flick carries on a little and settles rather than stopping dead
       if (dragId === null) {

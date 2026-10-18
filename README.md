@@ -183,7 +183,15 @@ poison ever leaks into the shared state; `castle.test.js` checks who can see a h
 through walls and doorways and that the AI contestants can walk everywhere;
 `ai-director.test.js` checks the AIs answer the room one at a time; and `ai-bridge.test.js`
 runs the whole Deepgram path — agents, transcription and Claudia's lines — against a fake
-Deepgram on localhost. The WebSocket tests cover admission, private routing, voice routing
+Deepgram on localhost. `figure.test.js` builds and moves the people with the real three.js
+— skin weights, heights, planted feet at changing speeds, reaches, the pouch throw,
+sitting on a chair — and is skipped unless `THREE_CJS` points at a `three.cjs` (three
+comes from a CDN and is not a dependency):
+
+```sh
+npm pack three@0.160.0 && tar xzf three-0.160.0.tgz
+THREE_CJS=$PWD/package/build/three.cjs npm test
+``` The WebSocket tests cover admission, private routing, voice routing
 (the turret and the dead), reconnection and retry. Physical devices and production HTTPS
 still need a smoke test after deployment.
 
@@ -203,6 +211,14 @@ still need a smoke test after deployment.
 - **`TasksScene`**, **`RoundtableScene`**, **`NightScene`**, **`BreakfastScene`**,
   **`FinaleScene`** are the rooms; **`Show`** decides which one is on screen.
 - **`AIDirector`** decides which AI speaks, when, and what each one knows.
+- **`Figure`** (`js/entities/figure.js`) is every person on screen. A real-proportioned
+  skeleton (`figure-skeleton.js`) carries six skinned, lofted surfaces — skin, jacket,
+  trousers, hair, eyes, and one for hat and scarf — built and cached per build (`figure-body.js`).
+  `figure-anim.js` moves them: feet planted by IK on a gait driven by how far the figure
+  really moved, sitting down and standing up, gaze, a talking face, moods, and the acts in
+  `figure-clips.js` (a nod, a shrug, a gasp, pointing at a slate's name, the hand-over).
+  Scenes ask through the stage: `stage.act(id, 'gasp')`, `stage.setMood(id, 'nervous')`,
+  `stage.pointAt(id, where)`.
 - **`Voice`** reads Claudia's lines — through the room server's Deepgram voice when there
   is a key, through the browser otherwise — on one text-derived clock, so subtitles,
   cameras and every browser stay together.

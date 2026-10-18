@@ -59,6 +59,8 @@ const EstateMaterials = (() => {
   }
   function figureLOD(figure,camera){
     if(!figure||!figure.userData.rig)return;
+    // the skinned figures choose their own detail
+    if(typeof Figure!=='undefined'&&Figure.lod&&figure.userData.rig.meshes)return Figure.lod(figure,camera);
     const pos=figure.getWorldPosition(new THREE.Vector3()),far=pos.distanceTo(camera.position)>(GameState.data.settings.quality==='low'?5:14);
     figure.userData.rig.head.traverse(o=>{
       if(!o.isMesh||!o.geometry)return;

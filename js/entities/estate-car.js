@@ -37,7 +37,9 @@ const EstateCar = (() => {
       cube(group,'upholstery',.63,.18,.68,p[0],.95,p[2]);cube(group,'upholstery',.63,.68,.15,p[0],1.25,p[2]-.32);
       cube(group,'upholstery',.4,.23,.15,p[0],1.68,p[2]-.32);
     }
-    const driver=Figure.build({palette:'slate',height:1.65,long:false});EstateMaterials.fabric(driver);driver.position.set(.49,.68,.38);Figure.setSeated(driver,true);group.add(driver);
+    // the cushions are lower than a castle chair: hips a hand above them, feet forward
+    const carSeat={hip:.47,hipZ:-.06,footZ:.40,chair:false,instant:true};
+    const driver=Figure.build({palette:'slate',height:1.65,long:false});EstateMaterials.fabric(driver);driver.position.set(.49,.68,.38);Figure.setSeated(driver,true,carSeat);group.add(driver);
     const wheelGeo=new THREE.CylinderGeometry(.42,.42,.25,16);wheelGeo.rotateZ(Math.PI/2);
     const wheels=[];
     for(const x of [-1,1])for(const z of [-1.48,1.48]){
@@ -48,7 +50,7 @@ const EstateCar = (() => {
     const light=new THREE.SpotLight('#ffe6b3',2.5,42,.55,.6,1);light.position.set(0,1.2,2);light.target.position.set(0,0,30);group.add(light,light.target);
     for(let i=0;i<players.length;i++){
       const p=players[i],fig=Figure.build(p.look?{look:p.look,long:false}:{palette:Figure.paletteFor(p.seat),long:false});
-      EstateMaterials.fabric(fig);fig.visible=false;group.add(fig);figures.push(fig);
+      EstateMaterials.fabric(fig);Figure.setSeated(fig,true,carSeat);fig.visible=false;group.add(fig);figures.push(fig);
     }
     const S=seats.length;
     const seatWorld=i=>group.localToWorld(new THREE.Vector3(seats[i%S][0],1.72,seats[i%S][2]));
