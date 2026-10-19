@@ -269,6 +269,11 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 #surf-indicator.on{animation:surfPulse .9s ease-in-out infinite}
 @keyframes surfPulse{0%,100%{transform:translateX(-50%) translateY(-10px) scale(1)}50%{transform:translateX(-50%) translateY(-14px) scale(1.06)}}
 
+#drama-vignette{position:fixed; inset:0; z-index:22; pointer-events:none; opacity:0;
+  transition:opacity .45s ease-out;
+  background:radial-gradient(ellipse 70% 62% at 50% 46%, rgba(0,0,0,0) 40%, rgba(8,0,2,.58) 82%, rgba(4,0,0,.86) 100%)}
+#drama-vignette.on{opacity:1; transition:opacity .25s ease-in}
+
 #screen-flash{position:fixed; inset:0; z-index:23; pointer-events:none; opacity:0;
   mix-blend-mode:screen; transition:opacity .22s ease-out; background:#fff}
 
@@ -2386,6 +2391,129 @@ body.touch .tk-leave b{display:none}
 .cg-wrap.touch .cg-bat::before{content:''; position:absolute; inset:-14px -10px}
 .cg-wrap.touch .cg-close{width:40px; height:40px; border-radius:12px}
 
+/* Feel: pips for how far along, the goal stamped across the top as the
+   panel opens, a red edge on a mistake, and the pay shown on the panel. */
+.cg-steps{flex:none; display:flex; justify-content:center; gap:7px; margin-top:8px}
+.cg-steps i{width:11px; height:11px; border-radius:50%; background:rgba(255,255,255,.12);
+  border:1px solid rgba(242,193,78,.4); transition:background .15s, box-shadow .15s}
+.cg-steps i.on{background:var(--gold); box-shadow:0 0 10px rgba(242,193,78,.75)}
+.cg-steps i.pop{animation:cgPip .32s cubic-bezier(.2,.9,.3,1.6)}
+@keyframes cgPip{0%{transform:scale(.4)}60%{transform:scale(1.5)}100%{transform:none}}
+.cg-goal{position:absolute; left:50%; top:52px; z-index:3; pointer-events:none; white-space:nowrap;
+  font:400 clamp(22px,6vw,30px)/1 var(--display); letter-spacing:.08em; text-transform:uppercase; color:#ffe08a;
+  text-shadow:0 2px 0 rgba(0,0,0,.6), 0 0 22px rgba(242,193,78,.7); opacity:0;
+  animation:cgGoal 1.5s ease-out forwards}
+@keyframes cgGoal{0%{opacity:0; transform:translate(-50%,8px) scale(1.25)}14%{opacity:1; transform:translate(-50%,0) scale(1)}
+  72%{opacity:1; transform:translate(-50%,0)}100%{opacity:0; transform:translate(-50%,-12px)}}
+.cg-panel.cg-miss{animation:cgMiss .45s ease-out}
+@keyframes cgMiss{0%{border-color:#ff4d5e; box-shadow:0 0 0 3px rgba(255,60,80,.5), inset 0 0 40px rgba(255,40,60,.25), var(--shadow)}
+  100%{box-shadow:var(--shadow)}}
+.cg-panel.cg-shake.cg-miss{animation:cgShake .32s, cgMiss .45s ease-out}
+.cg-reward{position:absolute; left:50%; top:46%; z-index:4; pointer-events:none; white-space:nowrap;
+  font:400 clamp(30px,9vw,46px)/1 var(--display); color:#ffe08a; letter-spacing:.04em;
+  text-shadow:0 3px 0 rgba(0,0,0,.6), 0 0 30px rgba(242,193,78,.9); animation:cgReward .82s ease-out forwards}
+@keyframes cgReward{0%{opacity:0; transform:translate(-50%,-50%) scale(.5)}25%{opacity:1; transform:translate(-50%,-50%) scale(1.15)}
+  100%{opacity:1; transform:translate(-50%,-90%) scale(1)}}
+.cg-spark.big{width:12px; height:12px; background:#fff3c4}
+.cg-drag{opacity:0; pointer-events:none} .cg-drag.on{opacity:.75}
+.cg-hole.miss{background:#4a1820}
+
+/* place cards */
+.cg-cards{display:grid; grid-template-columns:repeat(3,72px); gap:10px}
+.cg-card{height:84px; border-radius:9px; border:1px solid rgba(242,193,78,.4); cursor:pointer; color:transparent;
+  background:repeating-linear-gradient(45deg,#2a1f3a 0 8px,#33264a 8px 16px); font:400 34px/1 var(--body);
+  transition:transform .18s, background .18s, color .1s}
+.cg-card i{font-style:normal}
+.cg-card.up{background:#efe6d4; color:#5a2a1a; transform:rotateY(0)}
+.cg-card.got{background:#e9f6ea; color:#2f7d4a; box-shadow:0 0 14px rgba(127,224,160,.6); cursor:default}
+
+/* portraits */
+.cg-frames{display:flex; gap:14px; justify-content:center; padding-top:8px;
+  background:linear-gradient(transparent 38%, rgba(242,193,78,.35) 38% calc(38% + 1px), transparent 0)}
+.cg-frame-box{display:flex; flex-direction:column; align-items:center; gap:10px}
+.cg-frame{width:74px; height:92px; border:7px solid #a8781c; border-radius:4px; background:#1a1410; padding:6px;
+  box-shadow:inset 0 0 0 2px #e9c46a, 0 6px 12px rgba(0,0,0,.4); transition:transform .18s cubic-bezier(.2,.9,.3,1.3)}
+.cg-frame i{display:block; width:100%; height:100%; border-radius:40% 40% 8% 8%;
+  -webkit-mask:radial-gradient(circle at 50% 34%, #000 22%, transparent 23%), radial-gradient(ellipse 60% 40% at 50% 100%, #000 99%, transparent 100%);
+  mask:radial-gradient(circle at 50% 34%, #000 22%, transparent 23%), radial-gradient(ellipse 60% 40% at 50% 100%, #000 99%, transparent 100%)}
+.cg-frame-box.level .cg-frame{box-shadow:inset 0 0 0 2px #e9c46a, 0 0 18px rgba(127,224,160,.7)}
+.cg-frame-box.level .cg-key{opacity:.35; pointer-events:none}
+.cg-frame-ctl{display:flex; gap:6px}
+.cg-frame-ctl .cg-key{width:40px}
+
+/* the forgery */
+.cg-paintings{display:flex; gap:12px; justify-content:center}
+.cg-painting{display:grid; grid-template-columns:repeat(3,40px); grid-auto-rows:40px; gap:2px; padding:8px;
+  border:6px solid #a8781c; border-radius:4px; background:linear-gradient(180deg,#24344a,#3a4a3a)}
+.cg-painting.fake{border-color:#b98a2c}
+.cg-thing{display:flex; align-items:center; justify-content:center; font-size:24px; line-height:1;
+  border:none; background:none; padding:0; border-radius:50%; cursor:default}
+button.cg-thing{cursor:pointer}
+button.cg-thing.got{box-shadow:0 0 0 3px #ff4d5e, 0 0 12px rgba(255,77,94,.6); background:rgba(255,77,94,.15)}
+
+/* the claret */
+.cg-rack{display:flex; gap:8px; align-items:flex-end; justify-content:center; padding:8px 10px;
+  border-radius:8px; background:linear-gradient(180deg,#3a2414,#24160c)}
+.cg-bottle{position:relative; width:48px; height:120px; border:none; background:none; cursor:pointer; padding:0;
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-end; transition:transform .15s}
+.cg-bottle i{position:absolute; inset:0 6px 0; border-radius:16px 16px 6px 6px;
+  background:linear-gradient(90deg,#1c0b10,#4a1622 45%,#20090e); clip-path:polygon(38% 0,62% 0,62% 22%,100% 36%,100% 100%,0 100%,0 36%,38% 22%)}
+.cg-bottle span{position:relative; margin-bottom:22px; padding:3px 4px; border-radius:3px; background:#efe6d4;
+  color:#3a2a14; font:700 11px var(--body)}
+.cg-bottle.held{transform:translateY(-10px)}
+.cg-bottle.held span{outline:2px solid var(--gold)}
+.cg-bottle.ok span{background:#d8f2dc}
+.cg-rack-ends{display:flex; justify-content:space-between; width:290px; font-size:11px; color:var(--muted); letter-spacing:.06em}
+
+/* the pantry mouse */
+.cg-mousewall{display:grid; grid-template-columns:repeat(3,78px); gap:12px; padding:12px; border-radius:10px;
+  background:repeating-linear-gradient(0deg,#3b3530 0 22px,#2e2924 22px 24px)}
+.cg-mhole{position:relative; height:66px; border:none; border-radius:40px 40px 6px 6px; background:#0b0806; cursor:pointer;
+  overflow:hidden; box-shadow:inset 0 6px 10px rgba(0,0,0,.8)}
+.cg-mhole i{position:absolute; left:50%; bottom:-40px; font-style:normal; font-size:34px; transform:translateX(-50%);
+  transition:bottom .12s ease-out}
+.cg-mhole.out i{bottom:6px}
+.cg-mhole.caught{box-shadow:inset 0 0 0 3px #7fe0a0, 0 0 14px rgba(127,224,160,.6)}
+
+/* the cistern */
+.cg-pipes{display:grid; grid-template-columns:30px repeat(3,70px) 30px; grid-auto-rows:70px; gap:3px; align-items:center}
+.cg-pipe-end{font-size:24px; text-align:center}
+.cg-pipe{position:relative; height:70px; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:#162232;
+  cursor:pointer; padding:0}
+.cg-pipe:active{transform:scale(.96)}
+.cg-pipe b, .cg-pipe i{position:absolute; background:#8a96a8; border-radius:3px}
+.cg-pipe b{left:36%; top:36%; width:28%; height:28%; border-radius:50%}
+.cg-pipe i.n{left:38%; width:24%; top:0; height:50%}
+.cg-pipe i.s{left:38%; width:24%; bottom:0; height:50%}
+.cg-pipe i.e{top:38%; height:24%; right:0; width:50%}
+.cg-pipe i.w{top:38%; height:24%; left:0; width:50%}
+.cg-pipe.wet b, .cg-pipe.wet i{background:#4fb6ff; box-shadow:0 0 8px rgba(79,182,255,.7)}
+
+/* the scales */
+.cg-scales{position:relative; width:260px; height:130px}
+.cg-post{position:absolute; left:50%; top:20px; bottom:0; width:8px; margin-left:-4px; background:#a8781c; border-radius:3px}
+.cg-beam{position:absolute; left:10px; right:10px; top:20px; height:6px; background:#e9c46a; border-radius:3px;
+  transition:transform .35s cubic-bezier(.2,.9,.3,1.3); z-index:1}
+.cg-pan{position:absolute; top:6px; width:86px; min-height:34px; padding:4px; display:flex; flex-wrap:wrap; gap:3px;
+  justify-content:center; align-items:flex-end; border-bottom:4px solid #c9a33c; border-radius:0 0 40px 40px}
+.cg-pan.l{left:-4px} .cg-pan.r{right:-4px}
+.cg-pan b{padding:4px 10px; border-radius:5px; background:linear-gradient(180deg,#ffe08a,#c9a33c); color:#1a1408; font:800 15px var(--body)}
+.cg-pan i{font-style:normal; padding:2px 6px; border-radius:4px; background:#b08d57; color:#1a1408; font:800 12px var(--body)}
+.cg-tray{display:flex; gap:8px; justify-content:center}
+.cg-weight{width:50px; height:50px; border-radius:10px 10px 6px 6px; border:1px solid rgba(255,255,255,.2); cursor:pointer;
+  background:linear-gradient(180deg,#c6a46e,#8b6a3a); color:#1a1408; font:800 18px var(--body)}
+.cg-weight.on{opacity:.35; transform:translateY(4px)}
+
+/* the window */
+.cg-window{position:relative; width:300px; max-width:100%; aspect-ratio:300 / 190; border:8px solid #4a3220; border-radius:6px;
+  background:linear-gradient(180deg,#8fb3d9 0 42%,#4d6b5a 42% 58%,#2c4a6a 58%);
+  box-shadow:inset 0 0 0 2px #2a1c10}
+.cg-window::before, .cg-window::after{content:''; position:absolute; background:#4a3220; z-index:1; pointer-events:none}
+.cg-window::before{left:50%; top:0; bottom:0; width:6px; margin-left:-3px}
+.cg-window::after{top:50%; left:0; right:0; height:6px; margin-top:-3px}
+.cg-grime{position:absolute; inset:0; width:100%; height:100%; touch-action:none; cursor:grab}
+.cg-window.clean{box-shadow:inset 0 0 0 2px #2a1c10, 0 0 18px rgba(143,179,217,.7)}
+
 /* A phone held upright: the puzzle is a sheet off the bottom edge, where
    the thumbs are, every control a thumb wide, and the castle still
    showing above it. Nothing in it scrolls on any phone that is taller
@@ -2425,6 +2553,22 @@ body.touch .tk-leave b{display:none}
   .cg-pick{height:40px}
   .cg-ingredient{padding:10px 4px; font-size:12px}
   .cg-ingredient b{font-size:26px}
+  .cg-cards{grid-template-columns:repeat(3,minmax(0,84px)); width:100%; justify-content:center}
+  .cg-card{height:92px}
+  .cg-frames{gap:10px}
+  .cg-frame-ctl .cg-key{width:46px; height:48px}
+  .cg-painting{grid-template-columns:repeat(3,minmax(30px,40px)); grid-auto-rows:minmax(30px,40px); padding:5px}
+  .cg-thing{font-size:22px}
+  .cg-rack{width:100%; gap:6px}
+  .cg-bottle{flex:1 1 0; max-width:56px}
+  .cg-rack-ends{width:100%}
+  .cg-mousewall{grid-template-columns:repeat(3,minmax(0,92px)); width:100%; justify-content:center}
+  .cg-mhole{height:74px}
+  .cg-pipes{grid-template-columns:26px repeat(3,minmax(0,78px)) 26px; grid-auto-rows:minmax(64px,78px)}
+  .cg-pipe{height:100%}
+  .cg-scales{width:100%; max-width:300px}
+  .cg-weight{width:56px; height:56px}
+  .cg-window{width:100%}
 }
 
 /* A phone on its side has width to spare and no height at all, so the
@@ -2442,7 +2586,18 @@ body.touch .tk-leave b{display:none}
     gap:10px 20px; padding:4px; min-height:0}
   .cg-hint{margin-top:4px}
   .cg-game-wires .cg-body, .cg-game-tune .cg-body, .cg-game-lock .cg-body,
-  .cg-game-bats .cg-body, .cg-game-bells .cg-body, .cg-game-candles .cg-body{flex-direction:column; flex-wrap:nowrap}
+  .cg-game-bats .cg-body, .cg-game-bells .cg-body, .cg-game-candles .cg-body,
+  .cg-game-pipes .cg-body, .cg-game-mouse .cg-body, .cg-game-window .cg-body,
+  .cg-game-frames .cg-body, .cg-game-spot .cg-body{flex-direction:column; flex-wrap:nowrap}
+  .cg-card{height:64px} .cg-cards{grid-template-columns:repeat(6,56px)}
+  .cg-frame{width:60px; height:74px} .cg-frames{padding-top:2px}
+  .cg-painting{grid-template-columns:repeat(3,32px); grid-auto-rows:32px} .cg-thing{font-size:19px}
+  .cg-bottle{height:96px}
+  .cg-mhole{height:48px} .cg-mousewall{grid-template-columns:repeat(6,58px); padding:8px}
+  .cg-pipes{grid-auto-rows:min(56px, 16dvh); grid-template-columns:24px repeat(3,min(56px, 16dvh)) 24px}
+  .cg-pipe{height:100%}
+  .cg-window{width:auto; height:min(170px, 42dvh)}
+  .cg-goal{top:40px}
   .cg-pad{grid-template-columns:repeat(3,56px); gap:5px}
   .cg-key{height:38px}
   .cg-wire-svg{width:auto; height:min(190px, 44dvh)}

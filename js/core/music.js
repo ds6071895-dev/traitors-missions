@@ -51,6 +51,24 @@ const Music = (() => {
     return chord[k] + 12 * Math.floor(i / n);
   }
 
+  /* A section's form: which part of it a bar is in. `form` is a string
+     of part letters, one per `phrase` bars (spaces are for reading), or
+     a list of such strings, one picked per variant. `local` is how far
+     into its run of the same letter the bar is, so a part with its own
+     progression starts that progression at the top. */
+  function formAt(sec, bar, variant) {
+    let f = sec.form;
+    if (!f) return null;
+    if (Array.isArray(f)) f = f[((variant | 0) % f.length + f.length) % f.length];
+    const letters = f.replace(/\s+/g, '');
+    const phrase = sec.phrase || 4;
+    const i = Math.floor(bar / phrase) % letters.length;
+    const part = letters[i];
+    let k = i;
+    while (k > 0 && letters[k - 1] === part) k--;
+    return { part, local: bar - (Math.floor(bar / phrase) - (i - k)) * phrase };
+  }
+
   function pitchesFor(L, chord, s) {
     if (L.abs != null) return [L.abs];
     const p = L.pick;
@@ -115,7 +133,8 @@ const Music = (() => {
       this._choirs = {};
       this._voices = [];
 
-      const first = opts.section && this.sections[opts.section] ? opts.section : this.gearNames[0];
+      this.variant = opts.variant | 0;
+      const first = this._resolve(opts.section && this.sections[opts.section] ? opts.section : this.gearNames[0]);
       this.secName = first;
       this.sec = this.sections[first];
       this.secStep = 0;
@@ -126,7 +145,7 @@ const Music = (() => {
       this.glide = 1;
       this.born = {};
       this.prevLayers = null;
-      this.key = 0;
+      this.key = opts.key | 0;
       this.intensity = 1;
       this.step = 0;
       this.next = 0;
@@ -190,11 +209,38 @@ const Music = (() => {
       return this.progOverride || PROGRESSIONS[this.sec.prog] || PROGRESSIONS.dread;
     }
 
+    /* The chord for a bar: an override wins, then the part's own
+       progression if the form gives it one, then the section's. */
+    _chord(bar, s, steps) {
+      const F = !this.progOverride && this.sec.progs ? formAt(this.sec, bar, this.variant) : null;
+      const own = F && this.sec.progs[F.part] && PROGRESSIONS[this.sec.progs[F.part]];
+      return own ? chordAt(own, F.local, s, steps) : chordAt(this._prog(), bar, s, steps);
+    }
+
     // the chord under the next note to be booked
     chordNow() {
       const steps = this.sec.steps || 16;
       const bar = Math.floor(this.secStep / steps);
-      return chordAt(this._prog(), bar, this.secStep % steps, steps);
+      return this._chord(bar, this.secStep % steps, steps);
+    }
+
+    /* Which part of the form the band is in now, or null. */
+    get part() {
+      const F = formAt(this.sec, Math.floor(this.secStep / (this.sec.steps || 16)), this.variant);
+      return F ? F.part : null;
+    }
+
+    /* Another arrangement of the same moment. A section can list `alt`
+       sections; the variant picks the original or one of them, so the
+       third day in the castle does not sound like the first. */
+    setVariant(n) { this.variant = n | 0; }
+
+    _resolve(name) {
+      const sec = this.sections[name];
+      if (!sec || !sec.alt || !sec.alt.length) return name;
+      const n = this.variant % (sec.alt.length + 1);
+      const alt = n > 0 ? sec.alt[n - 1] : name;
+      return this.sections[alt] ? alt : name;
     }
 
     get sectionName() { return this.secName; }
@@ -221,6 +267,7 @@ const Music = (() => {
        back to the old gear-and-progression move. */
     section(name, o = {}) {
       if (!this.ok || !this.sections[name]) return false;
+      name = this._resolve(name);
       if (name === this.secName && !this._switch && !o.force) return true;
       const at = o.at || 'bar';
       this._switch = { name, at, glide: o.glide != null ? o.glide : 1.5 };
@@ -229,7 +276,7 @@ const Music = (() => {
         const T = this._gridTime(at === 'bar' ? (this.sec.steps || 16) : at === 'beat' ? 4 : 1, false);
         MusicInst.revCymbal(this, T, Math.min(1.8, T - this.ctx.currentTime - 0.02), 0.8);
       }
-      const gi = this.gearNames.indexOf(name);
+      const gi = this.gearNames.findIndex(g => this._resolve(g) === name);
       if (gi >= 0) this.gear = gi;
       return true;
     }
@@ -239,7 +286,7 @@ const Music = (() => {
     setGear(i, glide = 2) {
       if (!this.ok) return;
       i = U.clamp(i | 0, 0, this.gearNames.length - 1);
-      const name = this.gearNames[i];
+      const name = this._resolve(this.gearNames[i]);
       this.gear = i;
       if (name === this.secName && !this._switch) return;
       const at = glide < 0.3 ? 'now' : glide < 1 ? 'beat' : 'bar';
@@ -457,8 +504,12 @@ const Music = (() => {
       }
       if (!this.silent) {
         const bar = Math.floor(this.secStep / steps);
-        const chord = chordAt(this._prog(), bar, s, steps);
-        for (const L of this.sec.layers) this._layer(L, s, bar, chord, t);
+        const chord = this._chord(bar, s, steps);
+        const F = this.sec.form ? formAt(this.sec, bar, this.variant) : null;
+        for (const L of this.sec.layers) {
+          if (L.parts && F && L.parts.indexOf(F.part) < 0) continue;
+          this._layer(L, s, bar, chord, t);
+        }
       }
       this.secStep++;
     }
@@ -505,7 +556,7 @@ const Music = (() => {
     duck() {}, stinger() {}, stop() {}, setProgression() {}, setMuffle() {},
     section() { return false; }, setKey() {}, silence() {}, speakerDuck() {},
     riser() { return { stop() {} }; }, chordNow() { return [0, 3, 7]; },
-    beat() { return null; },
+    beat() { return null; }, setVariant() {}, part: null,
   };
 
   /* Every score that is currently playing. Claudia has to be able to
@@ -544,14 +595,29 @@ const Music = (() => {
   const title = () => play('title', { section: 'gate' });
   // the hill: the main title
   const ceremony = () => play('ceremony');
-  // the day in the castle: a jig, and faster when the bell goes
-  const tasks = () => play('tasks', { section: 'work' });
+  /* the day in the castle: driving, and faster when the bell goes.
+     `variant` picks the day's arrangement and `key` moves it, so no two
+     days in a run sound the same — see `dayMusic` */
+  const tasks = (o = {}) => play('tasks', { section: 'work', variant: o.variant, key: o.key });
   // the fire
   const finale = () => play('finale', { section: 'arrival' });
   const verdict = finale;
   // the castle: the round table and the night
-  const roundtable = () => play('roundtable', { section: 'gather' });
-  const murder = (section = 'nightfall') => play('murder', { section });
+  const roundtable = (o = {}) => play('roundtable', { section: 'gather', variant: o.variant });
+  const murder = (section = 'nightfall', o = {}) => play('murder', { section, variant: o.variant, key: o.key });
+
+  /* The day's arrangement and key, from the run seed and the day: the
+     same night for everybody in it, a different one tomorrow. The key
+     only ever moves the castle cues, never the fire, whose pouches
+     climb from D on purpose. */
+  const DAY_KEYS = [0, 2, -2, 1, -3];
+  function dayMusic(seed, day) {
+    // the start is the seed's; each day after it moves on by one, so
+    // no two days running get the same arrangement
+    const h = Math.imul((seed | 0) ^ 0x6d75, 0x85ebca6b) >>> 0;
+    const d = Math.max(0, day | 0);
+    return { variant: (h >>> 7) % 6 + d, key: DAY_KEYS[d % DAY_KEYS.length] };
+  }
 
   /* Which verdict the night earned, as music. From *your* seat: a
      Faithful whose Traitor got away hears the Traitor's anthem, because
@@ -569,7 +635,7 @@ const Music = (() => {
   }
 
   return { title, ceremony, tasks, verdict, finale, play,
-           roundtable, murder,
+           roundtable, murder, dayMusic, formAt,
            duckAll, stopAll, pauseAll, sectionAll, stingerAll, verdictCue,
            Score, SILENT, PROGRESSIONS, STINGERS, CUES,
            get live() { return LIVE; } };

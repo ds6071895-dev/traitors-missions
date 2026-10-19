@@ -57,7 +57,8 @@ class NightScene extends CastleScene {
   }
 
   async drive() {
-    this.music = Music.murder('nightfall');
+    const s0 = Session.state;
+    this.music = Music.murder('nightfall', Music.dayMusic(s0.seed, s0.day));
     this._quietCues = true;
     this._told = { offer: false, fate: false, recruited: false };
 
@@ -81,6 +82,7 @@ class NightScene extends CastleScene {
         if (!this._alive || !this.stage) return;
         land.setDoor(this._bed, true, true);
         AudioBus.play('key-turn');
+        if (this.music) this.music.stinger('door-lock', { at: 'now' });
         Voice.show('', 'Your door is locked.');
         setTimeout(() => { if (this._alive && !Voice.speaking) Voice.clear(); }, 1800);
       }, 900);
@@ -168,20 +170,25 @@ class NightScene extends CastleScene {
 
   async _murdered() {
     this._closeVote();
-    await this._sleep(4);
+    await this._sleep(2);
     if (!this._alive) return;
     AudioBus.play('estate-door');
-    if (this.music) { this.music.stinger('murder-hit', { at: 'now' }); this.music.section('deed', { at: 'bar' }); }
-    await this._sleep(1.0);
+    await Scenes.Drama.hush(this.stage, this.music, null, { hold: 0.7 });
+    if (!this._alive) return;
+    Scenes.Drama.hit(this.stage, this.music, 'murder-hit', { shake: 0.5, flash: 'rgba(170,0,20,.6)', haptic: 60 });
+    if (this.music) this.music.section('deed', { at: 'bar' });
     Scenes.Cine.card({ kicker: 'A letter, under your door', title: 'YOU HAVE BEEN POISONED',
                        sub: 'You can watch the rest. The living cannot hear you.', tone: 'traitor' });
     await this._say('murderedYou', {}, null);
+    Scenes.Drama.end(this.stage, this.music);
   }
 
   /* ---------------- a Traitor's choice ---------------- */
 
   async _choose() {
     this._panelOpen = true;
+    // the turret: the choir, low, and the drums under it
+    if (this.music) this.music.section('conclave', { at: 'bar', glide: 2 });
     this._paintChoice(Session.myPrivate() || {});
     await this._waitFor(() => {
       const w = Session.myPrivate() || {};
@@ -203,7 +210,7 @@ class NightScene extends CastleScene {
       const c = Session.playerById(after.poison.carrier);
       Scenes.Cine.card({ kicker: 'Tomorrow', tone: 'traitor',
                          title: c && c.local ? 'YOU CARRY THE POISON' : (c ? c.name.toUpperCase() : 'YOUR PARTNER') + ' CARRIES IT' });
-      await this._sleep(2.6);
+      await this._sleep(2.0);
     }
     if (!this._alive || Session.state.phase !== 'night') return;
     // and then the same dark as everybody else's, until the morning

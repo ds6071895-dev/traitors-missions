@@ -24,10 +24,21 @@
      lock     stop each pin as it passes the sweet spot
      bellows  pump the fire up, in time with its breath
      brew     the tonic: the ingredients, in the order of the recipe
+     pairs    place cards: remember the crests, then turn up the pairs
+     frames   three crooked portraits, nudged until they hang level
+     spot     two paintings, and the three things the forger changed
+     bottles  five bottles of claret, swapped into the order of their years
+     mouse    a mouse in the pantry wall, caught as it peeks out
+     pipes    a few pipe sections, turned until the water runs through
+     scales   weights onto a pan until it balances the gold one
+     window   grime on the glass, rubbed off until the loch shows
 
    Every panel says how it is played in one line under its title, so
    nobody has to work a puzzle out with a Traitor walking up behind
-   them; the line under the puzzle is how it is going.
+   them, and stamps its goal across the top as it opens. The pips and
+   the line under the puzzle are how it is going. A right move rings, a
+   wrong one thumps and flashes red, and a finished job pays out where
+   you can see it.
 
    `open(task, opts)` puts one up and resolves true when it is done,
    false if it was walked away from. Escape closes it. `opts.practice`
@@ -61,26 +72,52 @@ const ChoreGames = (() => {
       o.start(); o.stop(ctx.currentTime + dur + 0.05);
     } catch (e) { /* a puzzle without sound is still a puzzle */ }
   }
+  /* A falling tone: the thump of a wrong move, rather than a buzzer. */
+  function thud(from = 150, to = 52, dur = 0.2, vol = 0.24) {
+    try {
+      const ctx = (typeof AudioBus !== 'undefined' && (AudioBus.ctx || AudioBus.init())) || null;
+      if (!ctx) return;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(from, ctx.currentTime);
+      o.frequency.exponentialRampToValueAtTime(to, ctx.currentTime + dur);
+      g.gain.setValueAtTime(vol, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0008, ctx.currentTime + dur + 0.05);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(); o.stop(ctx.currentTime + dur + 0.1);
+    } catch (e) { /* silence is a fine wrong answer too */ }
+  }
+  const buzz = (ms) => { if (typeof Input !== 'undefined' && Input.haptic) Input.haptic(ms); };
   const click = () => { if (typeof AudioBus !== 'undefined') AudioBus.play('ui-click'); };
-  const good = () => tone(880, 0.18, 'sine', 0.14);
-  const bad = () => tone(150, 0.22, 'square', 0.08);
+  // a right move: a short rising note, higher the further along you are
+  const step = (k = 0) => tone(440 * Math.pow(2, Math.min(k, 12) / 12 * 2), 0.14, 'sine', 0.11);
+  // done: a little fanfare in D minor, up to the octave
+  const good = () => [587, 698, 880, 1175].forEach((f, i) => setTimeout(() => tone(f, 0.28, 'triangle', 0.13), i * 75));
+  const bad = () => { thud(); buzz(25); };
 
   /* A spray of gold off the panel when a job is done. */
   function burst(panel) {
-    for (let i = 0; i < 16; i++) {
-      const sp = el('i', 'cg-spark');
-      const a = (i / 16) * Math.PI * 2;
-      sp.style.setProperty('--dx', (Math.cos(a) * (90 + Math.random() * 70)).toFixed(0) + 'px');
-      sp.style.setProperty('--dy', (Math.sin(a) * (70 + Math.random() * 60)).toFixed(0) + 'px');
+    for (let i = 0; i < 28; i++) {
+      const sp = el('i', 'cg-spark' + (i % 3 ? '' : ' big'));
+      const a = (i / 28) * Math.PI * 2 + Math.random() * 0.2;
+      sp.style.setProperty('--dx', (Math.cos(a) * (110 + Math.random() * 110)).toFixed(0) + 'px');
+      sp.style.setProperty('--dy', (Math.sin(a) * (90 + Math.random() * 90)).toFixed(0) + 'px');
       panel.appendChild(sp);
-      setTimeout(() => sp.remove(), 900);
+      setTimeout(() => sp.remove(), 1000);
     }
   }
 
+  // the panel jolts and its edge flashes red
   function shake(node) {
-    node.classList.remove('cg-shake');
+    node.classList.remove('cg-shake', 'cg-miss');
     void node.offsetWidth;
-    node.classList.add('cg-shake');
+    node.classList.add('cg-shake', 'cg-miss');
+  }
+
+  function shuffled(rng, arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) { const j = rng.int(0, i); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
   }
 
   /* ---------------- the frame ---------------- */
@@ -106,8 +143,26 @@ const ChoreGames = (() => {
       + (meta.keys && !touch ? '<kbd>' + esc(meta.keys) + '</kbd>' : ''));
     if (!meta.how) how.hidden = true;
     const body = el('div', 'cg-body');
+    const row = el('div', 'cg-steps');
+    row.hidden = true;
     const hint = el('div', 'cg-hint', '');
-    panel.append(head, how, body, hint);
+    panel.append(head, how, body, row, hint);
+    if (meta.goal) panel.appendChild(el('div', 'cg-goal', esc(meta.goal)));
+    /* Progress as pips: `pips(n)` puts up n of them and returns a
+       setter, `set(k)` lights the first k. A pip that lights pops. */
+    const pips = (n) => {
+      row.innerHTML = '';
+      row.hidden = false;
+      const dots = Array.from({ length: n }, () => row.appendChild(el('i')));
+      let lit = 0;
+      return (k) => {
+        dots.forEach((d, i) => {
+          d.classList.toggle('on', i < k);
+          if (i < k && i >= lit) { d.classList.remove('pop'); void d.offsetWidth; d.classList.add('pop'); }
+        });
+        lit = k;
+      };
+    };
     root.appendChild(panel);
     document.body.appendChild(root);
     requestAnimationFrame(() => root.classList.add('on'));
@@ -120,8 +175,11 @@ const ChoreGames = (() => {
         if (ok) {
           panel.classList.add('cg-done');
           good();
+          buzz(40);
           burst(panel);
-          setTimeout(() => close(true), 750);
+          const pay = typeof Chores !== 'undefined' && !opts.practice ? '+' + U.money(Chores.VALUE) : 'Done';
+          panel.appendChild(el('div', 'cg-reward', esc(pay)));
+          setTimeout(() => close(true), 820);
         } else close(false);
       };
       // stopped here, so the Escape that shuts a puzzle does not also
@@ -133,7 +191,7 @@ const ChoreGames = (() => {
       shut.onclick = () => { click(); finish(false); };
       let cleanup = null;
       try {
-        cleanup = game({ body, hint, rng, done: () => finish(true), panel });
+        cleanup = game({ body, hint, rng, done: () => finish(true), panel, pips });
       } catch (e) {
         console.warn('chore game failed:', e);
         finish(true);                     // never strand a job behind a broken puzzle
@@ -166,7 +224,8 @@ const ChoreGames = (() => {
 
     /* The combination is pencilled on the back of the portrait. You get
        a look at it, the frame swings back, and you key it in. */
-    safe({ body, hint, rng, done, panel }) {
+    safe({ body, hint, rng, done, panel, pips }) {
+      const P = pips(4);
       const code = Array.from({ length: 4 }, () => rng.int(0, 9)).join('');
       const note = el('div', 'cg-note', '<span>Pencilled on the back of the frame</span><b>' + code + '</b>');
       const screen = el('div', 'cg-screen', '····');
@@ -196,6 +255,7 @@ const ChoreGames = (() => {
           if (entry.length === 4) { bad(); shake(panel); entry = ''; peek(1200); }
         }
         screen.textContent = (entry + '····').slice(0, 4);
+        P(entry.length);
       };
       for (const k of keys) {
         const b = el('button', 'cg-key', k);
@@ -214,8 +274,10 @@ const ChoreGames = (() => {
     },
 
     /* Four coloured wires hang loose from the winch; join each to its
-       own colour across the box. Click one end, then the other. */
-    wires({ body, hint, rng, done }) {
+       own colour across the box. Drag one end to the other, or tap one
+       and then the other. */
+    wires({ body, hint, rng, done, pips }) {
+      const P = pips(4);
       const COLS = [['#e04848', 'red'], ['#3d7fe0', 'blue'], ['#f2c14e', 'gold'], ['#d057d0', 'heather']];
       const right = COLS.map((c, i) => i);
       for (let i = right.length - 1; i > 0; i--) { const j = rng.int(0, i); [right[i], right[j]] = [right[j], right[i]]; }
@@ -237,9 +299,15 @@ const ChoreGames = (() => {
         const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         c.setAttribute('cx', x); c.setAttribute('cy', y); c.setAttribute('r', 14);
         c.setAttribute('fill', col); c.setAttribute('class', 'cg-wdot');
-        const down = (e) => { e.preventDefault(); pick(side, idx); };
-        hit.addEventListener('pointerdown', down);
-        c.addEventListener('pointerdown', down);
+        const down = (e) => {
+          e.preventDefault();
+          pick(side, idx);
+          if (held) { drag.setAttribute('x1', x); drag.setAttribute('y1', y); drag.setAttribute('stroke', col); }
+        };
+        for (const n of [hit, c]) {
+          n.setAttribute('data-side', side); n.setAttribute('data-idx', idx);
+          n.addEventListener('pointerdown', down);
+        }
         svg.append(hit, c);
         return c;
       };
@@ -249,6 +317,32 @@ const ChoreGames = (() => {
         l.setAttribute('stroke', col); l.setAttribute('stroke-width', 10); l.setAttribute('stroke-linecap', 'round');
         svg.appendChild(l);
       };
+      // the wire you are holding follows your finger
+      const drag = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      drag.setAttribute('class', 'cg-drag'); drag.setAttribute('stroke-width', 8); drag.setAttribute('stroke-linecap', 'round');
+      svg.appendChild(drag);
+      const toSvg = (e) => {
+        const m = svg.getScreenCTM && svg.getScreenCTM();
+        if (!m || !svg.createSVGPoint) return null;
+        const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY;
+        return p.matrixTransform(m.inverse());
+      };
+      const move = (e) => {
+        if (!held) return;
+        const p = toSvg(e);
+        if (!p) return;
+        drag.setAttribute('x2', p.x); drag.setAttribute('y2', p.y);
+        drag.classList.add('on');
+      };
+      const up = (e) => {
+        drag.classList.remove('on');
+        if (!held) return;
+        const t = document.elementFromPoint && document.elementFromPoint(e.clientX, e.clientY);
+        const side = t && t.getAttribute && t.getAttribute('data-side');
+        if (side && side !== held.side) pick(side, Number(t.getAttribute('data-idx')));
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
       const lefts = COLS.map((c, i) => { stub(0, ys[i], 30, c[0]); return dot(30, ys[i], c[0], 'l', i); });
       const rights = right.map((ci, i) => { stub(270, ys[i], 300, COLS[ci][0]); return dot(270, ys[i], COLS[ci][0], 'r', i); });
       function pick(side, idx) {
@@ -263,22 +357,25 @@ const ChoreGames = (() => {
         if (a.side === side) { pick(side, side === 'l' ? idx : idx); return; }
         const li = a.side === 'l' ? a.idx : idx;
         const ri = a.side === 'r' ? a.r : idx;
-        if (right[ri] !== li) { bad(); return; }
+        if (right[ri] !== li) { bad(); hint.textContent = 'Not that one — match the colour.'; return; }
         joined.add(li);
         const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         l.setAttribute('x1', 30); l.setAttribute('y1', ys[li]); l.setAttribute('x2', 270); l.setAttribute('y2', ys[ri]);
         l.setAttribute('stroke', COLS[li][0]); l.setAttribute('stroke-width', 9); l.setAttribute('stroke-linecap', 'round');
         svg.insertBefore(l, svg.firstChild);
-        tone(420 + joined.size * 110, 0.12, 'sine', 0.1);
+        step(joined.size * 2);
+        P(joined.size);
         hint.textContent = joined.size + ' of 4 joined';
         if (joined.size === COLS.length) done();
       }
+      return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
     },
 
     /* Six candles on the candelabra, each with a number scratched in the
        wax. Light them in order; a wrong one blows them all out. */
-    candles({ body, hint, rng, done, panel }) {
+    candles({ body, hint, rng, done, panel, pips }) {
       const n = 6;
+      const P = pips(n);
       const order = Array.from({ length: n }, (_, i) => i + 1);
       for (let i = order.length - 1; i > 0; i--) { const j = rng.int(0, i); [order[i], order[j]] = [order[j], order[i]]; }
       const row = el('div', 'cg-candles');
@@ -293,13 +390,14 @@ const ChoreGames = (() => {
         c.onclick = () => {
           if (c.classList.contains('lit')) return;
           if (num !== next) {
-            bad(); shake(panel); next = 1;
+            bad(); shake(panel); next = 1; P(0);
             nodes.forEach(x => x.classList.remove('lit'));
             hint.textContent = 'Blown out. Start again from 1.';
             return;
           }
           c.classList.add('lit');
-          tone(320 + num * 70, 0.15, 'sine', 0.1);
+          step(num * 2);
+          P(num);
           next++;
           if (next > n) done(); else say();
         };
@@ -348,8 +446,9 @@ const ChoreGames = (() => {
 
     /* The bells ring a short tune; ring it back. Two rounds, the second
        a note longer. */
-    bells({ body, hint, rng, done, panel }) {
-      const NOTES = [392, 494, 587, 698];
+    bells({ body, hint, rng, done, panel, pips }) {
+      const NOTES = [392, 466, 587, 698];
+      const P = pips(2);
       const row = el('div', 'cg-bells');
       body.appendChild(row);
       const bells = NOTES.map((f, i) => {
@@ -383,6 +482,7 @@ const ChoreGames = (() => {
         at++;
         if (at >= tune.length) {
           round++;
+          P(round);
           if (round >= 2) { playing = true; done(); return; }
           timers.push(setTimeout(newRound, 700));
         }
@@ -393,7 +493,7 @@ const ChoreGames = (() => {
 
     /* The post has come in. Every letter into the pigeonhole of the
        family whose seal is on it. Click a letter, then its hole. */
-    letters({ body, hint, rng, done }) {
+    letters({ body, hint, rng, done, pips }) {
       const SEALS = [['#b8323a', 'MacLeod'], ['#2f7d4a', 'Campbell'], ['#2f5fa8', 'Stewart']];
       const holes = el('div', 'cg-holes');
       const pile = el('div', 'cg-pile');
@@ -405,8 +505,9 @@ const ChoreGames = (() => {
         h.type = 'button';
         h.onclick = () => {
           if (!held) return;
-          if (held.dataset.seal !== String(i)) { bad(); held.classList.remove('held'); held = null; hint.textContent = 'Wrong seal — check the colour.'; return; }
-          click(); held.remove(); held = null; left--; say();
+          if (held.dataset.seal !== String(i)) { bad(); h.classList.add('miss'); setTimeout(() => h.classList.remove('miss'), 300); held.classList.remove('held'); held = null; hint.textContent = 'Wrong seal — check the colour.'; return; }
+          held.remove(); held = null; left--; say();
+          step((6 - left) * 2); P(6 - left);
           h.classList.add('fed'); setTimeout(() => h.classList.remove('fed'), 200);
           if (left <= 0) done();
         };
@@ -425,11 +526,13 @@ const ChoreGames = (() => {
         pile.appendChild(l); left++;
       }
       [...pile.children].sort(() => rng() - 0.5).forEach(c => pile.appendChild(c));
+      const P = pips(left);
       say();
     },
 
     /* Which of these is the clan's tartan? Three of them, quickly. */
-    tartan({ body, hint, rng, done, panel }) {
+    tartan({ body, hint, rng, done, panel, pips }) {
+      const P = pips(3);
       const PAL = ['#b8323a', '#2f7d4a', '#2f5fa8', '#f2c14e', '#1d1d24', '#e8e1cf', '#7a3f8f', '#d9772b'];
       const make = () => {
         const a = PAL[rng.int(0, PAL.length - 1)];
@@ -466,7 +569,7 @@ const ChoreGames = (() => {
           b.setAttribute('style', css(c));
           b.onclick = () => {
             if (c !== want) { bad(); shake(panel); return; }
-            click(); round++;
+            round++; step(round * 3); P(round);
             if (round >= 3) done(); else next();
           };
           opts.appendChild(b);
@@ -522,10 +625,11 @@ const ChoreGames = (() => {
 
     /* Bats in the rafters. They swoop about; tap each one to send it out
        of the window. Miss and they settle for a moment. */
-    bats({ body, hint, rng, done }) {
+    bats({ body, hint, rng, done, pips }) {
       const box = el('div', 'cg-rafters');
       body.appendChild(box);
-      const n = 6 + rng.int(0, 2);
+      const n = 5 + rng.int(0, 1);
+      const P = pips(n);
       let left = n, raf = 0, t0 = performance.now();
       const say = () => { hint.textContent = left + (left === 1 ? ' bat' : ' bats') + ' left'; };
       say();
@@ -538,7 +642,8 @@ const ChoreGames = (() => {
           if (bat.gone) return;
           bat.gone = true; left--;
           b.classList.add('gone');
-          tone(900 + left * 70, 0.08, 'square', 0.06);
+          step(n - left);
+          P(n - left);
           say();
           if (left <= 0) done();
         };
@@ -576,11 +681,11 @@ const ChoreGames = (() => {
       const pinEls = [0, 1, 2].map(() => { const p = el('i', 'cg-pin'); pins.appendChild(p); return p; });
       const zone = bar.querySelector('.cg-zone'), pick = bar.querySelector('.cg-pick');
       let set = 0, pos = 0, dir = 1, raf = 0, last = 0, lo = 0, hi = 0;
-      const place = () => { lo = 15 + rng.int(0, 55); hi = lo + 16 - set * 3; zone.style.left = lo + '%'; zone.style.width = (hi - lo) + '%'; };
+      const place = () => { lo = 15 + rng.int(0, 55); hi = lo + 19 - set * 3; zone.style.left = lo + '%'; zone.style.width = (hi - lo) + '%'; };
       place();
       const step = (now) => {
         const dt = last ? Math.min(0.05, (now - last) / 1000) : 0; last = now;
-        pos += dir * dt * (70 + set * 35);
+        pos += dir * dt * (55 + set * 30);
         if (pos > 100) { pos = 100; dir = -1; } if (pos < 0) { pos = 0; dir = 1; }
         pick.style.left = pos + '%';
         raf = requestAnimationFrame(step);
@@ -609,7 +714,8 @@ const ChoreGames = (() => {
     /* The fire is breathing. Pump the bellows each time the glow swells
        to the ring — too early or too late and it coughs. Four good
        pumps and it roars. */
-    bellows({ body, hint, done, panel }) {
+    bellows({ body, hint, done, panel, pips }) {
+      const P = pips(4);
       const hearth = el('div', 'cg-hearth', '<div class="cg-target"></div><div class="cg-glow"></div><div class="cg-flames"></div>');
       const btn = el('button', 'cg-pour-btn', 'PUMP');
       btn.type = 'button';
@@ -631,9 +737,10 @@ const ChoreGames = (() => {
           tone(120 + heat * 40, 0.25, 'sawtooth', 0.05);
           hearth.classList.add('puff'); setTimeout(() => hearth.classList.remove('puff'), 200);
           hint.textContent = heat + ' of 4 pumps';
+          P(heat);
           if (heat >= 4) done();
         } else {
-          bad(); shake(panel); heat = Math.max(0, heat - 1);
+          bad(); shake(panel); heat = Math.max(0, heat - 1); P(heat);
           hint.textContent = 'Too soon — wait for the ring. ' + heat + ' of 4';
         }
       };
@@ -645,7 +752,8 @@ const ChoreGames = (() => {
 
     /* The laird's tonic, from a recipe in a cramped hand. Add the four
        things in order; get one wrong and the pot boils over. */
-    brew({ body, hint, rng, done, panel }) {
+    brew({ body, hint, rng, done, panel, pips }) {
+      const P = pips(4);
       const ALL = [['🌿', 'thistle'], ['🌸', 'heather'], ['🥃', 'whisky'], ['🍯', 'honey'], ['🧂', 'salt'], ['🍄', 'toadstool'], ['🫐', 'bramble'], ['💧', 'spring water']];
       const shelf = ALL.slice().sort(() => rng() - 0.5).slice(0, 6);
       const recipe = shelf.slice().sort(() => rng() - 0.5).slice(0, 4);
@@ -661,13 +769,13 @@ const ChoreGames = (() => {
         b.type = 'button';
         b.onclick = () => {
           if (ing === recipe[at]) {
-            marks[at].classList.add('in'); at++;
+            marks[at].classList.add('in'); at++; P(at);
             pot.classList.remove('bubble'); void pot.offsetWidth; pot.classList.add('bubble');
             tone(300 + at * 90, 0.15, 'sine', 0.12);
             if (at >= recipe.length) done();
             else hint.textContent = 'Next: ' + recipe[at][1];
           } else {
-            bad(); shake(panel); at = 0;
+            bad(); shake(panel); at = 0; P(0);
             hint.textContent = 'Spoilt. Start again: ' + recipe[0][1];
             marks.forEach(m => m.classList.remove('in'));
             pot.classList.add('spoilt'); setTimeout(() => pot.classList.remove('spoilt'), 500);
@@ -675,6 +783,387 @@ const ChoreGames = (() => {
         };
         row.appendChild(b);
       }
+    },
+
+    /* Place cards for dinner, each with a family crest. You get a look
+       at them all face up, then they turn over: find the three pairs. */
+    pairs({ body, hint, rng, done, pips }) {
+      const CRESTS = ['⚜', '✠', '❦', '♛', '✦', '☘', '♞', '✿'];
+      const three = shuffled(rng, CRESTS).slice(0, 3);
+      const deck = shuffled(rng, three.concat(three));
+      const grid = el('div', 'cg-cards');
+      body.appendChild(grid);
+      const P = pips(3);
+      const timers = [];
+      let open = [], found = 0, busy = true;
+      const cards = deck.map((crest) => {
+        const b = el('button', 'cg-card up', '<i>' + crest + '</i>');
+        b.type = 'button';
+        b.onclick = () => flip(b, crest);
+        grid.appendChild(b);
+        return b;
+      });
+      hint.textContent = 'Remember them…';
+      timers.push(setTimeout(() => {
+        cards.forEach(b => b.classList.remove('up'));
+        busy = false;
+        hint.textContent = 'Find the pairs';
+      }, 1500));
+      function flip(b, crest) {
+        if (busy || b.classList.contains('up')) return;
+        click();
+        b.classList.add('up');
+        open.push([b, crest]);
+        if (open.length < 2) return;
+        const [[b1, c1], [b2, c2]] = open;
+        open = [];
+        if (c1 === c2) {
+          found++;
+          b1.classList.add('got'); b2.classList.add('got');
+          step(found * 3); P(found);
+          hint.textContent = found + ' of 3 pairs';
+          if (found >= 3) done();
+          return;
+        }
+        busy = true;
+        thud(220, 140, 0.12, 0.12);
+        hint.textContent = 'Not a pair';
+        timers.push(setTimeout(() => {
+          b1.classList.remove('up'); b2.classList.remove('up');
+          busy = false;
+        }, 650));
+      }
+      return () => timers.forEach(clearTimeout);
+    },
+
+    /* Three ancestors hanging crooked. Each turn button moves a frame a
+       notch; a frame that is level settles and glows. */
+    frames({ body, hint, rng, done, pips }) {
+      const NOTCH = 7;
+      const row = el('div', 'cg-frames');
+      body.appendChild(row);
+      const P = pips(3);
+      let level = 0;
+      const FACES = ['#6b3a2a', '#2f4a6b', '#4a5a2f'];
+      for (let i = 0; i < 3; i++) {
+        let tilt = (rng() < 0.5 ? -1 : 1) * rng.int(1, 3);
+        const box = el('div', 'cg-frame-box');
+        const art = el('div', 'cg-frame', '<i style="background:' + FACES[i] + '"></i>');
+        const ctl = el('div', 'cg-frame-ctl');
+        const l = el('button', 'cg-key', '⟲'), r = el('button', 'cg-key', '⟳');
+        l.type = r.type = 'button';
+        ctl.append(l, r);
+        box.append(art, ctl);
+        row.appendChild(box);
+        const draw = () => { art.style.transform = 'rotate(' + (tilt * NOTCH) + 'deg)'; };
+        draw();
+        const nudge = (d) => {
+          if (tilt === 0) return;
+          tilt = Math.max(-4, Math.min(4, tilt + d));
+          draw();
+          if (tilt === 0) {
+            box.classList.add('level');
+            level++; step(level * 3); P(level);
+            hint.textContent = level + ' of 3 straight';
+            if (level >= 3) done();
+          } else {
+            tone(420 - Math.abs(tilt) * 40, 0.07, 'triangle', 0.07);
+            hint.textContent = 'A little more ' + (tilt > 0 ? '⟲' : '⟳');
+          }
+        };
+        l.onclick = () => nudge(-1);
+        r.onclick = () => nudge(1);
+      }
+      hint.textContent = '0 of 3 straight';
+    },
+
+    /* The same painting twice, except one is a forgery: three things in
+       it are not what they are in the real one. Tap them on the copy. */
+    spot({ body, hint, rng, done, panel, pips }) {
+      const THINGS = ['🌙', '🌲', '🏰', '🦌', '🐦', '⛵', '🕯️', '🗝️', '🍷', '🌹', '🦉', '⚓', '🐎', '🍎', '⭐', '🔔'];
+      const pool = shuffled(rng, THINGS);
+      const real = pool.slice(0, 9);
+      const spare = pool.slice(9);
+      const changed = new Set(shuffled(rng, [0, 1, 2, 3, 4, 5, 6, 7, 8]).slice(0, 3));
+      const fake = real.map((t, i) => (changed.has(i) ? spare.pop() : t));
+      const wrap = el('div', 'cg-paintings');
+      const A = el('div', 'cg-painting real'), B = el('div', 'cg-painting fake');
+      wrap.append(A, B);
+      body.appendChild(wrap);
+      const P = pips(3);
+      let found = 0;
+      real.forEach((t) => A.appendChild(el('span', 'cg-thing', t)));
+      fake.forEach((t, i) => {
+        const b = el('button', 'cg-thing', t);
+        b.type = 'button';
+        b.onclick = () => {
+          if (b.classList.contains('got')) return;
+          if (!changed.has(i)) { bad(); shake(panel); hint.textContent = 'That one matches. Look again.'; return; }
+          b.classList.add('got');
+          found++; step(found * 3); P(found);
+          hint.textContent = found + ' of 3 found';
+          if (found >= 3) done();
+        };
+        B.appendChild(b);
+      });
+      hint.textContent = 'Left: the real one. Right: the fake.';
+    },
+
+    /* Five bottles of claret, racked any old how. Tap two to swap them
+       until the years run oldest to newest. The pips are how many are
+       already in the right slot. */
+    bottles({ body, hint, rng, done, pips }) {
+      const years = [1780 + rng.int(0, 40)];
+      while (years.length < 5) years.push(years[years.length - 1] + 2 + rng.int(0, 6));
+      const want = years.slice().sort((a, b) => a - b);
+      let order = shuffled(rng, years);
+      while (order.every((y, i) => y === want[i])) order = shuffled(rng, years);
+      const rack = el('div', 'cg-rack');
+      const ends = el('div', 'cg-rack-ends', '<span>← oldest</span><span>newest →</span>');
+      body.append(rack, ends);
+      const P = pips(5);
+      let held = -1;
+      const draw = () => {
+        rack.innerHTML = '';
+        let right = 0;
+        order.forEach((y, i) => {
+          const ok = y === want[i];
+          if (ok) right++;
+          const b = el('button', 'cg-bottle' + (ok ? ' ok' : '') + (i === held ? ' held' : ''), '<i></i><span>' + y + '</span>');
+          b.type = 'button';
+          b.onclick = () => tap(i);
+          rack.appendChild(b);
+        });
+        P(right);
+        return right;
+      };
+      function tap(i) {
+        if (held < 0) { held = i; click(); draw(); return; }
+        if (held === i) { held = -1; draw(); return; }
+        [order[held], order[i]] = [order[i], order[held]];
+        held = -1;
+        const right = draw();
+        step(right * 2);
+        hint.textContent = right + ' of 5 in place';
+        if (right === 5) done();
+      }
+      hint.textContent = draw() + ' of 5 in place';
+    },
+
+    /* A mouse in the pantry wall. It looks out of one hole, then another;
+       tap it while it is out. Each catch it gets a little quicker. */
+    mouse({ body, hint, rng, done, pips }) {
+      const N = 6, NEED = 5;
+      const wall = el('div', 'cg-mousewall');
+      body.appendChild(wall);
+      const P = pips(NEED);
+      const holes = Array.from({ length: N }, () => {
+        const h = el('button', 'cg-mhole', '<i>🐭</i>');
+        h.type = 'button';
+        wall.appendChild(h);
+        return h;
+      });
+      let at = -1, caught = 0, timer = null, live = true;
+      const pop = () => {
+        if (!live) return;
+        if (at >= 0) holes[at].classList.remove('out');
+        let n = rng.int(0, N - 1);
+        if (n === at) n = (n + 1 + rng.int(0, N - 2)) % N;
+        at = n;
+        holes[at].classList.add('out');
+        timer = setTimeout(() => { holes[at].classList.remove('out'); at = -1; timer = setTimeout(pop, 260); },
+                           1150 - caught * 90);
+      };
+      holes.forEach((h, i) => {
+        h.onclick = () => {
+          if (i !== at) { thud(200, 120, 0.1, 0.1); return; }
+          clearTimeout(timer);
+          h.classList.remove('out');
+          h.classList.add('caught');
+          setTimeout(() => h.classList.remove('caught'), 300);
+          at = -1;
+          caught++; step(caught * 2); P(caught);
+          hint.textContent = caught + ' of ' + NEED + ' caught';
+          if (caught >= NEED) { live = false; done(); return; }
+          timer = setTimeout(pop, 380);
+        };
+      });
+      hint.textContent = 'Watch the holes…';
+      timer = setTimeout(pop, 600);
+      return () => { live = false; clearTimeout(timer); };
+    },
+
+    /* A run of pipe from the tap to the tank, with some sections turned
+       the wrong way. Tap one to turn it a quarter. Water runs as far as
+       the pipe is joined, so you can see where it stops. */
+    pipes({ body, hint, rng, done, pips }) {
+      const NS = 1, E = 2, S = 4, W = 8;
+      const R = 3, C = 3;
+      const turn = (m) => ((m << 1) | (m >> 3)) & 15;            // a quarter clockwise
+      const opp = (d) => ({ 1: 4, 2: 8, 4: 1, 8: 2 })[d];
+      const step2 = { 1: [-1, 0], 2: [0, 1], 4: [1, 0], 8: [0, -1] };
+      // the true path: across the columns, up or down within each
+      const r0 = rng.int(0, R - 1);
+      const want = Array.from({ length: R }, () => Array(C).fill(0));
+      const onPath = Array.from({ length: R }, () => Array(C).fill(false));
+      let r = r0, inDir = W;
+      for (let c = 0; c < C; c++) {
+        const to = rng.int(0, R - 1);
+        while (true) {
+          let out;
+          if (r === to) out = E; else out = r < to ? S : NS;
+          want[r][c] = inDir | out;
+          onPath[r][c] = true;
+          if (out === E) { inDir = W; break; }
+          r += out === S ? 1 : -1;
+          inDir = opp(out);
+        }
+      }
+      const r1 = r;
+      // what is actually there: the right pieces, turned wrong, and junk
+      const tiles = [];
+      const grid = el('div', 'cg-pipes');
+      body.appendChild(grid);
+      for (let i = 0; i < R; i++) {
+        grid.appendChild(el('span', 'cg-pipe-end' + (i === r0 ? ' tap' : ''), i === r0 ? '🚰' : ''));
+        for (let c = 0; c < C; c++) {
+          let m = onPath[i][c] ? want[i][c] : [NS | S, NS | E][rng.int(0, 1)];
+          // a straight piece turned twice is the same piece, so the path
+          // ones turn an odd number of times: it never starts solved
+          const straight = m === (NS | S) || m === (E | W);
+          const spins = !onPath[i][c] ? rng.int(0, 3) : straight ? (rng() < 0.5 ? 1 : 3) : rng.int(1, 3);
+          for (let k = 0; k < spins; k++) m = turn(m);
+          const b = el('button', 'cg-pipe');
+          b.type = 'button';
+          const t = { i, c, m, b };
+          b.onclick = () => { t.m = turn(t.m); click(); draw(); };
+          tiles.push(t);
+          grid.appendChild(b);
+        }
+        grid.appendChild(el('span', 'cg-pipe-end' + (i === r1 ? ' tank' : ''), i === r1 ? '🛢️' : ''));
+      }
+      const at = (i, c) => tiles.find(t => t.i === i && t.c === c);
+      const P = pips(1);
+      let fin = false, ready = false;
+      function draw() {
+        // follow the water from the tap
+        const wet = new Set();
+        let i = r0, c = 0, from = W, out = false;
+        for (let guard = 0; guard < 12; guard++) {
+          const t = at(i, c);
+          if (!t || !(t.m & from)) break;
+          wet.add(t);
+          const go = t.m & ~from;
+          if (c === C - 1 && i === r1 && (go & E)) { out = true; break; }
+          const d = step2[go];
+          if (!d) break;
+          i += d[0]; c += d[1]; from = opp(go);
+        }
+        // the junk can make a lucky route of its own; never open solved
+        if (out && !ready) { const t0 = at(r0, 0); t0.m = turn(t0.m); return draw(); }
+        for (const t of tiles) {
+          t.b.className = 'cg-pipe' + (wet.has(t) ? ' wet' : '');
+          t.b.innerHTML = '<b></b>' + [[NS, 'n'], [E, 'e'], [S, 's'], [W, 'w']]
+            .filter(([d]) => t.m & d).map(([, k]) => '<i class="' + k + '"></i>').join('');
+        }
+        hint.textContent = out ? 'Running!' : wet.size ? 'Water reaches ' + wet.size + (wet.size === 1 ? ' pipe' : ' pipes') : 'Turn the pipe by the tap';
+        if (out && !fin) { fin = true; P(1); step(10); done(); }
+      }
+      draw();
+      ready = true;
+    },
+
+    /* The factor's scales: a gold weight on the left pan, and a tray of
+       brass ones. Put brass on the right until the beam is level. */
+    scales({ body, hint, rng, done, pips }) {
+      const TRAY = [1, 2, 3, 5, 8];
+      const pickN = 2 + rng.int(0, 1);
+      const target = shuffled(rng, TRAY).slice(0, pickN).reduce((a, b) => a + b, 0);
+      const rig = el('div', 'cg-scales', '<div class="cg-beam"><div class="cg-pan l"><b>' + target + '</b></div>'
+        + '<div class="cg-pan r"></div></div><div class="cg-post"></div>');
+      const tray = el('div', 'cg-tray');
+      body.append(rig, tray);
+      const beam = rig.querySelector('.cg-beam'), pan = rig.querySelector('.cg-pan.r');
+      const P = pips(1);
+      const on = new Set();
+      let fin = false;
+      const draw = () => {
+        const sum = [...on].reduce((a, b) => a + b, 0);
+        const d = Math.max(-1, Math.min(1, (target - sum) / 8));
+        beam.style.transform = 'rotate(' + (-d * 14).toFixed(1) + 'deg)';
+        pan.innerHTML = [...on].map(w => '<i>' + w + '</i>').join('');
+        hint.textContent = sum === target ? 'Level!' : sum < target ? 'Needs ' + (target - sum) + ' more'
+          : (sum - target) + ' too heavy';
+        if (sum === target && !fin) { fin = true; P(1); done(); }
+      };
+      for (const w of TRAY) {
+        const b = el('button', 'cg-weight', '<b>' + w + '</b>');
+        b.type = 'button';
+        b.onclick = () => {
+          if (on.has(w)) { on.delete(w); b.classList.remove('on'); tone(260, 0.08, 'triangle', 0.07); }
+          else { on.add(w); b.classList.add('on'); step(w); }
+          draw();
+        };
+        tray.appendChild(b);
+      }
+      draw();
+    },
+
+    /* A window gone brown with peat smoke. Rub it clean: the loch is on
+       the other side of it. */
+    window({ body, hint, done, pips }) {
+      const box = el('div', 'cg-window');
+      const cv = el('canvas', 'cg-grime');
+      cv.width = 300; cv.height = 190;
+      box.appendChild(cv);
+      body.appendChild(box);
+      const P = pips(5);
+      const g = cv.getContext('2d');
+      g.fillStyle = '#5a4630';
+      g.fillRect(0, 0, cv.width, cv.height);
+      for (let k = 0; k < 140; k++) {
+        g.fillStyle = 'rgba(' + (60 + (k * 37) % 50) + ',' + (45 + (k * 13) % 30) + ',25,0.5)';
+        g.beginPath();
+        g.arc((k * 97) % 300, (k * 61) % 190, 8 + (k * 7) % 22, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.globalCompositeOperation = 'destination-out';
+      let down = false, last = null, fin = false, checkT = 0, lastShown = -1;
+      const at = (e) => {
+        const r = cv.getBoundingClientRect();
+        return { x: (e.clientX - r.left) * cv.width / (r.width || cv.width),
+                 y: (e.clientY - r.top) * cv.height / (r.height || cv.height) };
+      };
+      const clean = () => {
+        let clear = 0, n = 0;
+        try {
+          const d = g.getImageData(0, 0, cv.width, cv.height).data;
+          for (let i = 3; i < d.length; i += 4 * 37) { n++; if (d[i] < 40) clear++; }
+        } catch (e) { return 1; }
+        return n ? clear / n : 0;
+      };
+      const rub = (p) => {
+        g.lineWidth = 44; g.lineCap = 'round';
+        g.beginPath();
+        g.moveTo((last || p).x, (last || p).y);
+        g.lineTo(p.x, p.y);
+        g.stroke();
+        last = p;
+        const now = performance.now();
+        if (now - checkT < 120 || fin) return;
+        checkT = now;
+        const k = clean();
+        const shown = Math.min(5, Math.floor(k / 0.17));
+        if (shown !== lastShown) { lastShown = shown; P(shown); if (shown > 0) step(shown * 2); }
+        hint.textContent = Math.round(Math.min(1, k / 0.85) * 100) + '% clean';
+        if (k >= 0.85) { fin = true; box.classList.add('clean'); done(); }
+      };
+      cv.addEventListener('pointerdown', (e) => { e.preventDefault(); down = true; last = null; rub(at(e)); });
+      cv.addEventListener('pointermove', (e) => { if (down) rub(at(e)); });
+      const up = () => { down = false; last = null; };
+      window.addEventListener('pointerup', up);
+      hint.textContent = '0% clean';
+      return () => window.removeEventListener('pointerup', up);
     },
   };
 

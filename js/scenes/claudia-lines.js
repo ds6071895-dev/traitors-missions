@@ -10,28 +10,20 @@
    still a shared night, which is the rule everywhere else in this
    codebase and there is no reason for the words to break it.
 
-   `{name}`, `{pot}` and `{count}` are filled by
-   the caller. Sentences are kept short on purpose: `Voice` speaks one
-   at a time and puts a real pause at every full stop, so full stops are
-   the timing, and a line written as one long clause is a line delivered
-   in a rush.
+   `{name}`, `{names}`, `{pot}`, `{count}`, `{time}` and `{Time}` are
+   filled by the caller. Keep her short: a take is two or three
+   sentences, ten words at most each and sixteen in all (the two rules
+   sets may run to twenty-two). She is the host of a show, not its
+   narrator, and every second she talks is a second nobody else is
+   playing. `test/claudia-lines.test.js` holds the line.
 ------------------------------------------------------------------ */
 const ClaudiaLines = (() => {
 
   const SETS = {
     "floorOpen": [
-      [
-        "You will speak one at a time.",
-        "Thirty seconds each. Nobody interrupts."
-      ],
-      [
-        "The room is going to go round.",
-        "Thirty seconds. Use them or waste them."
-      ],
-      [
-        "One voice at a time tonight.",
-        "Half a minute each, and then I want a decision."
-      ]
+      [ "One at a time.", "Thirty seconds each. Nobody interrupts." ],
+      [ "The room goes round.", "Thirty seconds. Use them." ],
+      [ "One voice at a time.", "Half a minute each. Then a decision." ]
     ],
     "floorTo": [
       [ "{name}. The room is yours." ],
@@ -45,215 +37,95 @@ const ClaudiaLines = (() => {
       [ "Enough." ]
     ],
     "exposeOpen": [
-      [
-        "Before anybody sits down.",
-        "Stay exactly where you are."
-      ],
-      [
-        "Nobody sit.",
-        "This will not take long."
-      ],
-      [
-        "Stop there.",
-        "All of you."
-      ]
+      [ "Nobody sits down.", "Not yet." ],
+      [ "Nobody sit.", "This will not take long." ],
+      [ "Stop there.", "All of you." ]
     ],
     "exposeTask": [
-      [
-        "Yesterday, one of you was carrying poison.",
-        "It never left their pocket."
-      ],
-      [
-        "A Traitor had one job today.",
-        "Nobody died of it."
-      ],
-      [
-        "There was poison in this castle today.",
-        "It is still in the bottle."
-      ]
+      [ "Yesterday, somebody carried poison.", "It never left their pocket." ],
+      [ "A Traitor had one job today.", "Nobody died of it." ],
+      [ "There was poison in this castle today.", "It is still in the bottle." ]
     ],
     "exposeName": [
-      [
-        "{name}.",
-        "You had it all day, and you did nothing with it."
-      ],
-      [
-        "It was you, {name}.",
-        "And you lost your nerve."
-      ],
-      [
-        "{name}.",
-        "Turn out your pocket."
-      ]
+      [ "{name}.", "You had it all day. And did nothing." ],
+      [ "It was you, {name}.", "You lost your nerve." ],
+      [ "{name}.", "Turn out your pocket." ]
     ],
     "exposeAfter": [
-      [
-        "{name} was a Traitor.",
-        "And now every one of you knows it."
-      ],
-      [
-        "{name} was a Traitor, and has just handed you that for nothing.",
-        "No vote today. Go to bed."
-      ]
+      [ "{name} was a Traitor.", "Now every one of you knows it." ],
+      [ "A Traitor, handed to you for nothing.", "No vote today. Go to bed." ]
     ],
     "welcome": [
-      [
-        "Welcome to my castle."
-      ],
-      [
-        "{count} of you. One pot. A castle full of secrets."
-      ],
-      [
-        "You made it. Enjoy the view. It is the last easy thing you will do."
-      ]
+      [ "Welcome to my castle." ],
+      [ "{count} of you. One pot.", "A castle full of secrets." ],
+      [ "Enjoy the view.", "It is the last easy thing you do." ]
     ],
     "theRules": [
-      [
-        "By day, you work. Every job fills the pot.",
-        "But a Traitor slips poison in plain sight. At the round table, you banish who you think did it."
-      ],
-      [
-        "Work the castle. Fill the pot.",
-        "A Traitor will poison one of you in plain sight. Watch each other, then decide who goes."
-      ]
+      [ "By day, you work. Every job fills the pot.", "A Traitor poisons in plain sight. You banish who did it." ],
+      [ "Work the castle. Fill the pot.", "Somebody will be poisoned in plain sight. Find who." ]
     ],
     "roleIntro": [
-      [
-        "Among the {count} of you, there is a Traitor."
-      ],
-      [
-        "One of you is a Traitor. Only one of you knows it."
-      ]
+      [ "Among the {count} of you, there is a Traitor." ],
+      [ "One of you is a Traitor.", "Only one of you knows it." ]
     ],
     "roleIntroTwo": [
-      [
-        "Among the {count} of you, there are two Traitors."
-      ],
-      [
-        "Two of you are Traitors. They are about to meet each other."
-      ]
+      [ "Among the {count} of you, there are two Traitors." ],
+      [ "Two of you are Traitors.", "They are about to meet." ]
     ],
     "traitorPartner": [
-      [
-        "You are not alone.",
-        "Your fellow Traitor is {name}."
-      ],
-      [
-        "Look for {name} tonight.",
-        "You are in this together."
-      ]
+      [ "You are not alone.", "Your fellow Traitor is {name}." ],
+      [ "Look for {name} tonight.", "You are in this together." ]
     ],
     "roleFaithful": [
-      [
-        "You are a Faithful.",
-        "Keep your eyes open. Whoever hands you something today may be killing you."
-      ]
+      [ "You are Faithful.", "Watch who hands you anything." ],
+      [ "Faithful.", "Trust nobody who gets too close." ]
     ],
     "roleTraitor": [
-      [
-        "You are a Traitor.",
-        "Every day, one of you carries the poison.",
-        "Get it into a Faithful before the bell. Fail, and I will expose you myself."
-      ]
+      [ "You are a Traitor.", "Poison a Faithful before the bell. Or I expose you." ],
+      [ "Traitor.", "The poison goes into a Faithful before the bell." ]
     ],
     "toCastle": [
-      [
-        "The castle is yours.",
-        "In you go."
-      ],
-      [
-        "Up to the house. Your jobs are waiting."
-      ]
+      [ "The castle is yours.", "In you go." ],
+      [ "Up to the house.", "Your jobs are waiting." ]
     ],
     "nightFalls": [
-      [
-        "That is the day done.",
-        "Go to your rooms."
-      ],
-      [
-        "The castle is going to sleep.",
-        "Go to bed. Some of you will not need to."
-      ]
+      [ "That is the day done.", "Go to your rooms." ],
+      [ "The castle is going to sleep.", "Some of you will not wake." ],
+      [ "Bed.", "Lock your door. For what it is worth." ]
     ],
     "nightFaithful": [
-      [
-        "Your door is locked.",
-        "Whatever was done today, it is done.",
-        "Sleep, if you can."
-      ],
-      [
-        "Lock it. Good.",
-        "It will not help. The poison is already in somebody."
-      ]
+      [ "Your door is locked.", "Sleep, if you can." ],
+      [ "Lock it. Good.", "It will not help." ]
     ],
     "conclaveOpen": [
-      [
-        "Traitors.",
-        "Welcome to the turret.",
-        "It is done for today. Now, tomorrow."
-      ],
-      [
-        "Sit down.",
-        "Somebody downstairs is not waking up.",
-        "Let us talk about tomorrow."
-      ]
+      [ "Traitors.", "Welcome to the turret." ],
+      [ "Sit down.", "Somebody downstairs is not waking up." ]
     ],
     "conclaveRecruit": [
-      [
-        "You have lost one of your own.",
-        "You may offer a Faithful a seat at this table.",
-        "They are allowed to say no."
-      ]
+      [ "You lost one of your own.", "Offer a Faithful their seat." ]
     ],
     "conclaveAgree": [
-      [
-        "One of you carries it tomorrow.",
-        "Agree on who."
-      ]
+      [ "One of you carries it tomorrow.", "Agree on who." ]
     ],
     "conclaveDone": [
-      [
-        "It is decided.",
-        "Go back to bed. Look surprised at breakfast."
-      ],
-      [
-        "Done.",
-        "Get some sleep. You will need your face in the morning."
-      ]
+      [ "It is decided.", "Look surprised at breakfast." ],
+      [ "Done.", "Sleep. You need your face tomorrow." ]
     ],
     "murderedYou": [
-      [
-        "There is a letter under your door.",
-        "Whatever you were handed today, it was poison.",
-        "You may watch the rest of it. You may not speak to the living."
-      ],
-      [
-        "A knock. Nobody there.",
-        "Just a letter. You were poisoned, and you never felt it."
-      ]
+      [ "A letter under your door.", "It was poison. You may watch, not speak." ],
+      [ "A knock. Nobody there.", "You were poisoned. Watch in silence." ]
     ],
     "recruitOffer": [
-      [
-        "The Traitors have chosen you.",
-        "Join them.",
-        "Or say no, and go back to sleep a Faithful."
-      ]
+      [ "The Traitors want you.", "Join them, or sleep." ]
     ],
     "recruitedYou": [
-      [
-        "Welcome to the turret.",
-        "You are a Traitor now."
-      ]
+      [ "Welcome to the turret.", "You are a Traitor now." ]
     ],
     "breakfastOpen": [
-      [
-        "Good morning.",
-        "Come down for breakfast. Not all of you will."
-      ],
-      [
-        "Breakfast.",
-        "Let us see who made it through the night."
-      ]
+      [ "Good morning.", "Not all of you will come down." ],
+      [ "Breakfast.", "Let us see who made it." ],
+      [ "Morning.", "Count the chairs." ],
+      [ "Come down.", "Slowly." ]
     ],
     "breakfastWait": [
       [ "Somebody is late." ],
@@ -261,473 +133,233 @@ const ClaudiaLines = (() => {
       [ "We wait." ]
     ],
     "breakfastAbsent": [
-      [
-        "{name} will not be joining us.",
-        "Somebody handed {name} the poison yesterday. It took in the night.",
-        "{name} was a Faithful."
-      ],
-      [
-        "That chair is staying empty.",
-        "{name} was poisoned. In front of some of you, probably.",
-        "A Faithful."
-      ]
+      [ "{name} will not be joining us.", "Poisoned. A Faithful." ],
+      [ "That chair stays empty.", "{name}. Faithful. Poisoned in front of you." ],
+      [ "{name} is dead.", "And {name} was Faithful." ]
     ],
     "breakfastSpared": [
-      [
-        "Everybody is here.",
-        "Somebody was poisoned yesterday.",
-        "You banished them before it could take."
-      ],
-      [
-        "Every chair is full.",
-        "The poison found somebody yesterday. The round table found them first."
-      ]
+      [ "Everybody is here.", "The poison found someone. You banished them first." ],
+      [ "Every chair is full.", "The round table beat the poison." ]
     ],
     "breakfastNobody": [
-      [
-        "Everybody is here.",
-        "Nobody died in the night.",
-        "Which means the poison never left its bottle."
-      ]
+      [ "Everybody is here.", "The poison never left its bottle." ],
+      [ "Nobody died.", "Somebody lost their nerve." ]
     ],
     "breakfastSendFinale": [
-      [
-        "Eat.",
-        "There is no more work. Tonight we go to the Fire of Truth."
-      ],
-      [
-        "Finish your coffee.",
-        "No more jobs. Next, you face the fire."
-      ]
+      [ "Eat.", "No more work. Tonight, the Fire of Truth." ],
+      [ "Finish your coffee.", "Next, you face the fire." ]
     ],
     "breakfastSend": [
-      [
-        "Eat.",
-        "Then back to work. Somebody has poison again."
-      ],
-      [
-        "Finish your coffee.",
-        "The castle is waiting. So are they."
-      ]
+      [ "Eat.", "Then work. Somebody has poison again." ],
+      [ "Finish your coffee.", "The castle is waiting. So are they." ],
+      [ "Back to work.", "Watch your backs." ]
     ],
     "tableOpen": [
-      [
-        "Sit down.",
-        "Today somebody handed one of you poison.",
-        "Who was where? Who was with whom? Talk."
-      ],
-      [
-        "Take your seats.",
-        "You were all in that house today. Somebody saw something.",
-        "Speak."
-      ]
+      [ "Sit.", "Somebody handed out poison today. Who saw it?" ],
+      [ "Take your seats.", "Somebody saw something. Speak." ],
+      [ "Sit down.", "Who was where? Talk." ]
     ],
     "inviteQuiet": [
-      [
-        "{name}. You have been very quiet.",
-        "What do you think?"
-      ],
-      [
-        "{name}, we have not heard from you.",
-        "Who are you looking at?"
-      ],
-      [
-        "{name}. Say something. Silence is a choice, too."
-      ]
+      [ "{name}. You have been very quiet." ],
+      [ "{name}. Who are you looking at?" ],
+      [ "{name}. Silence is a choice too." ]
     ],
     "tableClose": [
-      [
-        "That is enough talking.",
-        "Pick up your slates."
-      ],
-      [
-        "I have heard enough.",
-        "Pick up your slates."
-      ]
+      [ "Enough talking.", "Pick up your slates." ],
+      [ "I have heard enough.", "Slates." ],
+      [ "Time.", "Write a name." ]
     ],
     "slateIntro": [
-      [
-        "Write a name.",
-        "When I come to you, turn it over and say it out loud."
-      ]
+      [ "Write a name.", "Turn it when I come to you." ],
+      [ "One name each.", "Show it when I ask." ]
     ],
     "tableTie": [
-      [
-        "It is a tie.",
-        "Only {names} can go now. Vote again."
-      ]
+      [ "A tie.", "Only {names} can go now. Again." ]
     ],
     "tableLot": [
-      [
-        "Still tied.",
-        "Then the castle decides. I will draw."
-      ]
+      [ "Still tied.", "Then the castle decides." ]
     ],
     "banishName": [
-      [
-        "{name}.",
-        "The table has spoken. You have been banished."
-      ]
+      [ "{name}.", "You have been banished." ],
+      [ "{name}.", "The table has spoken." ],
+      [ "The table has chosen.", "{name}." ]
     ],
     "banishNameYou": [
-      [
-        "The table has spoken.",
-        "You have been banished."
-      ]
+      [ "The table has spoken.", "You have been banished." ]
     ],
     "lastWords": [
-      [
-        "{name}. Before you go.",
-        "Who are you?"
-      ]
+      [ "{name}. Before you go.", "Who are you?" ],
+      [ "{name}.", "Tell them what you are." ]
     ],
     "lastWordsYou": [
-      [
-        "Before you go.",
-        "Tell them who you are."
-      ]
+      [ "Before you go.", "Tell them who you are." ]
     ],
     "banishedTraitor": [
-      [
-        "{name}...",
-        "was a Traitor."
-      ],
-      [
-        "{name} was a Traitor.",
-        "Well done. Do not get comfortable."
-      ]
+      [ "{name}...", "was a Traitor." ],
+      [ "{name} was a Traitor.", "Do not get comfortable." ],
+      [ "A Traitor.", "Finally." ]
     ],
     "banishedFaithful": [
-      [
-        "{name}...",
-        "was a Faithful.",
-        "You have sent home an innocent person."
-      ],
-      [
-        "{name} was Faithful.",
-        "And the Traitors thank you for it."
-      ]
+      [ "{name}...", "was Faithful." ],
+      [ "{name} was Faithful.", "The Traitors thank you." ],
+      [ "Faithful.", "You sent home an innocent." ]
     ],
     "banishedTraitorYou": [
-      [
-        "You were a Traitor.",
-        "And now everybody knows."
-      ]
+      [ "You were a Traitor.", "Now everybody knows." ]
     ],
     "banishedFaithfulYou": [
-      [
-        "You were a Faithful.",
-        "And they sent you home anyway."
-      ]
+      [ "You were Faithful.", "They sent you home anyway." ]
     ],
     "tableNight": [
-      [
-        "Go to bed.",
-        "The poison is already in somebody."
-      ],
-      [
-        "That is the table.",
-        "Sleep well. Some of you."
-      ]
+      [ "Go to bed.", "The poison is already in somebody." ],
+      [ "That is the table.", "Sleep well. Some of you." ]
     ],
     "tableToFire": [
-      [
-        "{count} of you left.",
-        "Tonight we go to the fire."
-      ]
+      [ "{count} of you left.", "Tonight, the fire." ]
     ],
     "traitorsGone": [
-      [
-        "That was the last Traitor in this castle.",
-        "It is over."
-      ]
+      [ "That was the last Traitor.", "It is over." ]
     ],
     "sendOff": [
-      [
-        "Go."
-      ],
-      [
-        "Off you go."
-      ]
+      [ "Go." ],
+      [ "Off you go." ]
     ],
     "tasksFirst": [
-      [
-        "{Time}. Every job you finish is five hundred pounds.",
-        "Somebody in this house is carrying poison.",
-        "When they hand it to you, you will not feel a thing."
-      ],
-      [
-        "The castle is yours for {time}. Jobs on your list, money in the pot.",
-        "And watch who stands too close to whom."
-      ]
+      [ "{Time}. Every job is five hundred pounds.", "Somebody here carries poison." ],
+      [ "The castle is yours for {time}.", "Work. And watch who gets close." ]
     ],
     "tasksOpen": [
-      [
-        "Another day. {count} of you.",
-        "The jobs are waiting. So is the poison."
-      ],
-      [
-        "Morning has been and gone.",
-        "{Time}. Work, and watch."
-      ],
-      [
-        "Back to work.",
-        "Somebody is carrying it again."
-      ]
+      [ "Another day. {count} of you.", "The jobs are waiting. So is the poison." ],
+      [ "{Time}.", "Work, and watch." ],
+      [ "Back to work.", "Somebody is carrying it again." ],
+      [ "{count} left.", "One of them has poison." ]
     ],
     "poisonYou": [
-      [
-        "It is in your pocket.",
-        "Stand beside a Faithful and hold still. Nobody will know.",
-        "Before the bell."
-      ],
-      [
-        "The poison is yours today.",
-        "Pick your moment. Pick your Faithful.",
-        "Do it before the bell, or I will."
-      ]
+      [ "It is in your pocket.", "Stand by a Faithful. Hold still. Before the bell." ],
+      [ "The poison is yours today.", "Pick your moment. Before the bell." ]
     ],
     "poisonPartner": [
-      [
-        "{name} has the poison today.",
-        "Keep them covered."
-      ],
-      [
-        "Today it is {name}'s turn.",
-        "Make sure nobody is watching."
-      ]
+      [ "{name} has the poison today.", "Keep them covered." ],
+      [ "Today it is {name}.", "Make sure nobody is watching." ]
     ],
     /* The open table. She says out loud that there are no turns,
        because a room that has spent the whole night being told to wait
        its turn will otherwise wait for one. */
     "fireOpen": [
-      [
-        "The pot is at {pot}. This is where you find out who it belongs to."
-      ],
-      [
-        "Here we are, then. {pot}, and a fire.",
-        "Everything from here is a choice you make out loud."
-      ]
+      [ "{pot}, and a fire.", "Now we find out whose it is." ],
+      [ "Here we are. {pot}.", "Everything from here is out loud." ]
     ],
     "fireRules": [
-      [
-        "There may still be a Traitor sitting at this fire.",
-        "First, you decide whether to end the game. It must be unanimous.",
-        "If it is not, you banish again."
-      ]
+      [ "There may still be a Traitor here.", "End the game, all of you agreeing. Or banish again." ],
+      [ "First, do you end it?", "It must be unanimous. If not, somebody goes." ]
     ],
     "fireOfTruth": [
-      [
-        "End the game. Or banish again.",
-        "Put it in the pouch."
-      ],
-      [
-        "Are you done?",
-        "Or is there still a Traitor here?"
-      ]
+      [ "End the game. Or banish again.", "Into the pouch." ],
+      [ "Are you done?", "Or is a Traitor still here?" ]
     ],
     "decideEnd": [
-      [
-        "It is unanimous.",
-        "The game is over."
-      ]
+      [ "Unanimous.", "The game is over." ]
     ],
     "decideBanish": [
-      [
-        "Not unanimous.",
-        "Somebody here is not sure. Then we banish again."
-      ]
+      [ "Not unanimous.", "Then we banish again." ],
+      [ "Somebody is not sure.", "Again." ]
     ],
     "fireWarn": [
-      [
-        "One name. Get it wrong and they leave with all of it."
-      ],
-      [
-        "You get one. Choose badly and you watch them take the pot."
-      ]
+      [ "One name.", "Get it wrong, they take everything." ],
+      [ "Choose badly and they take the pot." ]
     ],
     "voteName": [
-      [
-        "One name each. Somebody is going."
-      ],
-      [
-        "Name somebody. There is a Traitor sitting here."
-      ]
+      [ "One name each. Somebody is going." ],
+      [ "Name somebody.", "A Traitor is sitting here." ]
     ],
     "voteNameTie": [
-      [
-        "The vote is tied.",
-        "You will vote again. Write a name."
-      ]
+      [ "Tied.", "Vote again." ]
     ],
     "pouchIntro": [
-      [
-        "{name}. Give me your pouch."
-      ]
+      [ "{name}. Your pouch." ],
+      [ "{name}. Give it to me." ]
     ],
     "pouchThrow": [
-      [
-        "Let's see."
-      ]
+      [ "Let's see." ],
+      [ "Now." ]
     ],
     "revealFaithful": [
-      [
-        "{name}...",
-        "was a Faithful."
-      ],
-      [
-        "Green.",
-        "{name} was a Faithful."
-      ]
+      [ "{name}...", "was Faithful." ],
+      [ "Green.", "{name} was Faithful." ]
     ],
     "revealTraitor": [
-      [
-        "{name}...",
-        "was a Traitor."
-      ]
+      [ "{name}...", "was a Traitor." ],
+      [ "Red.", "{name}. Traitor." ]
     ],
     "endPouches": [
-      [
-        "It is decided. The game is over.",
-        "But you do not get to go home not knowing."
-      ]
+      [ "The game is over.", "But you will not leave not knowing." ]
     ],
     "endPouchesCaught": [
-      [
-        "That is one Traitor accounted for."
-      ]
+      [ "One Traitor accounted for." ]
     ],
     "finalTwoReveal": [
-      [
-        "Two players remain. The game ends here.",
-        "You will reveal your identities one at a time."
-      ]
+      [ "Two remain. The game ends here.", "Reveal yourselves. One at a time." ]
     ],
     "finalPouchIntro": [
-      [
-        "{name}.",
-        "Your pouch."
-      ],
-      [
-        "Next. {name}.",
-        "Hand it over."
-      ]
+      [ "{name}.", "Your pouch." ],
+      [ "Next. {name}.", "Hand it over." ]
     ],
     "finalPouchLast": [
-      [
-        "One pouch left.",
-        "{name}."
-      ],
-      [
-        "And the last one.",
-        "{name}."
-      ]
+      [ "One pouch left.", "{name}." ],
+      [ "And the last.", "{name}." ]
     ],
     "finalFaithful": [
-      [
-        "{name}...",
-        "Faithful."
-      ]
+      [ "{name}...", "Faithful." ]
     ],
     "finalTraitor": [
-      [
-        "{name}...",
-        "TRAITOR."
-      ]
+      [ "{name}...", "TRAITOR." ]
     ],
     "pouchIntroYou": [
-      [
-        "Your pouch now."
-      ]
+      [ "Your pouch now." ]
     ],
     "finalPouchYou": [
-      [
-        "Hand me your pouch."
-      ]
+      [ "Hand me your pouch." ]
     ],
     "finalPouchYouLast": [
-      [
-        "One left. Yours."
-      ]
+      [ "One left. Yours." ]
     ],
     "finalTraitorYou": [
-      [
-        "Red.",
-        "You have been the Traitor all night."
-      ],
-      [
-        "It is red.",
-        "You sat there. You lied. And they let you."
-      ]
+      [ "Red.", "Traitor all night." ],
+      [ "Red.", "You lied. And they let you." ]
     ],
     "finalFaithfulYou": [
-      [
-        "Green.",
-        "You were Faithful. Exactly what you said you were."
-      ],
-      [
-        "Green, of course.",
-        "You told the truth all night and it very nearly cost you."
-      ]
+      [ "Green.", "Exactly what you said you were." ],
+      [ "Green, of course.", "The truth nearly cost you." ]
     ],
     "revealTraitorYou": [
-      [
-        "Red.",
-        "You were the Traitor."
-      ]
+      [ "Red.", "You were the Traitor." ]
     ],
     "revealFaithfulYou": [
-      [
-        "Green.",
-        "You were a Faithful."
-      ]
+      [ "Green.", "You were Faithful." ]
     ],
     "againAfterFaithful": [
-      [
-        "Same question. End it, or go again."
-      ]
+      [ "Same question. End it, or go again." ]
     ],
     "wonFaithful": [
-      [
-        "No Traitor left in this castle.",
-        "{pot}. Yours."
-      ]
+      [ "No Traitor left.", "{pot}. Yours." ]
     ],
     "wonFaithfulClean": [
-      [
-        "There was never a Traitor here at all.",
-        "{pot} is yours."
-      ]
+      [ "There was never a Traitor here.", "{pot} is yours." ]
     ],
     "wonTraitor": [
-      [
-        "You have all been very kind to a Traitor.",
-        "{pot}. Not shared. Yours."
-      ]
+      [ "You were all so kind to a Traitor.", "{pot}. Yours alone." ]
     ],
     "lostFaithful": [
-      [
-        "You ended the night with a Traitor at your side.",
-        "They take the pot. You take the drive home."
-      ]
+      [ "A Traitor sat beside you to the end.", "They take the pot." ]
     ],
     "lostOut": [
-      [
-        "You did not make it to the end.",
-        "The Faithfuls who did take {pot} between them."
-      ]
+      [ "You did not make the end.", "The Faithful share {pot}." ]
     ],
     "lostBurned": [
-      [
-        "You were named.",
-        "The pot goes on without you."
-      ]
+      [ "You were named.", "The pot goes on without you." ]
     ],
     "lostTraitorCaught": [
-      [
-        "They found you.",
-        "The Faithfuls take the pot, and you take the long walk."
-      ]
+      [ "They found you.", "The Faithful take the pot." ]
     ]
   };
 
@@ -783,14 +415,19 @@ const ClaudiaLines = (() => {
   }
 
   /* A set is a list of takes; a take is a list of sentences. Returns one
-     beat per sentence so the caller can hold, cut or change shot between
-     them — the pauses are where the drama is. */
-  function beats(setName, vars, seed) {
+     beat for the whole take: every beat is its own voice read, and each
+     read pays a second and a half of start-up and hold that nobody hears
+     as drama, only as a gap. The voice still pauses at the full stops.
+     `split` gives one beat per sentence, for a caller that cuts between
+     them. */
+  function beats(setName, vars, seed, opts) {
     const set = SETS[setName];
     if (!set || !set.length) return [];
     const r = U.makeRng((((seed || 0) ^ hash(setName)) >>> 0) || 1);
     const take = set[Math.floor(r() * set.length)];
-    return take.map(t => ({ text: fill(t, vars) })).filter(b => b.text);
+    const said = take.map(t => fill(t, vars)).filter(Boolean);
+    if (opts && opts.split) return said.map(text => ({ text }));
+    return said.length ? [{ text: said.join(' ') }] : [];
   }
 
   const line = (setName, vars, seed) =>

@@ -371,6 +371,7 @@ class CastleScene {
     this._closeVote();
     RoomUI.hideAll();
     Scenes.Cine.card(null);
+    Scenes.Drama.end(this.stage, null);
     if (this.music) { this.music.stop(1.4); this.music = null; }
     if (this._embers) { this._embers = Reveal.clearEmbers(this.stage, this._embers); }
     if (this.stage) { this.stage.dispose(); this.stage = null; }

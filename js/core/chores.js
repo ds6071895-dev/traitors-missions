@@ -35,44 +35,64 @@ const Chores = (() => {
 
   /* What the puzzles are called, the verb on the prompt, and how to do
      one: `how` is a sentence for anybody, finger or mouse, and `keys`
-     is the shortcut a keyboard gets on top. Every type plays
-     differently; a day's list never repeats one if it can help it. */
+     is the shortcut a keyboard gets on top. `goal` is the two or three
+     words stamped on the panel as it opens, so the job is understood
+     before the how is read; `secs` is how long an AI player takes over
+     it. Every type plays differently; a day's list never repeats one if
+     it can help it. */
   const TYPES = {
-    safe:    { title: 'Crack the portrait safe',   verb: 'Crack the safe',
+    safe:    { title: 'Crack the portrait safe',   verb: 'Crack the safe', goal: 'Open the safe', secs: [5, 8],
                how: 'A four-digit code flashes on the note. Remember it, then tap it in. ↺ shows it again.',
                keys: 'Number keys, Enter' },
-    wires:   { title: 'Rewire the chandelier',     verb: 'Rewire it',
-               how: 'Tap a wire end on the left, then the same colour on the right. Join all four.' },
-    candles: { title: 'Light the candelabra',      verb: 'Light the candles',
+    wires:   { title: 'Rewire the chandelier',     verb: 'Rewire it', goal: 'Join 4 wires', secs: [4.5, 7.5],
+               how: 'Drag from a wire end on the left to the same colour on the right. Join all four.' },
+    candles: { title: 'Light the candelabra',      verb: 'Light the candles', goal: 'Light in order', secs: [4, 7],
                how: 'Tap the candles in number order, 1 to 6. A wrong one blows them all out.' },
-    pour:    { title: 'Pour a dram for the laird', verb: 'Pour the dram',
+    pour:    { title: 'Pour a dram for the laird', verb: 'Pour the dram', goal: 'Stop on green', secs: [3.5, 6],
                how: 'Hold POUR to fill the glass. Let go while the whisky is inside the green band.',
                keys: 'Hold Space' },
-    bells:   { title: 'Ring the bells in order',   verb: 'Ring the bells',
+    bells:   { title: 'Ring the bells in order',   verb: 'Ring the bells', goal: 'Copy 2 tunes', secs: [6, 9],
                how: 'Watch the bells ring a tune, then tap them back in the same order. Two tunes.' },
-    letters: { title: 'Sort the post by its seal', verb: 'Sort the post',
+    letters: { title: 'Sort the post by its seal', verb: 'Sort the post', goal: 'Post 6 letters', secs: [5, 8],
                how: 'Tap a letter, then the pigeonhole with the same colour seal. Post them all.' },
-    tartan:  { title: 'Find the clan tartan',      verb: 'Match the tartan',
+    tartan:  { title: 'Find the clan tartan',      verb: 'Match the tartan', goal: 'Match 3 tartans', secs: [4.5, 7.5],
                how: 'Tap the pattern that matches the one at the top exactly. Three in a row.' },
-    tune:    { title: 'Tune the clàrsach',         verb: 'Tune the harp',
+    tune:    { title: 'Tune the clàrsach',         verb: 'Tune the harp', goal: 'Match the wave', secs: [4, 7],
                how: 'Drag the peg until the gold wave sits on the faint one, then hold it still.' },
-    bats:    { title: 'Shoo the bats from the rafters', verb: 'Shoo the bats',
+    bats:    { title: 'Shoo the bats from the rafters', verb: 'Shoo the bats', goal: 'Shoo every bat', secs: [4, 7],
                how: 'Tap every bat as it swoops past to chase it out of the window.' },
-    lock:    { title: 'Pick the old lock',         verb: 'Pick the lock',
+    lock:    { title: 'Pick the old lock',         verb: 'Pick the lock', goal: 'Set 3 pins', secs: [4.5, 7.5],
                how: 'Tap SET when the white pick is inside the gold. Three pins, each one faster.',
                keys: 'Space' },
-    bellows: { title: 'Work the bellows',          verb: 'Stoke the fire',
+    bellows: { title: 'Work the bellows',          verb: 'Stoke the fire', goal: 'Pump 4 times', secs: [4, 6.5],
                how: 'Tap PUMP each time the glow swells out to the ring. Four good pumps.',
                keys: 'Space' },
-    brew:    { title: 'Brew the laird’s tonic',    verb: 'Brew the tonic',
+    brew:    { title: 'Brew the laird’s tonic',    verb: 'Brew the tonic', goal: 'Follow the recipe', secs: [5, 8],
                how: 'Tap the ingredients in the order on the recipe. A wrong one spoils the pot.' },
+    pairs:   { title: 'Set the place cards',       verb: 'Set the table', goal: 'Find 3 pairs', secs: [5, 8],
+               how: 'Remember the crests, then tap two cards at a time to find the three matching pairs.' },
+    frames:  { title: 'Straighten the portraits',  verb: 'Straighten them', goal: 'Level 3 portraits', secs: [4, 7],
+               how: 'Tap ⟲ or ⟳ under each crooked portrait until it hangs level.' },
+    spot:    { title: 'Spot the forgery',          verb: 'Find the fakes', goal: 'Find 3 differences', secs: [6, 10],
+               how: 'Compare the two paintings. Tap the three things on the right one that are different.' },
+    bottles: { title: 'Rack the claret',           verb: 'Rack the wine', goal: 'Oldest to newest', secs: [5, 9],
+               how: 'Tap two bottles to swap them. Put the years in order, oldest on the left.' },
+    mouse:   { title: 'Catch the kitchen mouse',   verb: 'Catch the mouse', goal: 'Catch it 5×', secs: [4, 7],
+               how: 'The mouse pops out of a hole. Tap it before it hides again. Five catches.' },
+    pipes:   { title: 'Fix the cistern pipes',     verb: 'Fix the pipes', goal: 'Tap to tank', secs: [6, 10],
+               how: 'Tap a pipe to turn it. Make one path from the tap on the left to the tank on the right.' },
+    scales:  { title: 'Balance the laird’s scales', verb: 'Balance them', goal: 'Make it level', secs: [4, 8],
+               how: 'Tap weights onto the right pan until it matches the gold one. Tap a weight again to take it off.' },
+    window:  { title: 'Clean the window',          verb: 'Clean it', goal: 'Wipe it clean', secs: [4, 7],
+               how: 'Rub the glass with your finger or mouse until you can see the loch.' },
   };
 
   /* Things to fetch and carry: pick it up in one room, put it down in
      another. They send people across the house on errands, which is
      the best alibi there is — and the best excuse to be somewhere. */
   const ITEMS = ['the decanter', 'a basket of logs', 'the laird’s ledger', 'a silver candelabrum',
-                 'the bagpipes', 'a stack of tartan blankets', 'the old map', 'a tray of oatcakes'];
+                 'the bagpipes', 'a stack of tartan blankets', 'the old map', 'a tray of oatcakes',
+                 'the laird’s sword', 'a crate of claret', 'the guest book', 'a storm lantern'];
 
   /* Where they are. Rooms off the beaten track — the turret, the
      bedrooms, the far end of the corridor — are deliberate: a job that
@@ -97,11 +117,22 @@ const Chores = (() => {
     { id: 'round-door',      room: 'round',         x: 6.4,  z: -3.0, type: 'lock',    label: 'the chamber strongbox' },
     { id: 'turret-brew',     room: 'turret',        x: 0.0,  z: -25.6, type: 'brew',   label: 'the still' },
     { id: 'hall-rafters',    room: 'hall',          x: 5.8,  z: 16.6, type: 'bats',    label: 'the minstrels’ gallery' },
+    { id: 'great-table',     room: 'great',         x: -13.6, z: 9.0, type: 'pairs',   label: 'the long table' },
+    { id: 'hall-portraits',  room: 'hall',          x: 5.6,  z: 4.8,  type: 'frames',  label: 'the ancestors’ wall' },
+    { id: 'corridor-portraits', room: 'corridor',   x: 20.5, z: 12.6, type: 'frames',  label: 'the corridor portraits' },
+    { id: 'round-forgery',   room: 'round',         x: -6.4, z: -3.0, type: 'spot',    label: 'the twin paintings' },
+    { id: 'round-scales',    room: 'round',         x: -3.2, z: -12.2, type: 'scales', label: 'the factor’s scales' },
+    { id: 'hall-cellar',     room: 'hall',          x: -5.8, z: 13.8, type: 'bottles', label: 'the wine rack' },
+    { id: 'great-cellaret',  room: 'great',         x: -11.2, z: 5.0, type: 'bottles', label: 'the cellaret' },
+    { id: 'north-pantry',    room: 'north-passage', x: 0.9,  z: 3.0,  type: 'mouse',   label: 'the pantry hatch' },
+    { id: 'turret-cistern',  room: 'turret',        x: -3.0, z: -20.6, type: 'pipes',  label: 'the cistern' },
   ];
   for (let k = 0; k < 8; k++) {
     const north = k < 4, i = k % 4, x0 = 8 + 4 * i;
     STATIONS.push({ id: 'bed' + k + '-trunk', room: 'bed' + k, x: x0 + 1.2, z: north ? 10.9 : 16.1,
                     type: 'tartan', label: 'the trunk at the foot of the bed', bed: k });
+    STATIONS.push({ id: 'bed' + k + '-window', room: 'bed' + k, x: x0 + 3, z: north ? 8.7 : 18.3,
+                    type: 'window', label: 'the bedroom window', bed: k });
   }
 
   const ROOM_NAMES = {

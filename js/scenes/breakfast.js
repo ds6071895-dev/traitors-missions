@@ -100,7 +100,7 @@ class BreakfastScene extends CastleScene {
 
   async drive() {
     const s = Session.state;
-    this.music = Music.murder('dawn');
+    this.music = Music.murder('dawn', Music.dayMusic(s.seed, s.day));
     await this._say('breakfastOpen', {}, null);
     if (!this._alive) return;
     if (this.music) this.music.section('breakfast', { at: 'bar', glide: 3 });
@@ -114,13 +114,18 @@ class BreakfastScene extends CastleScene {
 
     const b = Session.state.breakfast;
     if (b.victim) {
-      if (this.music) { this.music.stinger('breakfast-absent'); this.music.section('absence', { at: 'bar', glide: 1 }); }
-      // everybody looks at the empty chair
+      // everybody looks at the empty chair, and so does the camera
       const empty = this.stage && this.stage.seats.find(x => x.id === b.victim);
       if (empty && this.stage) this.stage.setGaze(empty.home.clone().setY(1.0));
-      await this._sleep(1.2);
+      await Scenes.Drama.hush(this.stage, this.music, 'on:' + b.victim, { hold: 0.7 });
+      if (!this._alive) return;
+      Scenes.Drama.hit(this.stage, this.music, 'breakfast-absent', { shake: 0.35, flash: 'rgba(150,10,20,.5)' });
+      if (this.music) this.music.section('absence', { at: 'bar', glide: 1 });
       this._react(['handsFace', 'gasp', 'headDown', 'shake'], b.victim);
+      await this._sleep(0.5);
+      Scenes.Drama.shot(this.stage, 'claudiaTight');
       await this._say('breakfastAbsent', { name: b.name }, null);
+      Scenes.Drama.end(this.stage, this.music);
       if (this.stage) this.stage.setGaze(null);
     } else {
       if (this.music) { this.music.stinger('all-here'); this.music.section('saved', { at: 'bar', glide: 2 }); }
@@ -138,13 +143,13 @@ class BreakfastScene extends CastleScene {
   }
 
   /* One group at a time, each given time to be watched coming in, and
-     then the long wait on the empty chair before the name. */
+     then a short, quiet look at the empty chair before the name. */
   async _release() {
     let guard = 0;
     while (this._alive && guard++ < 12 && !this._lastIn) {
       const b = Session.state.breakfast;
       if (!b || b.revealed || Session.state.phase !== 'breakfast') return;
-      await this._sleep(guard === 1 ? 0.8 : 3.4);
+      await this._sleep(guard === 1 ? 0.6 : 2.0);
       if (!this._alive) return;
       const before = b.groups;
       Net.send({ type: 'breakfastNext' });
@@ -154,11 +159,11 @@ class BreakfastScene extends CastleScene {
     if (!this._alive || !Session.state.breakfast || Session.state.breakfast.revealed) return;
     /* Everybody who is coming has come. Let the last of them sit down,
        and then a quiet look at the chair nobody is in. */
-    await this._sleep(4.2);
+    await this._sleep(1.8);
     const b = Session.state.breakfast;
     if (b && b.arrived.length < Session.alive().length) {
       await this._say('breakfastWait', {}, null);
-      await this._sleep(1.6);
+      await this._sleep(0.8);
     }
     if (!this._alive) return;
     Net.send({ type: 'breakfastNext' });

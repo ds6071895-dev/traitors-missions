@@ -348,7 +348,7 @@ class FinaleScene {
     /* One long empty beat on the loch before anybody speaks. It is the
        only time all night the castle is fully lit, and the fire behind
        the lens is doing the rest of the work. */
-    await Scenes.run([{ shot: 'loch', cut: true, wait: 2.8 }], this);
+    await Scenes.run([{ shot: 'loch', cut: true, wait: 1.8 }], this);
     if (!this._alive) return;
     await this._say('fireOpen', { pot: U.money(s.pot) }, 'wide');
     if (!this._alive) return;
@@ -649,14 +649,16 @@ class FinaleScene {
 
     /* The held beat. The band drops to a heart and a low D, the
        subtitle goes, a riser starts climbing, and the camera creeps in
-       on the fire — four things all saying the same thing, which is
-       that nothing else is going to happen until this does. The last
-       pouch of the night is held longest. */
+       on the fire, with the bars in and the edges gone dark — all
+       saying the same thing, which is that nothing else is going to
+       happen until this does. The last pouch of the night is held
+       longest. */
     Voice.clear();
     const hold = spec.last ? 2.4 : 1.5;
     this._cue('held', { at: 'now', glide: 0.3 });
     this._riser = this.music ? this.music.riser(hold + Figure.THROW_AT * 0.95) : null;
-    this.stage.setCinematic(true, 'fireTight', { speed: 0.32 });
+    // bars in, the edges of the frame go dark, the camera creeps in
+    Scenes.Drama.hush(this.stage, null, 'fireTight', { hold: 0, silent: false, speed: 0.32 });
     await Scenes.wait(hold);
     if (!this._alive) return this._abort();
 
@@ -685,13 +687,13 @@ class FinaleScene {
     const role = await this._burn(spec.action, target.id);
     if (!this._alive) return this._abort();
 
-    // it is allowed to just burn for a while
-    await Scenes.wait(2.6);
+    // it is allowed to just burn, for a moment
+    await Scenes.wait(1.8);
     Scenes.Cine.card(null);
     await Scenes.wait(0.3);
     if (!this._alive) return;
 
-    this.stage.setCinematic(false);
+    Scenes.Drama.end(this.stage, null);
     await this._say(spec.reveal(role), { name: target.name }, 'claudia', salt);
     await Scenes.barrier(ceremonyKey + '-complete');
     this.stage.lookAt(null);
@@ -710,6 +712,7 @@ class FinaleScene {
     this._endHeldBeat();
     if (this.music) this.music.silence(false);
     this._clearPouch();
+    Scenes.Drama.end(this.stage, null);
     if (this.stage) this.stage.setCinematic(false);
   }
 
@@ -966,6 +969,7 @@ class FinaleScene {
     if (this._offNet) { this._offNet(); this._offNet = null; }
     this._closeVote();
     RoomUI.hideAll();
+    Scenes.Drama.end(this.stage, null);
     if (this.music) { this.music.stop(1.2); this.music = null; }
     if (this.wind) { this.wind.stop(); this.wind = null; }
     this._endHeldBeat();

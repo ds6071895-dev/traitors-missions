@@ -181,7 +181,7 @@ test('a stinger asked for on the beat lands on a beat you have not heard yet', (
 
 /* ---------------- the day's jig ---------------- */
 
-test('the day is an epic jig: six-eight, D Dorian, and it speeds up when the bell goes', () => {
+test('the day is an epic jig: six-eight, D minor, and it speeds up when the bell goes', () => {
   const { Music, ac } = load();
   const C = Music.CUES.tasks;
   eq(C.gears, ['work', 'bell']);
@@ -199,6 +199,56 @@ test('the day is an epic jig: six-eight, D Dorian, and it speeds up when the bel
   run([s], ac, 20, () => { worst = Math.max(worst, s.voices); });
   eq(s.sectionName, 'bell', 'the bell landed');
   ok(worst <= 140, 'live voices peaked at ' + worst);
+});
+
+test('the day has three arrangements, one a day in turn, each driving and dark', () => {
+  const { Music, ac } = load();
+  const C = Music.CUES.tasks.sections;
+  eq(C.work.alt, ['workHunt', 'workReel'], 'work alternatives');
+  eq(C.bell.alt.length, C.work.alt.length, 'a bell for each');
+  const seen = new Set();
+  for (let day = 1; day <= 3; day++) {
+    const dm = Music.dayMusic(1234, day);
+    eq(JSON.stringify(Music.dayMusic(1234, day)), JSON.stringify(dm), 'the same day is the same music');
+    const s = Music.tasks(dm);
+    ok(s.ok, 'day ' + day + ' plays');
+    const name = s.sectionName;
+    seen.add(name);
+    const sec = C[name];
+    ok(sec.bpm >= 116, name + ' moves');
+    ok(sec.layers.some(l => l.inst === 'taiko'), name + ' has the big drums');
+    let worst = 0;
+    run([s], ac, 20, () => { worst = Math.max(worst, s.voices); });
+    ok(worst > 6 && worst <= 140, name + ' voices ' + worst);
+    s.section('bell', { at: 'bar' });
+    run([s], ac, 8);
+    eq(s.sectionName, sec === C.work ? 'bell' : C.bell.alt[C.work.alt.indexOf(name)],
+       'the bell matches the day');
+    s.stop(0.1);
+  }
+  eq(seen.size, 3, 'three days running, three arrangements');
+  for (const p of ['jig', 'jigDark', 'hunt', 'omen', 'abyss', 'knife']) {
+    const chords = Music.PROGRESSIONS[p].flatMap(c => (Array.isArray(c[0]) ? c : [c]));
+    ok(!chords.some(c => JSON.stringify(c) === '[0,4,7]'), p + ' never lands on D major');
+  }
+});
+
+test('a form moves through its parts, and a part can change the harmony', () => {
+  const { Music, ac } = load();
+  const s = Music.play('roundtable', { section: 'debate' });
+  const sec = Music.CUES.roundtable.sections.debate;
+  const parts = new Set(), chords = new Set();
+  const bar = 60 / sec.bpm * 4;
+  run([s], ac, bar * 40, () => { parts.add(s.part); chords.add(JSON.stringify(s.chordNow())); });
+  ok(parts.size >= 3, 'parts heard: ' + [...parts].join(''));
+  ok(chords.has(JSON.stringify([1, 5, 8])), 'the omen part brings in the flat second');
+  // a layer kept to one part plays only there
+  const F = Music.formAt({ form: 'AB', phrase: 2 }, 0);
+  eq(F.part, 'A', 'bar 0'); eq(Music.formAt({ form: 'AB', phrase: 2 }, 2).part, 'B', 'bar 2');
+  eq(Music.formAt({ form: 'AAB', phrase: 4 }, 6).local, 6, 'a run of the same part counts on');
+  eq(Music.formAt({ form: 'AAB', phrase: 4 }, 9).local, 1, 'and a new part starts at the top');
+  eq(Music.formAt({ form: ['AB', 'BA'], phrase: 4 }, 0, 1).part, 'B', 'a variant picks its own form');
+  s.stop(0.1);
 });
 
 test('the front of house is epic, not cheerful: minor, driving, with drums', () => {
@@ -416,17 +466,19 @@ test('the theme sits on its chords', () => {
   const pc = (x) => ((x % 12) + 12) % 12;
   const MINOR = new Set([0, 2, 3, 5, 7, 8, 10, 11]);       // natural + the leading tone
   const MAJOR = new Set([0, 2, 4, 5, 7, 9, 11]);
-  for (const [motif, prog, scale] of [['theme', 'fire', MINOR], ['fate', 'fate', MINOR],
-                                      ['hymn', 'victory', MAJOR]]) {
+  const DARK = new Set([0, 1, 2, 3, 5, 7, 8, 10, 11]);       // with the flat second
+  for (const [motif, prog, scale, steps = 16] of [['theme', 'fire', MINOR], ['fate', 'fate', MINOR],
+                                      ['hymn', 'victory', MAJOR], ['hunt', 'hunt', DARK],
+                                      ['jig', 'jig', MINOR, 12], ['reel', 'jigDark', DARK, 12]]) {
     const M = MOTIFS[motif], P = PROGRESSIONS[prog];
     for (const [at, n] of Object.entries(M.at)) {
       const s = +at;
       ok(scale.has(pc(n.s)), motif + ': ' + n.s + ' is out of key at ' + s);
-      const bar = P[Math.floor(s / 16) % P.length];
+      const bar = P[Math.floor(s / steps) % P.length];
       const half = Array.isArray(bar[0]);
-      const onChange = s % 16 === 0 || (half && s % 16 === 8);
+      const onChange = s % steps === 0 || (half && s % steps === steps / 2);
       if (!onChange) continue;
-      const chord = half ? (s % 16 < 8 ? bar[0] : bar[1]) : bar;
+      const chord = half ? (s % steps < steps / 2 ? bar[0] : bar[1]) : bar;
       ok(chord.map(pc).includes(pc(n.s)),
          motif + ': ' + n.s + ' at ' + s + ' is not in ' + JSON.stringify(chord));
     }

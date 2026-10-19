@@ -745,6 +745,7 @@ const Stage = (() => {
       // point Claudia at something that is not the camera or a speaker
       lookAt(v) { claudiaFocus = v || null; },
       get rig() { return firstPerson; },
+      get cinematic() { return scripted.active; },
     };
   }
 

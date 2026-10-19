@@ -142,7 +142,9 @@ class TasksScene {
       CastleBots.start(bots, { solid: this._land.solid || [], seed: s.seed + s.day * 31,
                                spawn: (id) => this._spawns.get(id) });
     }
-    this.music = Music.tasks ? Music.tasks() : Music.ceremony();
+    // the day's own arrangement and key, and one hit as the doors open
+    this.music = Music.tasks(Music.dayMusic(s.seed, s.day));
+    if (this.music.stinger) this.music.stinger('castle-open', { at: 'beat' });
     this._hud();
     this._offs.push(Net.on((e) => this._onNet(e)));
     this._intro();

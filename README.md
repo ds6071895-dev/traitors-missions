@@ -43,11 +43,15 @@ the living cannot hear them.
 
 ### The jobs
 
-Eight kinds of puzzle, each a few seconds, none of them failable for good: crack a
+Twenty kinds of puzzle, each a few seconds, none of them failable for good: crack a
 portrait safe from a combination glimpsed on the back of the frame; rewire the
 chandelier; light the candelabra in the order scratched into the wax; pour a dram to the
 line; ring the bells' tune back; sort the post by its seal; find the clan tartan; tune the
-harp until its string sits on the ghost. Every list sends you to five different places,
+harp until its string sits on the ghost; shoo the bats; pick a lock; work the bellows;
+brew the laird's tonic; turn up the matching place cards; straighten the portraits; spot
+the forgery; rack the claret by its year; catch the pantry mouse; turn the cistern pipes
+until the water runs; balance the scales; rub a bedroom window clean. Each panel stamps
+its goal as it opens, says how in one line, and shows how far along you are in pips. Every list sends you to five different places,
 at least one of them somewhere quiet — the turret, the bedroom corridor, your own room —
 because a job that takes you somewhere quiet is a job that might get you killed.
 
@@ -207,7 +211,7 @@ still need a smoke test after deployment.
   facing it.
 - **`CastleBots`** walks the AI contestants: an A* grid over the floor plan with the
   furniture taken out, jobs, letters, and the patient Traitor.
-- **`Chores`** is the job catalogue and the deal; **`ChoreGames`** the eight puzzles.
+- **`Chores`** is the job catalogue and the deal; **`ChoreGames`** the twenty puzzles.
 - **`TasksScene`**, **`RoundtableScene`**, **`NightScene`**, **`BreakfastScene`**,
   **`FinaleScene`** are the rooms; **`Show`** decides which one is on screen.
 - **`AIDirector`** decides which AI speaks, when, and what each one knows.

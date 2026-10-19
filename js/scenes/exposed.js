@@ -47,10 +47,12 @@ const Exposed = (() => {
       ...speak('exposeTask', {}, ['claudia', 'players', 'claudiaTight']),
 
       /* The pause before the name. Everything else in this file is
-         words; this is the one beat that is only silence, and it is
-         the one doing the work. */
-      { shot: onThem, wait: 2.2,
-        then: () => { if (scene.music && scene.music.section) scene.music.section('held', { at: 'beat', glide: 0.5 }); } },
+         words; this is the one beat that is only silence — bars in,
+         the camera on them — and it is the one doing the work. */
+      { then: () => {
+          if (scene.music && scene.music.section) scene.music.section('held', { at: 'beat', glide: 0.5 });
+          return Scenes.Drama.hush(scene.stage, null, onThem, { hold: 1.2, silent: false });
+        } },
       ...speak('exposeName', { name }, [onThem, onThem]),
 
       {
@@ -64,11 +66,12 @@ const Exposed = (() => {
           });
           if (scene.takeEmbers) scene.takeEmbers(out.embers, out.settle);
         },
-        wait: 3.4,
+        wait: 2.0,
       },
       { card: null },
 
       ...speak('exposeAfter', { name }, ['claudia', null, 'players']),
+      { then: () => Scenes.Drama.end(scene.stage, null) },
       { then: () => Scenes.barrier('exposure-ceremony-complete') },
 
       /* And then the night is over, here, in this room.

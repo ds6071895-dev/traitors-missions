@@ -54,7 +54,7 @@ class RoundtableScene extends CastleScene {
   }
 
   async drive() {
-    this.music = Music.roundtable();
+    this.music = Music.roundtable(Music.dayMusic(Session.state.seed, Session.state.day));
     this._quietCues = false;
 
     await this._gather();
@@ -239,10 +239,10 @@ class RoundtableScene extends CastleScene {
     if (!this._alive) return;
     await Scenes.barrier('table-banish-' + Session.state.day + '-' + target.id);
     if (!this._alive) return;
-    // the drumroll
+    // the drumroll, with the bars in and the room gone dark at the edges
     if (this.music) { this.music.section('drumroll', { at: 'beat', glide: 0.3 }); }
     Voice.show(target.local ? 'You' : target.name, 'I am…');
-    await this._sleep(2.6);
+    await Scenes.Drama.hush(st, null, null, { hold: 2.2, silent: false, camera: false });
     if (!this._alive) return;
     const role = await this._burn(target.id);
     if (!this._alive || !role) return;
@@ -250,11 +250,14 @@ class RoundtableScene extends CastleScene {
     this._flare(role, target.id, role === 'traitor' ? 'banishTraitor' : 'banishFaithful');
     this._react(role === 'traitor' ? ['clap', 'relief', 'nod', 'relief'] : ['handsFace', 'gasp', 'shake', 'headDown'],
                 target.id);
-    await this._sleep(3.0);
+    await this._sleep(1.8);
     Scenes.Cine.card(null);
     Voice.clear();
     await this._say(this._setFor(role === 'traitor' ? 'banishedTraitor' : 'banishedFaithful', target),
                     { name: target.name }, null);
+    Scenes.Drama.end(this.stage, null);
+    // and out they go: the horns take the theme, and the door
+    if (this.music) { this.music.stinger('walkout', { at: 'beat' }); this.music.section('walkout', { at: 'bar', glide: 0.5 }); }
     if (this._alive && this.stage) this.stage.setCinematic(false);
   }
 

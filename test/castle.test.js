@@ -100,6 +100,21 @@ test('every station is on the floor plan, in the room it says it is in', () => {
      'every kind of puzzle is somewhere in the house');
 });
 
+test('every kind of job is a puzzle you can play, and says how', () => {
+  const ctx = fresh();
+  const src = require('fs').readFileSync(require('path').join(H.ROOT, 'js/scenes/chore-games.js'), 'utf8');
+  const body = src.slice(src.indexOf('const GAMES = {'), src.indexOf('/* A coin into the pot. */'));
+  const games = new Set([...body.matchAll(/^    (\w+)\(\{[^}]*\}\) \{/gm)].map(m => m[1]));
+  for (const [key, T] of Object.entries(ctx.Chores.TYPES)) {
+    ok(games.has(key), key + ' has a game');
+    ok(T.how && T.how.length < 120, key + ' says how, in a line');
+    ok(T.goal && T.goal.split(' ').length <= 3, key + ' has a short goal');
+    ok(Array.isArray(T.secs) && T.secs[0] > 0 && T.secs[1] > T.secs[0], key + ' has an AI time');
+  }
+  eq([...games].filter(g => !ctx.Chores.TYPES[g]), [], 'games with no job');
+  ok(Object.keys(ctx.Chores.TYPES).length >= 20, 'twenty kinds of job');
+});
+
 section('castle — walking');
 
 test('from the hall to every station, through doors', () => {

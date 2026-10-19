@@ -330,8 +330,10 @@ const CastleBots = (() => {
       if (j.kind === 'letter') b.plan = { kind: 'letter', target: j.target, job: j.id };
       else {
         const s = Chores.station(Chores.placeOf(j));
-        // an errand is a moment to pick up or put down; a puzzle takes a while
-        const work = j.kind === 'carry' ? rng.range(0.8, 1.6) : rng.range(4.5, 8.5);
+        // an errand is a moment to pick up or put down; a puzzle takes as
+        // long as that kind of puzzle takes a person
+        const secs = (Chores.TYPES[j.type] || {}).secs || [4.5, 8.5];
+        const work = j.kind === 'carry' ? rng.range(0.8, 1.6) : rng.range(secs[0], secs[1]);
         b.plan = { kind: 'station', job: j.id, sx: s.x, sz: s.z, work, arrived: false };
         goTo(b, s.x, s.z);
       }

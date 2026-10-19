@@ -266,7 +266,67 @@ const Scenes = (() => {
     }
   });
 
-  return { play, stop, run, wait, barrier, Cine,
+  /* ---------------- the big beat ----------------
+     A name, a body, a colour. Each of them used to be announced with a
+     long wait, which is not the same thing as drama: drama is the band
+     cutting out, the bars coming in and the camera finding a face, and
+     then a hit — and all of that is under a second. `hush` is the
+     breath before, `hit` is the blow, `end` gives the player their eyes
+     back. A scene that was already cinematic (the fire's pouch, a
+     banished player on their feet) stays cinematic. */
+  const drama = new WeakMap();
+  let vig = null;
+  const vignette = (on) => {
+    if (!vig && typeof document !== 'undefined') vig = document.getElementById('drama-vignette');
+    if (vig && vig.classList) vig.classList.toggle('on', !!on);
+  };
+  const Drama = {
+    hush(stage, music, shot, o = {}) {
+      Cine.bars(true);
+      vignette(true);
+      if (stage && stage.setCinematic && o.camera !== false) {
+        if (!drama.has(stage)) {
+          drama.set(stage, { was: !!stage.cinematic, controls: !!(stage.rig && stage.rig.controls) });
+        }
+        stage.setCinematic(true, shot || null, { speed: o.speed || 2.2, cut: !!o.cut });
+      }
+      if (music && music.silence && o.silent !== false) music.silence(true);
+      return wait(o.hold != null ? o.hold : 0.6);
+    },
+    hit(stage, music, sting, o = {}) {
+      if (music && sting && music.stinger) music.stinger(sting);
+      else if (music && music.silence) music.silence(false);
+      if (stage && stage.shake && o.shake !== 0) stage.shake(o.shake || 0.45);
+      if (o.flash && typeof document !== 'undefined') {
+        const el = document.getElementById('screen-flash');
+        if (el && el.style) {
+          el.style.transition = 'none';
+          el.style.background = o.flash;
+          el.style.opacity = '1';
+          setTimeout(() => { el.style.transition = 'opacity .6s ease-out'; el.style.opacity = '0'; }, 80);
+          setTimeout(() => { el.style.transition = ''; }, 900);
+        }
+      }
+      if (typeof Input !== 'undefined' && Input.haptic) Input.haptic(o.haptic || 30);
+    },
+    shot(stage, shot, o = {}) {
+      if (stage && stage.setShot) stage.setShot(shot, { speed: o.speed || 1.6, cut: !!o.cut });
+    },
+    end(stage, music) {
+      Cine.bars(false);
+      vignette(false);
+      if (music && music.silent && music.silence) music.silence(false);
+      const was = stage && drama.get(stage);
+      if (!was) return;
+      drama.delete(stage);
+      if (!was.was && stage.setCinematic) {
+        stage.setCinematic(false);
+        if (!was.controls && stage.setControls) stage.setControls(false);
+      }
+    },
+  };
+
+  return { play, stop, run, wait, barrier, Cine, Drama,
            get active() { return active; },
            get running() { return !!active; },
            get performing() { return performing > 0; },
