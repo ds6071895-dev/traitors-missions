@@ -358,6 +358,7 @@ const Game = (() => {
 
     showAttract();
     EstateMaterials.preload();
+    if (typeof CastleSurfaces !== 'undefined') CastleSurfaces.warm();
     Screens.show('play');
     /* The door nothing on any screen mentions: `?bots=…` seats you with
        a table of them and plays whichever parts of the night you named. */

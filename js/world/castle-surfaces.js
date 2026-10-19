@@ -61,16 +61,23 @@ const CastleSurfaces = (() => {
     const rng = U.makeRng(seed);
     const out = new Float32Array(W * H);
     let total = 0;
+    // the lattice columns and weights along a row are the same on every row
+    const X0 = new Int32Array(W), X1 = new Int32Array(W), TX = new Float64Array(W);
     for (const [cx, cy, amp] of octs) {
       const lat = new Float32Array(cx * cy);
       for (let i = 0; i < lat.length; i++) lat[i] = rng();
+      for (let x = 0; x < W; x++) {
+        const fx = x / W * cx, x0 = Math.floor(fx), tx0 = fx - x0;
+        X0[x] = x0; X1[x] = (x0 + 1) % cx; TX[x] = tx0 * tx0 * (3 - 2 * tx0);
+      }
       for (let y = 0; y < H; y++) {
-        const fy = y / H * cy, y0 = Math.floor(fy), ty0 = fy - y0, ty = ty0 * ty0 * (3 - 2 * ty0), y1 = (y0 + 1) % cy;
+        const fy = y / H * cy, y0 = Math.floor(fy), ty0 = fy - y0, ty = ty0 * ty0 * (3 - 2 * ty0);
+        const r0 = y0 * cx, r1 = ((y0 + 1) % cy) * cx, row = y * W;
         for (let x = 0; x < W; x++) {
-          const fx = x / W * cx, x0 = Math.floor(fx), tx0 = fx - x0, tx = tx0 * tx0 * (3 - 2 * tx0), x1 = (x0 + 1) % cx;
-          const a = lat[x0 + y0 * cx], b = lat[x1 + y0 * cx], c = lat[x0 + y1 * cx], d = lat[x1 + y1 * cx];
+          const x0 = X0[x], x1 = X1[x], tx = TX[x];
+          const a = lat[x0 + r0], b = lat[x1 + r0], c = lat[x0 + r1], d = lat[x1 + r1];
           const top = a + (b - a) * tx, bot = c + (d - c) * tx;
-          out[x + y * W] += amp * (top + (bot - top) * ty);
+          out[x + row] += amp * (top + (bot - top) * ty);
         }
       }
       total += amp;
@@ -98,11 +105,11 @@ const CastleSurfaces = (() => {
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
           const ix = (cx + dx + n) % n, iy = (cy + dy + n) % n, k = ix + iy * n;
           const px = cx + dx + pts[k * 2], py = cy + dy + pts[k * 2 + 1];
-          const ex = px - gx, ey = py - gy, d = Math.sqrt(ex * ex + ey * ey);
+          const ex = px - gx, ey = py - gy, d = ex * ex + ey * ey;   // squared until the end
           if (d < d1) { d2 = d1; d1 = d; who = k; } else if (d < d2) d2 = d;
         }
         const o = x + y * S;
-        f1[o] = d1; f2[o] = d2; id[o] = (who * 0.618034) % 1;
+        f1[o] = Math.sqrt(d1); f2[o] = Math.sqrt(d2); id[o] = (who * 0.618034) % 1;
       }
     }
     const out = { f1, f2, id };
@@ -691,8 +698,30 @@ const CastleSurfaces = (() => {
     return g;
   }
 
+  /* Every tile above, painted ahead of need: one per idle moment from
+     the menus on, so walking into the house for the first time does
+     not stop to paint forty of them in a row. Whichever asks first, the
+     warm-up or the house, paints it; the other finds it cached. */
+  function warm() {
+    const jobs = [
+      ...Object.keys(RECIPES).map(k => () => surface(k)),
+      ...Object.keys(BOOK).map(k => () => binding(k)),
+      ...Object.keys(PLANTS).map(k => () => plant(k)),
+      lawn, gravel, bark,
+    ];
+    const idle = typeof requestIdleCallback === 'function'
+      ? (fn) => requestIdleCallback(fn, { timeout: 3000 }) : (fn) => setTimeout(fn, 60);
+    const next = () => {
+      const job = jobs.shift();
+      if (!job) return;
+      try { job(); } catch (e) { console.warn('castle surfaces:', e); }
+      idle(next);
+    };
+    idle(next);
+  }
+
   return {
     surface, material, binding, bookMaterial, BOOK, plant, lawn, gravel, bark, sky,
-    frond, card, cross, strand, field, cells,
+    frond, card, cross, strand, field, cells, warm,
   };
 })();

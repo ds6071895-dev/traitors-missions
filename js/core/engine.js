@@ -73,9 +73,50 @@ const Engine = (() => {
       view.camera.aspect = size.w / size.h;
       view.camera.updateProjectionMatrix();
     }
+    warm(v);
   }
 
-  function clearView() { view = null; onFrame = null; }
+  function clearView() { view = null; onFrame = null; warmUp = null; }
+
+  /* A new view goes up to the GPU before it is drawn. Its shaders
+     compile in parallel off the main thread and its textures upload a
+     few at a time, while the last picture stays on screen. Drawn
+     straight away, the castle's seventy textures and dozen shaders all
+     land in one frame: a stall of seconds that stutters the whole
+     machine, not just the tab. The scene itself keeps running, and the
+     picture is held for four seconds at most. */
+  let warmUp = null;
+  function warm(v) {
+    warmUp = null;
+    if (!v || !v.scene || !v.camera || !renderer || typeof renderer.compileAsync !== 'function') return;
+    const w = { view: v, textures: [], ready: false, until: performance.now() + 4000 };
+    const seen = new Set();
+    v.scene.traverse(o => {
+      const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+      for (const m of ms) {
+        for (const k in m) {
+          const t = m[k];
+          if (t && t.isTexture && !seen.has(t)) { seen.add(t); w.textures.push(t); }
+        }
+      }
+    });
+    try {
+      renderer.compileAsync(v.scene, v.camera).then(() => { w.ready = true; }, () => { w.ready = true; });
+    } catch (e) { w.ready = true; }
+    warmUp = w;
+  }
+  // true while the view is still warming and should not be drawn yet
+  function warming() {
+    const w = warmUp;
+    if (!w || w.view !== view) return false;
+    const now = performance.now(), stop = now + 8;
+    while (w.textures.length && performance.now() < stop) {
+      const t = w.textures.pop();
+      if (t.version > 0 && renderer.properties.get(t).__version !== t.version) renderer.initTexture(t);
+    }
+    if ((w.ready && !w.textures.length) || now > w.until) { warmUp = null; return false; }
+    return true;
+  }
 
   function addUpdater(fn) { updaters.add(fn); return () => updaters.delete(fn); }
   function onResize(fn) { listeners.resize.add(fn); return () => listeners.resize.delete(fn); }
@@ -109,7 +150,7 @@ const Engine = (() => {
       updaters.forEach(fn => fn(d, elapsed));
       if (onFrame) onFrame(d, elapsed, paused ? 0 : wallDt / steps);
     }
-    if (view) {
+    if (view && !warming()) {
       renderer.render(view.scene, view.camera);
       // a second pass a scene may draw over its own frame
       if (view.after) view.after(renderer);

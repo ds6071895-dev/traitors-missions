@@ -29,13 +29,14 @@ const EstateMaterials = (() => {
     return mat;
   }
   function uv(geometry,scale=3){
-    const p=geometry.attributes.position,n=geometry.attributes.normal,u=[];
+    // straight into a typed array: the castle projects a million of these
+    const p=geometry.attributes.position,n=geometry.attributes.normal,u=new Float32Array(p.count*2),k=1/scale;
     for(let i=0;i<p.count;i++){
       const x=Math.abs(n.getX(i)),y=Math.abs(n.getY(i)),z=Math.abs(n.getZ(i));
-      if(y>=x&&y>=z)u.push(p.getX(i)/scale,p.getZ(i)/scale);
-      else if(x>z)u.push(p.getZ(i)/scale,p.getY(i)/scale);
-      else u.push(p.getX(i)/scale,p.getY(i)/scale);
-    }geometry.setAttribute('uv',new THREE.Float32BufferAttribute(u,2));return geometry;
+      if(y>=x&&y>=z){u[i*2]=p.getX(i)*k;u[i*2+1]=p.getZ(i)*k;}
+      else if(x>z){u[i*2]=p.getZ(i)*k;u[i*2+1]=p.getY(i)*k;}
+      else{u[i*2]=p.getX(i)*k;u[i*2+1]=p.getY(i)*k;}
+    }geometry.setAttribute('uv',new THREE.BufferAttribute(u,2));return geometry;
   }
   // Add surface detail to existing rigs without changing their chosen colours.
   function fabric(figure){
