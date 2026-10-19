@@ -107,11 +107,19 @@ function sleepAndWake(ctx) {
   while (!ctx.Session.state.breakfast.revealed && guard++ < 20) ctx.Session.dispatch({ type: 'breakfastNext', authority: true });
 }
 
+/* The bell, a night, breakfast, and down the corridor to the table. */
+function toTable(ctx) {
+  endDay(ctx);
+  sleepAndWake(ctx);
+  ctx.Session.dispatch({ type: 'advance', authority: true });
+  eq(ctx.Session.state.phase, 'table', 'from breakfast to the round table');
+}
+
 section('session — setup');
 
-test('the running order is the castle, the table, the night and the fire', () => {
+test('the running order is the castle, the night, the table and the fire', () => {
   const ctx = fresh();
-  eq(ctx.Session.PARTS, ['intro', 'tasks', 'table', 'night', 'finale']);
+  eq(ctx.Session.PARTS, ['intro', 'tasks', 'night', 'table', 'finale']);
   start(ctx, FIVE, 3);
   eq(ctx.Session.state.phase, 'hill', 'it opens on the welcome');
   ok(!('missions' in ctx.Session.state), 'and there are no missions anywhere in it');
@@ -320,7 +328,7 @@ test('the day lasts three minutes, rings a bell before the end, and its clock st
   eq(bells, 1, 'the bell');
   eq(ctx.Session.state.phase, 'tasks', 'and still working');
   endDay(ctx);
-  eq(ctx.Session.state.phase, 'table', 'then the round table');
+  eq(ctx.Session.state.phase, 'night', 'then to bed');
   ctx.Session.abandon();
 });
 
@@ -332,38 +340,36 @@ test('the poisoned die in the night and are found missing at breakfast', () => {
   toTasks(ctx);
   const { victim } = poisonSomebody(ctx, E);
   endDay(ctx);
-  ctx.Session.dispatch({ type: 'expose', authority: true });
-  eq(ctx.Session.state.exposure.playerId, null, 'the carrier did their job: nothing to expose');
-  const innocent = faithfulOf(ctx).find(p => p.id !== victim.id);
-  voteOut(ctx, innocent.id);
-  eq(ctx.Session.state.finale.stage, 'done');
-  ok(ctx.Session.playerById(victim.id).alive, 'the poisoned still sit at the table that day');
-  ctx.Session.dispatch({ type: 'advance', authority: true });
   eq(ctx.Session.privateView(victim.id).fate, 'murdered', 'and are told first, in the night');
+  ok(ctx.Session.playerById(victim.id).alive, 'still alive in everybody else\'s state');
   sleepAndWake(ctx);
   const b = ctx.Session.state.breakfast;
   eq(b.victim, victim.id, 'nobody else knows until the last of them is down');
   ok(!ctx.Session.playerById(victim.id).alive, 'gone');
   eq(ctx.Session.state.murdered.map(m => m.id), [victim.id], 'one death, the poison\'s');
   ctx.Session.dispatch({ type: 'advance', authority: true });
+  eq(ctx.Session.state.phase, 'table', 'and straight to the round table');
+  ctx.Session.dispatch({ type: 'expose', authority: true });
+  eq(ctx.Session.state.exposure.playerId, null, 'the carrier did their job: nothing to expose');
+  voteOut(ctx, faithfulOf(ctx)[0].id);
+  eq(ctx.Session.state.finale.stage, 'done');
+  ctx.Session.dispatch({ type: 'advance', authority: true });
   eq(ctx.Session.state.phase, 'tasks', 'and another day');
   eq(ctx.Session.state.day, 1);
   ctx.Session.abandon();
 });
 
-test('banish the poisoned before night and the poison is wasted — and breakfast says so', () => {
+test('the round table sits down with the body already found, and cannot name the dead', () => {
   const ctx = fresh();
   const E = start(ctx, SEVEN, 14);
   toTasks(ctx);
   const { victim } = poisonSomebody(ctx, E);
-  endDay(ctx);
+  toTable(ctx);
+  const s = ctx.Session.state;
+  eq(s.murdered.filter(m => m.day === s.day).map(m => m.id), [victim.id], 'today\'s body is on the record');
   ctx.Session.dispatch({ type: 'expose', authority: true });
-  voteOut(ctx, victim.id);
-  ctx.Session.dispatch({ type: 'advance', authority: true });
-  sleepAndWake(ctx);
-  eq(ctx.Session.state.breakfast.victim, null, 'nobody died');
-  eq(ctx.Session.state.breakfast.spared, true, 'because the table got there first');
-  eq(ctx.Session.state.murdered.length, 0);
+  ctx.Session.dispatch({ type: 'name', playerId: faithfulOf(ctx)[0].id, targetId: victim.id });
+  eq(Object.keys(ctx.Session.state.finale.names).length, 0, 'a slate with the dead on it is refused');
   ctx.Session.abandon();
 });
 
@@ -373,10 +379,6 @@ test('with two Traitors, the turret chooses tomorrow\'s carrier', () => {
   toTasks(ctx);
   poisonSomebody(ctx, E);
   endDay(ctx);
-  ctx.Session.dispatch({ type: 'expose', authority: true });
-  const innocent = faithfulOf(ctx).find(p => ctx.Session._peek().poison.target !== p.id);
-  voteOut(ctx, innocent.id);
-  ctx.Session.dispatch({ type: 'advance', authority: true });
   const [t1, t2] = traitorsOf(ctx);
   ok(ctx.Session.privateView(t1.id).night.choose, 'there is a choice to make');
   eq(ctx.Session.privateView(faithfulOf(ctx)[0].id).night, null, 'and only the turret sees it');
@@ -392,14 +394,17 @@ const EIGHT = SEVEN.concat([{ id: 'h', name: 'Hnn', local: false }]);
 test('an offered seat can be refused, and refusing costs nothing', () => {
   const ctx = fresh();
   const E = start(ctx, EIGHT, 16);
-  // a Traitor already banished: the turret may recruit
+  // a Traitor banished at the first table: the next night's turret may recruit
   toTasks(ctx);
   poisonSomebody(ctx, E);
-  endDay(ctx);
+  toTable(ctx);
   ctx.Session.dispatch({ type: 'expose', authority: true });
   const out = traitorsOf(ctx).find(t => t.id !== ctx.Session._peek().carrier);
   voteOut(ctx, out.id);
   ctx.Session.dispatch({ type: 'advance', authority: true });
+  eq(ctx.Session.state.phase, 'tasks', 'a second day');
+  poisonSomebody(ctx, E);
+  endDay(ctx);
   const [t] = traitorsOf(ctx);
   const n = ctx.Session.privateView(t.id).night;
   ok(n.canRecruit, 'one down and Faithfuls to spare, so a seat may be offered');
@@ -417,10 +422,12 @@ test('with too few Faithfuls left, nobody is offered a seat', () => {
   const E = start(ctx, SEVEN, 16);
   toTasks(ctx);
   poisonSomebody(ctx, E);
-  endDay(ctx);
+  toTable(ctx);
   ctx.Session.dispatch({ type: 'expose', authority: true });
   voteOut(ctx, traitorsOf(ctx).find(t => t.id !== ctx.Session._peek().carrier).id);
   ctx.Session.dispatch({ type: 'advance', authority: true });
+  poisonSomebody(ctx, E);
+  endDay(ctx);
   eq(ctx.Session.privateView(traitorsOf(ctx)[0].id).night.canRecruit, false);
   ctx.Session.abandon();
 });
@@ -432,7 +439,8 @@ test('a carrier who never used the poison is exposed at the table, and there is 
   start(ctx, SEVEN, 17);
   toTasks(ctx);
   const carrier = ctx.Session._peek().carrier;
-  endDay(ctx);
+  toTable(ctx);
+  eq(ctx.Session.state.breakfast.victim, null, 'nobody died in the night');
   ok(ctx.Session.hasExposure(), 'the table owes a ceremony');
   ctx.Session.dispatch({ type: 'expose', authority: true });
   eq(ctx.Session.state.exposure.playerId, carrier, 'it is the carrier');
@@ -441,7 +449,7 @@ test('a carrier who never used the poison is exposed at the table, and there is 
   ctx.Session.dispatch({ type: 'exposeDone', authority: true });
   eq(ctx.Session.state.finale.stage, 'done', 'that was the banishment; no slates');
   ctx.Session.dispatch({ type: 'advance', authority: true });
-  eq(ctx.Session.state.phase, 'night', 'and to bed');
+  eq(ctx.Session.state.phase, 'tasks', 'and back to work');
   ok(traitorsOf(ctx).length === 1 && ctx.Session._peek().carrier === traitorsOf(ctx)[0].id,
      'the other Traitor carries it tomorrow');
   ctx.Session.abandon();
@@ -451,7 +459,7 @@ test('exposing the last Traitor ends the game for the Faithfuls', () => {
   const ctx = fresh();
   start(ctx, FIVE, 18);
   toTasks(ctx);
-  endDay(ctx);
+  toTable(ctx);
   ctx.Session.dispatch({ type: 'expose', authority: true });
   ctx.Session.dispatch({ type: 'exposeDone', authority: true });
   eq(ctx.Session.state.phase, 'verdict');
@@ -465,14 +473,13 @@ test('five players get one day and three of them reach the fire', () => {
   const ctx = fresh();
   const E = start(ctx, FIVE, 19);
   toTasks(ctx);
-  const { victim } = poisonSomebody(ctx, E);
-  endDay(ctx);
+  poisonSomebody(ctx, E);
+  toTable(ctx);
+  eq(ctx.Session.alive().length, 4, 'the body is found before the table');
   ctx.Session.dispatch({ type: 'expose', authority: true });
-  voteOut(ctx, faithfulOf(ctx).find(p => p.id !== victim.id).id);
+  voteOut(ctx, faithfulOf(ctx)[0].id);
   ctx.Session.dispatch({ type: 'advance', authority: true });
-  sleepAndWake(ctx);
-  ctx.Session.dispatch({ type: 'advance', authority: true });
-  eq(ctx.Session.state.phase, 'finale', 'four or fewer after breakfast: the fire');
+  eq(ctx.Session.state.phase, 'finale', 'four or fewer after the table: the fire');
   eq(ctx.Session.alive().length, 3);
   eq(ctx.Session.state.finale.stage, 'decide', 'and it opens on the decision');
 });
@@ -482,7 +489,7 @@ test('catching the last Traitor at the table ends it there', () => {
   const E = start(ctx, FIVE, 20);
   toTasks(ctx);
   poisonSomebody(ctx, E);
-  endDay(ctx);
+  toTable(ctx);
   ctx.Session.dispatch({ type: 'expose', authority: true });
   voteOut(ctx, traitorsOf(ctx)[0].id);
   eq(ctx.Session.state.phase, 'verdict');
@@ -576,7 +583,7 @@ test('the host can shorten the day, but never below thirty seconds', () => {
   ok(ctx.Session.state.chores.bellAt < 30, 'the bell does not ring the moment a short day starts');
 });
 
-test('breakfast knows when the next thing is the fire', () => {
+test('the round table knows when the next thing is the fire', () => {
   const ctx = fresh();
   start(ctx, SEVEN, 7);
   ok(!ctx.Session.finaleNext(), 'a full house goes back to work');

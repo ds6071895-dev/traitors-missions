@@ -41,6 +41,20 @@ function wire(ctx) {
   };
 }
 
+/* The bell, then the night run out, breakfast, and in to the round table. */
+function toTable(ctx) {
+  now = ctx.Session.state.chores.endsAt + 50;
+  ctx.Session.dispatch({ type: 'tasksTick', authority: true });
+  for (let k = 0; k < 6 && ctx.Session.state.phase === 'night'; k++) {
+    now += 40000;
+    ctx.Session.dispatch({ type: 'nightTick', authority: true });
+  }
+  for (let k = 0; k < 12 && !ctx.Session.state.breakfast.revealed; k++) {
+    ctx.Session.dispatch({ type: 'breakfastNext', authority: true });
+  }
+  ctx.Session.dispatch({ type: 'advance', authority: true });
+}
+
 /* A day in which the carrier never used it, stopped at the round table. */
 function owingACeremony(n = 5, seed = 4) {
   const ctx = H.load(FILES, { Date: FakeDate });
@@ -49,9 +63,9 @@ function owingACeremony(n = 5, seed = 4) {
   const carrier = ctx.Session.playerById(ctx.Session._peek().carrier);
   ctx.Net.connect(wire(ctx));
   ctx.Session.dispatch({ type: 'advance', authority: true });
-  now = ctx.Session.state.chores.endsAt + 50;
-  ctx.Session.dispatch({ type: 'tasksTick', authority: true });
+  toTable(ctx);
   eq(ctx.Session.state.phase, 'table');
+  eq(ctx.Session.state.breakfast.victim, null, 'nobody died in the night');
   ok(ctx.Session.hasExposure(), 'the table owes a ceremony');
   return { ctx, carrier };
 }
@@ -101,7 +115,7 @@ await atest('the waiter answers rather than hanging when nothing ever comes', as
 
 section('exposure — a table of seven goes on without them');
 
-await atest('one of two Traitors exposed: no vote today, and the castle goes to bed', async () => {
+await atest('one of two Traitors exposed: no vote today, and the castle goes back to work', async () => {
   const { ctx, carrier } = owingACeremony(7, 9);
   let told = null;
   ctx.Net.on((ev) => { if (ev.type === 'expose') told = ev; });
@@ -115,7 +129,7 @@ await atest('one of two Traitors exposed: no vote today, and the castle goes to 
   ok(!ctx.Session.state.outcome, 'nobody has won anything yet');
   ctx.Net.send({ type: 'advance' });
   await flush();
-  eq(ctx.Session.state.phase, 'night', 'to bed');
+  eq(ctx.Session.state.phase, 'tasks', 'back to work');
 });
 
 section('exposure — a day the poison was used is not a ceremony');
@@ -130,8 +144,8 @@ await atest('the host answers a definite "nobody"', async () => {
   const pk = ctx.Session._peek();
   const victim = ctx.Session.alive().find(p => pk.seats.indexOf(p.seat) < 0);
   ctx.Session.dispatch({ type: 'poison', playerId: pk.carrier, targetId: victim.id });
-  now = ctx.Session.state.chores.endsAt + 50;
-  ctx.Session.dispatch({ type: 'tasksTick', authority: true });
+  toTable(ctx);
+  eq(ctx.Session.state.phase, 'table');
   let told = 'unset';
   ctx.Net.on((e) => { if (e.type === 'expose') told = e; });
   ctx.Net.send({ type: 'expose' });

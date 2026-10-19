@@ -10,7 +10,10 @@ chat, played in a browser with no account and no install. Three ways in:
 - **DRESSING ROOM** is where you decide who you are. Saved on your own machine; the
   others see exactly what you built.
 - **EXPLORE THE CASTLE** walks you round the house the game happens in: the entrance
-  hall, the great hall, the round table chamber, the turret, and the bedrooms.
+  hall, the great hall, the round table chamber, the turret and the bedrooms, and the two
+  wings either side — the library, chapel, kitchen and scullery to the west; the long
+  gallery, billiard and drawing rooms, the laird's study, the gun room and the
+  conservatory to the east. Every door in the wings opens and shuts.
 
 **Multiplayer uses a Node.js WebSocket server for rooms, game messages, and voice.** Room
 codes are four letters, and the host's browser runs the game's rules.
@@ -19,12 +22,12 @@ codes are four letters, and the host's browser runs the game's rules.
 
 | Beat | What happens |
 | --- | --- |
-| **The welcome** | On the hill in the Highland sun. Claudia welcomes you and tells each of you, privately, what you are. One Traitor at five or six, two at seven or eight, and two Traitors know each other. Then up to the house. |
-| **The day in the castle** | Three minutes loose in the house (the host can shorten it in the lobby, down to 30 seconds). Everybody has a list of **jobs** — little puzzles at glowing stations round the castle, each worth £500 to the pot. Some lists have a **sealed letter** to hand to somebody: walk up to them and hold `E`. **One Traitor carries the poison**: walk up to a Faithful and hold `F` for a couple of seconds. It looks *exactly* like handing over a letter, and anybody looking sees it. A bell rings thirty seconds before the end (a third of the way out on a short day). |
-| **The round table** | If the carrier never used the poison, Claudia exposes them on the spot — that is the day's banishment, and there is no vote. Otherwise: an open discussion, with how many jobs everybody did on the board, until Claudia calls it; then everybody writes a name, the slates are turned one at a time, a tie is voted again, and tied twice Claudia draws. The banished say what they were. |
-| **The night** | Everybody to their room, and the door locks. The poison takes. The Traitors meet in the turret — with two of them, they choose who carries tomorrow; having lost one of their own, they may offer a Faithful a seat (who may refuse at no cost). The poisoned find a letter under their door. |
-| **Breakfast** | One or two at a time through the great hall's door, the camera on it, the table turning to look. The empty chair is the news. |
-| **Again, or the fire** | The day repeats until four or fewer are left. Then the **Fire of Truth**: everybody speaks in turn, then **End** or **Banish Again** — ending must be unanimous; one Banish and somebody else goes, down to the final two. Then every pouch is opened. |
+| **The welcome** | On the hill in the Highland sun. Claudia welcomes you and tells each of you, privately, what you are. One Traitor at five or six, two at seven or eight, and two Traitors know each other. Then the band turns and Claudia has one more thing: **the Traitors choose a Wise One**. They get ten seconds and a list of Faithfuls; everybody else watches the clock. A rise, a hit, and the Wise One is told, and so are the Traitors. Nobody else is. Then up to the house. |
+| **The day in the castle** | Three minutes loose in the house (the host can shorten it in the lobby, down to 30 seconds). Everybody has a list of **jobs** — little puzzles at glowing stations round the castle, each worth £500 to the pot. Some lists have a **sealed letter** to hand to somebody: walk up to them and hold `E`. **One Traitor carries the poison**: walk up to a Faithful and hold `F` for a couple of seconds. It looks *exactly* like handing over a letter, and anybody looking sees it. Any **door** can be shut with `E`: a room with every door shut is private, and nobody outside sees in or hears a word — though anybody can open it again, and whoever sees you shut it remembers. A bell rings thirty seconds before the end (a third of the way out on a short day). **The shield:** whoever has done the most jobs when the day ends (a tie goes to whoever got there first) cannot be killed by the poison that night, and that night only. The HUD shows who is leading all day, so the carrier can see it too. |
+| **The night** | Everybody to their room, and the door locks. Claudia names the shield holder. The poison takes, unless it went into them. The Traitors meet in the turret — with two of them, they choose who carries tomorrow; having lost one of their own, they may offer a Faithful a seat (who may refuse at no cost). The poisoned find a letter under their door. |
+| **Breakfast** | One or two at a time through the great hall's door, the camera on it, the table turning to look. The empty chair is the news, and then everybody goes through to the round table. If the poison went into the shield holder, nobody is missing, and Claudia says who it was meant for. The round table then opens on that near miss. |
+| **The round table** | Straight from breakfast, with the body fresh and yesterday's hand-overs in everybody's notebook. If the carrier never used the poison, Claudia exposes them on the spot — that is the day's banishment, and there is no vote. Otherwise: an open discussion, with how many jobs everybody did on the board, until Claudia calls it; then everybody writes a name, the slates are turned one at a time, a tie is voted again, and tied twice Claudia draws. **Once a game, the Wise One may overrule**: their vote panel has an *Overrule the table* switch. Claudia warns the room that one slate outranks the rest, the Wise One's slate is turned last, and whoever it names is banished whatever everybody else wrote. The banished say what they were. |
+| **Again, or the fire** | After the table, the day repeats until four or fewer are left. Then the **Fire of Truth**: everybody speaks in turn, then **End** or **Banish Again** — ending must be unanimous; one Banish and somebody else goes, down to the final two. Then every pouch is opened. |
 
 The poison is the only way anybody dies. The murdered and the banished stay to watch;
 the living cannot hear them.
@@ -33,13 +36,16 @@ the living cannot hear them.
 
 - **Your notebook** (`N`). Every few seconds the house writes down who you were with and
   where, and every hand-over you could see — *"2:14, you saw Fergus hand something to
-  Isla in the Great Hall."* It is yours: nobody else is told what you saw.
+  Isla in the Great Hall."* — and who you saw shut a door, and when you were behind one.
+  It is yours: nobody else is told what you saw.
 - **The board.** How many jobs everybody finished. A Traitor who spent the day following
   somebody round the house has a short line, and has to explain it.
 - **Your ears.** Voices carry the way they would in a stone house: loud beside you, a
-  murmur through a door, almost nothing from the far end of the castle. A word in the
-  turret stays in the turret.
-- **The minimap** shows the rooms, your jobs and the people in the room with you.
+  murmur through a doorway, almost nothing from the far end of the castle. Behind a shut
+  door, nothing at all, either way: the server only sends a voice in a shut room to the
+  others in it.
+- **The minimap** shows the rooms, the doors (red when shut), your jobs and the people
+  in the room with you.
 
 ### The jobs
 
@@ -52,7 +58,7 @@ brew the laird's tonic; turn up the matching place cards; straighten the portrai
 the forgery; rack the claret by its year; catch the pantry mouse; turn the cistern pipes
 until the water runs; balance the scales; rub a bedroom window clean. Each panel stamps
 its goal as it opens, says how in one line, and shows how far along you are in pips. Every list sends you to five different places,
-at least one of them somewhere quiet — the turret, the bedroom corridor, your own room —
+at least one of them somewhere quiet — the turret, the chapel, the study, your own room —
 because a job that takes you somewhere quiet is a job that might get you killed.
 
 ### Controls
@@ -83,6 +89,15 @@ contestants to fill the empty chairs, and tick **AI Claudia** for a live host.
   Each one argues at the round table from what it actually saw (its own notebook), votes,
   meets in the turret, answers an offer, and takes its turn at the fire. Every decision
   is a tool call that sends the same action a button would.
+- **Company by day.** Say *"Morag, follow me"* (or just *"come with me"* to whoever is
+  nearest) and the AI decides for itself: if it agrees it says so and walks behind you,
+  through doors and into the room, clear of the doorway so you can shut the door on the
+  two of you. *"You can go"* sends it back to its jobs. AIs come to you too: one may ask
+  for **a word in private** — a Faithful with a suspicion to share, a Traitor with a seed
+  to plant — and on a yes it leads you to a room with one door and shuts it. A Faithful
+  will not go off alone with somebody it suspects, and if somebody it suspects reaches for
+  it or shuts it in, or it comes to suspect them mid-conversation, it makes for the
+  busiest room in the house — and remembers.
 - **AI Claudia** reads every one of her lines in a British Deepgram voice — the room's
   lines and the ones only you may hear — and decides when a discussion is over. Each
   browser asks the room server for its own reading of each line, so "You are a Traitor"
@@ -185,7 +200,11 @@ and checks the poison is the only way anybody dies, that every game ends, and th
 goes to the right people; `privacy.test.js` checks that no role, job list, notebook or
 poison ever leaks into the shared state; `castle.test.js` checks who can see a hand-over
 through walls and doorways and that the AI contestants can walk everywhere;
-`ai-director.test.js` checks the AIs answer the room one at a time; and `ai-bridge.test.js`
+`doors.test.js` checks which rooms a door seals, who may move a door, and that a shut
+room is out of sight and out of earshot;
+`ai-director.test.js` checks the AIs answer the room one at a time; `company.test.js`
+checks an AI asked along follows you into a room you can shut, leads you to one when it
+wants a word, and runs from somebody it suspects; and `ai-bridge.test.js`
 runs the whole Deepgram path — agents, transcription and Claudia's lines — against a fake
 Deepgram on localhost. `figure.test.js` builds and moves the people with the real three.js
 — skin weights, heights, planted feet at changing speeds, reaches, the pouch throw,
@@ -207,10 +226,15 @@ still need a smoke test after deployment.
   the host's castle scene answers through `Session.setEyes({ reach, witnesses, presence })`.
 - **`CastleNet`** keeps everybody's position by day: ten poses a second from each browser,
   one packet of AI poses from the host, on the room's live channel. It is also the host's
-  eyes: a hand-over is seen by anybody in the same room (or right by the door) who is
-  facing it.
+  eyes: a hand-over is seen by anybody in the same room (or right by an open door) who is
+  facing it. The floor plan (`CastleLayout`) says which doors there are and which rooms
+  a shut door seals; the session keeps which are shut and turns the people in a sealed
+  room into a voice route of their own.
 - **`CastleBots`** walks the AI contestants: an A* grid over the floor plan with the
-  furniture taken out, jobs, letters, and the patient Traitor.
+  furniture taken out, jobs, letters, and the patient Traitor. They open a shut door that
+  is in their way, and the carrier shuts one behind it before reaching for somebody.
+  They follow whoever they agreed to go with, lead somebody to a one-door room for a
+  private word, and a Faithful runs from somebody it suspects (`AIDirector.distrusts`).
 - **`Chores`** is the job catalogue and the deal; **`ChoreGames`** the twenty puzzles.
 - **`TasksScene`**, **`RoundtableScene`**, **`NightScene`**, **`BreakfastScene`**,
   **`FinaleScene`** are the rooms; **`Show`** decides which one is on screen.

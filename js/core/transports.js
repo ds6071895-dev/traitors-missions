@@ -42,6 +42,7 @@ const Transports = (() => {
     ['expose',     (x)       => ({ type: 'expose',     ...x })],
     ['chore',      (c)       => ({ type: 'chore',      ...c })],
     ['bell',       (b)       => ({ type: 'bell',       ...b })],
+    ['door',       (d)       => ({ type: 'door',       ...d })],
     ['night',      (n)       => ({ type: 'night',      ...n })],
     ['arrive',     (a)       => ({ type: 'arrive',     ...a })],
     ['murder',     (m)       => ({ type: 'murder',     ...m })],
@@ -56,13 +57,13 @@ const Transports = (() => {
      carrying it — use its own poison. */
   const GUEST_ACTIONS = new Set([
     'vote', 'name', 'decide', 'yieldFloor', 'sceneReady', 'syncReady',
-    'chore', 'handover', 'poison', 'turretPick', 'recruitAnswer',
+    'chore', 'handover', 'poison', 'door', 'turretPick', 'recruitAnswer', 'wisePick',
   ]);
 
   /* Actions a contestant sends about themselves. On the host they are
      stamped with the host's own id — unless the contestant named is one
      of the AI seats the host plays for, which only the host can do. */
-  const SELF_ACTIONS = new Set(['chore', 'handover', 'poison', 'turretPick', 'recruitAnswer']);
+  const SELF_ACTIONS = new Set(['chore', 'handover', 'poison', 'door', 'turretPick', 'recruitAnswer', 'wisePick']);
   const actsForSelf = (type) => SELF_ACTIONS.has(type);
   const isBotSeat = (id) => !!(id && Session.state
     && (Session.state.players.find(p => p.id === id) || {}).bot);
@@ -173,6 +174,9 @@ const Transports = (() => {
       Session.dispatch(own);
     },
 
+    // de-duplicated, so as often as a scene likes
+    refreshRoutes() { routeSync(this); },
+
     /* -------- private -------- */
 
     _broadcast(ev, toPeer) {
@@ -278,6 +282,9 @@ const Transports = (() => {
           }
           if (msg.at && msg.state.night && msg.state.night.endsAt) {
             msg.state.night.endsAt += Date.now() - msg.at;
+          }
+          if (msg.at && msg.state.wise && msg.state.wise.endsAt) {
+            msg.state.wise.endsAt += Date.now() - msg.at;
           }
           Session.adopt(msg.state, Party.selfId());
         }

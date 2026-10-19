@@ -21,7 +21,7 @@
    a game rather than a menu: the murder happens in daylight.
 
      hill
-       -> [ tasks -> round table -> night -> breakfast ] x days
+       -> [ tasks -> night -> breakfast -> round table ] x days
        -> the Fire of Truth -> verdict
 
    TASKS is a few minutes loose in the castle. Everybody has a list of
@@ -33,9 +33,15 @@
    witness saw is a lead and not a verdict. A carrier who never uses it
    is exposed at the round table and goes out on the spot.
 
+   Whoever does the most jobs by the bell wins the shield: the poison
+   cannot take them that night, and that night only. The count is on
+   the wall all day, so the carrier can see who is leading — and the
+   lead can change right up to the bell.
+
    The poison is the only murder there is. It takes in the night, and
-   breakfast finds out who. Days repeat until the table is small enough
-   for the fire.
+   breakfast finds out who — so every round table sits down with the
+   body fresh and the hand-overs that led to it still in everybody's
+   notebook. Days repeat until the table is small enough for the fire.
 
    There are two kinds of client now and only one of them is in charge.
    A host owns this reducer outright: it draws the roles, it holds the
@@ -79,6 +85,7 @@ const Session = (() => {
   const NIGHT_SECONDS = 20;        // every night lasts exactly this, whatever was decided
   const PICK_SECONDS = 12;         // the Traitors have this long (from lights out) to agree
   const RECRUIT_SECONDS = 7;       // an offer is answered or refused
+  const WISE_SECONDS = 10;         // the Traitors' window to choose the Wise One
   const tableSeconds = (n) => Math.min(240, 50 + 22 * n);
 
   let state = null;
@@ -89,6 +96,7 @@ const Session = (() => {
   let floorTimer = null;
   let nightTimer = null;
   let taskTimer = null;
+  let wiseTimer = null;
   let eyes = null;                 // { reach(a, b), witnesses(a, b), presence() }
 
   /* The one thing that must never be serialised. */
@@ -107,12 +115,16 @@ const Session = (() => {
       picks: {},                   // traitorId -> { kind: 'carrier'|'recruit'|'none', targetId }
       offer: null,                 // { targetId, endsAt, answer }
       victim: null,                // dies tonight, found at breakfast
-      spared: false,               // the poisoned were banished before it could take
+      shieldHeld: null,            // playerId the shield saved from tonight's poison
       recruited: null,             // playerId turned tonight
       resolvedAt: 0,
       pickBy: 0,                   // when the clock decides for the Traitors
       queue: [],                   // breakfast arrival groups, still to come
       fate: {},                    // playerId -> 'murdered' (told before breakfast)
+      wise: null,                  // playerId of the Wise One, once chosen
+      wisePick: null,              // { by, targetId } — the Traitors' choice, while the window is open
+      overrule: null,              // { by, targetId } — the Wise One's slate, until it is turned
+      doorAt: new Map(),           // doorId -> when it last moved, so it cannot be hammered
     };
   }
 
@@ -131,6 +143,7 @@ const Session = (() => {
     expose: new Set(),   // ({ playerId, role }) — the poison was never used
     chore:  new Set(),   // ({ playerId, pot }) — a job is done and paid
     bell:   new Set(),   // ({ left }) — the day is nearly over
+    door:   new Set(),   // ({ doorId, shut }) — a door in the castle opened or shut
     night:  new Set(),   // ({ done }) — the night has been decided
     arrive: new Set(),   // ({ ids }) — a group has come down to breakfast
     murder: new Set(),   // ({ playerId|null, name }) — who never came down
@@ -163,6 +176,7 @@ const Session = (() => {
     carrier:  0xc2b2ae35,
     night:    0x27d4eb2f,
     breakfast:0x165667b1,
+    wise:     0x3c6ef372,
   };
 
   const traitorCount = (n) => (n >= 7 ? 2 : 1);
@@ -194,7 +208,7 @@ const Session = (() => {
      still pay something into the pot, because the fire divides one; a
      switched-off night murders nobody and a switched-off table banishes
      nobody. */
-  const PARTS = ['intro', 'tasks', 'table', 'night', 'finale'];
+  const PARTS = ['intro', 'tasks', 'night', 'table', 'finale'];
   const partOn = (id) => !state || !state.parts || state.parts.indexOf(id) >= 0;
   const bigNight = () => !!state && state.players.length >= MIN_PLAYERS;
 
@@ -250,12 +264,15 @@ const Session = (() => {
       day: 0,
       players,
       pot: 0,
-      chores: null,             // { day, startedAt, endsAt, seconds, bell, done: { id: n }, closed }
+      chores: null,             // { day, startedAt, endsAt, seconds, bell, done: { id: n }, reached: { id: ms }, closed }
+      shield: null,             // { day, id, name, n } — the day's hardest worker, safe that night
+      doors: {},                // the castle's shut doors by day: { doorId: 1 }
       floor: null,              // { all, queue, playerId, ready, endsAt, seconds, done }
       scene: { phase: 'hill', ready: [], started: false },
       syncReady: {},            // barrier key -> player ids that have arrived
       syncPassed: [],           // public scene barriers already released
       exposure: null,           // the public answer once Claudia has asked
+      wise: null,               // { endsAt, seconds, done, used } — never who, until it is used
       night: null,              // { day, done, startedAt }
       breakfast: null,          // { day, arrived, revealed, victim }
       murdered: [],             // [{ id, name, day }]
@@ -279,6 +296,7 @@ const Session = (() => {
                                  names: {}, nameQueue: [], namesShown: [], nameRound: 0,
                                  tied: null, lot: false,
                                  pending: null, burned: [], lastTally: null,
+                                 overrule: null,
                                  queue: [], opened: [], reason: null });
 
   /* A night starts from a party, not from nothing. The host draws the
@@ -296,6 +314,7 @@ const Session = (() => {
     clearFloorTimer();
     clearNightTimer();
     clearTaskTimer();
+    clearWiseTimer();
     /* Both of the rehearsal levers are gated on the same flag, and the
        flag is only ever set by `Bots`. A night with real people in it
        deals its own hand and plays its whole running order. */
@@ -383,6 +402,7 @@ const Session = (() => {
     clearFloorTimer();
     clearNightTimer();
     clearTaskTimer();
+    clearWiseTimer();
     rehearsal = false;
     state = null;
     secret = blankSecret();
@@ -426,12 +446,21 @@ const Session = (() => {
       recruited: secret.recruited === p.id,
       jobs: (secret.lists.get(p.id) || []).map(t => Object.assign({}, t)),
       notes: (secret.notes.get(p.id) || []).slice(-40),
+      wiseOne: !!secret.wise && secret.wise === p.id,
+      wise: null,
       poison: null,
       night: null,
       offer: null,
     };
     /* Both Traitors know who carries it and whether it has been used —
        and on whom, because the other one has to be ready to lie about it. */
+    /* The Traitors chose the Wise One, so the Traitors know who it is —
+       and, while the window is open, what is currently pointed at. */
+    if (traitor) {
+      view.wise = { id: secret.wise,
+                    pick: secret.wisePick ? secret.wisePick.targetId : null,
+                    by: secret.wisePick ? secret.wisePick.by : null };
+    }
     if (traitor && p.alive) {
       view.poison = {
         carrier: secret.carrier,
@@ -492,6 +521,7 @@ const Session = (() => {
       case 'chore':   moved = doChore(action); break;
       case 'handover': moved = doHandover(action); break;
       case 'poison':  moved = doPoison(action); break;
+      case 'door':    moved = doDoor(action); break;
       case 'tasksTick': moved = action.authority ? tasksTick() : false; break;
       case 'decide':  moved = doDecide(action); break;
       case 'decisionPouch': moved = doDecisionPouch(action); break;
@@ -511,21 +541,117 @@ const Session = (() => {
       case 'breakfastNext': moved = action.authority ? doBreakfastNext() : false; break;
       case 'leave':      moved = action.authority ? doLeave(action) : false; break;
       case 'cue':        if (action.authority) doCue(action); break;
+      case 'wiseOpen':   moved = action.authority ? doWiseOpen() : false; break;
+      case 'wisePick':   moved = doWisePick(action); break;
+      case 'wiseTick':   moved = action.authority ? wiseTick() : false; break;
       default: return null;
     }
     if (moved) emit('change', state);
     return state;
   }
 
+  /* ---------------- the Wise One ----------------
+     Straight after the roles, the Traitors choose one Faithful to be the
+     Wise One, and they have ten seconds to do it. The Wise One is told,
+     and so are the Traitors; nobody else is, until it is used. Once in
+     the game, at a round table, the Wise One may overrule the vote:
+     their slate is turned last, and whoever it names is banished
+     whatever the others wrote.
+
+     It is a gift from the people they are hunting, and that is the
+     point: the Traitors know exactly whose vote to fear, and whose chair
+     to empty first. The window always runs its whole ten seconds, so
+     the clock says nothing about how quickly they agreed, and a pick
+     moves nothing public. */
+
+  const wiseCandidates = () => alive().filter(p => !isTraitor(p));
+
+  function doWiseOpen() {
+    if (state.phase !== 'hill' || state.wise || secret.wise) return false;
+    if (!traitorsAlive().length || !wiseCandidates().length) return false;
+    const now = Date.now();
+    state.wise = { endsAt: now + WISE_SECONDS * 1000, seconds: WISE_SECONDS, done: false, used: null };
+    secret.wisePick = null;
+    clearWiseTimer();
+    wiseTimer = setTimeout(() => {
+      wiseTimer = null;
+      // the timer is the clock: it closes the window whatever Date says
+      if (state && closeWise()) emit('change', state);
+    }, WISE_SECONDS * 1000 + 20);
+    if (wiseTimer && typeof wiseTimer.unref === 'function') wiseTimer.unref();
+    emit('private');
+    return true;
+  }
+
+  /* Any Traitor may point; the last one pointed at when the clock runs
+     out is the Wise One. With two of them, each sees the other's pick. */
+  function doWisePick(a) {
+    const w = state.wise;
+    if (state.phase !== 'hill' || !w || w.done) return false;
+    const p = playerById(a.playerId);
+    const t = playerById(a.targetId);
+    if (!p || !p.alive || !isTraitor(p)) return false;
+    if (!t || !t.alive || isTraitor(t)) return false;
+    if (secret.wisePick && secret.wisePick.targetId === t.id) return false;
+    secret.wisePick = { by: p.id, targetId: t.id };
+    emit('private');
+    return false;
+  }
+
+  /* The clock decides. A Traitor who never pointed gets the seed's
+     choice, so there is always a Wise One when there is a Traitor. */
+  function closeWise() {
+    clearWiseTimer();
+    if (!state || !state.wise || state.wise.done) return false;
+    const pool = wiseCandidates();
+    const pick = secret.wisePick && pool.find(p => p.id === secret.wisePick.targetId);
+    const chosen = pick || (pool.length ? pool[rngFor(SALT.wise, state.seed).int(0, pool.length - 1)] : null);
+    secret.wise = chosen ? chosen.id : null;
+    secret.wisePick = null;
+    state.wise.done = true;
+    if (chosen) GameState.logEvent('wise', 'The Traitors chose a Wise One', {});
+    emit('private');
+    return true;
+  }
+
+  function wiseTick() {
+    const w = state && state.wise;
+    if (!w || w.done || Date.now() < w.endsAt) return false;
+    return closeWise();
+  }
+
+  // a night that skipped the welcome, or lost it, still has a Wise One
+  function ensureWise() {
+    if (secret.wise || !traitorsAlive().length || !wiseCandidates().length) return;
+    if (!state.wise) state.wise = { endsAt: Date.now(), seconds: 0, done: false, used: null };
+    closeWise();
+  }
+
+  function clearWiseTimer() {
+    if (wiseTimer) { clearTimeout(wiseTimer); wiseTimer = null; }
+  }
+
+  /* Whether this slate may overrule the table: the Wise One, alive, at a
+     round table (never the fire), and only the once. */
+  function canOverrule(p, f) {
+    return !!p && p.alive && !!secret.wise && p.id === secret.wise
+      && state.phase === 'table' && f.kind === 'table'
+      && !(state.wise && state.wise.used);
+  }
+
   /* ---------------- the days ----------------
-     A day is the tasks, the round table, a night and a breakfast. What
-     comes after breakfast is either another day or the fire, and that is
+     A day is the tasks, a night, a breakfast and the round table. What
+     comes after the table is either another day or the fire, and that is
      decided by how many are left, never by a count fixed at the start —
      a poison that went unused means a night with no body in it, and the
      show simply goes round again. */
 
   function beginDay(d) {
     state.day = d;
+    if (d === 0) ensureWise();
+    // the shield was for last night only
+    state.shield = null;
+    secret.shieldHeld = null;
     chooseCarrier(d);
     if (!partOn('tasks')) {
       // a rehearsal without the castle: the day still paid something
@@ -539,6 +665,8 @@ const Session = (() => {
     secret.poison = null;
     secret.owed = null;
     secret.lastLook = new Map();
+    secret.doorAt = new Map();
+    state.doors = {};
     dealChores(state.day);
     const now = Date.now();
     const done = {};
@@ -546,7 +674,7 @@ const Session = (() => {
     const seconds = clampTask(state.taskSeconds);
     state.chores = { day: state.day, startedAt: now, endsAt: now + seconds * 1000,
                      seconds, bellAt: Math.min(BELL_AT, Math.floor(seconds / 3)),
-                     bell: false, done, closed: false };
+                     bell: false, done, reached: {}, closed: false };
     setPhase('tasks', true);
     armTasks();
     emit('private');
@@ -613,10 +741,12 @@ const Session = (() => {
       const here = seen[p.id];
       if (!here || !here.room) continue;
       const company = (here.with || []).filter(id => (playerById(id) || {}).alive).sort();
-      const key = here.room + ':' + company.join(',');
+      const shut = sealedRoom(here.room);
+      const key = here.room + ':' + company.join(',') + (shut ? ':shut' : '');
       if (secret.lastLook.get(p.id) === key) continue;
       secret.lastLook.set(p.id, key);
-      note(p.id, { kind: 'with', room: here.room, ids: company });
+      note(p.id, shut ? { kind: 'with', room: here.room, ids: company, shut: true }
+                      : { kind: 'with', room: here.room, ids: company });
       changed = true;
     }
     if (changed) emit('private');
@@ -636,6 +766,43 @@ const Session = (() => {
     }
   }
 
+  /* A room with every door in it shut: nobody outside sees or hears in. */
+  const sealedRoom = (room) => typeof CastleLayout !== 'undefined' && !!state.doors
+    && CastleLayout.sealed(room, state.doors);
+
+  /* A door, opened or shut, by somebody standing at it. The house's
+     doors are the session's to keep, because who can hear whom rests on
+     them. Not while somebody is standing in the doorway, and not twice
+     in half a second — and the people who saw it done write it down. */
+  const DOOR_GAP = 500;
+  function doDoor(a) {
+    if (state.phase !== 'tasks' || !state.chores || state.chores.closed) return false;
+    if (typeof CastleLayout === 'undefined') return false;
+    const d = CastleLayout.doorById(a.doorId);
+    const p = playerById(a.playerId);
+    if (!d || !p || !p.alive) return false;
+    const shut = !!a.shut;
+    const doors = state.doors || (state.doors = {});
+    if (!!doors[d.id] === shut) return false;
+    if (eyes && eyes.nearDoor && !eyes.nearDoor(p.id, d.id)) return false;
+    if (shut && eyes && eyes.inDoorway && eyes.inDoorway(d.id)) return false;
+    const now = Date.now();
+    if (now - (secret.doorAt.get(d.id) || 0) < DOOR_GAP) return false;
+    secret.doorAt.set(d.id, now);
+    // who saw it, before the door takes them out of sight
+    let w = null;
+    if (eyes && eyes.witnesses) { try { w = eyes.witnesses(p.id, p.id); } catch (e) { w = null; } }
+    if (shut) doors[d.id] = 1; else delete doors[d.id];
+    for (const id of (w && w.ids) || []) {
+      if (id === p.id || !(playerById(id) || {}).alive) continue;
+      note(id, { kind: 'door', room: d.rooms[0], who: p.id, shut });
+    }
+    if (w && w.ids && w.ids.length) emit('private');
+    // which door, not who: that is only for the people who saw it
+    emit('door', { doorId: d.id, shut });
+    return true;
+  }
+
   const within = (a, b, metres) => {
     if (!eyes || !eyes.reach) return true;
     const d = eyes.reach(a, b);
@@ -650,6 +817,8 @@ const Session = (() => {
   function pay(p) {
     const c = state.chores;
     c.done[p.id] = (c.done[p.id] || 0) + 1;
+    // when they got to this count: the first there keeps a tied shield
+    (c.reached || (c.reached = {}))[p.id] = Date.now() - c.startedAt;
     state.pot += typeof Chores !== 'undefined' ? Chores.VALUE : 500;
     // a finished list is dealt more, so there is always somewhere to be
     const list = secret.lists.get(p.id) || [];
@@ -716,12 +885,39 @@ const Session = (() => {
     return false;
   }
 
+  /* Who holds the shield if the bell went now: the most jobs done, and
+     of those, whoever got there first. Nobody, if nobody has done one. */
+  function shieldLeader() {
+    const c = state && state.chores;
+    if (!c || !c.done) return null;
+    const reached = c.reached || {};
+    let best = null;
+    for (const p of alive()) {
+      const n = c.done[p.id] || 0;
+      if (n < 1) continue;
+      const at = reached[p.id] === undefined ? Infinity : reached[p.id];
+      if (!best || n > best.n || (n === best.n && (at < best.at || (at === best.at && p.seat < best.p.seat)))) {
+        best = { p, n, at };
+      }
+    }
+    return best ? { id: best.p.id, name: best.p.name, n: best.n } : null;
+  }
+
   function endTasks() {
     clearTaskTimer();
     const c = state.chores;
     c.closed = true;
     c.endsAt = Date.now();
+    state.doors = {};
+    const sh = shieldLeader();
+    state.shield = sh ? Object.assign({ day: state.day }, sh) : null;
     secret.victim = secret.poison ? secret.poison.target : null;
+    // the shield holds for tonight: the poison is in them, and it does not take
+    if (sh && secret.victim === sh.id) {
+      secret.victim = null;
+      secret.shieldHeld = sh.id;
+      GameState.logEvent('shield', `The shield saved ${sh.name}`, { id: sh.id });
+    }
     if (!secret.poison && secret.carrier && (playerById(secret.carrier) || {}).alive) {
       secret.owed = secret.carrier;
     }
@@ -730,25 +926,25 @@ const Session = (() => {
   }
 
   function afterTasks() {
-    if (partOn('table')) return beginTable();
-    return afterTable();
-  }
-
-  function afterTable() {
-    if (traitorsAlive().length === 0) { endGame('all-found'); return true; }
     if (partOn('night')) return beginNight();
     return afterBreakfast();
   }
 
   function afterBreakfast() {
     if (traitorsAlive().length === 0) { endGame('all-found'); return true; }
+    if (partOn('table')) return beginTable();
+    return afterTable();
+  }
+
+  function afterTable() {
+    if (traitorsAlive().length === 0) { endGame('all-found'); return true; }
     const next = state.day + 1;
     if (!bigNight() || alive().length <= FINALE_AT || next >= MAX_DAYS) return beginFinale();
     return beginDay(next);
   }
 
-  /* Whether breakfast is the last morning: the next thing is the fire, not
-     another day's work. The same test `afterBreakfast` makes. */
+  /* Whether this round table is the last: the next thing is the fire, not
+     another day's work. The same test `afterTable` makes. */
   function finaleNext() {
     if (!state) return false;
     return traitorsAlive().length === 0 || !bigNight() || alive().length <= FINALE_AT
@@ -780,12 +976,15 @@ const Session = (() => {
     const t = traitorsAlive().length;
     const f = alive().length - t - (secret.victim ? 1 : 0);
     const lost = state.banished.some(b => b.role === 'traitor');
-    // too few Faithfuls and nobody gets a seat at the turret
-    return lost && t >= 1 && t < state.dealt + 1 && (f - 1) >= (t + 1) + 2;
+    /* Too few Faithfuls and nobody gets a seat at the turret: after the
+       seat, and not counting tonight's victim, the Faithfuls must still
+       outnumber the Traitors. (The loss was at a table that sat after a
+       breakfast, so a murder more is already gone from these numbers.) */
+    return lost && t >= 1 && t < state.dealt + 1 && (f - 1) >= (t + 1) + 1;
   }
 
   function beginNight() {
-    // a carrier exposed or banished today hands it on before the turret meets
+    // a carrier who left the castle today hands it on before the turret meets
     if (secret.carrier && !(playerById(secret.carrier) || {}).alive) secret.carrier = null;
     chooseCarrier(state.day + 1);
     secret.picks = {};
@@ -802,8 +1001,7 @@ const Session = (() => {
                     endsAt: t0 + NIGHT_SECONDS * 1000,
                     canRecruit: recruit, choose };
     secret.pickBy = t0 + PICK_SECONDS * 1000;
-    secret.spared = !!secret.victim && !(playerById(secret.victim) || {}).alive;
-    if (secret.victim && !secret.spared) secret.fate[secret.victim] = 'murdered';
+    if (secret.victim && (playerById(secret.victim) || {}).alive) secret.fate[secret.victim] = 'murdered';
     else secret.victim = null;
     setPhase('night', true);
     if (!choose && !recruit) secret.resolvedAt = Date.now();
@@ -951,7 +1149,7 @@ const Session = (() => {
     while (coming.length) groups.push(coming.splice(0, Math.min(coming.length, r.int(1, 2))));
     secret.queue = groups;
     state.breakfast = { day: state.day, arrived: [], groups: 0, revealed: false,
-                        victim: null, name: null, spared: false };
+                        victim: null, name: null, shielded: null, shieldName: null };
     setPhase('breakfast', true);
     return true;
   }
@@ -967,6 +1165,9 @@ const Session = (() => {
       return true;
     }
     b.revealed = true;
+    const saved = secret.shieldHeld ? playerById(secret.shieldHeld) : null;
+    if (saved && saved.alive) { b.shielded = saved.id; b.shieldName = saved.name; }
+    secret.shieldHeld = null;
     const v = secret.victim ? playerById(secret.victim) : null;
     if (v && v.alive) {
       v.alive = false;
@@ -976,17 +1177,17 @@ const Session = (() => {
       state.murdered.push({ id: v.id, name: v.name, day: state.day });
       GameState.logEvent('murder', `${v.name} was murdered`, { id: v.id });
     }
-    b.spared = !b.victim && secret.spared;
     secret.victim = null;
-    secret.spared = false;
     secret.fate = {};
     if (secret.carrier && !(playerById(secret.carrier) || {}).alive) secret.carrier = null;
-    emit('murder', { playerId: b.victim, name: b.name, day: state.day });
+    emit('murder', { playerId: b.victim, name: b.name, day: state.day,
+                     shielded: b.shielded || null, shieldName: b.shieldName || null });
     emit('private');
     return true;
   }
 
   function beginTable() {
+    secret.overrule = null;
     state.finale = newBallot('table');
     setPhase('table', true);
     return true;
@@ -1013,6 +1214,11 @@ const Session = (() => {
     if (secret.poison && secret.poison.target === p.id) secret.poison = null;
     if (secret.carrier === p.id) { secret.carrier = null; chooseCarrier(state.day); }
     if (secret.owed === p.id) secret.owed = null;
+    if (secret.overrule && (secret.overrule.by === p.id || secret.overrule.targetId === p.id)) {
+      secret.overrule = null;
+      if (f && f.overrule && !f.overrule.by) f.overrule = null;
+    }
+    if (secret.wise === p.id && !(state.wise && state.wise.used)) secret.wise = null;
     delete secret.picks[p.id];
     if (state.phase === 'verdict') return true;
     if (traitorsAlive().length === 0 || alive().length < 2) {
@@ -1277,7 +1483,7 @@ const Session = (() => {
 
   /* After the ceremony. If that was the last Traitor, the game is over;
      if not, there is no vote today — the table has had its banishment —
-     and the castle goes to bed. */
+     and the castle goes back to work, or to the fire. */
   function doExposeDone() {
     if (mode !== 'host' || !secret.exposedShown) return false;
     secret.exposedShown = null;
@@ -1365,8 +1571,14 @@ const Session = (() => {
     if (!p || !p.alive || !t || !t.alive) return false;
     if (t.id === p.id) return false;                  // nobody names themselves
     if (f.tied && f.tied.indexOf(t.id) < 0) return false;
-    if (f.names[p.id] === t.id) return false;
+    /* The Wise One's overrule rides on their slate and stays in here
+       until it is turned: the public ballot only ever shows a name. */
+    const over = !!a.overrule && canOverrule(p, f);
+    const was = !!secret.overrule && secret.overrule.by === p.id;
+    if (f.names[p.id] === t.id && over === was) return false;
     f.names[p.id] = t.id;
+    if (over) secret.overrule = { by: p.id, targetId: t.id };
+    else if (was) secret.overrule = null;
     emit('vote', { playerId: p.id, stage: 'name', targetId: t.id });
     if (alive().every(q => f.names[q.id] || !canName(q, f))) beginNameReveal();
     return true;
@@ -1381,10 +1593,17 @@ const Session = (() => {
 
   function beginNameReveal() {
     const f = state.finale;
+    const o = secret.overrule;
+    if (o && (f.names[o.by] !== o.targetId || !canOverrule(playerById(o.by), f)
+              || !(playerById(o.targetId) || {}).alive)) secret.overrule = null;
+    const wise = secret.overrule ? secret.overrule.by : null;
     f.stage = 'names';
+    /* An overruling slate is turned last. The room is told that there is
+       one — that is the drama — but not whose until it turns. */
     f.nameQueue = alive().filter(p => f.names[p.id])
-      .sort((a, b) => a.seat - b.seat).map(p => p.id);
+      .sort((a, b) => (a.id === wise) - (b.id === wise) || a.seat - b.seat).map(p => p.id);
     f.namesShown = [];
+    f.overrule = wise ? { armed: true, by: null, targetId: null } : null;
   }
 
   function doSpeakName(a) {
@@ -1402,7 +1621,15 @@ const Session = (() => {
     }
     f.nameQueue.shift();
     f.namesShown.push({ playerId, targetId });
-    emit('nameReveal', { playerId, targetId, last: f.nameQueue.length === 0 });
+    const over = !!(f.overrule && secret.overrule && secret.overrule.by === playerId
+                    && secret.overrule.targetId === targetId);
+    if (over) {
+      f.overrule = { armed: true, by: playerId, targetId };
+      if (state.wise) state.wise.used = { id: playerId, name: p.name, day: state.day, targetId };
+      secret.overrule = null;
+      GameState.logEvent('overrule', `${p.name}, the Wise One, overruled the table`, { id: playerId });
+    }
+    emit('nameReveal', { playerId, targetId, last: f.nameQueue.length === 0, overrule: over });
     if (!f.nameQueue.length) resolveName();
     return true;
   }
@@ -1415,6 +1642,18 @@ const Session = (() => {
       if (!t || !(playerById(t) || {}).alive) continue;
       counts[t] = (counts[t] || 0) + 1;
     }
+    /* The Wise One has spoken, and the count is only for the record. */
+    const o = f.overrule;
+    if (o && o.by && (playerById(o.targetId) || {}).alive) {
+      f.lastTally = { stage: 'name', result: o.targetId, counts, tied: false, lot: false,
+                      between: null, overrule: o.by };
+      emit('tally', f.lastTally);
+      f.pending = o.targetId;
+      f.lot = false;
+      f.stage = 'reveal';
+      return;
+    }
+    if (o) f.overrule = null;
     let top = -1;
     for (const id in counts) top = Math.max(top, counts[id]);
     const tied = Object.keys(counts).filter(id => counts[id] === top).sort();
@@ -1608,7 +1847,7 @@ const Session = (() => {
 
   return {
     startParty, adopt, setMyRole, setPrivate, abandon, dispatch, on,
-    myRole, myPrivate, alive, playerById,
+    myRole, myPrivate, alive, playerById, shieldLeader,
     get isHost() { return mode === 'host'; },
     get mode() { return mode; },
     get state() { return state; },
@@ -1621,7 +1860,7 @@ const Session = (() => {
     },
     finaleNext,
     SEATS, MIN_PLAYERS, FINALE_AT, NIGHT_SECONDS, PICK_SECONDS, TASK_SECONDS, TASK_MIN, BELL_AT,
-    RECRUIT_SECONDS, LAST_WORDS_SECONDS, FLOOR_SECONDS,
+    RECRUIT_SECONDS, LAST_WORDS_SECONDS, FLOOR_SECONDS, WISE_SECONDS,
     tableSeconds, traitorCount,
 
     /* Host-only: who is standing next to whom, and who can see it. The
@@ -1650,6 +1889,20 @@ const Session = (() => {
       const routes = { open: living, deaf: [] };
       if (state.phase === 'night') {
         routes.night = traitorsAlive().map(p => p.id);
+      }
+      /* By day, a room with its doors shut is a world of its own: the
+         people in it hear each other and nobody else, and nobody else
+         hears them. */
+      if (state.phase === 'tasks' && eyes && eyes.presence && Object.keys(state.doors || {}).length) {
+        let seen = null;
+        try { seen = eyes.presence(); } catch (e) { seen = null; }
+        const groups = {};
+        for (const id of living) {
+          const here = seen && seen[id];
+          if (here && here.room && sealedRoom(here.room)) (groups[here.room] || (groups[here.room] = [])).push(id);
+        }
+        const rooms = Object.keys(groups).sort().map(r => groups[r]);
+        if (rooms.length) routes.rooms = rooms;
       }
       return routes;
     },
@@ -1682,7 +1935,8 @@ const Session = (() => {
       const seats = [...secret.traitors].sort((a, b) => a - b);
       return { has: seats.length > 0, seat: seats.length ? seats[0] : -1, seats,
                carrier: secret.carrier, poison: secret.poison ? Object.assign({}, secret.poison) : null,
-               victim: secret.victim, owed: secret.owed, picks: Object.assign({}, secret.picks),
+               victim: secret.victim, owed: secret.owed, shieldHeld: secret.shieldHeld, picks: Object.assign({}, secret.picks),
+               wise: secret.wise, overrule: secret.overrule ? Object.assign({}, secret.overrule) : null,
                lists: Object.fromEntries([...secret.lists].map(([k, v]) => [k, v.map(t => Object.assign({}, t))])) };
     },
   };

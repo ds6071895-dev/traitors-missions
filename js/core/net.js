@@ -48,6 +48,13 @@ const Net = (() => {
 
   function on(fn) { inbox.add(fn); return () => inbox.delete(fn); }
 
+  /* Who can hear whom moves with people as well as with the night: a
+     host scene asks for the routes to be looked at again now and then.
+     Only a transport that sets routes has anything to do. */
+  function refreshRoutes() {
+    if (transport && transport.refreshRoutes) { try { transport.refreshRoutes(); } catch (e) { console.warn(e); } }
+  }
+
   /* -------- the loopback -------- */
 
   const LocalTransport = {
@@ -84,6 +91,6 @@ const Net = (() => {
     send(action) { Session.dispatch(action); },
   };
 
-  return { connect, disconnect, send, on, LocalTransport,
+  return { connect, disconnect, send, on, refreshRoutes, LocalTransport,
            get connected() { return !!transport; } };
 })();

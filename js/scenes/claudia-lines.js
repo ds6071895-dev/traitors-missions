@@ -43,8 +43,8 @@ const ClaudiaLines = (() => {
     ],
     "exposeTask": [
       [ "Yesterday, somebody carried poison.", "It never left their pocket." ],
-      [ "A Traitor had one job today.", "Nobody died of it." ],
-      [ "There was poison in this castle today.", "It is still in the bottle." ]
+      [ "A Traitor had one job yesterday.", "Nobody died of it." ],
+      [ "There was poison in this castle yesterday.", "It is still in the bottle." ]
     ],
     "exposeName": [
       [ "{name}.", "You had it all day. And did nothing." ],
@@ -53,7 +53,7 @@ const ClaudiaLines = (() => {
     ],
     "exposeAfter": [
       [ "{name} was a Traitor.", "Now every one of you knows it." ],
-      [ "A Traitor, handed to you for nothing.", "No vote today. Go to bed." ]
+      [ "A Traitor, handed to you for nothing.", "No vote today." ]
     ],
     "welcome": [
       [ "Welcome to my castle." ],
@@ -92,6 +92,18 @@ const ClaudiaLines = (() => {
       [ "That is the day done.", "Go to your rooms." ],
       [ "The castle is going to sleep.", "Some of you will not wake." ],
       [ "Bed.", "Lock your door. For what it is worth." ]
+    ],
+    /* The shield: whoever did the most jobs by the bell. It is said at
+       nightfall, before anybody knows where the poison went. */
+    "nightFallsShield": [
+      [ "That is the day done.", "{name} did the most work. {name} is shielded tonight." ],
+      [ "Bed.", "{name} worked hardest today. The poison cannot touch {name} tonight." ],
+      [ "Go to your rooms.", "Tonight, the shield belongs to {name}." ]
+    ],
+    "nightFallsShieldYou": [
+      [ "That is the day done.", "You did the most work. You are shielded tonight." ],
+      [ "Bed.", "You worked hardest today. The poison cannot touch you tonight." ],
+      [ "Go to your room.", "Tonight, the shield is yours." ]
     ],
     "nightFaithful": [
       [ "Your door is locked.", "Sleep, if you can." ],
@@ -137,27 +149,41 @@ const ClaudiaLines = (() => {
       [ "That chair stays empty.", "{name}. Faithful. Poisoned in front of you." ],
       [ "{name} is dead.", "And {name} was Faithful." ]
     ],
-    "breakfastSpared": [
-      [ "Everybody is here.", "The poison found someone. You banished them first." ],
-      [ "Every chair is full.", "The round table beat the poison." ]
-    ],
     "breakfastNobody": [
       [ "Everybody is here.", "The poison never left its bottle." ],
       [ "Nobody died.", "Somebody lost their nerve." ]
     ],
-    "breakfastSendFinale": [
-      [ "Eat.", "No more work. Tonight, the Fire of Truth." ],
-      [ "Finish your coffee.", "Next, you face the fire." ]
+    "breakfastShield": [
+      [ "Everybody is here.", "The poison found {name}. The shield held." ],
+      [ "Nobody died.", "{name} was poisoned. And {name} had the shield." ]
+    ],
+    "breakfastShieldYou": [
+      [ "Everybody is here.", "The poison found you. The shield held." ],
+      [ "Nobody died.", "You were poisoned. And you had the shield." ]
     ],
     "breakfastSend": [
-      [ "Eat.", "Then work. Somebody has poison again." ],
-      [ "Finish your coffee.", "The castle is waiting. So are they." ],
-      [ "Back to work.", "Watch your backs." ]
+      [ "Eat.", "Then the round table." ],
+      [ "Finish your coffee.", "The round table is waiting." ],
+      [ "Bring what you saw yesterday.", "The round table, now." ]
     ],
     "tableOpen": [
-      [ "Sit.", "Somebody handed out poison today. Who saw it?" ],
+      [ "Sit.", "Somebody here is a Traitor. Who saw something?" ],
       [ "Take your seats.", "Somebody saw something. Speak." ],
       [ "Sit down.", "Who was where? Talk." ]
+    ],
+    "tableOpenBody": [
+      [ "Sit.", "{name} was poisoned yesterday. Who saw it?" ],
+      [ "Take your seats.", "Who stood next to {name} yesterday?" ],
+      [ "Sit down.", "{name} is dead. Somebody here did it." ]
+    ],
+    "tableOpenShield": [
+      [ "Sit.", "Somebody poisoned {name} yesterday. Who got that close?" ],
+      [ "Take your seats.", "{name} should be dead. Who handed it over?" ],
+      [ "Sit down.", "The shield saved {name}. The poisoner is still here." ]
+    ],
+    "tableOpenShieldYou": [
+      [ "Sit.", "Somebody poisoned you yesterday. Who got that close?" ],
+      [ "Take your seats.", "You should be dead. Who handed it over?" ]
     ],
     "inviteQuiet": [
       [ "{name}. You have been very quiet." ],
@@ -210,12 +236,12 @@ const ClaudiaLines = (() => {
     "banishedFaithfulYou": [
       [ "You were Faithful.", "They sent you home anyway." ]
     ],
-    "tableNight": [
-      [ "Go to bed.", "The poison is already in somebody." ],
-      [ "That is the table.", "Sleep well. Some of you." ]
+    "tableToWork": [
+      [ "That is the table.", "Back to work. The poison is out again." ],
+      [ "Go.", "The castle needs you. So do they." ]
     ],
     "tableToFire": [
-      [ "{count} of you left.", "Tonight, the fire." ]
+      [ "{count} of you left.", "No more work. Tonight, the fire." ]
     ],
     "traitorsGone": [
       [ "That was the last Traitor.", "It is over." ]
@@ -225,12 +251,12 @@ const ClaudiaLines = (() => {
       [ "Off you go." ]
     ],
     "tasksFirst": [
-      [ "{Time}. Every job is five hundred pounds.", "Somebody here carries poison." ],
-      [ "The castle is yours for {time}.", "Work. And watch who gets close." ]
+      [ "{Time}. Every job pays. Most jobs wins a shield.", "Somebody here carries poison." ],
+      [ "The castle is yours for {time}.", "Most jobs wins the shield. Watch who gets close." ]
     ],
     "tasksOpen": [
       [ "Another day. {count} of you.", "The jobs are waiting. So is the poison." ],
-      [ "{Time}.", "Work, and watch." ],
+      [ "{Time}. Most jobs wins the shield.", "Work, and watch." ],
       [ "Back to work.", "Somebody is carrying it again." ],
       [ "{count} left.", "One of them has poison." ]
     ],
@@ -360,6 +386,45 @@ const ClaudiaLines = (() => {
     ],
     "lostTraitorCaught": [
       [ "They found you.", "The Faithful take the pot." ]
+    ],
+    "wiseIntro": [
+      [ "One more thing.", "The Traitors will choose a Wise One." ],
+      [ "Not yet.", "First, the Traitors choose a Wise One." ]
+    ],
+    "wiseRules": [
+      [ "Once, at a round table, the Wise One overrules you.", "Whoever they name goes." ],
+      [ "One vote that outweighs every other.", "Once. At the table." ]
+    ],
+    "wiseChoose": [
+      [ "Traitors.", "You have ten seconds." ],
+      [ "Ten seconds, Traitors.", "Choose." ]
+    ],
+    "wiseChosen": [
+      [ "It is done.", "The Wise One is among you." ],
+      [ "The Traitors have chosen.", "Only they know who." ]
+    ],
+    "wiseYou": [
+      [ "You are the Wise One.", "Once, at the table, your vote is the vote." ],
+      [ "A Traitor chose you.", "Make them regret it." ]
+    ],
+    "wiseTraitor": [
+      [ "{name} is your Wise One.", "Nobody else knows." ],
+      [ "{name}.", "Now you know whose vote to fear." ]
+    ],
+    "overruleWarn": [
+      [ "Before I turn them.", "One of these slates overrules the rest." ],
+      [ "Wait.", "The Wise One has voted today." ]
+    ],
+    "overruleTurn": [
+      [ "The last slate.", "The Wise One." ],
+      [ "And finally.", "The slate that decides." ]
+    ],
+    "overruleName": [
+      [ "{name} is the Wise One.", "And they overrule you all." ],
+      [ "The Wise One is {name}.", "The table is overruled." ]
+    ],
+    "overruleNameYou": [
+      [ "You are the Wise One.", "And you have overruled the table." ]
     ]
   };
 
@@ -440,7 +505,7 @@ const ClaudiaLines = (() => {
      then the room is exactly who hears it. */
   const PRIVATE = new Set(['roleTraitor', 'roleFaithful', 'traitorPartner', 'poisonYou', 'poisonPartner',
     'murderedYou', 'recruitOffer', 'recruitedYou', 'conclaveOpen', 'conclaveAgree',
-    'conclaveRecruit', 'conclaveDone', 'nightFaithful']);
+    'conclaveRecruit', 'conclaveDone', 'nightFaithful', 'wiseYou', 'wiseTraitor']);
   /* A "You" twin is the second-person version of a public line: the room
      hears the third-person one, and the person it is about reads theirs. */
   const baseOf = (setName) => (setName && setName.endsWith('You') && SETS[setName.slice(0, -3)]

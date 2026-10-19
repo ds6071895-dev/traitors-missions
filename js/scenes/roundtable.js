@@ -3,7 +3,9 @@
 
    The chamber behind the hall, a ring of chairs, a table with a brass
    inlay and candles round it, and Claudia at the head. This is where
-   the programme happens.
+   the programme happens: straight from breakfast, with the chair the
+   poison emptied still warm and yesterday's hand-overs in every
+   notebook.
 
      gather   everybody comes in and takes their own seat
      expose   a Traitor who never used the poison is named, and goes —
@@ -18,9 +20,9 @@
      banish   the banished get a few seconds to speak, then say what
               they were — and the room finds out if it was right
 
-   And then bed: the poison is already in somebody. If the last Traitor
-   has just gone, there is no more game to play and the verdict comes
-   up here.
+   And then back to work, or to the fire when the table is small
+   enough. If the last Traitor has just gone, there is no more game to
+   play and the verdict comes up here.
 ------------------------------------------------------------------ */
 class RoundtableScene extends CastleScene {
 
@@ -29,7 +31,7 @@ class RoundtableScene extends CastleScene {
     this._seatedAtStart = false;
     return {
       seed: s.seed + 977 * (s.day + 1),
-      hour: 'golden',
+      hour: 'morning',
       room: 'round',
       dress: 'table',
       seated: true,
@@ -72,7 +74,14 @@ class RoundtableScene extends CastleScene {
       return this._close();
     }
 
-    await this._say('tableOpen', {}, 'claudia');
+    // the body breakfast found is the first thing on the table
+    const s = Session.state;
+    const body = (s.murdered || []).find(m => m.day === s.day);
+    // no body, because the shield held: the near-miss is the lead
+    const saved = !body && s.breakfast && s.breakfast.day === s.day && s.breakfast.shielded
+      ? Session.playerById(s.breakfast.shielded) : null;
+    if (saved && saved.alive) await this._say(this._setFor('tableOpenShield', saved), { name: saved.name }, 'claudia');
+    else await this._say(body ? 'tableOpenBody' : 'tableOpen', body ? { name: body.name } : {}, 'claudia');
     if (!this._alive) return;
 
     // the argument, with the day's jobs on the board
@@ -176,15 +185,37 @@ class RoundtableScene extends CastleScene {
       const fx = Session.state.finale;
       const targets = Session.alive().filter(p => p.id !== you.id
         && (!fx.tied || fx.tied.indexOf(p.id) >= 0));
+      /* The Wise One's panel has a switch on it, and stays open: a name
+         can be changed, and the overrule thrown or taken back, until the
+         last slate is in. */
+      const w = Session.state.wise;
+      const wise = !!(Session.myPrivate() || {}).wiseOne && !(w && w.used);
+      let over = false, chose = null;
+      const sub = () => (over ? 'Overrule: they go' : 'Write their name');
       if (targets.length) {
         this._openVote({
           kicker: revote ? 'Revote' : 'The round table',
           title: 'Who do you want gone?',
-          note: revote ? 'Only the tied names can go.' : 'You cannot write your own name.',
+          note: wise ? 'You are the Wise One. Overrule once, and your name is the only one that counts.'
+               : revote ? 'Only the tied names can go.' : 'You cannot write your own name.',
+          keepOpen: wise,
           options: targets.map(p => ({
-            label: p.name.toUpperCase(), sub: 'Write their name',
-            tone: 'name', action: { type: 'name', targetId: p.id },
+            id: p.id, label: p.name.toUpperCase(), sub: sub(),
+            tone: 'name', action: () => ({ type: 'name', targetId: p.id, overrule: over }),
           })),
+          onPick: (opt) => { chose = opt.id; },
+          toggle: wise ? {
+            label: 'OVERRULE THE TABLE', sub: 'Wise One — once per game',
+            onChange: (on) => {
+              over = on;
+              const root = document.getElementById('vote-options');
+              [...((root && root.children) || [])].forEach((b) => {
+                const el = b.querySelector && b.querySelector('.vb-sub');
+                if (el) el.textContent = sub();
+              });
+              if (chose) Net.send({ type: 'name', playerId: you.id, targetId: chose, overrule: over });
+            },
+          } : null,
         });
       }
     }
@@ -221,9 +252,11 @@ class RoundtableScene extends CastleScene {
     if (!target) return;
     const st = this.stage;
     const fig = st && st.figureOf ? st.figureOf(target.id) : null;
+    // an overrule keeps its music under the name; any other ballot goes quiet
+    const overruled = !!(f.lastTally && f.lastTally.overrule);
     if (this.music) {
       this.music.stinger('banish', { at: 'beat' });
-      this.music.section('reveal', { at: 'bar', glide: 2 });
+      if (!overruled) this.music.section('reveal', { at: 'bar', glide: 2 });
     }
     if (st && st.act) { st.act(target.id, 'gasp'); st.setMood(target.id, 'nervous'); }
     await this._say(this._setFor('banishName', target), { name: target.name }, 'on:' + target.id);
@@ -304,7 +337,8 @@ class RoundtableScene extends CastleScene {
   /* ---------------- and then ---------------- */
 
   async _close() {
-    await this._say('tableNight', {}, 'claudia');
+    if (Session.finaleNext()) await this._say('tableToFire', { count: Session.alive().length }, 'claudia');
+    else await this._say('tableToWork', {}, 'claudia');
     if (!this._alive) return;
     await Scenes.barrier('table-close-' + Session.state.day);
     if (Session.isHost) Net.send({ type: 'advance' });

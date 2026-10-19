@@ -13,7 +13,7 @@
 const H = require('./harness');
 const { atest, flush, eq, ok, section } = H;
 
-const FILES = ['js/core/util.js', 'js/core/state.js', 'js/core/chores.js', 'js/core/session.js',
+const FILES = ['js/core/util.js', 'js/core/state.js', 'js/world/castle-layout.js', 'js/core/chores.js', 'js/core/session.js',
                'js/core/net.js', 'js/core/transports.js'];
 
 const PLAYERS = [
@@ -144,6 +144,22 @@ await atest('a guest\'s jobs are its own: it is sent its list, does them, and is
   ok(g1.Session.myPrivate().jobs.find(j => j.id === job.id).done, 'and it is ticked off on the guest');
 });
 
+await atest('a guest shuts a door; every screen sees it shut, and the host routes the voices', async () => {
+  const { host, g1, g2 } = await party(105);
+  const routes = [];
+  host.Party.setVoiceRoutes = (r) => routes.push(r);
+  host.Session.setEyes({ reach: () => 1, witnesses: () => ({ ids: [], room: 'study' }),
+                         presence: () => ({ gst1: { room: 'study', with: [] }, host: { room: 'hall', with: [] } }),
+                         nearDoor: () => true, inDoorway: () => false });
+  host.Net.send({ type: 'advance' });
+  await settle();
+  g1.Net.send({ type: 'door', doorId: 'study', shut: true });
+  await settle();
+  eq(host.Session.state.doors, { study: 1 }, 'the host shut it');
+  eq(g2.Session.state.doors, { study: 1 }, 'and the other guest sees it shut');
+  eq(routes[routes.length - 1].rooms, [['gst1']], 'the guest in the study is in a world of its own');
+});
+
 await atest('a guest can only ever act as itself', async () => {
   const { host, g1 } = await party(104);
   host.Net.send({ type: 'advance' });
@@ -239,8 +255,19 @@ await atest('an exposure reaches both guests as an event, and it is the carrier'
   host.Date.now = () => end;
   host.Net.send({ type: 'tasksTick' });
   await settle();
+  eq(host.Session.state.phase, 'night', 'the bell went with the poison unused');
+  // the night runs out, and breakfast finds everybody
+  host.Date.now = () => end + 60000;
+  host.Net.send({ type: 'nightTick' });
+  await settle();
   host.Date.now = realNow;
-  eq(host.Session.state.phase, 'table', 'the bell went with the poison unused');
+  for (let k = 0; k < 12 && !host.Session.state.breakfast.revealed; k++) {
+    host.Net.send({ type: 'breakfastNext' });
+    await settle();
+  }
+  host.Net.send({ type: 'advance' });
+  await settle();
+  eq(host.Session.state.phase, 'table', 'and then the round table');
   const told = [];
   for (const c of [g1, g2]) c.Net.on(e => { if (e.type === 'expose') told.push(e.playerId); });
   host.Net.send({ type: 'expose' });

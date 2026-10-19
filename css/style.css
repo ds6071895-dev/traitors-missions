@@ -804,7 +804,11 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 /* -------- embers --------
    Ten of them, off the fire the night ends at. Pure decoration and
    completely inert, so nothing here is ever in the way of a press. */
-.play-embers{position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0}
+/* Fixed, not absolute: the screen scrolls when the deck is taller than
+   the window, and an absolute layer scrolls with it — the mist's edge
+   and the end of the grain ride up into the middle of the page. Fixed
+   pins every backdrop layer to the window. */
+.play-embers{position:fixed; inset:0; overflow:hidden; pointer-events:none; z-index:0}
 .play-embers i{
   position:absolute; bottom:-12px; width:3px; height:3px; border-radius:50%;
   background:var(--gold); opacity:0;
@@ -1047,6 +1051,11 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .cine-card.t-traitor .cc-title{color:#ff5470; text-shadow:0 0 46px rgba(216,30,64,.6)}
 .cine-card.t-faithful{border-color:rgba(125,252,208,.42)}
 .cine-card.t-faithful .cc-title{color:var(--mint); text-shadow:0 0 42px rgba(125,252,208,.45)}
+/* the Wise One: gold, and brighter than anything else the card says */
+.cine-card.t-wise{border-color:rgba(242,193,78,.7); box-shadow:0 0 60px rgba(242,193,78,.22)}
+.cine-card.t-shield{border-color:rgba(150,200,255,.6); box-shadow:0 0 50px rgba(120,180,255,.2)}
+.cine-card.t-shield .cc-title{color:#cfe6ff; text-shadow:0 0 44px rgba(120,180,255,.7)}
+.cine-card.t-wise .cc-title{color:#ffd877; text-shadow:0 0 50px rgba(242,193,78,.75), 0 0 12px rgba(255,236,170,.5)}
 
 /* ---------------- the round table: your line ---------------- */
 
@@ -1108,6 +1117,8 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .btn.vote-btn.v-end .vb-label{color:var(--mint)}
 .btn.vote-btn.v-banish, .btn.vote-btn.v-name{border-color:rgba(216,30,64,.45)}
 .btn.vote-btn.v-banish .vb-label, .btn.vote-btn.v-name .vb-label{color:#ff5470}
+.btn.vote-btn.v-wise{border-color:rgba(242,193,78,.5)}
+.btn.vote-btn.v-wise .vb-label{color:var(--gold)}
 .btn.vote-btn:hover:not(:disabled), .btn.vote-btn.nav-on{background:rgba(22,38,56,.95)}
 .btn.vote-btn:disabled{opacity:.34; cursor:default}
 .btn.vote-btn.chosen{
@@ -1126,6 +1137,24 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .vt.in{color:var(--paper); border-color:rgba(242,193,78,.45); background:rgba(30,24,10,.7)}
 .vt.in i{color:var(--gold); opacity:.9}
 .vote-note{font-size:11px; color:var(--muted); letter-spacing:.03em}
+
+/* The Wise One's switch, above the names. Thrown, the whole panel goes
+   gold, so there is no mistaking which kind of slate you are writing. */
+.btn.vote-toggle{
+  align-self:center; display:flex; flex-direction:column; align-items:center; gap:2px;
+  padding:9px 22px; text-transform:none; letter-spacing:0;
+  background:rgba(30,24,10,.85); border:1px dashed rgba(242,193,78,.55); color:var(--gold);
+}
+.vt-label{font-family:var(--display); font-size:15px; letter-spacing:.16em}
+.vt-sub{font-size:10px; opacity:.7; font-weight:600}
+.btn.vote-toggle.on{
+  border-style:solid; border-color:var(--gold); color:#1a1206;
+  background:linear-gradient(180deg, #ffd877, var(--gold-dim));
+  box-shadow:0 0 0 1px var(--gold), 0 0 34px rgba(242,193,78,.45);
+}
+.vote-panel.overrule .btn.vote-btn{border-color:rgba(242,193,78,.6)}
+.vote-panel.overrule .btn.vote-btn .vb-label{color:var(--gold)}
+.vote-panel.overrule .vote-title{color:var(--gold)}
 
 /* A full table of names. Up to four sit in a row on a wide screen; more
    than that become a grid, so eight players are two short rows rather
@@ -1573,6 +1602,37 @@ select.nav-on{outline-offset:2px}
 #floor-bar.open .fb-who{color:var(--mint)}
 #floor-bar.open .fb-clock{color:var(--mint)}
 #floor-bar.open .fb-fill{background:var(--mint)}
+
+/* ---------------- who is talking ----------------
+   Under the floor bar when there is one, at the top when not. Each
+   name wears its coat colour, the same dot as the label over its head. */
+
+#talk-chip{
+  position:fixed; left:50%; top:max(14px, env(safe-area-inset-top)); z-index:46;
+  transform:translate(-50%,-10px); opacity:0; pointer-events:none;
+  display:flex; gap:8px; flex-wrap:wrap; justify-content:center;
+  max-width:calc(100% - 32px);
+  transition:opacity .2s ease, transform .2s ease, top .25s ease;
+}
+#talk-chip.on{opacity:1; transform:translate(-50%,0)}
+#floor-bar.on ~ #talk-chip{top:calc(max(14px, env(safe-area-inset-top)) + 58px)}
+.tc-who{
+  display:flex; align-items:center; gap:8px; padding:6px 12px 6px 10px;
+  border-radius:999px; background:rgba(8,16,26,.84); backdrop-filter:blur(10px);
+  border:1.5px solid var(--tc); box-shadow:var(--shadow);
+  font-size:12px; font-weight:800; letter-spacing:.04em; color:var(--paper);
+  white-space:nowrap;
+}
+.tc-who > i{width:9px; height:9px; border-radius:50%; background:var(--tc)}
+.tc-bars{display:flex; align-items:center; gap:2px; height:12px}
+.tc-bars > b{
+  width:3px; height:100%; border-radius:2px; background:var(--tc);
+  transform-origin:center; animation:tc-bar .9s ease-in-out infinite;
+}
+.tc-bars > b:nth-child(2){animation-delay:-.3s}
+.tc-bars > b:nth-child(3){animation-delay:-.6s}
+@keyframes tc-bar{0%,100%{transform:scaleY(.35)} 50%{transform:scaleY(1)}}
+@media (prefers-reduced-motion: reduce){ .tc-bars > b{animation:none} }
 
 /* ---------------- the board ----------------
    It accuses nobody. That is the design: it prints what happened and
@@ -2154,7 +2214,7 @@ body[data-screen]:not([data-screen=""]):not([data-screen^="hud"]) #agenda-chip{d
 
 /* the day's HUD */
 .tk-hud{position:fixed; inset:0; pointer-events:none; z-index:40; font-family:var(--body); color:var(--paper)}
-.tk-hud .glass, .tk-list, .tk-role, .tk-notes, .tk-map, .tk-clock, .tk-pot, .tk-prompt, .tk-notes-btn{
+.tk-hud .glass, .tk-list, .tk-role, .tk-notes, .tk-map, .tk-clock, .tk-pot, .tk-shield, .tk-prompt, .tk-notes-btn, .tk-room{
   background:linear-gradient(180deg, rgba(14,22,36,.82), rgba(8,13,22,.78)); backdrop-filter:blur(8px);
   border:1px solid rgba(242,193,78,.28); box-shadow:0 10px 30px rgba(0,0,0,.35)}
 .tk-top{position:absolute; top:14px; left:50%; transform:translateX(-50%); display:flex; gap:10px; align-items:stretch}
@@ -2171,6 +2231,13 @@ body[data-screen]:not([data-screen=""]):not([data-screen^="hud"]) #agenda-chip{d
 .tk-pot-pop{position:absolute; left:50%; top:100%; transform:translateX(-50%); font-style:normal;
   font:400 22px/1 var(--display); color:#ffe08a; text-shadow:0 0 14px rgba(242,193,78,.8); opacity:0; white-space:nowrap}
 .tk-pot-pop.go{animation:potPop 1.3s ease-out}
+.tk-shield{display:flex; align-items:center; gap:7px; border-radius:14px; padding:5px 12px 5px 9px; max-width:170px; color:#a9c9ec}
+.tk-shield svg{width:18px; height:18px; flex:none}
+.tk-shield span{display:flex; flex-direction:column; min-width:0}
+.tk-shield small{font-size:8.5px; letter-spacing:.28em; color:#8fa6c0}
+.tk-shield b{font:400 15px/1.1 var(--display); color:#d6e8ff; letter-spacing:.03em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.tk-shield.mine{color:#ffd877; box-shadow:0 0 18px rgba(242,193,78,.35)}
+.tk-shield.mine b{color:#ffe7a6}
 @keyframes potPop{0%{opacity:0; transform:translate(-50%,10px) scale(.7)}15%{opacity:1; transform:translate(-50%,0) scale(1.15)}
   70%{opacity:1}100%{opacity:0; transform:translate(-50%,-34px) scale(1)}}
 @keyframes cgPulse{to{box-shadow:0 0 22px rgba(216,30,64,.75)}}
@@ -2206,7 +2273,16 @@ body[data-screen]:not([data-screen=""]):not([data-screen^="hud"]) #agenda-chip{d
   border-color:rgba(216,30,64,.6); background:linear-gradient(180deg, rgba(56,10,20,.86), rgba(30,6,12,.82))}
 .tk-role b{color:#ff8a9c; letter-spacing:.06em}
 .tk-role.used{border-color:rgba(255,255,255,.2)}
-.tk-map{position:absolute; right:14px; bottom:14px; width:170px; height:170px; border-radius:14px}
+/* the castle is twice as wide as it is deep, and so is its map */
+.tk-map{position:absolute; right:14px; bottom:14px; width:236px; height:128px; border-radius:14px}
+/* where you are, under the clock — and red, saying so, with the door shut */
+.tk-room{position:absolute; top:66px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center;
+  border-radius:10px; padding:4px 12px; white-space:nowrap; text-align:center; transition:border-color .2s, background .2s}
+.tk-room:has(b:empty){display:none}
+.tk-room b{font:400 12.5px/1.25 var(--display); letter-spacing:.12em; color:#e8dcc0; text-transform:uppercase}
+.tk-room small{display:none; font-size:10.5px; color:#ffb3bd; letter-spacing:.03em}
+.tk-room.shut{border-color:var(--crimson); background:linear-gradient(180deg, rgba(56,10,20,.86), rgba(30,6,12,.82))}
+.tk-room.shut small{display:block}
 .tk-notes-btn{position:absolute; left:14px; bottom:14px; pointer-events:auto; color:var(--paper);
   border-radius:12px; padding:8px 14px; font:600 12.5px var(--body); cursor:var(--cur-hand, pointer)}
 .tk-notes-btn b{background:rgba(242,193,78,.85); color:#1a1408; border-radius:4px; padding:1px 6px; margin-right:6px; font-size:11px}
@@ -2216,6 +2292,7 @@ body[data-screen]:not([data-screen=""]):not([data-screen^="hud"]) #agenda-chip{d
 .tk-notes h4{margin:0 0 6px; font:400 15px var(--display); letter-spacing:.08em; color:var(--gold)}
 .tk-notes p{margin:4px 0} .tk-notes p i{color:var(--muted); font-style:normal; margin-right:6px}
 .tk-notes p.hand{color:#ffd48a}
+.tk-notes p.door{color:#ffb3bd}
 .tk-touch{position:absolute; right:18px; bottom:200px; display:none; flex-direction:column; gap:10px; pointer-events:auto}
 .tk-hud.touch .tk-touch, body.touch .tk-touch{display:flex}
 .tk-touch button{width:74px; height:74px; border-radius:50%; border:2px solid var(--gold); background:rgba(20,28,40,.8); color:var(--gold); font:700 12px var(--body)}
@@ -2249,7 +2326,7 @@ body.touch .tk-prompt{bottom:calc(9vh + 150px + env(safe-area-inset-bottom)); wh
   max-width:calc(100vw - 24px); width:max-content}
 body.touch .tk-prompt kbd{display:none}
 body.touch .tk-map{bottom:auto; top:calc(max(14px, env(safe-area-inset-top)) + 58px)}
-body.touch .tk-role{top:calc(max(14px, env(safe-area-inset-top)) + 58px + 182px)}
+body.touch .tk-role{top:calc(max(14px, env(safe-area-inset-top)) + 58px + 140px)}
 body.touch .tk-list{top:calc(max(14px, env(safe-area-inset-top)) + 58px)}
 body.touch .tk-fold{display:inline}
 body.touch .tk-list-head{pointer-events:auto; cursor:var(--cur-hand, pointer)}
@@ -2264,14 +2341,21 @@ body.touch .tk-leave b{display:none}
   .tk-clock-ring{width:22px; height:22px}
   .tk-pot{padding:4px 13px}
   .tk-pot b{font-size:17px}
+  .tk-shield{max-width:112px; padding:4px 9px 4px 7px; gap:5px}
+  .tk-shield svg{width:15px; height:15px}
+  .tk-shield b{font-size:13px}
   .tk-list{left:max(8px, env(safe-area-inset-left)); top:calc(max(8px, env(safe-area-inset-top)) + 50px);
-    width:calc(100vw - 132px); max-width:260px; padding:8px 10px 6px; font-size:11.5px}
+    width:calc(100vw - 162px); max-width:260px; padding:8px 10px 6px; font-size:11.5px}
   .tk-list h4{font-size:13.5px}
   .tk-list li{font-size:11.5px; padding:3px 4px; margin:2px 0}
   .tk-list li.done{display:none}
-  .tk-map, body.touch .tk-map{width:104px; height:104px; right:max(8px, env(safe-area-inset-right));
+  .tk-map, body.touch .tk-map{width:136px; height:74px; border-radius:11px; right:max(8px, env(safe-area-inset-right));
     bottom:auto; top:calc(max(8px, env(safe-area-inset-top)) + 50px)}
-  .tk-role, body.touch .tk-role{right:max(8px, env(safe-area-inset-right)); top:calc(max(8px, env(safe-area-inset-top)) + 162px);
+  /* under the map, and the role card under that */
+  .tk-room{left:auto; right:max(8px, env(safe-area-inset-right)); transform:none; top:calc(max(8px, env(safe-area-inset-top)) + 130px);
+    max-width:min(170px, 42vw); white-space:normal; padding:3px 8px; align-items:flex-end; text-align:right}
+  .tk-room b{font-size:11px}
+  .tk-role, body.touch .tk-role{right:max(8px, env(safe-area-inset-right)); top:calc(max(8px, env(safe-area-inset-top)) + 160px);
     max-width:min(170px, 42vw); font-size:11px; padding:7px 9px}
   .tk-prompt{font-size:13px; padding:8px 13px}
   .tk-notes{width:calc(100vw - 20px); max-height:40vh}
@@ -2279,13 +2363,17 @@ body.touch .tk-leave b{display:none}
 /* A phone on its side: short, so the list is capped and the map shrinks. */
 @media (max-height:560px) and (orientation:landscape){
   .tk-top, .tk-practice{top:max(6px, env(safe-area-inset-top))}
+  /* the bar stays two wide, between the list and the map: the shield hangs under it */
+  .tk-shield{position:absolute; top:calc(100% + 5px); left:50%; transform:translateX(-50%); padding:3px 9px 3px 7px}
   .tk-list, body.touch .tk-list{top:max(8px, env(safe-area-inset-top)); left:max(10px, env(safe-area-inset-left));
     width:min(250px, 34vw); max-height:calc(100dvh - 9vh - 150px); overflow:hidden; padding:7px 10px 5px}
   .tk-list li{font-size:11px; padding:2px 4px; margin:1px 0}
   .tk-list li.done{display:none}
-  .tk-map, body.touch .tk-map{width:92px; height:92px; bottom:auto; top:max(8px, env(safe-area-inset-top));
+  .tk-map, body.touch .tk-map{width:128px; height:70px; border-radius:11px; bottom:auto; top:max(8px, env(safe-area-inset-top));
     right:max(10px, env(safe-area-inset-right))}
-  .tk-role, body.touch .tk-role{top:calc(max(8px, env(safe-area-inset-top)) + 100px); right:max(10px, env(safe-area-inset-right));
+  .tk-room{left:auto; right:max(10px, env(safe-area-inset-right)); transform:none; top:calc(max(8px, env(safe-area-inset-top)) + 82px);
+    max-width:min(200px, 28vw); white-space:normal; padding:3px 8px; align-items:flex-end; text-align:right}
+  .tk-role, body.touch .tk-role{top:calc(max(8px, env(safe-area-inset-top)) + 110px); right:max(10px, env(safe-area-inset-right));
     max-width:min(200px, 28vw); font-size:11px}
   body.touch .tk-touch .tk-use{width:80px; height:80px}
   body.touch .tk-touch .tk-poison{width:60px; height:60px}
@@ -2749,7 +2837,7 @@ button.cg-thing.got{box-shadow:0 0 0 3px #ff4d5e, 0 0 12px rgba(255,77,94,.6); b
    width of the window with a tile exactly one window wide, so sliding
    it one tile is a seamless loop. */
 .play-mist{
-  position:absolute; left:0; right:0; bottom:0; height:46vh; z-index:0;
+  position:fixed; left:0; right:0; bottom:0; height:46vh; z-index:0;
   overflow:hidden; pointer-events:none;
   -webkit-mask-image:linear-gradient(180deg, transparent 0%, #000 60%);
           mask-image:linear-gradient(180deg, transparent 0%, #000 60%);
@@ -2770,7 +2858,7 @@ button.cg-thing.got{box-shadow:0 0 0 3px #ff4d5e, 0 0 12px rgba(255,77,94,.6); b
 /* Film grain over the backdrop only — it sits under the deck, so not
    one letter of anything you read is grained. */
 .screen.play:after{
-  content:''; position:absolute; inset:0; z-index:0; pointer-events:none;
+  content:''; position:fixed; inset:0; z-index:0; pointer-events:none;
   opacity:.07; mix-blend-mode:overlay;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }

@@ -314,10 +314,11 @@ test('a tie is revoted between the tied; tied again, a lot is drawn', () => {
   ok(S.state.finale.lot, 'and says it was a lot');
 });
 
-test('the banished say who they were, and the table carries on to bed', () => {
+test('the banished say who they were, and the table carries on to the next day', () => {
   const ctx = fresh();
   const S = ctx.Session;
-  S.startParty({ seed: 9, players: roster(8), mode: 'host', rehearsal: true, parts: ['table', 'night', 'finale'] });
+  S.startParty({ seed: 9, players: roster(8), mode: 'host', rehearsal: true, parts: ['table', 'finale'] });
+  eq(S.state.phase, 'table', 'straight to the table');
   const seats = S._peek().seats;
   const faithful = S.alive().find(p => seats.indexOf(p.seat) < 0);
   let told = null;
@@ -331,7 +332,7 @@ test('the banished say who they were, and the table carries on to bed', () => {
   eq(told.role, 'faithful');
   eq(S.state.banished[0].role, 'faithful', 'on the record');
   S.dispatch({ type: 'advance' });
-  eq(S.state.phase, 'night', 'and then to bed');
+  eq([S.state.phase, S.state.day], ['table', 1], 'and on to the next day\'s table');
 });
 
 H.report();

@@ -218,6 +218,7 @@ class CastleScene {
     // a phone without scrolling
     if (root.dataset) root.dataset.n = String(spec.options.length);
     if (root.parentElement) root.parentElement.classList.toggle('many', spec.options.length > 4);
+    this._voteToggle(root, spec.toggle);
     const you = Session.state.players.find(p => p.local);
     for (const opt of spec.options) {
       const b = document.createElement('button');
@@ -231,7 +232,8 @@ class CastleScene {
         [...root.children].forEach(c => c.classList.remove('chosen'));
         b.classList.add('chosen');
         AudioBus.play('ui-click');
-        Net.send(Object.assign({ playerId: you ? you.id : null }, opt.action));
+        const action = typeof opt.action === 'function' ? opt.action() : opt.action;
+        Net.send(Object.assign({ playerId: you ? you.id : null }, action));
         if (spec.onPick) spec.onPick(opt);
       });
       root.appendChild(b);
@@ -241,7 +243,34 @@ class CastleScene {
     Screens.show('vote');
   }
 
+  /* One switch above the names, for a panel that has a mode as well as
+     a choice — the Wise One's overrule. It lives outside the grid so the
+     grid's count of names still decides its shape. */
+  _voteToggle(root, toggle) {
+    const panel = root.parentElement;
+    const old = document.getElementById('vote-extra');
+    if (old && old.parentElement) old.parentElement.removeChild(old);
+    if (panel && panel.classList) panel.classList.remove('overrule');
+    if (!toggle || !panel || !panel.insertBefore) return;
+    const b = document.createElement('button');
+    b.id = 'vote-extra';
+    b.className = 'btn vote-toggle';
+    b.innerHTML = '<span class="vt-label">' + castleEsc(toggle.label) + '</span>'
+                + '<span class="vt-sub">' + castleEsc(toggle.sub || '') + '</span>';
+    b.addEventListener('mouseenter', () => AudioBus.play('ui-hover'));
+    b.addEventListener('click', () => {
+      const on = !b.classList.contains('on');
+      b.classList.toggle('on', on);
+      panel.classList.toggle('overrule', on);
+      AudioBus.play(on ? 'card-in' : 'ui-click', { tone: 'traitor' });
+      toggle.onChange(on, b);
+    });
+    panel.insertBefore(b, root);
+  }
+
   _closeVote() {
+    const extra = document.getElementById('vote-extra');
+    if (extra && extra.parentElement) extra.parentElement.removeChild(extra);
     if (Screens.current === 'vote') Screens.hideAll();
     if (this.stage) this.stage.setControls(true);
   }
@@ -266,6 +295,16 @@ class CastleScene {
      slate and the name is said out loud; the hits climb as they go. */
   async _slates(roomKey) {
     let guard = 0, said = 0;
+    /* The Wise One has overruled. The room is told before a slate turns
+       — not whose, only that one of them outranks the rest — and that
+       slate is the last. */
+    const armed = () => { const o = Session.state.finale.overrule; return !!(o && o.armed && !o.by); };
+    if (armed()) {
+      if (this.music) this.music.stinger('overrule-warn', { at: 'beat' });
+      this._react(['gasp', 'handChest', 'shake'], null, 0.6);
+      await this._say('overruleWarn', {}, 'claudia');
+      if (!this._alive) return;
+    }
     while (this._alive && guard++ < 10) {
       const s = Session.state;
       const f = s.finale;
@@ -276,6 +315,10 @@ class CastleScene {
         if (Session.isHost) Net.send({ type: 'speakName', playerId: f.nameQueue[0] });
         await this._waitFor(() => Session.state.finale.nameQueue[0] !== (voter && voter.id), 4000);
         continue;
+      }
+      if (armed() && f.nameQueue.length === 1) {
+        await this._overrule(voter, target, roomKey + '-slate-' + f.nameRound + '-' + voter.id);
+        break;
       }
       Scenes.Cine.card({ kicker: voter.local ? 'Your slate' : voter.name + '’s slate',
                          title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'bad' });
@@ -296,6 +339,65 @@ class CastleScene {
         || Session.state.finale.nameQueue[0] !== before, 6000);
       await this._sleep(0.3);
     }
+    Scenes.Cine.card(null);
+  }
+
+  /* The last slate, and the one that decides. The roll and the riser
+     under Claudia, the camera on the voter, the slate turned by the
+     authority — and then silence, and the biggest hit the band has, and
+     the Wise One's name, and the name they wrote. */
+  async _overrule(voter, target, key) {
+    const st = this.stage;
+    const music = this.music;
+    if (music) {
+      music.section('overruleRise', { at: 'beat', glide: 0.3 });
+      music.riser(4.2);
+    }
+    Scenes.Cine.card(null);
+    await Scenes.Drama.hush(st, null, 'on:' + voter.id, { hold: 0.3, silent: false, speed: 1.4 });
+    if (!this._alive) return;
+    await this._say('overruleTurn', {}, null);
+    if (!this._alive) return;
+    await Scenes.barrier(key);
+    if (!this._alive) return;
+    if (Session.isHost) Net.send({ type: 'speakName', playerId: voter.id });
+    await this._waitFor(() => Session.state.finale.stage !== 'names'
+      || Session.state.finale.nameQueue[0] !== voter.id, 6000);
+    if (!this._alive) return;
+    const o = Session.state.finale.overrule;
+    const real = !!(o && o.by === voter.id);
+
+    // the breath, then the blow
+    await Scenes.Drama.hush(st, music, 'on:' + voter.id, { hold: 0.9, speed: 2.4 });
+    if (!this._alive) return;
+    Scenes.Drama.hit(st, music, real ? 'overrule' : 'slate-turn',
+                     { shake: real ? 0.8 : 0.3, flash: real ? 'rgba(230,186,80,.7)' : null, haptic: 90 });
+    if (music && real) music.section('overrule', { at: 'now', glide: 0.1 });
+    Scenes.Cine.card(real
+      ? { kicker: 'The Wise One', title: voter.local ? 'YOU' : voter.name.toUpperCase(), tone: 'wise',
+          sub: (voter.local ? 'You overrule' : 'Overrules') + ' the round table.' }
+      : { kicker: voter.local ? 'Your slate' : voter.name + '’s slate',
+          title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'bad' });
+    if (st && st.act) st.act(voter.id, 'nod');
+    this._react(['gasp', 'handsFace', 'shake', 'handChest'], voter.id, 0.9);
+    if (real) {
+      await this._sleep(1.0);
+      if (!this._alive) return;
+      await this._say(this._setFor('overruleName', voter), { name: voter.name }, null);
+      if (!this._alive) return;
+      Scenes.Drama.shot(st, 'on:' + target.id);
+      this._accuse(voter.id, target.id);
+      if (music) music.stinger('name', { n: 4 });
+      Scenes.Cine.card({ kicker: (voter.local ? 'You name' : voter.name + ' names'),
+                         title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'bad',
+                         sub: 'The table’s vote does not count.' });
+    } else this._accuse(voter.id, target.id);
+    await Scenes.run([{
+      line: { text: (voter.local ? 'You vote' : voter.name + ' votes') + ' for '
+                    + (target.local ? 'you' : target.name) + '.' },
+      hold: 0.6,
+    }], this);
+    Scenes.Drama.end(st, music);
     Scenes.Cine.card(null);
   }
 

@@ -94,38 +94,71 @@ const Chores = (() => {
                  'the bagpipes', 'a stack of tartan blankets', 'the old map', 'a tray of oatcakes',
                  'the laird’s sword', 'a crate of claret', 'the guest book', 'a storm lantern'];
 
-  /* Where they are. Rooms off the beaten track — the turret, the
-     bedrooms, the far end of the corridor — are deliberate: a job that
-     takes you somewhere quiet is a job that might get you killed. */
+  /* Where they are, all over the house. Rooms off the beaten track —
+     the turret, the chapel, the study, the bedrooms, anywhere with a
+     door that shuts — are deliberate: a job that takes you somewhere
+     quiet is a job that might get you killed. */
   const STATIONS = [
     { id: 'hall-desk',       room: 'hall',          x: -5.6, z: 16.4, type: 'letters', label: 'the porter’s desk' },
     { id: 'hall-clock',      room: 'hall',          x: -5.8, z: 6.0,  type: 'bells',   label: 'the long-case clock' },
     { id: 'hall-hearth',     room: 'hall',          x: 4.6,  z: 9.4,  type: 'bellows', label: 'the hall fire' },
     { id: 'passage-armour',  room: 'west-passage',  x: -8.5, z: 9.7,  type: 'tartan',  label: 'the suit of armour' },
-    { id: 'great-sideboard', room: 'great',         x: -11.2, z: 0.4, type: 'pour',    label: 'the sideboard' },
-    { id: 'great-portrait',  room: 'great',         x: -20.8, z: 17.0, type: 'safe',   label: 'the laird’s portrait' },
     { id: 'great-harp',      room: 'great',         x: -11.2, z: 18.6, type: 'tune',   label: 'the harp' },
     { id: 'great-hearth',    room: 'great',         x: -19.4, z: 5.6,  type: 'candles', label: 'the great hearth' },
+    { id: 'great-table',     room: 'great',         x: -13.6, z: 9.0, type: 'pairs',   label: 'the long table' },
     { id: 'round-chart',     room: 'round',         x: -5.4, z: -10.2, type: 'wires',  label: 'the chandelier winch' },
     { id: 'round-cabinet',   room: 'round',         x: 5.4,  z: -10.2, type: 'safe',   label: 'the strong cabinet' },
+    { id: 'round-scales',    room: 'round',         x: -3.2, z: -12.2, type: 'scales', label: 'the factor’s scales' },
     { id: 'turret-bell',     room: 'turret',        x: -2.2, z: -24.4, type: 'bells',  label: 'the turret bell' },
     { id: 'turret-desk',     room: 'turret',        x: 2.2,  z: -24.4, type: 'candles', label: 'the conspirators’ desk' },
+    { id: 'turret-brew',     room: 'turret',        x: 0.0,  z: -25.6, type: 'brew',   label: 'the still' },
     { id: 'corridor-linen',  room: 'corridor',      x: 24.6, z: 13.5, type: 'letters', label: 'the linen press' },
     { id: 'corridor-lamp',   room: 'corridor',      x: 15.0, z: 12.6, type: 'wires',   label: 'the corridor lamps' },
-    { id: 'corridor-door',   room: 'corridor',      x: 9.0,  z: 14.4, type: 'lock',    label: 'the locked press' },
-    { id: 'great-rafters',   room: 'great',         x: -20.6, z: -0.8, type: 'bats',   label: 'the rafters' },
-    { id: 'round-door',      room: 'round',         x: 6.4,  z: -3.0, type: 'lock',    label: 'the chamber strongbox' },
-    { id: 'turret-brew',     room: 'turret',        x: 0.0,  z: -25.6, type: 'brew',   label: 'the still' },
-    { id: 'hall-rafters',    room: 'hall',          x: 5.8,  z: 16.6, type: 'bats',    label: 'the minstrels’ gallery' },
-    { id: 'great-table',     room: 'great',         x: -13.6, z: 9.0, type: 'pairs',   label: 'the long table' },
-    { id: 'hall-portraits',  room: 'hall',          x: 5.6,  z: 4.8,  type: 'frames',  label: 'the ancestors’ wall' },
     { id: 'corridor-portraits', room: 'corridor',   x: 20.5, z: 12.6, type: 'frames',  label: 'the corridor portraits' },
-    { id: 'round-forgery',   room: 'round',         x: -6.4, z: -3.0, type: 'spot',    label: 'the twin paintings' },
-    { id: 'round-scales',    room: 'round',         x: -3.2, z: -12.2, type: 'scales', label: 'the factor’s scales' },
-    { id: 'hall-cellar',     room: 'hall',          x: -5.8, z: 13.8, type: 'bottles', label: 'the wine rack' },
-    { id: 'great-cellaret',  room: 'great',         x: -11.2, z: 5.0, type: 'bottles', label: 'the cellaret' },
-    { id: 'north-pantry',    room: 'north-passage', x: 0.9,  z: 3.0,  type: 'mouse',   label: 'the pantry hatch' },
-    { id: 'turret-cistern',  room: 'turret',        x: -3.0, z: -20.6, type: 'pipes',  label: 'the cistern' },
+    // the west wing
+    { id: 'library-safe',    room: 'library',       x: -20.9, z: -8.2, type: 'safe',   label: 'the safe behind the shelves' },
+    { id: 'chapel-belfry',   room: 'chapel',        x: -28.6, z: -10.6, type: 'bats',  label: 'the chapel belfry' },
+    { id: 'kitchen-rack',    room: 'kitchen',       x: -31.3, z: -0.4, type: 'bottles', label: 'the kitchen wine rack' },
+    { id: 'kitchen-larder',  room: 'kitchen',       x: -32.6, z: -12.9, type: 'mouse',  label: 'the larder' },
+    { id: 'scullery-pipes',  room: 'scullery',      x: -38.6, z: -20.6, type: 'pipes',  label: 'the scullery pipes' },
+    // the east wing
+    { id: 'gallery-portraits', room: 'gallery',     x: 18.0, z: -7.0, type: 'frames',  label: 'the long gallery' },
+    { id: 'gallery-twins',   room: 'gallery',       x: 26.6, z: -7.0, type: 'spot',    label: 'the twin paintings' },
+    { id: 'billiard-decanters', room: 'billiard',   x: 25.4, z: -9.8, type: 'bottles', label: 'the decanters' },
+    { id: 'drawing-tea',     room: 'drawing',       x: 34.0, z: -12.9, type: 'pour',   label: 'the tea tray' },
+    { id: 'study-bureau',    room: 'study',         x: 43.9, z: -6.0, type: 'lock',    label: 'the laird’s bureau' },
+    { id: 'gun-cabinet',     room: 'gun',           x: 38.6, z: 1.2,  type: 'lock',    label: 'the gun cabinet' },
+    { id: 'conservatory-vines', room: 'conservatory', x: 40.2, z: 18.2, type: 'bats',  label: 'the vine-house roof' },
+    /* A second job in every corner, so there is always one a few steps
+       away and the day is spent working, not walking. */
+    { id: 'hall-console',    room: 'hall',          x: 4.3,  z: 16.3, type: 'candles', label: 'the console table' },
+    { id: 'hall-armour',     room: 'hall',          x: -2.2, z: 5.8,  type: 'lock',    label: 'the armour’s gauntlet' },
+    { id: 'great-sideboard', room: 'great',         x: -16.0, z: -0.6, type: 'pour',   label: 'the high table sideboard' },
+    { id: 'great-landscape', room: 'great',         x: -16.0, z: 18.8, type: 'frames', label: 'the great landscape' },
+    { id: 'great-silver',    room: 'great',         x: -11.6, z: 14.4, type: 'bottles', label: 'the silver sideboard' },
+    { id: 'round-banners',   room: 'round',         x: 4.5,  z: -1.8, type: 'tartan',  label: 'the clan banners' },
+    { id: 'turret-cloaks',   room: 'turret',        x: -2.9, z: -20.5, type: 'pairs',  label: 'the cloak pegs' },
+    { id: 'corridor-press',  room: 'corridor',      x: 9.5,  z: 14.4, type: 'lock',    label: 'the locked press' },
+    { id: 'corridor-window', room: 'corridor',      x: 27.0, z: 14.3, type: 'window',  label: 'the corridor window' },
+    { id: 'library-globe',   room: 'library',       x: -12.2, z: -7.4, type: 'spot',   label: 'the old map' },
+    { id: 'library-tables',  room: 'library',       x: -20.0, z: -4.3, type: 'letters', label: 'the reading tables' },
+    { id: 'chapel-altar',    room: 'chapel',        x: -25.0, z: -19.0, type: 'candles', label: 'the altar' },
+    { id: 'chapel-harmonium', room: 'chapel',       x: -25.0, z: -12.6, type: 'tune',  label: 'the harmonium' },
+    { id: 'kitchen-hearth',  room: 'kitchen',       x: -40.2, z: -5.75, type: 'bellows', label: 'the roasting hearth' },
+    { id: 'kitchen-table',   room: 'kitchen',       x: -34.0, z: -5.75, type: 'brew',  label: 'the kitchen table' },
+    { id: 'kitchen-dresser', room: 'kitchen',       x: -31.0, z: -11.2, type: 'pairs', label: 'the plate dresser' },
+    { id: 'scullery-window', room: 'scullery',      x: -40.4, z: -16.6, type: 'window', label: 'the scullery window' },
+    { id: 'gallery-armour',  room: 'gallery',       x: 38.2, z: -5.0, type: 'tartan',  label: 'the gallery armour' },
+    { id: 'gallery-seat',    room: 'gallery',       x: 32.3, z: -3.7, type: 'window',  label: 'the window seat' },
+    { id: 'billiard-table',  room: 'billiard',      x: 22.0, z: -15.2, type: 'scales', label: 'the billiard table' },
+    { id: 'billiard-cues',   room: 'billiard',      x: 17.2, z: -12.5, type: 'spot',   label: 'the cue rack' },
+    { id: 'drawing-piano',   room: 'drawing',       x: 31.2, z: -11.6, type: 'tune',   label: 'the grand piano' },
+    { id: 'drawing-fire',    room: 'drawing',       x: 34.0, z: -16.3, type: 'bellows', label: 'the drawing-room fire' },
+    { id: 'study-shelves',   room: 'study',         x: 46.6, z: -9.8,  type: 'letters', label: 'the study shelves' },
+    { id: 'study-strongbox', room: 'study',         x: 44.0, z: -1.0, type: 'safe',    label: 'the strongbox' },
+    { id: 'gun-map',         room: 'gun',           x: 34.0, z: 4.4,  type: 'spot',    label: 'the map table' },
+    { id: 'conservatory-fountain', room: 'conservatory', x: 36.0, z: 11.4, type: 'pipes', label: 'the fountain' },
+    { id: 'conservatory-palms', room: 'conservatory', x: 32.6, z: 9.6, type: 'pour',   label: 'the palms' },
   ];
   for (let k = 0; k < 8; k++) {
     const north = k < 4, i = k % 4, x0 = 8 + 4 * i;
@@ -133,12 +166,20 @@ const Chores = (() => {
                     type: 'tartan', label: 'the trunk at the foot of the bed', bed: k });
     STATIONS.push({ id: 'bed' + k + '-window', room: 'bed' + k, x: x0 + 3, z: north ? 8.7 : 18.3,
                     type: 'window', label: 'the bedroom window', bed: k });
+    STATIONS.push({ id: 'bed' + k + '-wardrobe', room: 'bed' + k, x: x0 + 2.75, z: north ? 10.4 : 16.6,
+                    type: 'lock', label: 'the wardrobe', bed: k });
+    STATIONS.push({ id: 'bed' + k + '-portrait', room: 'bed' + k, x: x0 + 0.7, z: north ? 11.1 : 15.9,
+                    type: 'frames', label: 'the bedroom portrait', bed: k });
   }
 
   const ROOM_NAMES = {
     hall: 'the Entrance Hall', 'west-passage': 'the West Passage', great: 'the Great Hall',
     'north-passage': 'the North Passage', round: 'the Round Table Chamber', stair: 'the Turret Stair',
     turret: 'the Turret', corridor: 'the Bedroom Corridor',
+    library: 'the Library', chapel: 'the Chapel', kitchen: 'the Kitchen', scullery: 'the Scullery',
+    'west-link': 'the Library Passage', 'east-link': 'the Gallery Passage', gallery: 'the Long Gallery',
+    billiard: 'the Billiard Room', drawing: 'the Drawing Room', study: 'the Laird’s Study',
+    gun: 'the Gun Room', conservatory: 'the Conservatory',
   };
   const roomName = (id) => ROOM_NAMES[id] || (/^bed\d$/.test(id || '') ? 'a bedroom' : 'the castle');
 
@@ -152,26 +193,45 @@ const Chores = (() => {
   const poolFor = (player) => STATIONS.filter(s => s.bed === undefined || s.bed === player.seat % 8);
 
   /* `n` stations of as many different kinds as the deck allows, none
-     of them in `avoid`. */
-  function pickStations(rng, player, n, avoid, wantQuiet) {
+     of them in `avoid`. After the first, each is one of the nearest few
+     to the one before (or to `from`), in the next room along where it
+     can be, so a list is a round of one part of the house rather than a
+     march from wing to wing. */
+  const NEAREST = 8;
+  function pickStations(rng, player, n, avoid, wantQuiet, from) {
     const pool = poolFor(player).filter(s => !avoid.has(s.id));
     const picked = [];
     const usedTypes = new Set();
     const take = (s) => { picked.push(s); usedTypes.add(s.type); };
     if (wantQuiet) {
-      const quiet = pool.filter(s => s.room === 'turret' || s.room === 'corridor' || s.bed !== undefined);
+      const quiet = pool.filter(s => (typeof CastleLayout !== 'undefined' && (CastleLayout.byId(s.room) || {}).quiet)
+                                     || s.room === 'turret' || s.bed !== undefined);
       if (quiet.length) take(quiet[rng.int(0, quiet.length - 1)]);
     }
     const shuffled = shuffle(rng, pool);
-    for (const s of shuffled) if (picked.length < n && !picked.includes(s) && !usedTypes.has(s.type)) take(s);
-    for (const s of shuffled) if (picked.length < n && !picked.includes(s)) take(s);
+    while (picked.length < n) {
+      const last = picked.length ? picked[picked.length - 1] : from;
+      let left = shuffled.filter(s => !picked.includes(s));
+      if (!left.length) break;
+      if (last) {
+        left = left.map(s => [Math.hypot(s.x - last.x, s.z - last.z) + rng() * 4, s])
+          .sort((a, b) => a[0] - b[0]).map(e => e[1]).slice(0, NEAREST);
+      }
+      // next door rather than the same room: a list still moves you about
+      take(left.find(s => !usedTypes.has(s.type) && (!last || s.room !== last.room))
+        || left.find(s => !usedTypes.has(s.type)) || left[0]);
+    }
     return picked;
   }
 
+  /* An errand crosses the house, but not the whole of it: the far end
+     is another room within a short walk, not the other wing. */
+  const ERRAND = 24;
   function carry(rng, player, id, avoid) {
     const pool = shuffle(rng, poolFor(player).filter(s => !avoid.has(s.id)));
     const from = pool[0];
-    const to = pool.find(s => s.room !== from.room) || pool[1];
+    const to = pool.find(s => s.room !== from.room && Math.hypot(s.x - from.x, s.z - from.z) <= ERRAND)
+      || pool.find(s => s.room !== from.room) || pool[1];
     return { id, kind: 'carry', from: from.id, to: to.id, item: ITEMS[rng.int(0, ITEMS.length - 1)],
              step: 0, done: false };
   }
@@ -199,7 +259,9 @@ const Chores = (() => {
      and nobody can say they had nothing to do. */
   function more(rng, player, list) {
     const recent = new Set(list.slice(-4).map(j => j.station || j.to).filter(Boolean));
-    const picked = pickStations(rng, player, 2, recent, false);
+    // carry on from wherever the last job left them
+    const last = list.slice().reverse().map(placeOf).find(Boolean);
+    const picked = pickStations(rng, player, 2, recent, false, last ? station(last) : null);
     const out = picked.map((s, i) => ({ id: 'c' + (list.length + i), kind: 'station', station: s.id, type: s.type,
                                          seed: rng.int(1, 0x7ffffff), done: false }));
     out.push(carry(rng, player, 'c' + (list.length + out.length), new Set(picked.map(s => s.id))));

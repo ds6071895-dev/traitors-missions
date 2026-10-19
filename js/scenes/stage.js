@@ -423,6 +423,7 @@ const Stage = (() => {
 
     let tracking = null;               // a figure the scripted camera keeps its eye on
     let speakingId = null;
+    let voiceId = null;                // whoever is audibly talking, floor or no floor
     let claudiaFocus = null;           // overrides who she is looking at
     let gaze = null;                   // overrides who everybody is looking at
     /* Somebody new has the floor. Everybody turns to them anyway (the
@@ -552,11 +553,26 @@ const Stage = (() => {
       land.update(dt, camera.position, t);
       if (!indoors) Sky.update(dt, camera.position, t);
 
+      /* Who you can hear, whether or not anybody gave them the floor.
+         At the open table, on the hill and round the castle the AIs
+         just talk, and three voices with no face moving are three
+         voices you cannot tell apart. The one with the most recent
+         claim keeps the room until they stop, so two people talking
+         at once does not whip every head between them. */
+      const hearing = typeof VoiceChat !== 'undefined' && VoiceChat.talking;
+      if (!hearing || !VoiceChat.talking(voiceId)) {
+        voiceId = null;
+        if (hearing) for (const id of VoiceChat.talkers()) {
+          if (seats.some(s => s.id === id && !s.local)) { voiceId = id; break; }
+        }
+      }
+      const focusId = speakingId || voiceId;
+
       Figure.update(claudia, dt, t);
       EstateMaterials.figureLOD(claudia,camera);
       Figure.lookAt(claudia, claudiaFocus
-        || (speakingId && speakingId !== 'claudia'
-          ? (seats.find(s => s.id === speakingId) || { pos: camera.position }).pos
+        || (focusId && focusId !== 'claudia'
+          ? (seats.find(s => s.id === focusId) || { pos: camera.position }).pos
           : camera.position));
       for (let i = reactions.length - 1; i >= 0; i--) {
         const r = reactions[i];
@@ -568,6 +584,9 @@ const Stage = (() => {
       for (const f of figures) {
         if (!f) continue;
         stepWalk(f, dt);
+        const pid = f.userData.playerId;
+        const heard = !!hearing && VoiceChat.talking(pid);
+        Nametag.setLit(f.userData.tag, heard);
         f.visible = !f.userData.hidden
           && f.position.distanceTo(camera.position)<65;
         /* Not over a scripted shot. The pouch going into the fire is
@@ -581,14 +600,18 @@ const Stage = (() => {
                        f.position.y + h + 0.30 - drop, f.position.z, camera);
         } else Nametag.hide(f.userData.tag);
         if (!f.visible) continue;
+        /* The jaw follows the real voice when there is one; a floor
+           holder who is quiet still gets the made-up syllables. */
+        const lv = heard ? VoiceChat.level(pid) : 0;     // 0: an offline bot, no meter
+        Figure.setSpeaking(f, heard || speakingId === pid, lv > 0 ? lv : undefined);
         Figure.update(f, dt, t);
         EstateMaterials.figureLOD(f,camera);
         if (f.userData.walk || o.free) continue;
         const restFocus = claudia.visible ? cPos : V(0, f.position.y + 1.2, 0);
         if (gaze) { Figure.lookAt(f, gaze); continue; }
-        Figure.lookAt(f, speakingId === 'claudia' || !speakingId
+        Figure.lookAt(f, focusId === 'claudia' || !focusId || focusId === pid
           ? restFocus
-          : (seats.find(s => s.id === speakingId) || { pos: restFocus }).pos);
+          : (seats.find(s => s.id === focusId) || { pos: restFocus }).pos);
       }
 
       if (fire) {
@@ -800,9 +823,9 @@ const Stage = (() => {
     return {
       wood: EstateMaterials.material('timber', { color: '#9a6e50', roughness: 0.42 }),
       cloth: cloth === 'velvet'
-        ? new THREE.MeshStandardMaterial({ color: '#741521', roughness: 0.82 })
+        ? CastleSurfaces.material('velvet', { color: '#741521', roughness: 0.82 })
         : new THREE.MeshStandardMaterial({ map: CastleProps.tartan(cloth || 'stewart'), roughness: 0.9 }),
-      brass: new THREE.MeshStandardMaterial({ color: '#d4ab55', roughness: 0.35, metalness: 0.45 }),
+      brass: CastleSurfaces.material('metal', { color: '#d4ab55', roughness: 0.35, metalness: 0.45 }),
     };
   }
 
@@ -837,7 +860,7 @@ const Stage = (() => {
     }
   }
   const flameMats = () => [
-    new THREE.MeshStandardMaterial({ color: '#f2ead6', roughness: 0.6 }),
+    CastleSurfaces.material('wax', { color: '#f2ead6', roughness: 0.6 }),
     new THREE.MeshBasicMaterial({ color: '#ffb54d' }),
     new THREE.MeshBasicMaterial({ color: '#fff3c4' }),
   ];
@@ -934,9 +957,9 @@ const Stage = (() => {
       leg.position.set(sx * (width / 2 - 0.12), 0, cz + sz * (len / 2 - 0.25));
       g.add(leg);
     }
-    const china = new THREE.MeshStandardMaterial({ color: '#f2efe8', roughness: 0.3 });
-    const silver = new THREE.MeshStandardMaterial({ color: '#d0d2d4', metalness: 0.5, roughness: 0.25 });
-    const linen = new THREE.MeshStandardMaterial({ color: '#ece5d6', roughness: 1 });
+    const china = CastleSurfaces.material('china', { color: '#f2efe8', roughness: 0.3 });
+    const silver = CastleSurfaces.material('metal', { color: '#d6d8da', metalness: 0.5, roughness: 0.25 });
+    const linen = CastleSurfaces.material('linen', { color: '#ece5d6', roughness: 1 });
     const plateG = CastleProps.lathe([[0.0, 0], [0.1, 0], [0.12, 0.008], [0.17, 0.018], [0.175, 0.024], [0.16, 0.02], [0.11, 0.012], [0, 0.012]], 24);
     const gobletG = CastleProps.lathe([[0.04, 0], [0.035, 0.008], [0.008, 0.02], [0.008, 0.09], [0.035, 0.11], [0.045, 0.17], [0.041, 0.17], [0.03, 0.115], [0, 0.11]], 14);
     for (const s of seats) {
@@ -956,9 +979,9 @@ const Stage = (() => {
     // down the middle: candelabra, bread on boards, bowls of fruit, jugs
     const [wax, flame, core] = flameMats();
     const candles = [];
-    const bread = new THREE.MeshStandardMaterial({ color: '#b07a3e', roughness: 0.9 });
+    const bread = CastleSurfaces.material('crust', { color: '#b8803f', roughness: 0.9 });
     const fruitCols = ['#a8241e', '#6f9a2a', '#e08a1e', '#b5302a', '#7aa232'];
-    const fruits = fruitCols.map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5 }));
+    const fruits = fruitCols.map(c => CastleSurfaces.material('skin', { color: c, roughness: 0.5 }));
     for (let i = 0; i < 4; i++) {
       const z = cz - len / 2 + 0.95 + i * ((len - 1.9) / 3);
       if (i === 1 || i === 2) {
@@ -1009,22 +1032,22 @@ const Stage = (() => {
     const top = new THREE.Mesh(new THREE.CylinderGeometry(0.74, 0.74, 0.06, 48), dark);
     top.position.y = TOP - 0.03; g.add(top);
     const cloth = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.006, 48),
-      new THREE.MeshStandardMaterial({ color: '#5e101a', roughness: 0.85 }));
+      CastleSurfaces.material('velvet', { color: '#661220', roughness: 0.85 }));
     cloth.position.y = TOP + 0.003; g.add(cloth);
     const ped = new THREE.Mesh(CastleProps.lathe([[0.32, 0], [0.33, 0.04], [0.16, 0.1], [0.11, 0.3], [0.15, 0.45],
                                                   [0.1, 0.62], [0.26, 0.7], [0, 0.74]], 24), dark);
     g.add(ped);
     const map = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.4),
-      new THREE.MeshStandardMaterial({ color: '#d4c091', roughness: 1, side: THREE.DoubleSide }));
+      CastleSurfaces.material('parchment', { roughness: 1, side: THREE.DoubleSide }));
     map.rotation.x = -Math.PI / 2; map.rotation.z = 0.3; map.position.set(0.12, TOP + 0.0075, 0.1); g.add(map);
     // rolled ends, in the map's own frame so they sit on it
     for (const e of [-1, 1]) {
       const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.42, 10),
-        new THREE.MeshStandardMaterial({ color: '#c8b37f', roughness: 1 }));
+        CastleSurfaces.material('parchment', { roughness: 1 }));
       roll.position.set(e * 0.28, 0, 0.022);
       map.add(roll);
     }
-    const iron = new THREE.MeshStandardMaterial({ color: '#2d2b2a', metalness: 0.4, roughness: 0.55 });
+    const iron = CastleSurfaces.material('iron', { color: '#2d2b2a', metalness: 0.4, roughness: 0.55 });
     const stem = new THREE.Mesh(CastleProps.lathe([[0.12, 0], [0.1, 0.03], [0.03, 0.06], [0.025, 0.32], [0.05, 0.34], [0, 0.35]], 14), iron);
     stem.position.set(-0.22, TOP, -0.12); g.add(stem);
     const [wax, flame, core] = flameMats();
@@ -1039,7 +1062,7 @@ const Stage = (() => {
       pts.push([x, TOP + 0.342, z, 0.14 + (i % 3) * 0.05, 0.022]);
     }
     pillarCandles(g, pts, wax, flame, core);
-    const silver = new THREE.MeshStandardMaterial({ color: '#c9a24c', metalness: 0.45, roughness: 0.35 });
+    const silver = CastleSurfaces.material('metal', { color: '#c9a24c', metalness: 0.45, roughness: 0.35 });
     const gobletG = CastleProps.lathe([[0.04, 0], [0.035, 0.008], [0.008, 0.02], [0.008, 0.09], [0.035, 0.11], [0.045, 0.17], [0.041, 0.17], [0.03, 0.115], [0, 0.11]], 14);
     for (const s of seats) {
       seatChair(g, m, s, y, { back: 1.55, arms: true });

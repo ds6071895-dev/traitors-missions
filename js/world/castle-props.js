@@ -227,7 +227,7 @@ const CastleProps = (() => {
   function panorama(hour) {
     const P = skyFor(hour);
     const key = hour === 'night' ? 'night' : hour === 'morning' ? 'morning' : 'golden';
-    const W = low() ? 2048 : 4096, H = low() ? 256 : 512;
+    const W = low() ? 2048 : 6144, H = low() ? 256 : 768;
     return canvasTexture('panorama-' + key, W, H, (g) => {
       const rng = U.makeRng(key === 'night' ? 91 : key === 'morning' ? 37 : 53);
       const Y = (y) => (Y_TOP - y) / (Y_TOP - Y_BOT) * H;
@@ -299,7 +299,7 @@ const CastleProps = (() => {
         };
       };
       const LOCH = 1.2;
-      const layer = (fn, top, bottom, peak, strokes, snow) => {
+      const layer = (fn, top, bottom, peak, strokes, snow, heather, forest) => {
         g.beginPath();
         g.moveTo(0, Y(LOCH - 0.5));
         for (let px = 0; px <= W; px += 3) g.lineTo(px, Y(fn(px / W)));
@@ -318,6 +318,37 @@ const CastleProps = (() => {
           g.lineWidth = 1 + rng() * 2.5;
           g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rng() - 0.3) * 30, y + 6 + rng() * 14); g.stroke();
         }
+        // the flanks: lit where they face the sun, in shadow where they turn away
+        for (let px = 0; px < W; px += 2) {
+          const u = px / W, h = fn(u), slope = (fn(u + 0.0015) - fn(u - 0.0015)) / 0.003;
+          let toSun = sx - px; if (toSun > W / 2) toSun -= W; if (toSun < -W / 2) toSun += W;
+          const lit = -slope * Math.sign(toSun) / (peak - LOCH) * 0.06;
+          if (Math.abs(lit) < 0.01) continue;
+          g.fillStyle = lit > 0 ? 'rgba(255,232,190,' + Math.min(0.2, lit) + ')' : 'rgba(15,12,35,' + Math.min(0.26, -lit) + ')';
+          g.fillRect(px, Y(h), 2, (h - LOCH) * H / (Y_TOP - Y_BOT) * 0.85);
+        }
+        if (heather) {
+          for (let i = 0; i < (low() ? 160 : 520); i++) {
+            const x = rng() * W, h = fn(x / W), y = Y(LOCH + rng() * (h - LOCH) * 0.8);
+            g.fillStyle = rng() < 0.6 ? 'rgba(110,60,95,0.14)' : 'rgba(150,120,60,0.12)';
+            g.beginPath(); g.ellipse(x, y, 10 + rng() * 40, 2 + rng() * 6, 0, 0, TAU); g.fill();
+          }
+        }
+        if (forest) {
+          // belts of pine on the lower slopes, in clumps
+          for (let c = 0; c < (low() ? 20 : 46); c++) {
+            const x0 = rng() * W, span = 30 + rng() * 160;
+            for (let x = x0; x < x0 + span; x += 1.5 + rng() * 2.5) {
+              const px = x % W, h = fn(px / W);
+              const base = LOCH + (h - LOCH) * (0.05 + rng() * 0.4);
+              const th = (0.5 + rng() * 0.9) * H / 300, tw = th * 0.35;
+              g.fillStyle = forest;
+              g.beginPath();
+              g.moveTo(px - tw, Y(base)); g.lineTo(px, Y(base) - th * 3); g.lineTo(px + tw, Y(base)); g.closePath();
+              g.fill();
+            }
+          }
+        }
         if (snow) {
           g.fillStyle = snow;
           for (let px = 0; px <= W; px += 2) {
@@ -332,9 +363,15 @@ const CastleProps = (() => {
       layer(far, haze(P.far, 0.25), haze(P.far, 0.6), LOCH + 30, low() ? 600 : 1400,
             P.moon ? 'rgba(200,210,235,0.35)' : 'rgba(250,248,240,0.75)');
       const midR = ridge(23, LOCH, 17, 1.0, 1.3);
-      layer(midR, haze(P.mid2, 0.12), haze(P.mid2, 0.4), LOCH + 17, low() ? 700 : 1600);
+      layer(midR, haze(P.mid2, 0.12), haze(P.mid2, 0.4), LOCH + 17, low() ? 700 : 2400, null, true,
+            mix(haze(P.mid2, 0.3), '#000000', 0.25));
       const nearR = ridge(37, LOCH, 7, 1.1, 1.1);
-      layer(nearR, haze(P.near, 0.05), haze(P.near, 0.22), LOCH + 7, low() ? 600 : 1500);
+      layer(nearR, haze(P.near, 0.05), haze(P.near, 0.22), LOCH + 7, low() ? 600 : 2200, null, true,
+            mix(P.near, '#000000', 0.35));
+      // mist lying along the far shore
+      const mist = g.createLinearGradient(0, Y(LOCH + 3), 0, Y(LOCH));
+      mist.addColorStop(0, P.glow + '0)'); mist.addColorStop(1, P.glow + (P.moon ? '0.12)' : '0.28)'));
+      g.fillStyle = mist; g.fillRect(0, Y(LOCH + 3), W, Y(LOCH) - Y(LOCH + 3));
       // a wooded far shore along the water
       const shore = ridge(51, LOCH, 1.6, 0.4, 1);
       g.fillStyle = P.shore;
@@ -348,11 +385,36 @@ const CastleProps = (() => {
         g.fill();
       }
 
-      // the loch
+      // a croft or two, whitewashed, on the far shore
+      for (let i = 0; i < 4; i++) {
+        const x = rng() * W, y = Y(LOCH + 0.25), w = H * 0.012, h = H * 0.006;
+        g.fillStyle = P.moon ? '#4a5168' : mix('#f2eee2', P.low, 0.3);
+        g.fillRect(x, y - h, w, h);
+        g.fillStyle = P.moon ? '#141a26' : '#3a3634';
+        g.beginPath(); g.moveTo(x - w * 0.1, y - h); g.lineTo(x + w / 2, y - h * 1.9); g.lineTo(x + w * 1.1, y - h); g.fill();
+        if (P.moon) { g.fillStyle = '#ffd27a'; g.fillRect(x + w * 0.3, y - h * 0.7, Math.max(1, w * 0.12), Math.max(1, h * 0.3)); }
+      }
+
+      // the loch, and the hills upside down in it
       const top = Y(LOCH), bot = Y(-7);
       const wat = g.createLinearGradient(0, top, 0, bot);
       wat.addColorStop(0, mix(P.water, P.low, 0.25)); wat.addColorStop(1, P.deep);
       g.fillStyle = wat; g.fillRect(0, top, W, bot - top);
+      if (g.canvas && g.canvas.width === W) {
+        const band = Math.round(top - Y(LOCH + 30));
+        const tmp = document.createElement('canvas');
+        tmp.width = W; tmp.height = band;
+        tmp.getContext('2d').drawImage(g.canvas, 0, top - band, W, band, 0, 0, W, band);
+        g.save();
+        g.beginPath(); g.rect(0, top, W, bot - top); g.clip();
+        g.globalAlpha = P.moon ? 0.3 : 0.42;
+        g.setTransform(1, 0, 0, -1, 0, 2 * top);
+        g.drawImage(tmp, 0, top - band);
+        g.restore();
+        const fade = g.createLinearGradient(0, top, 0, bot);
+        fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, P.deep);
+        g.fillStyle = fade; g.fillRect(0, top, W, bot - top);
+      }
       for (let i = 0; i < (low() ? 400 : 900); i++) {
         const y = top + Math.pow(rng(), 1.6) * (bot - top);
         g.fillStyle = rng() < 0.6 ? 'rgba(255,240,215,0.10)' : 'rgba(0,0,0,0.10)';
@@ -382,28 +444,236 @@ const CastleProps = (() => {
     }, { repeatT: false });
   }
 
-  /* The cylinder and the lawn it stands on, in castle coordinates
-     round `cx, cz`. Unlit and unfogged: it is the light, not lit by it. */
+  /* The view: the painted cylinder, a dome of sky over it, and the
+     ground the house stands in — a striped lawn down to a pebble shore
+     where the painted loch begins, long grass and wild flowers thick
+     along the walls and the water's edge, a few trees, the gravel drive
+     from the front door. In castle coordinates round `cx, cz`. Unlit
+     and unfogged: it is the light, not lit by it, so every colour in
+     it is the hour's own. */
+  /* The house's footprint round the view's centre, on a grid, as the
+     distance of each cell from the nearest wall in cells (255: far).
+     The plan never changes, so it is worked out once. */
+  const footprints = new Map();
+  function footprint(cx, cz, GX0, GZ0, GC, GN) {
+    const key = cx + ',' + cz;
+    if (footprints.has(key)) return footprints.get(key);
+    const L = CastleLayout;
+    const dist = new Uint8Array(GN * GN).fill(255);
+    const queue = [];
+    for (let k = 0; k < GN; k++) for (let i = 0; i < GN; i++) {
+      const x = GX0 + (i + 0.5) * GC, z = GZ0 + (k + 0.5) * GC;
+      if (Math.hypot(x - cx, z - cz) > 56) continue;
+      let inside = !!L.roomAt(x, z);
+      if (!inside) for (const [dx, dz] of [[0.3, 0], [-0.3, 0], [0, 0.3], [0, -0.3]]) if (L.roomAt(x + dx, z + dz)) { inside = true; break; }
+      if (inside) { dist[i + k * GN] = 0; queue.push(i + k * GN); }
+    }
+    for (let q = 0; q < queue.length; q++) {
+      const c = queue[q], i = c % GN, k = (c - i) / GN, d = dist[c];
+      if (d >= 12) continue;
+      for (const [di, dk] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ni = i + di, nk = k + dk;
+        if (ni < 0 || nk < 0 || ni >= GN || nk >= GN) continue;
+        const n = ni + nk * GN;
+        if (dist[n] > d + 1) { dist[n] = d + 1; queue.push(n); }
+      }
+    }
+    footprints.set(key, dist);
+    return dist;
+  }
+
+  /* `lawn`, `rough`, `shore`, `gravel` and `trunk` are colours; the
+     grass and the trees are painted green already, so `light` is only
+     the hour's light on them. */
+  const TINTS = {
+    golden:  { lawn: '#7f9d48', rough: '#8f9548', shore: '#9a8a6a', gravel: '#c9b48e', light: '#ffe9c4', trunk: '#8a7560' },
+    morning: { lawn: '#77a64a', rough: '#86a050', shore: '#a29a86', gravel: '#cfc6b2', light: '#f4f8ff', trunk: '#80705e' },
+    night:   { lawn: '#18261a', rough: '#1b261a', shore: '#1e2228', gravel: '#2c3038', light: '#26324c', trunk: '#1a1a1c' },
+  };
   function view(hour, cx, cz) {
     const P = skyFor(hour);
+    const key = hour === 'night' ? 'night' : hour === 'morning' ? 'morning' : 'golden';
+    const Tn = TINTS[key];
     const g = new THREE.Group();
     g.name = 'castle-view';
     const H = Y_TOP - Y_BOT;
     const cyl = new THREE.Mesh(
-      new THREE.CylinderGeometry(RADIUS, RADIUS, H, low() ? 48 : 96, 1, true),
+      new THREE.CylinderGeometry(RADIUS, RADIUS, H, low() ? 48 : 128, 1, true),
       new THREE.MeshBasicMaterial({ map: panorama(hour), side: THREE.BackSide, fog: false }));
     cyl.position.set(cx, Y_BOT + H / 2, cz);
+    cyl.name = 'panorama';
     g.add(cyl);
-    const lawn = new THREE.Mesh(new THREE.CircleGeometry(44, 48),
-      new THREE.MeshBasicMaterial({ color: P.lawnFar, fog: false }));
-    lawn.rotation.x = -Math.PI / 2;
-    lawn.position.set(cx, -0.35, cz);
+    // the sky over it, deepening to the zenith
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(RADIUS - 0.5, 48, 12, 0, TAU, 0, Math.PI / 2),
+      new THREE.MeshBasicMaterial({ map: CastleSurfaces.sky(key, P), side: THREE.BackSide, fog: false }));
+    dome.scale.y = 0.4;
+    dome.position.set(cx, Y_TOP - 0.02, cz);
+    dome.name = 'sky';
+    g.add(dome);
+
+    /* Where the house is, on a half-metre grid, and how far each cell
+       is from it in cells: grass grows up to the walls, never in them. */
+    const L = CastleLayout, GX0 = cx - 66, GZ0 = cz - 66, GC = 0.5, GN = Math.ceil(132 / GC);
+    const dist = footprint(cx, cz, GX0, GZ0, GC, GN);
+    const wallDist = (x, z) => {
+      const i = Math.floor((x - GX0) / GC), k = Math.floor((z - GZ0) / GC);
+      if (i < 0 || k < 0 || i >= GN || k >= GN) return 99;
+      const d = dist[i + k * GN];
+      return d === 255 ? 99 : d * GC;
+    };
+    // the shore wanders in and out a little
+    const rim = (a) => 60 + 3 * Math.sin(3 * a + 1) + 2 * Math.sin(7 * a + 2) + Math.sin(13 * a);
+    const patch = (x, z) => 0.5 + 0.25 * (Math.sin(x * 0.13 + 1.7) * Math.sin(z * 0.11 - 0.4) + Math.sin(x * 0.041 - z * 0.057 + 2));
+
+    /* The lawn: rings out to the shore, mown in stripes, rougher and
+       yellower toward the water, darker in the lee of the walls. */
+    const SEG = low() ? 96 : 192, RINGS = low() ? 28 : 56;
+    const pos = [], col = [], uv = [], idx = [];
+    const lawnC = new THREE.Color(Tn.lawn), roughC = new THREE.Color(Tn.rough), c3 = new THREE.Color();
+    for (let r = 0; r <= RINGS; r++) {
+      const f = Math.pow(r / RINGS, 0.8);
+      for (let sgm = 0; sgm <= SEG; sgm++) {
+        const a = sgm / SEG * TAU, R = f * rim(a);
+        const x = cx + Math.cos(a) * R, z = cz + Math.sin(a) * R;
+        pos.push(x, -0.04, z); uv.push(x / 2.6, z / 2.6);
+        const edge = U.smoothstep(rim(a) - 9, rim(a) - 1, R);
+        const stripe = (Math.floor((x + 200) / 3.2) % 2) ? 1.0 : 0.86;
+        c3.copy(lawnC).multiplyScalar(stripe * (1 - edge) + edge).lerp(roughC, edge);
+        c3.multiplyScalar(0.88 + 0.24 * patch(x, z));
+        const wd = wallDist(x, z);
+        if (wd < 4) c3.multiplyScalar(0.72 + 0.28 * wd / 4);
+        col.push(c3.r, c3.g, c3.b);
+      }
+    }
+    for (let r = 0; r < RINGS; r++) for (let sgm = 0; sgm < SEG; sgm++) {
+      const a = r * (SEG + 1) + sgm, b = a + SEG + 1;
+      idx.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+    const lawnGeo = new THREE.BufferGeometry();
+    lawnGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    lawnGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    lawnGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    lawnGeo.setIndex(idx);
+    // the vertex colours are the hour's; the tile multiplies about 0.55 off them
+    const lawn = new THREE.Mesh(lawnGeo, new THREE.MeshBasicMaterial({
+      map: CastleSurfaces.lawn(), vertexColors: true, color: new THREE.Color(1.75, 1.75, 1.75), fog: false, side: THREE.DoubleSide }));
+    lawn.name = 'lawn';
     g.add(lawn);
-    const lid = new THREE.Mesh(new THREE.CircleGeometry(RADIUS, 48),
-      new THREE.MeshBasicMaterial({ color: P.top, fog: false, side: THREE.DoubleSide }));
-    lid.rotation.x = Math.PI / 2;
-    lid.position.set(cx, Y_TOP - 0.5, cz);
-    g.add(lid);
+
+    // a pebble shore, two or three metres wide, where the loch begins
+    const sp = [], su = [], si = [];
+    for (let sgm = 0; sgm <= SEG; sgm++) {
+      const a = sgm / SEG * TAU, R = rim(a);
+      for (const [rr, y] of [[R - 0.6, -0.065], [R + 2.6 + Math.sin(a * 5) * 0.6, -0.12]]) {
+        const x = cx + Math.cos(a) * rr, z = cz + Math.sin(a) * rr;
+        sp.push(x, y, z); su.push(x / 1.6, z / 1.6);
+      }
+    }
+    for (let sgm = 0; sgm < SEG; sgm++) { const a = sgm * 2; si.push(a, a + 2, a + 1, a + 2, a + 3, a + 1); }
+    const shoreGeo = new THREE.BufferGeometry();
+    shoreGeo.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+    shoreGeo.setAttribute('uv', new THREE.Float32BufferAttribute(su, 2));
+    shoreGeo.setIndex(si);
+    g.add(new THREE.Mesh(shoreGeo, new THREE.MeshBasicMaterial({ map: CastleSurfaces.gravel(), color: Tn.shore, fog: false, side: THREE.DoubleSide })));
+
+    // the drive, from the great door down to the water
+    const hall = L.byId('hall');
+    if (hall) {
+      const z0 = hall.z1 + 0.26, z1 = cz + rim(Math.PI / 2) - 1.5, w = 4.6;
+      const drive = new THREE.PlaneGeometry(w, z1 - z0).rotateX(-Math.PI / 2).translate(0, -0.02, (z0 + z1) / 2);
+      const du = drive.attributes.uv;
+      for (let i = 0; i < du.count; i++) du.setXY(i, du.getX(i) * w / 1.4, du.getY(i) * (z1 - z0) / 1.4);
+      g.add(new THREE.Mesh(drive, new THREE.MeshBasicMaterial({ map: CastleSurfaces.gravel(), color: Tn.gravel, fog: false })));
+    }
+
+    /* Long grass: tufts, one draw for thousands, thick along the walls
+       and the water's edge and sparse on the mown lawn. */
+    const rng = U.makeRng(key === 'night' ? 7 : 11);
+    const tuftGeo = CastleSurfaces.cross(0.8, 0.42, 3);
+    const tint = new THREE.Color(Tn.light).multiplyScalar(1.5);
+    const spots = (want, keep) => {
+      const out = [];
+      for (let tries = 0; out.length < want && tries < want * 30; tries++) {
+        const a = rng() * TAU, R = Math.sqrt(rng()) * (rim(a) - 0.4);
+        const x = cx + Math.cos(a) * R, z = cz + Math.sin(a) * R;
+        const wd = wallDist(x, z);
+        if (wd < 0.4) continue;
+        if (Math.abs(x) < 2.6 && z > (hall ? hall.z1 : 18)) continue;   // the drive
+        if (rng() > keep(wd, rim(a) - R)) continue;
+        out.push([x, z]);
+      }
+      return out;
+    };
+    const instance = (geo, map, n, keep, scale) => {
+      const at = spots(n, keep);
+      const m = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ map, color: tint, alphaTest: 0.4,
+        side: THREE.DoubleSide, fog: false }), at.length);
+      const M = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+      at.forEach(([x, z], i) => {
+        const s = scale[0] + rng() * (scale[1] - scale[0]);
+        q.setFromEuler(e.set((rng() - 0.5) * 0.15, rng() * TAU, (rng() - 0.5) * 0.15));
+        M.compose(v.set(x, -0.05, z), q, sc.set(s, s * (0.8 + rng() * 0.5), s));
+        m.setMatrixAt(i, M);
+        m.setColorAt(i, c3.setRGB(0.8 + rng() * 0.35, 0.85 + rng() * 0.3, 0.75 + rng() * 0.3));
+      });
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      m.frustumCulled = false;
+      g.add(m);
+      return m;
+    };
+    const grassKeep = (wd, shore) => (wd < 1.6 ? 1 : shore < 7 ? 0.9 : 0.12);
+    instance(tuftGeo, CastleSurfaces.plant('tuft'), low() ? 2200 : 7500, grassKeep, [0.8, 1.6]);
+    instance(tuftGeo, CastleSurfaces.plant('tuftFlowers'), low() ? 300 : 1300,
+             (wd, shore) => (wd < 2.2 ? 0.8 : shore < 9 ? 0.6 : 0.05), [0.8, 1.3]);
+
+    /* Trees, built of cards: an oak or a beech where the lawn is wide
+       enough, and Scots pines along the shore. */
+    const cards = [], needles = [], trunks = [];
+    const cardAt = (list, x, y, z, w, h, yaw, tilt) => {
+      list.push(new THREE.PlaneGeometry(w, h).rotateX(tilt).rotateY(yaw).translate(x, y, z));
+    };
+    const tree = (x, z, pine) => {
+      const h = pine ? 10 + rng() * 4 : 7 + rng() * 3;
+      const trunk = new THREE.CylinderGeometry(pine ? 0.16 : 0.22, pine ? 0.3 : 0.42, h * (pine ? 0.92 : 0.6), 8).translate(x, h * (pine ? 0.46 : 0.3), z);
+      const tu = trunk.attributes.uv;
+      for (let i = 0; i < tu.count; i++) tu.setXY(i, tu.getX(i) * 2, tu.getY(i) * h / 2.2);
+      trunks.push(trunk);
+      const n = pine ? 9 : 14;
+      for (let k = 0; k < n; k++) {
+        if (pine) {
+          const y = h * (0.62 + 0.38 * k / n), r = (1.4 + rng() * 1.2) * (1 - 0.4 * k / n);
+          cardAt(needles, x + (rng() - 0.5) * 0.6, y, z + (rng() - 0.5) * 0.6, r * 2.2, r * 1.1, rng() * Math.PI, -Math.PI / 2 + (rng() - 0.5) * 0.5);
+          cardAt(needles, x, y + 0.2, z, r * 2, r, rng() * Math.PI, (rng() - 0.5) * 0.4);
+        } else {
+          const a = rng() * TAU, r = rng() * 2.6, y = h * (0.55 + rng() * 0.4);
+          const s = 2.6 + rng() * 1.6;
+          for (const yaw of [0, Math.PI / 2]) cardAt(cards, x + Math.cos(a) * r, y, z + Math.sin(a) * r * 0.9, s, s * 0.9, yaw + a, (rng() - 0.5) * 0.4);
+        }
+      }
+    };
+    for (let k = 0, made = 0; k < 400 && made < (low() ? 10 : 22); k++) {
+      const a = rng() * TAU, shore = rng() < 0.55;
+      const R = shore ? rim(a) - 2 - rng() * 4 : 36 + rng() * (rim(a) - 46);
+      const x = cx + Math.cos(a) * R, z = cz + Math.sin(a) * R;
+      if (wallDist(x, z) < 6 || (Math.abs(x) < 6 && z > 18)) continue;
+      tree(x, z, shore);
+      made++;
+    }
+    const light = new THREE.Color(Tn.light).multiplyScalar(1.6);
+    for (const [list, kind] of [[cards, 'canopy'], [needles, 'pine']]) {
+      if (!list.length) continue;
+      const leaves = EstateMaterials.merge(list);
+      list.forEach(c => c.dispose());
+      g.add(new THREE.Mesh(leaves, new THREE.MeshBasicMaterial({ map: CastleSurfaces.plant(kind), color: light,
+        alphaTest: 0.45, side: THREE.DoubleSide, fog: false })));
+    }
+    if (trunks.length) {
+      const bark = EstateMaterials.merge(trunks);
+      trunks.forEach(c => c.dispose());
+      g.add(new THREE.Mesh(bark, new THREE.MeshBasicMaterial({ map: CastleSurfaces.bark(), color: Tn.trunk, fog: false })));
+    }
+
     g.userData.sun = new THREE.Vector3(Math.sin(P.sunU * TAU), 0.55, Math.cos(P.sunU * TAU)).normalize();
     return g;
   }

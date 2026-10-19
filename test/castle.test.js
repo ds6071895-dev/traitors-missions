@@ -173,4 +173,27 @@ test('no job shows an emoji', () => {
   }
 });
 
+section('castle — the look');
+
+test('nothing in the house is a flat colour: every material has a grain', () => {
+  const ctx = H.load(['js/core/util.js', 'js/core/state.js', 'js/world/castle-layout.js', 'js/world/castle-interior.js']);
+  for (const [id, m] of Object.entries(ctx.CastleInterior.MATS)) {
+    ok(m.fam || m.tex || m.surf || m.book || m.plant, id + ' is textured');
+  }
+});
+
+test('twice the jobs, and a day\'s list keeps to one part of the house', () => {
+  const ctx = fresh(), C = ctx.Chores;
+  eq(C.STATIONS.length, 88, 'eighty-eight stations');
+  eq(new Set(C.STATIONS.map(s => s.id)).size, C.STATIONS.length, 'every station has its own id');
+  let total = 0, n = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const rng = ctx.U.makeRng(seed);
+    const list = C.deal(rng, { id: 'p', seat: seed % 8 }, [], { letterChance: 0 });
+    const spots = list.filter(j => j.kind === 'station').map(j => C.station(j.station));
+    for (let i = 1; i < spots.length; i++) { total += Math.hypot(spots[i].x - spots[i - 1].x, spots[i].z - spots[i - 1].z); n++; }
+  }
+  ok(total / n < 16, 'next job is near the last: ' + (total / n).toFixed(1) + 'm on average');
+});
+
 H.report();

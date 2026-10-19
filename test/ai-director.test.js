@@ -642,4 +642,25 @@ test('in the castle, an AI three rooms away never hears you', () => {
   ok(/castle doing your jobs/.test(W.asked[0].text), 'and knows where he is');
 });
 
+test('in the castle, an AI the other side of a shut door hears nothing — until it is opened', () => {
+  const W = world();
+  W.phase = 'tasks';
+  W.ctx.Session.state.phase = 'tasks';
+  const N = W.ctx.CastleNet;
+  const d = W.ctx.CastleLayout.doorById('chapel');
+  N.start('d0');
+  N.publish('p1', d.x, d.z - 1.2, 0);         // Ana, just inside the chapel
+  N.publish('p2', 16, 13.5, 0);
+  N.publish('f', d.x, d.z + 1.2, 0);          // Fergus in the library, two metres away
+  for (const id of ['m', 'i', 's']) N.publish(id, -16, 7, 0);
+  W.ctx.Session.state.doors = { chapel: 1 };
+  W.say('p1', 'Is anybody out there?');
+  W.step(3);
+  eq(W.asked.length, 0, 'not a word through the door');
+  W.ctx.Session.state.doors = {};
+  W.say('p1', 'Is anybody out there?');
+  W.step(2);
+  eq(W.asked.map(a => a.id), ['f'], 'Fergus, with the door open');
+});
+
 H.report();

@@ -63,7 +63,17 @@ class NightScene extends CastleScene {
     this._told = { offer: false, fate: false, recruited: false };
 
     if (this._bed) this._shut();
-    await this._say('nightFalls', {}, null);
+    /* The day's hardest worker is safe tonight, and the whole house is
+       told so before anybody knows where the poison went. */
+    const sh = s0.shield && s0.shield.day === s0.day ? Session.playerById(s0.shield.id) : null;
+    if (sh) {
+      if (this.music) this.music.stinger('shield', { at: 'beat' });
+      Scenes.Cine.card({ kicker: 'The shield · ' + s0.shield.n + (s0.shield.n === 1 ? ' job' : ' jobs'),
+                         title: sh.local ? 'YOU' : sh.name.toUpperCase(), tone: 'shield',
+                         sub: sh.local ? 'The poison cannot take you tonight.' : 'The poison cannot take them tonight.' });
+      await this._say(this._setFor('nightFallsShield', sh), { name: sh.name }, null);
+      Scenes.Cine.card(null);
+    } else await this._say('nightFalls', {}, null);
     if (!this._alive) return;
 
     if (this._dead) return this._watch();
@@ -122,8 +132,11 @@ class NightScene extends CastleScene {
      not anybody is deciding anything, and this is what a Faithful sees
      all the way through it. */
   _sleepCard() {
+    const s = Session.state;
+    const safe = s.shield && s.shield.day === s.day && s.shield.id === (s.players.find(p => p.local) || {}).id;
     Scenes.Cine.card({ kicker: 'Night', title: 'THE CASTLE SLEEPS',
-                       sub: 'The poison is already in somebody.', tone: 'bad' });
+                       sub: safe ? 'You hold the shield. Whatever is in you, it will not take tonight.'
+                                 : 'The poison is already in somebody.', tone: 'bad' });
     if (this.music) this.music.section('deed', { at: 'bar', glide: 4 });
   }
 
@@ -281,20 +294,21 @@ class NightScene extends CastleScene {
 
 /* A heavy door meeting its frame, and an old key going round in an old
    lock. */
-AudioBus.define('door-shut', (ctx, dest) => {
+AudioBus.define('door-shut', (ctx, dest, opts = {}) => {
   const t = ctx.currentTime;
   const len = 0.5;
+  const k = opts.gain === undefined ? 1 : opts.gain;
   const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * len), ctx.sampleRate);
   const d = buf.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.06));
   const src = ctx.createBufferSource(); src.buffer = buf;
   const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380;
-  const g = ctx.createGain(); g.gain.value = 0.9;
+  const g = ctx.createGain(); g.gain.value = 0.9 * k;
   src.connect(lp); lp.connect(g); g.connect(dest);
   src.start(t);
   const o = ctx.createOscillator(); o.type = 'sine';
   o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.3);
-  const og = ctx.createGain(); og.gain.setValueAtTime(0.5, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+  const og = ctx.createGain(); og.gain.setValueAtTime(0.5 * k + 0.001, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
   o.connect(og); og.connect(dest); o.start(t); o.stop(t + 0.4);
 });
 AudioBus.define('key-turn', (ctx, dest) => {

@@ -61,13 +61,17 @@ const Nametag = (() => {
   }
 
   /* The label, drawn once. A dot in their accent colour on the left so
-     the name and the coat you can see under it are the same person. */
-  function texture(name, accent) {
+     the name and the coat you can see under it are the same person.
+     `lit` is the same label while they are talking: a solid accent
+     rim and three bars after the name, because a voice with no face
+     moving is otherwise anybody's. */
+  const BARS_W = 46;
+  function texture(name, accent, lit) {
     const font = '800 ' + FONT_PX + 'px Inter, system-ui, -apple-system, sans-serif';
     const probe = document.createElement('canvas').getContext('2d');
     probe.font = font;
     const textW = Math.ceil(probe.measureText(name).width);
-    const w = Math.max(96, PAD_X * 2 + DOT_R * 2 + GAP + textW);
+    const w = Math.max(96, PAD_X * 2 + DOT_R * 2 + GAP + textW + (lit ? GAP + BARS_W : 0));
 
     const c = document.createElement('canvas');
     c.width = w; c.height = CANVAS_H;
@@ -77,13 +81,23 @@ const Nametag = (() => {
     const inset = 4;
     roundRect(g, inset, inset, w - inset * 2, CANVAS_H - inset * 2,
               (CANVAS_H - inset * 2) / 2);
-    g.fillStyle = 'rgba(8,12,18,0.62)';
+    g.fillStyle = lit ? 'rgba(8,12,18,0.86)' : 'rgba(8,12,18,0.62)';
     g.fill();
     g.strokeStyle = accent;
-    g.globalAlpha = 0.55;
-    g.lineWidth = 3;
+    g.globalAlpha = lit ? 1 : 0.55;
+    g.lineWidth = lit ? 7 : 3;
     g.stroke();
     g.globalAlpha = 1;
+
+    if (lit) {
+      const x0 = PAD_X + DOT_R * 2 + GAP + textW + GAP;
+      g.fillStyle = accent;
+      [0.42, 0.78, 0.56].forEach((k, i) => {
+        const bh = (CANVAS_H - 34) * k;
+        roundRect(g, x0 + i * 17, (CANVAS_H - bh) / 2, 10, bh, 5);
+        g.fill();
+      });
+    }
 
     g.beginPath();
     g.arc(PAD_X + DOT_R, CANVAS_H / 2, DOT_R, 0, 6.2832);
@@ -109,6 +123,7 @@ const Nametag = (() => {
      numbers a clearing wants. */
   function make(name, opts = {}) {
     const { map, aspect } = texture(clip(name), opts.accent || '#f2c14e');
+    const lit = texture(clip(name), opts.accent || '#f2c14e', true);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
       map, transparent: true, depthTest: false, depthWrite: false,
       sizeAttenuation: false,
@@ -129,7 +144,27 @@ const Nametag = (() => {
     sprite.visible = false;
     sprite.userData.near = opts.near === undefined ? 60 : opts.near;
     sprite.userData.far = opts.far === undefined ? 260 : opts.far;
+    sprite.userData.faces = [{ map, aspect }, lit];
+    sprite.userData.h = h;
+    sprite.userData.lit = false;
+    /* The face not showing rides on the material too, so the
+       `disposeObject` that frees the label frees both. */
+    sprite.material.altMap = lit.map;
     return sprite;
+  }
+
+  /* Talking or not. Swaps the drawn label and makes it a size bigger,
+     so the one that changed is the one the eye goes to. */
+  function setLit(tag, on) {
+    if (!tag || !tag.userData.faces || tag.userData.lit === !!on) return;
+    const u = tag.userData;
+    u.lit = !!on;
+    const face = u.faces[on ? 1 : 0];
+    const h = u.h * (on ? 1.18 : 1);
+    tag.material.altMap = tag.material.map;
+    tag.material.map = face.map;
+    tag.material.needsUpdate = true;
+    tag.scale.set(h * face.aspect, h, 1);
   }
 
   /* Put it above a head and work out how much of it there is to see.
@@ -145,11 +180,14 @@ const Nametag = (() => {
       a = d <= u.near ? 1
         : (d >= u.far ? 0 : 1 - (d - u.near) / Math.max(1e-3, u.far - u.near));
     }
+    /* Somebody you can hear is somebody you should be able to name,
+       even at the edge of where their label would have faded. */
+    if (u.lit && a > 0.02) a = Math.max(a, 0.9);
     tag.material.opacity = a;
     tag.visible = a > 0.02;
   }
 
   function hide(tag) { if (tag) tag.visible = false; }
 
-  return { make, show, hide };
+  return { make, show, hide, setLit };
 })();

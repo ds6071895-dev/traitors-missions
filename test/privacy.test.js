@@ -220,7 +220,8 @@ test('a role only leaves as an event, never as state', () => {
   const S = ctx.Session;
   const escaped = [];
   S.on('reveal', (r) => escaped.push(r.role));
-  walk(ctx, 77, 6, () => {});
+  // a seed whose Traitor survives the table, so the pouches burn too
+  walk(ctx, 79, 6, () => {});
   ok(escaped.length >= 2, 'banishments and pouches disclosed, as events: ' + escaped.length);
   eq(S.state.phase, 'verdict', 'and only then is the game over');
 });

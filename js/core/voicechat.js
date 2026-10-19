@@ -177,6 +177,7 @@ const VoiceChat = (() => {
     try { e.el.srcObject = null; e.el.remove(); } catch (err) {}
     peers.delete(peerId);
     levels.delete(peerId);
+    talkUntil.delete(peerId);
   }
 
   /* ---------------- who is talking ----------------
@@ -222,6 +223,7 @@ const VoiceChat = (() => {
   }
 
   function pump() {
+    const now = Date.now();
     refreshSpeechGate();
     meterSelf();
     if (selfMeter && stream) {
@@ -239,11 +241,34 @@ const VoiceChat = (() => {
       for (let i = 2; i < 40; i++) sum += e.data[i];
       const v = Math.min(1, (sum / 38) / 96);
       levels.set(id, v);
+      /* Only what reaches your ears counts as talking: a voice gated
+         under Claudia, or too far off down a corridor, is not. */
+      if (v > TALK_ON && !e.el.muted && e.el.volume >= 0.05) talkUntil.set(id, now + TALK_HOLD);
     }
     emit('level', levels);
   }
 
   const level = (id) => levels.get(id) || 0;
+
+  /* Who is audibly talking right now, as a voice rather than a meter:
+     on at the first loud syllable, held through the gaps between words
+     so a sentence is one stretch rather than a flicker. The AI voices
+     come in here exactly like a person's, so this is the one place
+     that can say which of them it is. Offline bots speak through the
+     host's synthesiser instead and are folded in by name. */
+  const TALK_ON = 0.10, TALK_HOLD = 650;
+  const talkUntil = new Map();
+  function talking(id) {
+    if (!id) return false;
+    if ((talkUntil.get(id) || 0) > Date.now()) return true;
+    return typeof Bots !== 'undefined' && Bots.speaking === id;
+  }
+  function talkers() {
+    const out = [];
+    for (const id of talkUntil.keys()) if (talking(id)) out.push(id);
+    if (typeof Bots !== 'undefined' && Bots.speaking && out.indexOf(Bots.speaking) < 0) out.push(Bots.speaking);
+    return out.sort((a, b) => level(b) - level(a));
+  }
 
   /* Who is actually talking, when nobody has been given a turn. The
      round table is an open microphone, so the only thing that knows
@@ -337,7 +362,7 @@ const VoiceChat = (() => {
 
   return {
     init, listen, start, stop, on, setMuted, toggleMuted, setFloor, openFloor, setVolume, resetVolumes, refreshSpeechGate,
-    level, levels, loudest,
+    level, levels, loudest, talking, talkers,
     get selfLevel() { return selfLevel; },
     get available() { return available; },
     get muted() { return muted; },

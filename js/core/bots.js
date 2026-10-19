@@ -25,6 +25,9 @@
      ?bots=all&traitor=you,3       you and the third bot are
      ?bots=all&traitor=none        nobody is — a rehearsal-only hand
      ?bots=finale&target=you       and they all name you
+     ?bots=all&wise=you            the bot Traitors make you the Wise One
+     ?bots=all&overrule=yes        a bot Wise One overrules its first table
+                                   (`no` never; left out, now and then)
 
    Everything else is optional: `seed`, `names`, `pace`. A `#bots=…`
    works as well as a `?bots=…`, because a hash is what survives being
@@ -148,6 +151,9 @@ const Bots = (() => {
       target: ['you', 'bots', 'random'].indexOf(String(q.get('target') || '')) >= 0
         ? String(q.get('target')) : 'random',
       quiet: q.get('chat') === 'off',
+      // whom the bot Traitors make the Wise One: you, a seat, or the seed's pick
+      wise: q.has('wise') ? parseTraitor(q.get('wise')) : undefined,
+      overrule: ['yes', 'no'].indexOf(String(q.get('overrule') || '')) >= 0 ? String(q.get('overrule')) : null,
     };
   }
 
@@ -274,6 +280,7 @@ const Bots = (() => {
     if (!running || !s) return;
 
     floorActs(s);
+    if (s.phase === 'hill') wiseActs(s);
     if (s.phase === 'night') nightActs(s);
     if (s.phase === 'table' || s.phase === 'finale') finaleActs(s);
   }
@@ -304,6 +311,26 @@ const Bots = (() => {
       const pick = lead ? lead : v.night.choose ? { kind: 'carrier', targetId: id } : { kind: 'none', targetId: null };
       after('pick-' + n.day + '-' + id + '-' + pick.kind + '-' + pick.targetId, cfg.pace.vote,
             () => Net.send({ type: 'turretPick', playerId: id, kind: pick.kind, targetId: pick.targetId }));
+    }
+  }
+
+  /* The Wise One. A bot Traitor points once, a beat into the ten
+     seconds: at whoever the link asked for, or the seed's Faithful. A
+     partner's pick already made is left alone. */
+  function wiseActs(s) {
+    const w = s.wise;
+    if (!w || w.done) return;
+    for (const id of botIds()) {
+      const v = Session.privateView ? Session.privateView(id) : null;
+      if (!v || v.role !== 'traitor' || !v.wise || v.wise.pick) continue;
+      const partners = new Set(v.partners || []);
+      const pool = Session.alive().filter(p => p.id !== id && !partners.has(p.id));
+      if (!pool.length) continue;
+      const want = Number.isInteger(cfg.wise) ? s.players.find(p => p.seat === cfg.wise) : null;
+      const r = U.makeRng(((cfg.seed ^ 0x3157) >>> 0) || 5);
+      const t = want && pool.some(p => p.id === want.id) ? want : pool[r.int(0, pool.length - 1)];
+      after('wise-' + id, cfg.pace.vote, () => Net.send({ type: 'wisePick', playerId: id, targetId: t.id }));
+      return;
     }
   }
 
@@ -373,10 +400,23 @@ const Bots = (() => {
         if (!p || !p.alive || f.names[id]) continue;
         const targetId = nameTarget(id);
         if (!targetId) continue;
+        const overrule = s.phase === 'table' && wantsOverrule(id, key);
         after('name-' + key + '-' + id, cfg.pace.vote,
-              () => Net.send({ type: 'name', playerId: id, targetId }));
+              () => Net.send({ type: 'name', playerId: id, targetId, overrule }));
       }
     }
+  }
+
+  /* A bot Wise One overrules when the link says so, and otherwise about
+     one table in three — seeded, so a ballot re-read decides the same. */
+  function wantsOverrule(id, key) {
+    const v = Session.privateView ? Session.privateView(id) : null;
+    const w = Session.state.wise;
+    if (!v || !v.wiseOne || (w && w.used) || cfg.overrule === 'no') return false;
+    if (cfg.overrule === 'yes') return true;
+    let h = cfg.seed >>> 0;
+    for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619) >>> 0;
+    return U.makeRng(h || 9)() < 0.34;
   }
 
   function nameTarget(voterId) {
@@ -454,7 +494,8 @@ const Bots = (() => {
             : Array.isArray(cfg.traitorSeat) ? cfg.traitorSeat.map(seatName).join('+')
             : cfg.traitorSeat < 0 ? 'none' : seatName(cfg.traitorSeat);
     b.textContent = 'bots · ' + (cfg.count || 5) + ' seats · ' + cfg.parts.join(' ')
-                  + ' · traitor ' + t + ' · seed ' + cfg.seed;
+                  + ' · traitor ' + t + (Number.isInteger(cfg.wise) ? ' · wise ' + seatName(cfg.wise) : '')
+                  + ' · seed ' + cfg.seed;
   }
 
   /* Read once at boot. */

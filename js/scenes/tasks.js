@@ -17,10 +17,14 @@
    What you do see goes in your notebook (N): who you were with, and
    where; and anybody you saw hand anybody anything. That is the
    evidence the round table has to work with, along with how many jobs
-   each person managed.
+   each person managed. Whoever has done the most when the bell goes
+   holds the shield that night, and the HUD shows who is leading.
 
    Voices carry the way they would in a stone house: a whisper in the
-   turret is a whisper. Somebody across the castle is barely there.
+   turret is a whisper. Somebody across the castle is barely there. And
+   any door can be shut (E, at the door): a room with every door shut
+   is private — nobody outside sees in or hears a word, and nobody in it
+   hears anybody outside. Anybody can open it again.
 
    The host also plays the AI contestants here (`CastleBots`) and is the
    rules' eyes (`CastleNet.eyes`). Every screen draws everybody from the
@@ -55,7 +59,7 @@ class TasksScene {
     this._meId = me ? me.id : null;
     const cast = s.players.filter(p => p.alive || p.local).sort((a, b) => a.seat - b.seat);
     this.stage = Stage.build({
-      seed: s.seed + 131 * (s.day + 1), hour: 'morning', room: 'hall', dress: 'none',
+      seed: s.seed + 131 * (s.day + 1), hour: 'golden', room: 'hall', dress: 'none',
       claudia: false, free: true, furnish: true, players: cast, walkSpeed: 5.0,
     });
     this.stage.setWalk(true);
@@ -216,6 +220,10 @@ class TasksScene {
       <div class="tk-top">
         <div class="tk-clock"><i class="tk-clock-ring"></i><span>3:00</span></div>
         <div class="tk-pot"><small>THE POT</small><b>£0</b><i class="tk-pot-pop"></i></div>
+        <div class="tk-shield" title="Most jobs at the bell: the poison cannot take them tonight">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l8 3v6c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10v-6z"/></svg>
+          <span><small>SHIELD</small><b>Nobody yet</b></span>
+        </div>
       </div>
       <div class="tk-list">
         <div class="tk-list-head"><h4>YOUR JOBS<i class="tk-fold">▾</i></h4><span class="tk-count">0 done</span></div>
@@ -223,7 +231,8 @@ class TasksScene {
         <div class="tk-carry" hidden></div>
       </div>
       <div class="tk-role" hidden></div>
-      <canvas class="tk-map" width="300" height="300"></canvas>
+      <div class="tk-room"><b></b><small>Door shut — only this room can hear you</small></div>
+      <canvas class="tk-map" width="472" height="256"></canvas>
       <button class="tk-notes-btn" type="button"><b>N</b> Notebook</button>
       <div class="tk-notes"><h4>WHAT YOU HAVE SEEN</h4><div class="tk-notes-body"></div></div>
       <div class="tk-prompt"><div class="tk-ring"></div><span class="tk-prompt-text"></span></div>
@@ -233,9 +242,10 @@ class TasksScene {
     this._dom = {
       root, list: q('.tk-list ul'), count: q('.tk-count'), carry: q('.tk-carry'),
       clock: q('.tk-clock span'), clockBox: q('.tk-clock'), clockRing: q('.tk-clock-ring'),
-      pot: q('.tk-pot b'), pop: q('.tk-pot-pop'),
+      pot: q('.tk-pot b'), pop: q('.tk-pot-pop'), shield: q('.tk-shield'), shieldWho: q('.tk-shield b'),
       role: q('.tk-role'), map: q('.tk-map'), notes: q('.tk-notes'), notesBody: q('.tk-notes-body'),
       prompt: q('.tk-prompt'), promptText: q('.tk-prompt-text'), use: q('.tk-use'), poison: q('.tk-poison'),
+      room: q('.tk-room'), roomName: q('.tk-room b'),
     };
     q('.tk-notes-btn').onclick = () => this._toggleNotes();
     // on a phone the list folds down to the next job, out of the view
@@ -283,8 +293,14 @@ class TasksScene {
         return '<p class="hand"><i>' + day(n) + fmt(n.t) + '</i>You saw <b>' + castleEsc(this._name(n.a))
           + '</b> hand something to <b>' + castleEsc(this._name(n.b)) + '</b> in ' + where + '.</p>';
       }
+      if (n.kind === 'door') {
+        return '<p class="door"><i>' + day(n) + fmt(n.t) + '</i>You saw <b>' + castleEsc(this._name(n.who))
+          + '</b> ' + (n.shut ? 'shut' : 'open') + ' the door of ' + where + '.</p>';
+      }
       const who = (n.ids || []).map(id => castleEsc(this._name(id)));
-      return '<p><i>' + day(n) + fmt(n.t) + '</i>' + (who.length ? 'In ' + where + ' with ' + joinNames(who) : 'Alone in ' + where) + '.</p>';
+      const behind = n.shut ? 'behind a shut door ' : '';
+      return '<p' + (n.shut ? ' class="door"' : '') + '><i>' + day(n) + fmt(n.t) + '</i>'
+        + (who.length ? (n.shut ? 'Behind a shut door in ' : 'In ') + where + ' with ' + joinNames(who) : 'Alone ' + behind + 'in ' + where) + '.</p>';
     }).join('') : '<p><i></i>Nothing yet. Keep your eyes open.</p>';
   }
 
@@ -307,8 +323,18 @@ class TasksScene {
     d.clockBox.classList.toggle('bell', !!(c && left <= (c.bellAt || Session.BELL_AT)));
     d.clockRing.style.setProperty('--p', c ? U.clamp(left / (c.seconds || 180), 0, 1).toFixed(3) : '0');
     d.pot.textContent = U.money(s.pot || 0);
+    // where you are, and whether the door is shut on it
+    const here = this._myRoom ? Chores.roomName(this._myRoom) : '';
+    const roomText = here ? here.charAt(0).toUpperCase() + here.slice(1) : '';
+    if (d.roomName.textContent !== roomText) d.roomName.textContent = roomText;
+    d.room.classList.toggle('shut', !this._dead && CastleLayout.sealed(this._myRoom, s.doors));
     if (!this._dirty) return;
     this._dirty = false;
+    // who would hold the shield if the bell went now
+    const lead = Session.shieldLeader();
+    const leadText = lead ? (lead.id === this._meId ? 'You' : lead.name) + ' · ' + lead.n : 'Nobody yet';
+    if (d.shieldWho.textContent !== leadText) d.shieldWho.textContent = leadText;
+    d.shield.classList.toggle('mine', !!lead && lead.id === this._meId);
     const jobs = this._dead ? [] : (v.jobs || []);
     const open = jobs.filter(j => !j.done);
     const done = jobs.length - open.length;
@@ -356,52 +382,142 @@ class TasksScene {
   }
 
   /* The floor plan, you, your jobs, and anybody in the room with you —
-     drawn every frame, so you glide across it rather than hop. */
+     drawn every frame, so you glide across it rather than hop. The plan
+     itself only changes when you change room or a door opens or shuts,
+     so it is drawn once into a canvas of its own and copied. */
   _paintMap() {
     const cv = this._dom && this._dom.map;
     if (!cv) return;
+    // the canvas takes the size the stylesheet gives it, at the screen's density
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (!this._mapFit || this._t - this._mapFit > 1) {
+      this._mapFit = this._t || 1e-6;
+      const w = Math.round(cv.clientWidth * dpr), h = Math.round(cv.clientHeight * dpr);
+      if (w && h && (cv.width !== w || cv.height !== h)) { cv.width = w; cv.height = h; }
+    }
     const g = cv.getContext('2d');
     const W = cv.width, H = cv.height;
-    const minX = -24, maxX = 28, minZ = -28, maxZ = 21;
-    const k = Math.min(W / (maxX - minX), H / (maxZ - minZ));
-    const ox = (W - (maxX - minX) * k) / 2, oz = (H - (maxZ - minZ) * k) / 2;
-    const X = (x) => (x - minX) * k + ox;
-    const Z = (z) => (z - minZ) * k + oz;
-    g.clearRect(0, 0, W, H);
-    const me = this._myLocal;
-    const myRoom = this._myRoom;
-    for (const r of CastleLayout.ROOMS) {
-      g.fillStyle = r.id === myRoom ? 'rgba(242,193,78,.30)' : 'rgba(205,220,240,.14)';
-      g.strokeStyle = 'rgba(225,235,250,.38)';
-      g.lineWidth = 1.2;
-      g.beginPath();
-      if (r.shape === 'rect') g.rect(X(r.x0), Z(r.z0), (r.x1 - r.x0) * k, (r.z1 - r.z0) * k);
-      else g.arc(X(r.cx), Z(r.cz), r.r * k, 0, Math.PI * 2);
-      g.fill(); g.stroke();
+    const u = dpr * U.clamp(W / dpr / 236, 0.75, 1);          // one "pixel" of mark, at this size
+    const B = CastleLayout.BOUNDS, pad = 6 * u;
+    const k = Math.min((W - 2 * pad) / (B.x1 - B.x0), (H - 2 * pad) / (B.z1 - B.z0));
+    const ox = (W - (B.x1 - B.x0) * k) / 2, oz = (H - (B.z1 - B.z0) * k) / 2;
+    const X = (x) => (x - B.x0) * k + ox;
+    const Z = (z) => (z - B.z0) * k + oz;
+    const shut = this._doorState();
+    const key = W + ':' + H + ':' + this._myRoom + ':' + CastleLayout.DOORS.filter(d => shut[d.id]).map(d => d.id).join();
+    if (!this._plan || this._plan.key !== key) {
+      const pc = (this._plan && this._plan.cv) || document.createElement('canvas');
+      pc.width = W; pc.height = H;
+      TasksScene._paintPlan(pc.getContext('2d'), X, Z, k, u, this._myRoom, shut);
+      this._plan = { cv: pc, key };
     }
-    const pulse = 3.6 + Math.sin(this._t * 5) * 1.1;
+    g.clearRect(0, 0, W, H);
+    g.drawImage(this._plan.cv, 0, 0);
+    const dot = (x, z, r, fill) => {
+      g.beginPath(); g.arc(x, z, r, 0, Math.PI * 2);
+      g.fillStyle = fill; g.fill();
+      g.lineWidth = 1.2 * u; g.strokeStyle = 'rgba(8,10,16,.85)'; g.stroke();
+    };
+    const pulse = 0.5 + Math.sin(this._t * 4) * 0.5;
     for (const j of this._mapJobs()) {
       if (j.done) continue;
       const st = this._stationAt.get(Chores.placeOf(j));
       if (!st) continue;
-      g.fillStyle = j.kind === 'carry' ? '#7cc8ff' : '#ffd66b';
-      g.beginPath(); g.arc(X(st.x), Z(st.z), pulse, 0, Math.PI * 2); g.fill();
+      const blue = j.kind === 'carry';
+      g.fillStyle = blue ? 'rgba(124,200,255,.28)' : 'rgba(255,214,107,.28)';
+      g.beginPath(); g.arc(X(st.x), Z(st.z), (4 + pulse * 3) * u, 0, Math.PI * 2); g.fill();
+      dot(X(st.x), Z(st.z), 2.6 * u, blue ? '#7cc8ff' : '#ffd66b');
     }
-    for (const q of this._mapPeople()) {
-      g.fillStyle = '#eef3fb';
-      g.beginPath(); g.arc(X(q.x), Z(q.z), 3, 0, Math.PI * 2); g.fill();
-    }
+    for (const q of this._mapPeople()) dot(X(q.x), Z(q.z), 2.3 * u, '#eef3fb');
+    const me = this._myLocal;
     if (me) {
       g.save();
       g.translate(X(me.x), Z(me.z));
+      g.fillStyle = 'rgba(127,224,160,.22)';
+      g.beginPath(); g.arc(0, 0, 8 * u, 0, Math.PI * 2); g.fill();
       g.rotate(-me.h);
-      g.fillStyle = '#7fe0a0';
-      g.beginPath(); g.moveTo(0, 7); g.lineTo(-4.5, -4); g.lineTo(4.5, -4); g.closePath(); g.fill();
+      g.beginPath(); g.moveTo(0, 6.5 * u); g.lineTo(-4.2 * u, -4 * u); g.lineTo(0, -2 * u); g.lineTo(4.2 * u, -4 * u); g.closePath();
+      g.lineJoin = 'round'; g.lineWidth = 1.6 * u; g.strokeStyle = 'rgba(8,10,16,.9)'; g.stroke();
+      g.fillStyle = '#7fe0a0'; g.fill();
       g.restore();
     }
   }
 
+  /* The plan as an architect would draw it: one silhouette with a gilt
+     edge, each room a floor with the walls left as the dark between
+     them, a gap in the wall wherever there is a doorway, and a red bar
+     only across a door that is shut. Built up in layers, each a little
+     smaller than the last, so nothing is ever outlined twice. */
+  static _paintPlan(g, X, Z, k, u, myRoom, shut) {
+    const L = CastleLayout;
+    const inset = 0.9 * u;                    // half an inside wall
+    const shape = (r, grow) => {
+      if (r.shape === 'rect') {
+        g.rect(X(r.x0) - grow, Z(r.z0) - grow, (r.x1 - r.x0) * k + 2 * grow, (r.z1 - r.z0) * k + 2 * grow);
+      } else {
+        g.moveTo(X(r.cx) + r.r * k + grow, Z(r.cz));
+        g.arc(X(r.cx), Z(r.cz), r.r * k + grow, 0, Math.PI * 2);
+      }
+    };
+    const layer = (grow, fill, only) => {
+      g.beginPath();
+      for (const r of L.ROOMS) if (!only || only(r)) shape(r, grow);
+      g.fillStyle = fill; g.fill();
+    };
+    layer(3.2 * u, 'rgba(0,0,0,.35)');       // a soft footing under the whole house
+    layer(2.4 * u, '#8a7444');                // the gilt edge
+    layer(1.4 * u, '#141a24');                // the walls
+    layer(-inset, '#4a463d', r => r.id !== myRoom);
+    if (myRoom) layer(-inset, '#a8843a', r => r.id === myRoom);
+    /* Doorways: each room paints its own half of the opening, from the
+       middle of the wall in, so the room you are in lights only its
+       side of the threshold. */
+    const across = inset + 0.6 * u, seam = 0.4 * u;
+    const IN = { n: [0, 1], s: [0, -1], w: [1, 0], e: [-1, 0] };
+    for (const r of L.ROOMS) {
+      g.fillStyle = r.id === myRoom ? '#a8843a' : '#4a463d';
+      if (r.shape === 'rect') {
+        for (const side of ['n', 's', 'e', 'w']) for (const [a, b] of r.doors[side]) {
+          const along = side === 'n' || side === 's';
+          const lo = (along ? X(a) : Z(a)) + inset, hi = (along ? X(b) : Z(b)) - inset;
+          if (hi <= lo) continue;
+          const line = side === 'n' ? Z(r.z0) : side === 's' ? Z(r.z1) : side === 'w' ? X(r.x0) : X(r.x1);
+          const dir = IN[side][along ? 1 : 0];
+          const d0 = Math.min(line - dir * seam, line + dir * across), d1 = Math.max(line - dir * seam, line + dir * across);
+          if (along) g.fillRect(lo, d0, hi - lo, d1 - d0);
+          else g.fillRect(d0, lo, d1 - d0, hi - lo);
+        }
+      } else {
+        for (const d of r.doors) {
+          const half = d.w / 2 * k - inset;
+          if (half <= 0) continue;
+          g.save();
+          g.translate(X(r.cx) + Math.cos(d.a) * r.r * k, Z(r.cz) + Math.sin(d.a) * r.r * k);
+          g.rotate(d.a);
+          g.fillRect(-across, -half, across + seam, 2 * half);
+          g.restore();
+        }
+      }
+    }
+    // the shut doors
+    g.lineCap = 'round';
+    for (const dr of L.DOORS) {
+      if (!shut[dr.id]) continue;
+      const h = Math.max(dr.w / 2 * k - inset, 1.5 * u);
+      const seg = () => {
+        g.beginPath();
+        if (dr.axis === 'x') { g.moveTo(X(dr.x) - h, Z(dr.z)); g.lineTo(X(dr.x) + h, Z(dr.z)); }
+        else { g.moveTo(X(dr.x), Z(dr.z) - h); g.lineTo(X(dr.x), Z(dr.z) + h); }
+      };
+      seg(); g.lineWidth = 4 * u; g.strokeStyle = 'rgba(8,10,16,.9)'; g.stroke();
+      seg(); g.lineWidth = 2.4 * u; g.strokeStyle = '#e0524a'; g.stroke();
+    }
+  }
+
   _mapJobs() { return (Session.myPrivate() || {}).jobs || []; }
+
+  // the shut doors, as the session keeps them
+  _doorState() { return (Session.state && Session.state.doors) || {}; }
 
   // the people you can actually see: those in your room
   _mapPeople() {
@@ -427,6 +543,12 @@ class TasksScene {
     this._myRoom = CastleNet.roomOf(l.x, l.z, this._myRoom);
     if (!this._dead && this._meId) CastleNet.publish(this._meId, l.x, l.z, h, this._hold ? this._hold.target : 0, this._busy);
     if (Session.isHost) CastleBots.update(dt);
+    this._doors();
+    if (Session.isHost && (this._routeClock = (this._routeClock || 0) - dt) <= 0) {
+      // people walk in and out of rooms between events: look at who hears whom again
+      this._routeClock = 0.5;
+      Net.refreshRoutes();
+    }
     this._drawOthers(dt);
     this._voices();
     this._interact(dt);
@@ -507,7 +629,7 @@ class TasksScene {
     if (f.userData.envelope) return f.userData.envelope;
     if (!this._envGeo) {
       this._envGeo = new THREE.BoxGeometry(0.15, 0.012, 0.1);
-      this._envMat = new THREE.MeshStandardMaterial({ color: '#efe6d4', roughness: 0.7 });
+      this._envMat = CastleSurfaces.material('plaster', { color: '#f2eadb', roughness: 0.7 });
     }
     const m = new THREE.Mesh(this._envGeo, this._envMat);
     m.visible = false;
@@ -516,8 +638,10 @@ class TasksScene {
     return m;
   }
 
-  /* A stone house: loud beside you, a murmur through a door, nearly
-     nothing from the other end of the castle. */
+  /* A stone house: loud beside you, a murmur through a doorway, nearly
+     nothing from the other end of the castle, and nothing through a shut
+     door. The server keeps the shut ones shut for real; this is how the
+     open house sounds. */
   _voices() {
     if (typeof VoiceChat === 'undefined' || !VoiceChat.setVolume || !this._myLocal) return;
     this._volClock = (this._volClock || 0) - 1;
@@ -530,6 +654,8 @@ class TasksScene {
       const d = Math.hypot(q.x - this._myLocal.x, q.z - this._myLocal.z);
       let v = U.clamp(1 - (d - 4) / 24, 0.15, 1);
       if (q.room && this._myRoom && q.room !== this._myRoom) v *= 0.6;
+      // through a shut door, nothing at all
+      if (CastleLayout.apart(this._myRoom, q.room, Session.state.doors)) v = 0;
       VoiceChat.setVolume(p.id, v);
     }
   }
@@ -603,6 +729,10 @@ class TasksScene {
     }
     if ((this._nearJob && this._nearJob.id) !== (job && job.id)) { this._nearJob = job; this._dirty = true; }
 
+    // a door within reach, unless a job is nearer
+    let door = CastleLayout.doorNear(me.x, me.z, 1.6);
+    if (door && job && jd < Math.hypot(door.x - me.x, door.z - me.z)) door = null;
+
     const who = this._facingWho(dt);
     const letter = who && (v.jobs || []).find(j => j.kind === 'letter' && !j.done && j.target === who.id);
     const partners = new Set(v.partners || []);
@@ -635,7 +765,11 @@ class TasksScene {
     const rows = [];
     if (letter) rows.push(['E', 'Hold to hand ' + who.name + ' the letter']);
     if (canPoison) rows.push(['F', 'Hold to slip ' + who.name + ' the poison']);
-    if (!letter && job) {
+    const doorShut = door && !!(Session.state.doors || {})[door.id];
+    // a door does not shut on somebody standing in it — you included
+    const jammed = door && !doorShut && this._inDoorway(door);
+    if (!letter && door) rows.push(['E', doorShut ? 'Open the door' : jammed ? 'Step out of the doorway to shut it' : 'Shut the door']);
+    else if (!letter && job) {
       if (job.kind === 'carry') rows.push(['E', (job.step ? 'Put down ' : 'Pick up ') + job.item]);
       else rows.push(['E', (Chores.TYPES[job.type] || {}).verb || 'Use']);
     }
@@ -644,7 +778,39 @@ class TasksScene {
                     canPoison ? 'poison' : '', rows.some(r => r[0] === 'E'));
     if (canPoison && want('poison')) { this._hold = { kind: 'poison', target: who.id, t: 0 }; return; }
     if (letter && want('interact')) { this._hold = { kind: 'letter', target: who.id, t: 0 }; return; }
+    if (door && pressed('interact')) {
+      if (!jammed) Net.send({ type: 'door', doorId: door.id, shut: !doorShut });
+      this._cooldown = 0.5;
+      return;
+    }
     if (job && pressed('interact')) this._doJob(job);
+  }
+
+  // anybody in the way of a door, as this screen sees them
+  _inDoorway(door) {
+    const b = CastleLayout.doorBox(door, 0.32);
+    const inside = (q) => q && q.x > b.x0 - 0.2 && q.x < b.x1 + 0.2 && q.z > b.z0 - 0.2 && q.z < b.z1 + 0.2;
+    if (inside(this._myLocal)) return true;
+    return Session.alive().some(p => p.id !== this._meId && inside(CastleNet.now(p.id)));
+  }
+
+  /* The doors stand as the session says. One that moves near you is
+     heard — unless it is the far side of another shut door. */
+  _doors() {
+    const shut = Session.state.doors || {};
+    const key = Object.keys(shut).sort().join(',');
+    if (key === this._doorKey) return;
+    const before = new Set((this._doorKey || '').split(',').filter(Boolean));
+    this._doorKey = key;
+    this._land.syncDoors(shut);
+    if (!this._myLocal) return;
+    for (const dr of CastleLayout.DOORS) {
+      if (before.has(dr.id) === !!shut[dr.id]) continue;
+      const far = Math.hypot(dr.x - this._myLocal.x, dr.z - this._myLocal.z);
+      if (far > 16) continue;
+      const gain = U.clamp(1.2 - far / 14, 0.15, 1);
+      AudioBus.play(shut[dr.id] ? 'door-shut' : 'door-open', { gain });
+    }
   }
 
   async _doJob(job) {
@@ -680,3 +846,26 @@ class TasksScene {
     if (this.stage) { this.stage.dispose(); this.stage = null; }
   }
 }
+
+/* An old door coming open: the latch, then the hinge complaining. */
+AudioBus.define('door-open', (ctx, dest, opts = {}) => {
+  const t = ctx.currentTime;
+  const k = opts.gain === undefined ? 1 : opts.gain;
+  const len = 0.04;
+  const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * len), ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.006));
+  const click = ctx.createBufferSource(); click.buffer = buf;
+  const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1600; bp.Q.value = 3;
+  const cg = ctx.createGain(); cg.gain.value = 0.3 * k;
+  click.connect(bp); bp.connect(cg); cg.connect(dest);
+  click.start(t);
+  const o = ctx.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(210, t + 0.06); o.frequency.linearRampToValueAtTime(340, t + 0.4); o.frequency.linearRampToValueAtTime(260, t + 0.7);
+  const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 6;
+  const og = ctx.createGain();
+  og.gain.setValueAtTime(0.0001, t + 0.06); og.gain.linearRampToValueAtTime(0.05 * k + 0.0001, t + 0.15);
+  og.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
+  o.connect(f); f.connect(og); og.connect(dest);
+  o.start(t + 0.06); o.stop(t + 0.8);
+});

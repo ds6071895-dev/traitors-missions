@@ -94,7 +94,7 @@ test('parts are named, aliased, and come back in running order', () => {
   eq(ctx.Bots.parseParts('fire'), ['finale'], 'fire is the finale');
   eq(ctx.Bots.parseParts('m1,finale'), ['tasks', 'finale'], 'an old link lands on the day in the castle');
   eq(ctx.Bots.parseParts('castle'), ['tasks']);
-  eq(ctx.Bots.parseParts('murder,roundtable'), ['table', 'night'], 'the show\'s own words, in running order');
+  eq(ctx.Bots.parseParts('roundtable,murder'), ['night', 'table'], 'the show\'s own words, in running order');
   eq(ctx.Bots.parseParts('intro tasks finale'), ['intro', 'tasks', 'finale'],
      'spaces separate as well as commas');
 });

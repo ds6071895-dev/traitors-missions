@@ -38,11 +38,8 @@ class ExploreScene {
     this._dirty = true;
   }
 
-  static ROOM_NAMES = {
-    hall: 'The Entrance Hall', 'west-passage': 'The West Passage', great: 'The Great Hall',
-    'north-passage': 'The North Passage', round: 'The Round Table Chamber', stair: 'The Turret Stair',
-    turret: 'The Turret', corridor: 'The Bedroom Corridor',
-  };
+  // practice has no session: the doors are this screen's own
+  _doorState() { return this._shut || (this._shut = {}); }
 
   static OPEN = 4;              // puzzles on the list at once, besides the errand
 
@@ -155,7 +152,7 @@ class ExploreScene {
         <ul></ul>
         <div class="tk-carry" hidden></div>
       </div>
-      <canvas class="tk-map" width="300" height="300"></canvas>
+      <canvas class="tk-map" width="472" height="256"></canvas>
       <button class="tk-notes-btn tk-leave" type="button"><b>Esc</b> Leave</button>
       <div class="tk-prompt"><div class="tk-ring"></div><span class="tk-prompt-text"></span></div>
       <div class="tk-touch"><button class="tk-use" type="button">USE</button></div>`;
@@ -228,11 +225,28 @@ class ExploreScene {
     }
     if ((this._nearJob && this._nearJob.id) !== (job && job.id)) { this._nearJob = job; this._dirty = true; }
     this._cooldown = Math.max(0, (this._cooldown || 0) - dt);
-    if (!job || this._cooldown > 0) { this._setPrompt(''); return; }
+    // a door within reach, unless a job is nearer: shut it, see what a shut room is like
+    let door = CastleLayout.doorNear(me.x, me.z, 1.6);
+    if (door && job && jd < Math.hypot(door.x - me.x, door.z - me.z)) door = null;
+    if ((!job && !door) || this._cooldown > 0) { this._setPrompt(''); return; }
+    const pressed = Input.pressed('interact') || this._touchPressed === 'interact';
+    if (door) {
+      const shut = !!this._doorState()[door.id];
+      const b = CastleLayout.doorBox(door, 0.32);
+      const jammed = !shut && me.x > b.x0 - 0.2 && me.x < b.x1 + 0.2 && me.z > b.z0 - 0.2 && me.z < b.z1 + 0.2;
+      this._setPrompt('<kbd>E</kbd> ' + (shut ? 'Open the door' : jammed ? 'Step out of the doorway to shut it' : 'Shut the door'), '', true);
+      if (pressed && !jammed) {
+        if (shut) delete this._shut[door.id]; else this._shut[door.id] = 1;
+        this._land.setDoor(door.id, !shut, false);
+        AudioBus.play(shut ? 'door-open' : 'door-shut');
+        this._cooldown = 0.5;
+      }
+      return;
+    }
     const verb = job.kind === 'carry' ? (job.step ? 'Put down ' : 'Pick up ') + job.item
       : (Chores.TYPES[job.type] || {}).verb || 'Use';
     this._setPrompt('<kbd>E</kbd> ' + castleEsc(verb), '', true);
-    if (Input.pressed('interact') || this._touchPressed === 'interact') this._doJob(job);
+    if (pressed) this._doJob(job);
   }
 
   async _doJob(job) {
@@ -277,7 +291,8 @@ class ExploreScene {
     if (id) this._myRoom = id;
     if (id && id !== this._room) {
       this._room = id;
-      const name = ExploreScene.ROOM_NAMES[id] || (id.startsWith('bed') ? 'A Bedroom' : '');
+      const said = Chores.roomName(id);
+      const name = said === 'the castle' ? '' : said.charAt(0).toUpperCase() + said.slice(1);
       if (name) {
         Voice.show('', name);
         clearTimeout(this._clear);

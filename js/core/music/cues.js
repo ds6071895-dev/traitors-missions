@@ -424,6 +424,48 @@ const MusicCues = (() => {
         L('taikoC', 'taiko', { pat: vel('..6.....7.6...7.'), gain: 0.45, parts: 'C' }),
         L('timp', 'timpani', { pat: vel('X.............7.'), pick: 'root', oct: 1, gain: 0.4, when: b => b % 2 === 1 }),
       ]},
+
+      /* The Wise One. The band turns before Claudia says a word: the
+         horn call alone over the flat second, a braam every other bar,
+         the drums walking in underneath. It means "something else is
+         about to happen", and nobody has been told what yet. */
+      wiseCall: { bpm: 96, prog: 'omen', duckLift: 0.3, talkDuck: 0.32, layers: [
+        L('call', 'brass', { motif: 'call', oct: 2, gain: 0.8 }),
+        L('braam', 'braam', { pat: BAR1, pick: 'root', oct: 1, len: 24, gain: 0.6, when: b => b % 2 === 0 }),
+        L('ost', 'strings', { pat: OST16_V, pick: OST16_P, oct: 1, art: 'spic', gain: 0.7, fam: 'cello' }),
+        L('choir', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.45 }),
+        L('taiko', 'taiko', { pat: vel('X.....6.X.......'), gain: 0.6 }),
+        L('timp', 'timpani', { pat: vel('X.......X...7.7.'), pick: 'root', oct: 1, gain: 0.45, when: b => b % 2 === 1 }),
+      ]},
+      /* Ten seconds while the Traitors choose: a clock, a heart, the
+         strings shivering on the knife's chords. Everybody hears the
+         same ten seconds, whoever is choosing. */
+      wiseClock: { bpm: 120, prog: 'knife', duckLift: 0, layers: [
+        L('heart', 'heartbeat', { pat: BEATS, gain: 0.7 }),
+        L('clock', 'pizz', { pat: vel('X.6.X.6.X.6.X.6.'), pick: pick('3.3.3.3.3.3.3.3.'), oct: 3, gain: 0.5 }),
+        L('trem', 'strings', { pat: BAR1, pick: 'chord', oct: 3, len: 16, art: 'tremolo', gain: 0.5 }),
+        L('low', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain', gain: 0.6, voices: 2 }),
+        L('pulse', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.45 }),
+        L('taiko', 'taiko', { pat: vel('X.........7.....'), gain: 0.5 }),
+      ]},
+      /* The rise: the roll that keeps climbing, the choir coming up
+         under it, and nothing resolving until the name lands. */
+      wiseRise: { bpm: 84, prog: 'hold', duckLift: 0, layers: [
+        L('roll', 'timpani', { pat: vel('3344556677889XXX'), pick: 'root', oct: 1, gain: 0.6 }),
+        L('trem', 'strings', { pat: BAR1, pick: 'chord', oct: 3, len: 16, art: 'tremolo', gain: 0.6 }),
+        L('choir', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'ah', gain: 0.5 }),
+        L('low', 'strings', { pat: BAR1, abs: 0, oct: 1, len: 16, art: 'sustain', gain: 0.6, voices: 2 }),
+      ]},
+      /* And the Wise One is named — to two screens. The theme, whole,
+         on the horns, which is the first time the hill has heard it. */
+      wiseReveal: { bpm: 100, prog: 'fate', duckLift: 0.25, talkDuck: 0.32, layers: [
+        L('horn', 'brass', { motif: 'fate', oct: 2, gain: 0.85 }),
+        L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'ah', gain: 0.55 }),
+        L('ost', 'strings', { pat: OST16_V, pick: OST16_P, oct: 1, art: 'spic', gain: 0.85, fam: 'cello' }),
+        L('taiko', 'taiko', { pat: vel('X.....6.X.6...7.'), gain: 0.7 }),
+        L('timp', 'timpani', { pat: vel('X.......X.......'), pick: 'root', oct: 1, gain: 0.5 }),
+        L('crash', 'crash', { pat: BAR1, gain: 0.4, when: b => b % 4 === 0 }),
+      ]},
     },
   };
 
@@ -545,6 +587,36 @@ const MusicCues = (() => {
         L('timp', 'timpani', { pat: vel('X.......X.......'), pick: 'root', oct: 1, gain: 0.6 }),
         L('crash', 'crash', { pat: BAR1, gain: 0.45, when: b => b % 4 === 0 }),
         L('bells', 'bell', { pat: BAR1, pick: 'top', oct: 4, gain: 0.25 }),
+      ]},
+      /* The Wise One's slate, last, with the room told it outranks
+         theirs. The roll and the choir climb for as long as Claudia
+         holds it; the riser rides on top. */
+      overruleRise: { bpm: 88, prog: 'abyss', duckLift: 0.1, layers: [
+        L('roll', 'timpani', { pat: vel('445566778899XXXX'), pick: 'root', oct: 1, gain: 0.65 }),
+        L('trem', 'strings', { pat: BAR1, pick: 'chord', oct: 3, len: 16, art: 'tremolo', gain: 0.6 }),
+        L('trem2', 'strings', { pat: BAR1, pick: 'top', oct: 4, len: 16, art: 'tremolo', gain: 0.35 }),
+        L('choir', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'ah', gain: 0.6 }),
+        L('low', 'braam', { pat: BAR1, pick: 'root', oct: 1, len: 16, gain: 0.45, when: b => b % 2 === 0 }),
+        L('heart', 'heartbeat', { pat: BEATS, gain: 0.6 }),
+      ]},
+      /* The overrule. Everything the band owns at once, faster than
+         anything else at the table: the theme on two octaves of horns
+         and the violins, the choir, both ostinati, the low synth, and
+         the drums on every beat that will take one. */
+      overrule: { bpm: 116, prog: 'epic', duckLift: 0.3, talkDuck: 0.4, layers: [
+        L('horn', 'brass', { motif: 'fate', oct: 2, gain: 0.95 }),
+        L('horn8', 'brass', { motif: 'fate', oct: 1, gain: 0.6 }),
+        L('violins', 'strings', { motif: 'fate', oct: 3, art: 'sustain', fam: 'hiStr', gain: 0.6 }),
+        L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'ah', gain: 0.7 }),
+        L('ost', 'strings', { pat: OST16_V, pick: OST16_P, oct: 1, art: 'spic', gain: 1, fam: 'cello' }),
+        L('ost2', 'strings', { pat: OST16_V, pick: OST16_P, oct: 2, art: 'spic', gain: 0.5, fam: 'hiStr' }),
+        L('pulse', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.5 }),
+        L('braam', 'braam', { pat: BAR1, pick: 'root', oct: 1, len: 16, gain: 0.45, when: b => b % 4 === 0 }),
+        L('taiko', 'taiko', { pat: vel('X.7.X.7.X.7.X.8X'), gain: 0.9 }),
+        L('tom', 'tom', { pat: vel('....6.......6.7.'), gain: 0.45 }),
+        L('timp', 'timpani', { pat: vel('X.......X...X.X.'), pick: 'root', oct: 1, gain: 0.6 }),
+        L('crash', 'crash', { pat: BAR1, gain: 0.5, when: b => b % 2 === 0 }),
+        L('bells', 'bell', { pat: HALF, pick: 'top', oct: 4, gain: 0.25 }),
       ]},
       banishTraitor: FINALE.sections.afterTraitor,
       banishFaithful: FINALE.sections.afterFaithful,
@@ -1069,10 +1141,84 @@ const MusicCues = (() => {
       I.bell(S, t + 0.3, S.hz(oct(7, 4)), 0, 0.35, { pri: 0 });
     },
 
+    // the day's hardest worker is named: a bright horn call, and a bell
+    shield(S, t) {
+      I.taiko(S, t, 0, 0, 0.8, { pri: 0 });
+      I.crash(S, t, 0, 0, 0.45);
+      [0, 7, 12].forEach((s, i) => I.brass(S, t + i * 0.09, S.hz(oct(s, 2)), 1.8, 0.75, { pri: 0 }));
+      I.bell(S, t + 0.3, S.hz(oct(12, 3)), 0, 0.45, { ratio: 1.4, decay: 4, pri: 0 });
+    },
+
+    // breakfast: the poison was in them, and the shield held
+    'shield-held'(S, t) {
+      I.boom(S, t, 0, 0, 0.8, { len: 2.4 });
+      I.timpani(S, t, S.hz(oct(0, 1)), 0, 1, { pri: 0 });
+      [0, 4, 7, 12].forEach((s, i) => I.brass(S, t + i * 0.05, S.hz(oct(s, 2)), 2.4, 0.85, { pri: 0 }));
+      [12, 16, 19].forEach((s, i) => I.bell(S, t + 0.2 + i * 0.09, S.hz(oct(s, 3)), 0, 0.5, { pri: 0 }));
+    },
+
     // a Faithful turned, heard only by the turret and the turned
     recruited(S, t) {
       I.braam(S, t, S.hz(oct(0, 1)), 2.2, 0.8);
       [0, 3, 6].forEach((s, i) => I.brass(S, t + i * 0.12, S.hz(oct(s, 2)), 1.6, 0.8, { pri: 0 }));
+    },
+
+    /* ---- the Wise One ---- */
+
+    // the band turns: Claudia has one more thing to say
+    'wise-call'(S, t) {
+      I.crash(S, t, 0, 0, 0.6);
+      I.braam(S, t, S.hz(oct(1, 1)), 2.4, 0.9);
+      I.boom(S, t, 0, 0, 0.8, { len: 2.6 });
+      I.taiko(S, t, 0, 0, 1.0, { pri: 0 });
+      I.taiko(S, t + 0.18, 0, 0, 0.8, { pri: 0 });
+      I.bell(S, t + 0.05, S.hz(oct(0, 3)), 0, 0.5, { ratio: 1.4, decay: 4, pri: 0 });
+    },
+
+    // the ten seconds are up: a roll and a reverse cymbal into the name
+    'wise-rise'(S, t) {
+      I.timpaniRoll(S, t, S.hz(oct(0, 1)), 2.8, 1);
+      I.revCymbal(S, t + 2.8, 2.6, 0.8);
+      [0, 7].forEach(s => I.choir(S, t, S.hz(oct(s, 3)), 2.9, 0.6, { pri: 0, a: 1.6, vowel: 'ah' }));
+    },
+
+    // the name, on the screens allowed to see it
+    'wise-reveal'(S, t) {
+      I.crash(S, t, 0, 0, 1.1);
+      I.boom(S, t, 0, 0, 1, { len: 3.2 });
+      I.timpani(S, t, S.hz(oct(0, 1)), 0, 1.2, { pri: 0 });
+      I.taiko(S, t, 0, 0, 1.1, { pri: 0 });
+      I.taiko(S, t + 0.14, 0, 0, 0.9, { pri: 0 });
+      [0, 7, 12, 15, 19].forEach((s, i) => {
+        I.brass(S, t + i * 0.04, S.hz(oct(s, 2)), 2.6, 0.9, { pri: 0 });
+        I.choir(S, t + i * 0.04, S.hz(oct(s, 3)), 3, 0.75, { pri: 0, vowel: 'ah' });
+      });
+      [12, 15, 19, 24].forEach((s, i) => I.bell(S, t + 0.1 + i * 0.08, S.hz(oct(s, 3)), 0, 0.55, { pri: 0 }));
+    },
+
+    // the room is told one slate outranks the rest
+    'overrule-warn'(S, t) {
+      I.boom(S, t, 0, 0, 0.9, { len: 2.8 });
+      [0, 1, 6].forEach((s, i) => I.brass(S, t + i * 0.03, S.hz(oct(s, 1)), 2.2, 0.85, { pri: 0, slow: true }));
+      I.bell(S, t, S.hz(oct(0, 2)), 0, 0.8, { ratio: 1.4, decay: 5, pri: 0, peak: 0.1 });
+      I.taiko(S, t, 0, 0, 1, { pri: 0 });
+    },
+
+    /* The Wise One overrules the table. The biggest hit in the game:
+       three drums, the floor dropping, a crash, a braam, the whole choir
+       and the horns on a chord that opens upward, and the bells. */
+    overrule(S, t) {
+      I.crash(S, t, 0, 0, 1.3);
+      I.boom(S, t, 0, 0, 1.2, { len: 4 });
+      [0, 0.12, 0.24, 0.5].forEach((d, i) => I.taiko(S, t + d, 0, 0, i === 3 ? 1.2 : 1.05, { pri: 0 }));
+      I.timpani(S, t, S.hz(oct(0, 1)), 0, 1.3, { pri: 0 });
+      I.braam(S, t, S.hz(oct(0, 1)), 3.6, 1.2);
+      [0, 7, 12, 15, 19, 24].forEach((s, i) => {
+        I.brass(S, t + i * 0.035, S.hz(oct(s, 2)), 3.2, 0.95, { pri: 0 });
+        I.choir(S, t + i * 0.035, S.hz(oct(s, 3)), 3.6, 0.85, { pri: 0, a: 0.06, vowel: 'ah' });
+      });
+      [0, 3, 7].forEach(s => I.strings(S, t, S.hz(oct(s, 4)), 3, 0.9, { art: 'tremolo', pri: 0, fam: 'hiStr' }));
+      [12, 15, 19, 24, 27].forEach((s, i) => I.bell(S, t + 0.15 + i * 0.07, S.hz(oct(s, 3)), 0, 0.6, { pri: 0 }));
     },
 
     // the walk to the fire reaches the fire

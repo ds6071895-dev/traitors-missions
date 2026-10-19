@@ -161,11 +161,15 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
        open   the living; anybody not in it is out of the game and is
               heard only by others who are out of it
        night  while the castle sleeps, the Traitors in the turret hear
-              each other and nobody else hears anybody */
+              each other and nobody else hears anybody
+       rooms  by day, the people in each room with its doors shut: they
+              hear each other, and nobody outside hears them or is
+              heard by them */
   function cleanRoutes(r) {
     if (!r || typeof r !== 'object') return null;
     const ids = (v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, 16) : null);
-    return { open: ids(r.open), night: ids(r.night) };
+    const rooms = Array.isArray(r.rooms) ? r.rooms.slice(0, 12).map(ids).filter(g => g && g.length) : null;
+    return { open: ids(r.open), night: ids(r.night), rooms: rooms && rooms.length ? rooms : null };
   }
   function hears(room, listenerId, speakerId) {
     const r = room.routes;
@@ -173,6 +177,12 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
     const speakerIn = r.open.includes(speakerId), listenerIn = r.open.includes(listenerId);
     if (!speakerIn) return !listenerIn;           // the dead talk among the dead
     if (r.night) return r.night.includes(speakerId) && r.night.includes(listenerId);
+    if (r.rooms) {
+      // behind a shut door: only the others in that room, either way
+      const inside = r.rooms.find(g => g.includes(speakerId)) || null;
+      if (inside) return inside.includes(listenerId);
+      if (r.rooms.some(g => g.includes(listenerId))) return false;
+    }
     return true;
   }
   function relayAudio(room, speakerId, pcm) {

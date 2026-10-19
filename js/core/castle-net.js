@@ -22,6 +22,8 @@
      reach(a, b)        how far apart two people are
      witnesses(a, b)    who could see a hand a thing to b, and where
      presence()         who is in which room, with whom
+     nearDoor(a, door)  whether somebody is standing at a door
+     inDoorway(door)    whether anybody is standing in its way
 ------------------------------------------------------------------ */
 const CastleNet = (() => {
 
@@ -130,16 +132,21 @@ const CastleNet = (() => {
     return Math.hypot(p.x - q.x, p.z - q.z);
   }
 
+  // the castle's shut doors, as the session keeps them
+  const shutDoors = () => (typeof Session !== 'undefined' && Session.state && Session.state.doors) || null;
+
   /* Could `w` see `a`? Near enough, looking the right way, and either in
      the same room or close enough to notice through a door. Walls are
      the rooms: two people in different rooms see each other only when
-     they are standing either side of the same doorway. */
+     they are standing either side of the same doorway — and not when
+     the door between is shut. */
   function sees(w, a) {
     const dx = a.x - w.x, dz = a.z - w.z;
     const d = Math.hypot(dx, dz);
     if (d > SIGHT) return false;
     const sameRoom = w.room && a.room && w.room === a.room;
     if (!sameRoom && d > NEAR) return false;
+    if (!sameRoom && typeof CastleLayout !== 'undefined' && CastleLayout.apart(w.room, a.room, shutDoors())) return false;
     if (d < 1.2) return true;                 // right beside them: you know
     const fx = Math.sin(w.h), fz = Math.cos(w.h);
     const cos = (fx * dx + fz * dz) / d;
@@ -172,7 +179,25 @@ const CastleNet = (() => {
      before it reaches into somebody's pocket. */
   const watchers = (actorId, targetId) => witnesses(actorId, targetId).ids;
 
-  const eyes = { reach, witnesses, presence };
+  /* Close enough to a door to swing it: a long arm's length past the
+     doorway, either side. */
+  function nearDoor(id, doorId) {
+    const p = poses.get(id), d = typeof CastleLayout !== 'undefined' ? CastleLayout.doorById(doorId) : null;
+    return !!(p && d && Math.hypot(p.x - d.x, p.z - d.z) <= 2.5);
+  }
+  // somebody standing where the door would swing shut on them
+  function inDoorway(doorId) {
+    const d = typeof CastleLayout !== 'undefined' ? CastleLayout.doorById(doorId) : null;
+    if (!d) return false;
+    const b = CastleLayout.doorBox(d, 0.32);
+    for (const p of living()) {
+      const q = poses.get(p.id);
+      if (q && q.x > b.x0 - 0.2 && q.x < b.x1 + 0.2 && q.z > b.z0 - 0.2 && q.z < b.z1 + 0.2) return true;
+    }
+    return false;
+  }
+
+  const eyes = { reach, witnesses, presence, nearDoor, inDoorway };
 
   return { start, stop, publish, publishBots, get, now, roomOf, eyes, watchers, sees,
            all: () => poses, SEND_MS, SIGHT, NEAR, FOV,

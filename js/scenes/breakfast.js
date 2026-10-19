@@ -14,7 +14,9 @@
    The groups are released by the host one at a time, and the victim's
    id is not in anybody's state until the very end, so a screen cannot
    know any sooner than the table does. If the poison was never used,
-   everybody comes down, and that is its own kind of news.
+   everybody comes down, and that is its own kind of news — and if it
+   went into the day's shield holder, everybody comes down too, and
+   Claudia says whose glass it was in.
 ------------------------------------------------------------------ */
 class BreakfastScene extends CastleScene {
 
@@ -127,16 +129,29 @@ class BreakfastScene extends CastleScene {
       await this._say('breakfastAbsent', { name: b.name }, null);
       Scenes.Drama.end(this.stage, this.music);
       if (this.stage) this.stage.setGaze(null);
+    } else if (b.shielded) {
+      // the poison was in them, and the shield held: everybody looks at them
+      const saved = Session.playerById(b.shielded);
+      const chair = this.stage && this.stage.seats.find(x => x.id === b.shielded);
+      if (chair && this.stage) this.stage.setGaze(chair.home.clone().setY(1.2));
+      Scenes.Drama.hit(this.stage, this.music, 'shield-held', { shake: 0.2, flash: 'rgba(150,200,255,.35)' });
+      if (this.music) this.music.section('saved', { at: 'bar', glide: 2 });
+      Scenes.Cine.card({ kicker: 'Poisoned — and the shield held', title: saved && saved.local ? 'YOU' : (b.shieldName || '').toUpperCase(),
+                         tone: 'shield', sub: 'Somebody here put it in them.' });
+      this._react(['gasp', 'relief', 'shake', 'handsFace'], b.shielded);
+      await this._say(this._setFor('breakfastShield', saved), { name: b.shieldName }, null);
+      Scenes.Cine.card(null);
+      if (this.stage) this.stage.setGaze(null);
     } else {
       if (this.music) { this.music.stinger('all-here'); this.music.section('saved', { at: 'bar', glide: 2 }); }
       this._react(['relief', 'clap', 'laugh', 'relief'], null);
-      await this._say(b.spared ? 'breakfastSpared' : 'breakfastNobody', {}, null);
+      await this._say('breakfastNobody', {}, null);
     }
     if (!this._alive) return;
     void s;
 
-    // the last morning does not send anybody back to work: the fire is next
-    await this._say(Session.finaleNext() ? 'breakfastSendFinale' : 'breakfastSend', {}, null);
+    // straight from the empty chair to the round table
+    await this._say('breakfastSend', {}, null);
     if (!this._alive) return;
     await Scenes.barrier('breakfast-done-' + Session.state.day);
     if (Session.isHost) Net.send({ type: 'advance' });

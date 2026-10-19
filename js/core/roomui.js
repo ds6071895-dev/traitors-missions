@@ -16,6 +16,7 @@
      accuses anyone. It is the evidence a Faithful argues from and the
      thing a Traitor has to explain.
    - The microphone button.
+   - Who is talking: the names of whoever you can hear right now.
 ------------------------------------------------------------------ */
 const RoomUI = (() => {
 
@@ -205,6 +206,34 @@ const RoomUI = (() => {
     if (wrap) wrap.classList.remove('on');
   }
 
+  /* ---------------- who is talking ----------------
+     The nametag over a head lights up while that person is talking,
+     but the voice is often somebody you cannot see: behind you at the
+     table, in the next room, round the turret stair. So the names of
+     whoever you can hear right now sit at the top of the screen too,
+     loudest first, each with the dot in their colour. */
+
+  let talkKey = '', talkAt = 0;
+  function paintTalk() {
+    const chip = el('talk-chip');
+    if (!chip || typeof VoiceChat === 'undefined' || !VoiceChat.talkers) return;
+    const s = typeof Session !== 'undefined' ? Session.state : null;
+    const who = s ? VoiceChat.talkers()
+      .map(id => s.players.find(p => p.id === id && !p.local))
+      .filter(Boolean).slice(0, 3) : [];
+    const key = who.map(p => p.id).join(',');
+    if (key === talkKey) return;
+    talkKey = key;
+    chip.classList.toggle('on', who.length > 0);
+    if (!who.length) return;              // fade out on the last names
+    chip.innerHTML = who.map(p => {
+      const look = p.look && typeof Look !== 'undefined' ? Look.resolve(p.look) : null;
+      const accent = (look && look.accent) || '#f2c14e';
+      return '<span class="tc-who" style="--tc:' + esc(accent) + '"><i></i>' + esc(p.name)
+        + '<b class="tc-bars"><b></b><b></b><b></b></b></span>';
+    }).join('');
+  }
+
   /* ---------------- the microphone button ----------------
      Always there once there is somebody to talk to, on every screen —
      a mute you have to leave the game to reach
@@ -237,6 +266,8 @@ const RoomUI = (() => {
        scene growing its own copy of this. */
     Engine.addUpdater(() => {
       if (Input.pressed('mic')) toggleMic();
+      const now = Date.now();
+      if (now - talkAt > 100) { talkAt = now; paintTalk(); }
     });
     paintMic();
   }
@@ -245,7 +276,7 @@ const RoomUI = (() => {
     hideFloor(); hideBoard();
   }
 
-  return { init, toggleMic, paintMic,
+  return { init, toggleMic, paintMic, paintTalk,
            showFloor, hideFloor, showBoard, hideBoard, choreBoard,
            hideAll, paintTick, boardHTML, boardCols,
            get floorWho() { return floorWho; },

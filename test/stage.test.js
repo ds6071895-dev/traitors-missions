@@ -44,7 +44,7 @@ function fresh(players) {
       setSpeaking() {}, setLocomotion() {}, setSeated() {}, update() {}, lookAt() {},
       dispose(f) { if (f.parent) f.parent.remove(f); f.userData.disposed = true; },
     },
-    Nametag: { make: () => new Node(), show(tag) { tag.visible = true; }, hide(tag) { tag.visible = false; } },
+    Nametag: { make: () => new Node(), show(tag) { tag.visible = true; }, hide(tag) { tag.visible = false; }, setLit() {} },
     Engine: { disposeObject(o) { if (o && o.parent) o.parent.remove(o); } },
     Input: {
       setMouseAim() {}, setTouchMode() {}, onLockChange: () => () => {},
