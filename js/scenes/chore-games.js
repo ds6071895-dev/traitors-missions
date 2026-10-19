@@ -120,6 +120,79 @@ const ChoreGames = (() => {
     return a;
   }
 
+  /* ---------------- the pictures ----------------
+
+     Drawn, not typed. An emoji is whatever the player's machine says it
+     is — a different toadstool on every phone, a box on an old laptop —
+     and a puzzle about spotting the one thing that changed cannot have
+     its things change under it. So each one is a few lines of SVG on a
+     24-unit grid, sized in `em` so it drops in where the emoji was.
+
+     `c` is the colour it is painted in; `class="s"` marks a stroked
+     line rather than a filled shape. A picture with no `c` takes the
+     colour of whatever it sits on, which is how the crests go from ink
+     on the card to green when the pair is found. */
+  const PICS = {
+    // the forgery
+    moon:   { c: '#f2e3a0', d: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>' },
+    tree:   { c: '#5fae68', d: '<path d="M12 2 5 11h4l-5 7h16l-5-7h4z"/><path fill="#8a5a34" d="M11 18h2v4h-2z"/>' },
+    castle: { c: '#c4bcac', d: '<path d="M3 21V8h2v2h2V8h2v4h6V8h2v2h2V8h2v13h-7v-4a2 2 0 0 0-4 0v4z"/>' },
+    stag:   { c: '#d9b77a', d: '<path class="s" d="M8 3v4L5 5M8 7l2.5 3M16 3v4l3-2M16 7l-2.5 3"/><path d="M9.5 10h5l1 4-3.5 7-3.5-7z"/>' },
+    gull:   { c: '#eef3f7', d: '<path class="s" style="stroke-width:2.6" d="M2 9c3.5 0 6.5 2 10 6 3.5-4 6.5-6 10-6"/>' },
+    boat:   { c: '#ece4d0', d: '<path d="M11 3v12H4z"/><path d="M13 6l6 9h-6z"/><path fill="#8a5a34" d="M3 17h18l-3 4H6z"/>' },
+    candle: { c: '#efe6d4', d: '<path d="M9 10h6v11H9z"/><path fill="#ffb347" d="M12 3c2.2 2 2.2 4.5 0 6-2.2-1.5-2.2-4 0-6z"/>' },
+    key:    { c: '#e9c46a', d: '<circle class="s" cx="7.5" cy="7.5" r="4"/><path class="s" d="M10.5 10.5 20 20M16 16l2.5-2.5M18.5 18.5 21 16"/>' },
+    wine:   { c: '#c23a55', d: '<path d="M7 3h10c0 5-2 8.5-5 8.5S7 8 7 3z"/><path class="s" d="M12 11.5V20M8.5 21h7"/>' },
+    rose:   { c: '#e04a64', d: '<circle cx="12" cy="8" r="5"/><path class="s" style="stroke:#5fae68" d="M12 13v9M12 18c-2 0-3.5-1-4.5-2.5M12 16.5c2 0 3.5-1 4.5-2.5"/>' },
+    owl:    { c: '#c9a36a', d: '<path class="s" d="M6 5l3 3h6l3-3v10a6 6 0 0 1-12 0z"/><circle class="s" cx="9.5" cy="11.5" r="2"/><circle class="s" cx="14.5" cy="11.5" r="2"/>' },
+    anchor: { c: '#a9bdd0', d: '<circle class="s" cx="12" cy="5" r="2"/><path class="s" d="M12 7v14M5 13a7 7 0 0 0 14 0M8 10h8"/>' },
+    shoe:   { c: '#b3b9c1', d: '<path class="s" style="stroke-width:3.2" d="M7 4v8a5 5 0 0 0 10 0V4"/>' },
+    apple:  { c: '#8cc34a', d: '<path d="M12 7.5c-4-2-8 0-8 5 0 5 3 9 6 9 .9 0 1.2-.5 2-.5s1.1.5 2 .5c3 0 6-4 6-9 0-5-4-7-8-5z"/><path class="s" style="stroke:#8a5a34" d="M12 7.5c0-2 1-4 3-4.5"/>' },
+    star:   { c: '#f2c14e', d: '<path d="M12 2l3 7h7l-5.5 4.5 2 7.5-6.5-4.5L5.5 21l2-7.5L2 9h7z"/>' },
+    bell:   { c: '#c8873a', d: '<path d="M6 17v-6a6 6 0 0 1 12 0v6l2 2H4z"/><circle cx="12" cy="21" r="1.7"/>' },
+
+    // the laird's tonic
+    thistle: { c: '#a978d6', d: '<path class="s" d="M8 3.5l1.5 4M12 2v5.5M16 3.5l-1.5 4"/><path d="M8 8h8l-1.2 4H9.2z"/>'
+                                + '<path fill="#5f9a3e" d="M9.2 12h5.6l-1.4 4h-2.8z"/><path class="s" style="stroke:#5f9a3e" d="M12 16v6"/>' },
+    heather: { c: '#d080d2', d: '<path class="s" style="stroke:#5f9a3e" d="M12 22V5"/><circle cx="12" cy="4" r="2"/><circle cx="9" cy="7.5" r="2.2"/>'
+                                + '<circle cx="15" cy="10" r="2.2"/><circle cx="9" cy="12.5" r="2.2"/><circle cx="15" cy="15" r="2.2"/><circle cx="9" cy="17.5" r="2.2"/>' },
+    whisky:  { c: '#d4e3ec', d: '<path class="s" d="M5.5 6h13L17 21H7z"/><path fill="#d08a2a" d="M7.1 12h9.8l-.7 7.5H7.8z"/>' },
+    honey:   { c: '#e8a92a', d: '<rect x="6" y="9" width="12" height="12" rx="2.5"/><rect fill="#8a5a34" x="5" y="5" width="14" height="4" rx="1"/>'
+                                + '<path fill="#fff3c4" opacity=".5" d="M8.5 12h2v6h-2z"/>' },
+    salt:    { c: '#e8eef4', d: '<path d="M6.5 10h11l1.3 12H5.2z"/><path fill="#9aa6b2" d="M6.5 10a5.5 5.5 0 0 1 11 0z"/>'
+                                + '<circle fill="#3a4a5a" cx="10" cy="7.2" r="1"/><circle fill="#3a4a5a" cx="14" cy="7.2" r="1"/><circle fill="#3a4a5a" cx="12" cy="5.6" r="1"/>' },
+    toadstool: { c: '#de4632', d: '<path d="M2.5 12a9.5 7.5 0 0 1 19 0z"/><path fill="#efe6d4" d="M10 12h4l1 9H9z"/>'
+                                + '<circle fill="#fff" cx="8" cy="8.5" r="1.4"/><circle fill="#fff" cx="13" cy="6.5" r="1.2"/><circle fill="#fff" cx="16.5" cy="9.5" r="1.3"/>' },
+    bramble: { c: '#9b5cc4', d: '<path fill="#5f9a3e" d="M12 8.5C9 8 7 5.5 7.5 3c3 .3 4.5 2.5 4.5 5.5z"/>'
+                                + '<circle cx="10" cy="11" r="2.4"/><circle cx="14" cy="11" r="2.4"/><circle cx="8" cy="14.5" r="2.4"/><circle cx="12" cy="14.5" r="2.4"/>'
+                                + '<circle cx="16" cy="14.5" r="2.4"/><circle cx="10" cy="18" r="2.4"/><circle cx="14" cy="18" r="2.4"/>' },
+    water:   { c: '#5fb4e8', d: '<path d="M12 2.5c4 5.5 7 9 7 12.5a7 7 0 0 1-14 0c0-3.5 3-7 7-12.5z"/>'
+                                + '<path fill="#d8f0ff" opacity=".7" d="M9 15a3 3 0 0 0 3 3v-1.6A1.4 1.4 0 0 1 10.6 15z"/>' },
+
+    // place-card crests: ink, so no colour of their own
+    crown:  { d: '<path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"/>' },
+    cross:  { d: '<path d="M9.5 2h5l-1 7.5 7.5-1v5l-7.5-1 1 7.5h-5l1-7.5-7.5 1v-5l7.5 1z"/>' },
+    fleur:  { d: '<path d="M12 2c2.6 2.6 3 6.4 0 10-3-3.6-2.6-7.4 0-10z"/>'
+                 + '<path class="s" d="M11.5 12.5C9 8.5 3.5 9 4 13c.4 2.5 3.4 2.6 4.4.6M12.5 12.5C15 8.5 20.5 9 20 13c-.4 2.5-3.4 2.6-4.4.6M7 15h10M12 15v6"/>' },
+    sun:    { d: '<circle cx="12" cy="12" r="4.5"/><path class="s" d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>' },
+    sword:  { d: '<path d="M10.5 3.5 12 1.5l1.5 2V15h-3z"/><path class="s" d="M7.5 16h9M12 16v5"/>' },
+
+    // the pantry and the cistern
+    mouse:  { c: '#9a8a7a', d: '<circle cx="6.5" cy="8" r="3.6"/><circle cx="17.5" cy="8" r="3.6"/>'
+                 + '<circle fill="#d9a0a0" cx="6.5" cy="8" r="1.8"/><circle fill="#d9a0a0" cx="17.5" cy="8" r="1.8"/>'
+                 + '<ellipse cx="12" cy="14.5" rx="6.5" ry="6"/><circle fill="#0b0806" cx="9.6" cy="13.5" r="1.1"/><circle fill="#0b0806" cx="14.4" cy="13.5" r="1.1"/>'
+                 + '<circle fill="#e58a9a" cx="12" cy="17" r="1.3"/>'
+                 + '<path class="s" style="stroke:#e2d9ce;stroke-width:.8" d="M10 17.5 4.5 16.5M10 18l-5.5 1.5M14 17.5l5.5-1M14 18l5.5 1.5"/>' },
+    tap:    { c: '#a9bdd0', d: '<circle class="s" cx="9" cy="6.5" r="3.5"/><path class="s" d="M9 10v3"/><path d="M2 13h20v5H2z"/>' },
+    tank:   { c: '#8a6a4a', d: '<path d="M6 3h12c1.5 3 1.5 15 0 18H6c-1.5-3-1.5-15 0-18z"/><path class="s" style="stroke:#3a2a1a" d="M5 8h14M5 16h14"/>' },
+  };
+
+  function pic(name) {
+    const p = PICS[name];
+    if (!p) return '';
+    return '<svg class="cg-pic" viewBox="0 0 24 24" aria-hidden="true"' + (p.c ? ' style="color:' + p.c + '"' : '') + '>' + p.d + '</svg>';
+  }
+
   /* ---------------- the frame ---------------- */
 
   function open(task, opts = {}) {
@@ -754,7 +827,7 @@ const ChoreGames = (() => {
        things in order; get one wrong and the pot boils over. */
     brew({ body, hint, rng, done, panel, pips }) {
       const P = pips(4);
-      const ALL = [['🌿', 'thistle'], ['🌸', 'heather'], ['🥃', 'whisky'], ['🍯', 'honey'], ['🧂', 'salt'], ['🍄', 'toadstool'], ['🫐', 'bramble'], ['💧', 'spring water']];
+      const ALL = [['thistle', 'thistle'], ['heather', 'heather'], ['whisky', 'whisky'], ['honey', 'honey'], ['salt', 'salt'], ['toadstool', 'toadstool'], ['bramble', 'bramble'], ['water', 'spring water']];
       const shelf = ALL.slice().sort(() => rng() - 0.5).slice(0, 6);
       const recipe = shelf.slice().sort(() => rng() - 0.5).slice(0, 4);
       const card = el('div', 'cg-recipe', recipe.map((r, i) => '<span>' + (i + 1) + '. ' + r[1] + '</span>').join(''));
@@ -765,7 +838,7 @@ const ChoreGames = (() => {
       hint.textContent = 'First: ' + recipe[0][1];
       const marks = [...card.children];
       for (const ing of shelf) {
-        const b = el('button', 'cg-ingredient', '<b>' + ing[0] + '</b><span>' + ing[1] + '</span>');
+        const b = el('button', 'cg-ingredient', '<b>' + pic(ing[0]) + '</b><span>' + ing[1] + '</span>');
         b.type = 'button';
         b.onclick = () => {
           if (ing === recipe[at]) {
@@ -788,7 +861,7 @@ const ChoreGames = (() => {
     /* Place cards for dinner, each with a family crest. You get a look
        at them all face up, then they turn over: find the three pairs. */
     pairs({ body, hint, rng, done, pips }) {
-      const CRESTS = ['⚜', '✠', '❦', '♛', '✦', '☘', '♞', '✿'];
+      const CRESTS = ['crown', 'cross', 'fleur', 'sun', 'sword', 'moon', 'castle', 'key'];
       const three = shuffled(rng, CRESTS).slice(0, 3);
       const deck = shuffled(rng, three.concat(three));
       const grid = el('div', 'cg-cards');
@@ -797,7 +870,7 @@ const ChoreGames = (() => {
       const timers = [];
       let open = [], found = 0, busy = true;
       const cards = deck.map((crest) => {
-        const b = el('button', 'cg-card up', '<i>' + crest + '</i>');
+        const b = el('button', 'cg-card up', '<i>' + pic(crest) + '</i>');
         b.type = 'button';
         b.onclick = () => flip(b, crest);
         grid.appendChild(b);
@@ -880,7 +953,7 @@ const ChoreGames = (() => {
     /* The same painting twice, except one is a forgery: three things in
        it are not what they are in the real one. Tap them on the copy. */
     spot({ body, hint, rng, done, panel, pips }) {
-      const THINGS = ['🌙', '🌲', '🏰', '🦌', '🐦', '⛵', '🕯️', '🗝️', '🍷', '🌹', '🦉', '⚓', '🐎', '🍎', '⭐', '🔔'];
+      const THINGS = ['moon', 'tree', 'castle', 'stag', 'gull', 'boat', 'candle', 'key', 'wine', 'rose', 'owl', 'anchor', 'shoe', 'apple', 'star', 'bell'];
       const pool = shuffled(rng, THINGS);
       const real = pool.slice(0, 9);
       const spare = pool.slice(9);
@@ -892,9 +965,9 @@ const ChoreGames = (() => {
       body.appendChild(wrap);
       const P = pips(3);
       let found = 0;
-      real.forEach((t) => A.appendChild(el('span', 'cg-thing', t)));
+      real.forEach((t) => A.appendChild(el('span', 'cg-thing', pic(t))));
       fake.forEach((t, i) => {
-        const b = el('button', 'cg-thing', t);
+        const b = el('button', 'cg-thing', pic(t));
         b.type = 'button';
         b.onclick = () => {
           if (b.classList.contains('got')) return;
@@ -958,7 +1031,7 @@ const ChoreGames = (() => {
       body.appendChild(wall);
       const P = pips(NEED);
       const holes = Array.from({ length: N }, () => {
-        const h = el('button', 'cg-mhole', '<i>🐭</i>');
+        const h = el('button', 'cg-mhole', '<i>' + pic('mouse') + '</i>');
         h.type = 'button';
         wall.appendChild(h);
         return h;
@@ -1025,7 +1098,7 @@ const ChoreGames = (() => {
       const grid = el('div', 'cg-pipes');
       body.appendChild(grid);
       for (let i = 0; i < R; i++) {
-        grid.appendChild(el('span', 'cg-pipe-end' + (i === r0 ? ' tap' : ''), i === r0 ? '🚰' : ''));
+        grid.appendChild(el('span', 'cg-pipe-end' + (i === r0 ? ' tap' : ''), i === r0 ? pic('tap') : ''));
         for (let c = 0; c < C; c++) {
           let m = onPath[i][c] ? want[i][c] : [NS | S, NS | E][rng.int(0, 1)];
           // a straight piece turned twice is the same piece, so the path
@@ -1040,7 +1113,7 @@ const ChoreGames = (() => {
           tiles.push(t);
           grid.appendChild(b);
         }
-        grid.appendChild(el('span', 'cg-pipe-end' + (i === r1 ? ' tank' : ''), i === r1 ? '🛢️' : ''));
+        grid.appendChild(el('span', 'cg-pipe-end' + (i === r1 ? ' tank' : ''), i === r1 ? pic('tank') : ''));
       }
       const at = (i, c) => tiles.find(t => t.i === i && t.c === c);
       const P = pips(1);

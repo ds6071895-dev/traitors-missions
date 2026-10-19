@@ -154,4 +154,23 @@ test('a route goes round furniture, not through it', () => {
   ok(route.length >= 2, 'it bends');
 });
 
+
+section('castle — the pictures');
+
+/* The jobs are drawn, never typed: an emoji is a different picture on
+   every machine and a box on some, and the forgery is a puzzle about
+   pictures that must not change between two copies of a painting. */
+test('no job shows an emoji', () => {
+  const fs = require('fs'), path = require('path');
+  const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B50}\u{2B55}\u{FE0F}]/u;
+  for (const f of ['js/scenes/chore-games.js', 'js/core/chores.js', 'js/scenes/tasks.js']) {
+    const lines = fs.readFileSync(path.join(__dirname, '..', f), 'utf8').split('\n');
+    lines.forEach((line, i) => {
+      // the close button's cross is a plain typographic mark
+      if (/cg-close/.test(line)) return;
+      ok(!EMOJI.test(line), f + ':' + (i + 1) + ' has an emoji: ' + line.trim().slice(0, 60));
+    });
+  }
+});
+
 H.report();

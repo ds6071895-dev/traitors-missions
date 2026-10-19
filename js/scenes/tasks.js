@@ -289,7 +289,9 @@ class TasksScene {
   }
 
   _icon(j) {
-    if (j.kind === 'letter') return '✉';
+    // drawn rather than typed: on most phones this character is an emoji
+    if (j.kind === 'letter') return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round">'
+      + '<rect x="3" y="6" width="18" height="12" rx="1.5"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>';
     if (j.kind === 'carry') return '⬢';
     return '◆';
   }

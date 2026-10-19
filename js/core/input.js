@@ -71,6 +71,8 @@ const Input = (() => {
   const look = { dx: 0, dy: 0 };
   const touchMove = { active: false, x: 0, y: 0 };
   let mouseAim = false, locked = false, mouseBlocked = false, touchMode = 'drive';
+  // a menu with text boxes and dropdowns on it is up: give the real pointer back
+  let menuUp = false, inPlay = false;
   const lockListeners = new Set();
   let enabled = true;
 
@@ -234,18 +236,26 @@ const Input = (() => {
     document.addEventListener('pointerlockchange', () => {
       locked = document.pointerLockElement === canvas;
       // A menu can open while the browser is still granting an earlier request.
-      if (locked && mouseBlocked) { releaseLock(); return; }
+      if (locked && menuUp) { releaseLock(); return; }
       if (!locked) {
         // dropping the pointer must not leave the string drawn
         pressCode('Mouse0', false); pressCode('Mouse2', false);
       }
+      syncCursor();
+      // a click that took the pointer for looking round has no spot to keep
+      if (!cur.on) cur.placed = false;
       lockListeners.forEach(fn => fn(locked));
     });
+    initCursor();
   }
 
   function requestLock() {
+    if (!mouseAim || mouseBlocked || !enabled) return;
+    takeLock();
+  }
+  function takeLock() {
     const canvas = document.getElementById('gl');
-    if (!canvas || !mouseAim || mouseBlocked || !enabled || locked || !canvas.requestPointerLock) return;
+    if (!canvas || locked || menuUp || !canvas.requestPointerLock) return;
     try {
       const pending = canvas.requestPointerLock();
       if (pending && pending.catch) pending.catch(() => {});
@@ -256,10 +266,16 @@ const Input = (() => {
   }
 
   // a mission turns free-look on in build() and off in dispose()
+  /* Turning it off no longer lets go of the pointer. A job, a vote or a
+     cutscene used to drop the lock, and every one of them ended with a
+     click on the world to take it back; now the lock is kept and the
+     cursor below is drawn inside it instead. */
   function setMouseAim(on) {
     mouseAim = !!on;
     freeSeen = false;
-    if (!on) { releaseLock(); look.dx = look.dy = 0; }
+    if (on) inPlay = true;
+    if (!on) { look.dx = look.dy = 0; }
+    syncCursor();
   }
   function onLockChange(fn) { lockListeners.add(fn); return () => lockListeners.delete(fn); }
 
@@ -270,6 +286,278 @@ const Input = (() => {
      HUD. Missions ask this rather than `pointerLocked` so that the hint
      is not left burning on a device that will never lock anything. */
   function aimReady() { return isTouch || locked || !lockable(); }
+
+  /* -------- the drawn cursor --------
+
+     While the pointer is held and the world is not the thing being
+     pointed at — a job is open, the votes are up, a cutscene is
+     running — the game draws its own cursor and moves it with the same
+     raw deltas mouse look reads. Every press and release is handed on
+     to whatever is under it as the browser would have: pointer, then
+     mouse, then click, with enter and leave as it crosses things and
+     the wheel scrolling whatever it is over. So a job's buttons, a
+     wire dragged across a panel and the slider on the harp all work
+     with the pointer still held, and closing them puts you straight
+     back into looking round without a click to take the mouse again.
+
+     It is real while the pointer is not held too: the stylesheet draws
+     the same dart as the system cursor, so letting go with Esc changes
+     nothing you can see. Clicking anywhere in play afterwards takes the
+     pointer back, at the spot you clicked. */
+
+  const cur = { x: 0, y: 0, on: false, el: null, hover: null, down: null, range: null,
+                buttons: 0, dirty: false, idle: 0, lastClick: 0, lastAt: null, placed: false, sentX: NaN, sentY: NaN };
+  const IDLE_MS = 2200;              // a cutscene does not need a dart parked in the middle of it
+
+  const cursorWanted = () => locked && (!mouseAim || mouseBlocked);
+
+  function cursorEl() {
+    if (cur.el || !document.body) return cur.el;
+    const n = document.createElement('div');
+    n.id = 'vcursor';
+    n.setAttribute('aria-hidden', 'true');
+    n.innerHTML = '<svg class="vc-ring" viewBox="0 0 40 40"><circle cx="20" cy="20" r="15"/></svg>'
+      + '<svg class="vc-dart" viewBox="0 0 24 24"><defs><linearGradient id="vc-gold" x1="0" y1="0" x2="1" y2="1">'
+      + '<stop offset="0" stop-color="#fff4cc"/><stop offset=".5" stop-color="#f2c14e"/><stop offset="1" stop-color="#9a6a14"/>'
+      + '</linearGradient><linearGradient id="vc-ember" x1="0" y1="0" x2="1" y2="1">'
+      + '<stop offset="0" stop-color="#ffe2c0"/><stop offset=".5" stop-color="#ff8a4c"/><stop offset="1" stop-color="#a8321a"/>'
+      + '</linearGradient></defs><path class="vc-body" d="M2 2 5.2 20.5 9.4 12.9 18.6 12.6Z"/>'
+      + '<path class="vc-edge" d="M3.3 4.6 8.4 12.4"/></svg>';
+    document.body.appendChild(n);
+    cur.el = n;
+    return n;
+  }
+
+  function syncCursor() {
+    const want = cursorWanted();
+    if (want === cur.on) return;
+    cur.on = want;
+    const n = cursorEl();
+    if (want) {
+      // out of looking round, the dart starts where the crosshair was
+      if (!cur.placed) { cur.x = window.innerWidth / 2; cur.y = window.innerHeight / 2; }
+      cur.placed = false;
+      cur.sentX = cur.sentY = NaN;
+      cur.idle = performance.now();
+      if (n) n.classList.remove('idle');
+      flushCursor();
+    } else {
+      // whatever it was holding is let go of where it is
+      if (cur.buttons) release(0);
+      setHover(null);
+      cur.down = cur.range = null;
+    }
+    if (n) n.classList.toggle('on', want);
+  }
+
+  const targetAt = () => {
+    const t = document.elementFromPoint ? document.elementFromPoint(cur.x, cur.y) : null;
+    return t || document.body;
+  };
+
+  function synth(type, target, opt = {}) {
+    if (!target) return true;
+    const quiet = /enter|leave/.test(type);
+    const init = {
+      bubbles: !quiet, cancelable: !quiet, composed: true, view: window,
+      clientX: cur.x, clientY: cur.y, screenX: cur.x, screenY: cur.y,
+      button: opt.button || 0, buttons: cur.buttons, detail: opt.detail || 0,
+      relatedTarget: opt.related || null,
+      ctrlKey: !!opt.ctrlKey, shiftKey: !!opt.shiftKey, altKey: !!opt.altKey, metaKey: !!opt.metaKey,
+    };
+    let ev;
+    if (type.startsWith('pointer') && typeof PointerEvent === 'function') {
+      ev = new PointerEvent(type, Object.assign(init, {
+        pointerId: 1, pointerType: 'mouse', isPrimary: true, width: 1, height: 1,
+        pressure: cur.buttons ? 0.5 : 0 }));
+    } else if (type === 'wheel' && typeof WheelEvent === 'function') {
+      ev = new WheelEvent(type, Object.assign(init, opt.wheel));
+    } else {
+      ev = new MouseEvent(type, init);
+    }
+    return target.dispatchEvent(ev);
+  }
+
+  const ancestry = (n) => { const out = []; for (; n; n = n.parentNode) if (n.nodeType === 1) out.push(n); return out; };
+
+  // over, out, enter, leave: the four the browser sends as a pointer crosses things
+  function setHover(t) {
+    const was = cur.hover;
+    if (t === was) return;
+    cur.hover = t;
+    if (was && was.isConnected) {
+      synth('pointerout', was, { related: t }); synth('mouseout', was, { related: t });
+      for (const n of ancestry(was)) {
+        if (t && n.contains(t)) break;
+        synth('pointerleave', n, { related: t }); synth('mouseleave', n, { related: t });
+      }
+    }
+    if (t) {
+      synth('pointerover', t, { related: was }); synth('mouseover', t, { related: was });
+      const enter = [];
+      for (const n of ancestry(t)) { if (was && was.isConnected && n.contains(was)) break; enter.push(n); }
+      for (const n of enter.reverse()) { synth('pointerenter', n, { related: was }); synth('mouseenter', n, { related: was }); }
+    }
+    if (cur.el) cur.el.classList.toggle('hot', isHot(t));
+  }
+
+  const HOT = 'button, a[href], [role="button"], label, summary, select, input, textarea, [onclick]';
+  function isHot(t) {
+    if (!t || t === document.body || t.id === 'gl') return false;
+    const h = t.closest ? t.closest(HOT) : null;
+    if (h) return !h.disabled;
+    try { return getComputedStyle(t).cursor === 'pointer'; } catch (e) { return false; }
+  }
+
+  // moves arrive at the mouse's rate; the page hears about them once a frame
+  function moveCursor(dx, dy) {
+    cur.x = U.clamp(cur.x + dx, 0, Math.max(0, window.innerWidth - 1));
+    cur.y = U.clamp(cur.y + dy, 0, Math.max(0, window.innerHeight - 1));
+    cur.idle = performance.now();
+    if (cur.el) cur.el.classList.remove('idle');
+    if (!cur.dirty) { cur.dirty = true; requestAnimationFrame(flushCursor); }
+  }
+
+  function flushCursor() {
+    cur.dirty = false;
+    if (!cur.on) return;
+    if (cur.el) cur.el.style.transform = 'translate3d(' + cur.x.toFixed(1) + 'px,' + cur.y.toFixed(1) + 'px,0)';
+    const t = targetAt();
+    setHover(t);
+    // a press flushes first, and a press that did not move is not a move
+    if (cur.x === cur.sentX && cur.y === cur.sentY) return;
+    cur.sentX = cur.x; cur.sentY = cur.y;
+    synth('pointermove', t);
+    synth('mousemove', t);
+    if (cur.range) slideRange(cur.range);
+  }
+
+  function slideRange(r) {
+    const box = r.getBoundingClientRect();
+    if (!box.width) return;
+    const attr = (k, d) => { const v = r.getAttribute(k); return v === null || v === '' || isNaN(v) ? d : Number(v); };
+    const min = attr('min', 0), max = attr('max', 100);
+    const stepAttr = r.getAttribute('step') === 'any' ? 0 : attr('step', 1);
+    let v = min + U.clamp((cur.x - box.left) / box.width, 0, 1) * (max - min);
+    if (stepAttr) v = min + Math.round((v - min) / stepAttr) * stepAttr;
+    const next = String(U.clamp(v, min, max));
+    if (r.value === next) return;
+    r.value = next;
+    r.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  const FIELD = 'input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea, [contenteditable=""], [contenteditable="true"]';
+
+  function press(e) {
+    flushCursor();
+    const t = targetAt();
+    // a dropdown opens only for a real pointer, so it is given one
+    if (t.closest && t.closest('select')) { releaseLock(); return; }
+    cur.buttons |= (1 << e.button);
+    if (cur.el) cur.el.classList.add('down');
+    cur.down = t;
+    const opts = { button: e.button, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey };
+    // a cancelled pointerdown keeps the mouse events back, as it does natively
+    cur.quiet = !synth('pointerdown', t, opts);
+    if (!cur.quiet) synth('mousedown', t, opts);
+    const field = t.closest && t.closest(FIELD);
+    const range = t.closest && t.closest('input[type=range]');
+    if (field) { try { field.focus({ preventScroll: true }); } catch (err) {} }
+    else {
+      const a = document.activeElement;
+      if (a && a !== document.body && a.matches && a.matches(FIELD)) a.blur();
+    }
+    if (range && !range.disabled && e.button === 0) { cur.range = range; slideRange(range); }
+  }
+
+  function release(button, e = {}) {
+    flushCursor();
+    const t = targetAt();
+    cur.buttons &= ~(1 << button);
+    if (!cur.buttons && cur.el) cur.el.classList.remove('down');
+    const opts = { button, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey };
+    synth('pointerup', t, opts);
+    if (!cur.quiet) synth('mouseup', t, opts);
+    if (cur.range && button === 0) { cur.range.dispatchEvent(new Event('change', { bubbles: true })); cur.range = null; }
+    // the click goes to the nearest thing both ends of the press were inside
+    let both = cur.down;
+    while (both && !(both.contains && both.contains(t))) both = both.parentNode;
+    cur.down = null;
+    if (!both || both.nodeType !== 1) return;
+    if (both.closest && both.closest('button:disabled, input:disabled, textarea:disabled, fieldset:disabled')) return;
+    if (button === 0) {
+      ping();
+      const now = performance.now();
+      const twice = now - cur.lastClick < 380 && cur.lastAt === both;
+      cur.lastClick = twice ? 0 : now; cur.lastAt = both;
+      synth('click', both, Object.assign({ detail: twice ? 2 : 1 }, opts));
+      if (twice) synth('dblclick', both, Object.assign({ detail: 2 }, opts));
+    } else if (button === 1) {
+      synth('auxclick', both, opts);
+    }
+  }
+
+  // a ring off the tip, so a click on nothing still says it was heard
+  function ping() {
+    if (!document.body) return;
+    const r = document.createElement('i');
+    r.className = 'vc-ping';
+    r.style.transform = 'translate3d(' + cur.x.toFixed(1) + 'px,' + cur.y.toFixed(1) + 'px,0)';
+    document.body.appendChild(r);
+    setTimeout(() => r.remove(), 450);
+  }
+
+  // the wheel scrolls whatever scrollable thing it is over, unless that thing wants the wheel itself
+  function scrollAt(e) {
+    const t = targetAt();
+    const scale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
+    const dx = e.deltaX * scale, dy = e.deltaY * scale;
+    const handled = !synth('wheel', t, { wheel: { deltaX: dx, deltaY: dy, deltaZ: 0, deltaMode: 0 } });
+    if (handled) return;
+    for (let n = t; n && n.nodeType === 1; n = n.parentNode) {
+      let st;
+      try { st = getComputedStyle(n); } catch (err) { break; }
+      const canY = /(auto|scroll)/.test(st.overflowY) && n.scrollHeight > n.clientHeight + 1;
+      const canX = /(auto|scroll)/.test(st.overflowX) && n.scrollWidth > n.clientWidth + 1;
+      if ((canY && dy) || (canX && dx)) { n.scrollBy({ left: canX ? dx : 0, top: canY ? dy : 0 }); return; }
+    }
+  }
+
+  function initCursor() {
+    /* Capture on the window, ahead of everything else on the page: under
+       a held pointer every real event is aimed at the canvas, and the
+       puzzles listen for pointermove on the window, so the real ones
+       have to stop here and only the handed-on ones go further. */
+    const stop = (e) => {
+      if (!e.isTrusted || !cur.on) return false;
+      e.stopImmediatePropagation();
+      if (e.cancelable && e.type !== 'mousemove' && e.type !== 'pointermove') e.preventDefault();
+      return true;
+    };
+    for (const type of ['pointerdown', 'pointerup', 'pointermove', 'click', 'dblclick', 'auxclick', 'contextmenu']) {
+      window.addEventListener(type, stop, true);
+    }
+    window.addEventListener('mousemove', (e) => { if (stop(e)) moveCursor(e.movementX || 0, e.movementY || 0); }, true);
+    window.addEventListener('mousedown', (e) => { if (stop(e)) press(e); }, true);
+    window.addEventListener('mouseup', (e) => { if (stop(e)) release(e.button, e); }, true);
+    window.addEventListener('wheel', (e) => { if (stop(e)) scrollAt(e); }, { capture: true, passive: false });
+
+    /* Let go with Esc and the next click in play takes the pointer back,
+       with the dart put down where that click was. It is the click and
+       not the press that does it, so the press and release both land on
+       the same button and the click itself still happens. */
+    window.addEventListener('click', (e) => {
+      if (!e.isTrusted || locked || !inPlay || menuUp || isTouch || !lockable()) return;
+      if (e.target && e.target.closest && e.target.closest(FIELD + ', select')) return;
+      cur.x = e.clientX; cur.y = e.clientY; cur.placed = true;
+      takeLock();
+    });
+
+    window.addEventListener('resize', () => { if (cur.on) moveCursor(0, 0); });
+    setInterval(() => {
+      if (cur.on && cur.el && !cur.buttons && !isHot(cur.hover) && performance.now() - cur.idle > IDLE_MS) cur.el.classList.add('idle');
+    }, 500);
+  }
 
   function initTouch() {
     /* `drive` is the startup mode, so putting the kind on now is the
@@ -362,13 +650,21 @@ const Input = (() => {
      full-screen sheet over one of those is the reason a tablet could
      watch a scoreboard it was unable to dismiss. */
   const THUMBS_OK = ['hud', 'hud-ski', 'hud-shoot', 'hud-dive', 'vote'];
+  /* The screens a game is played through, which keep the pointer held
+     and point with the drawn cursor. The rest are the title, the lobby
+     and the dressing room, all text boxes and dropdowns that only a
+     real pointer can work, so showing one lets go. */
+  const KEEP_LOCK = THUMBS_OK.concat(['verdict']);
 
   function watchScreens() {
     if (typeof Screens === 'undefined') return;
     const paint = (id) => {
       const blocked = !!id && THUMBS_OK.indexOf(id) < 0;
       mouseBlocked = blocked || id === 'vote';
-      if (mouseBlocked) { releaseLock(); clearAll(); }
+      menuUp = !!id && KEEP_LOCK.indexOf(id) < 0;
+      if (menuUp) { inPlay = false; releaseLock(); }
+      if (mouseBlocked) clearAll();
+      syncCursor();
       /* All three overlays are siblings of the screen stack. Leaving the
          driving pad out of this list made its BOOST button sit above the
          title, briefing and results screens whenever touch mode was drive
