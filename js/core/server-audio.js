@@ -98,8 +98,7 @@ const ServerAudio = (() => {
     node.connect(gain);
     gain.connect(state.ctx.destination);
     const analyser = state.ctx.createAnalyser();
-    analyser.fftSize = 256;
-    analyser.smoothingTimeConstant = 0.75;
+    analyser.fftSize = 2048;
     node.connect(analyser);
     peer = { node, gain, analyser, ctx: state.ctx, stats: null };
     node.port.onmessage = (event) => { if (event.data && event.data.type === 'stats') peer.stats = event.data; };

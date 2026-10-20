@@ -193,7 +193,7 @@ const VoiceChat = (() => {
       remove() {},
     };
     return { stream: null, el, analyser: handle.analyser,
-             data: handle.analyser ? new Uint8Array(handle.analyser.frequencyBinCount) : null };
+             data: handle.analyser ? new Float32Array(handle.analyser.fftSize) : null };
   }
 
   function detach(peerId) {
@@ -219,11 +219,10 @@ const VoiceChat = (() => {
       if (!tracks.length) return;
       const src = ctx.createMediaStreamSource(new MediaStream(tracks));
       const an = ctx.createAnalyser();
-      an.fftSize = 256;
-      an.smoothingTimeConstant = 0.75;
+      an.fftSize = 2048;
       src.connect(an);                       // deliberately not to destination
       entry.analyser = an;
-      entry.data = new Uint8Array(an.frequencyBinCount);
+      entry.data = new Float32Array(an.fftSize);
     } catch (e) { /* a meter is a nicety; never let it cost the audio */ }
   }
 
@@ -240,11 +239,21 @@ const VoiceChat = (() => {
       if (!tracks.length) return;
       const src = ctx.createMediaStreamSource(new MediaStream(tracks));
       const an = ctx.createAnalyser();
-      an.fftSize = 256;
-      an.smoothingTimeConstant = 0.75;
+      an.fftSize = 2048;
       src.connect(an);
-      selfMeter = { stream, an, data: new Uint8Array(an.frequencyBinCount) };
+      selfMeter = { stream, an, data: new Float32Array(an.fftSize) };
     } catch (e) { selfMeter = null; }
+  }
+
+  /* Frequency bytes are logarithmic: even barely audible microphone
+     noise can look loud when their values are averaged. Use the actual
+     waveform's RMS instead, with a floor for quiet room/mic noise. */
+  function readLevel(analyser, data) {
+    analyser.getFloatTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+    const rms = Math.sqrt(sum / data.length);
+    return rms < 0.006 ? 0 : Math.min(1, rms / 0.1);
   }
 
   function pump() {
@@ -252,23 +261,26 @@ const VoiceChat = (() => {
     refreshSpeechGate();
     meterSelf();
     if (selfMeter && stream) {
-      selfMeter.an.getByteFrequencyData(selfMeter.data);
-      let sum = 0;
-      for (let i = 2; i < 40; i++) sum += selfMeter.data[i];
       const gagged = muted || (floorId !== null && floorId !== selfId);
-      selfLevel = gagged ? 0 : Math.min(1, (sum / 38) / 96);
+      selfLevel = gagged ? 0 : readLevel(selfMeter.an, selfMeter.data);
     } else selfLevel = 0;
     if (!peers.size) { emit('level', levels); return; }
     for (const [id, e] of peers) {
       if (!e.analyser) continue;
-      e.analyser.getByteFrequencyData(e.data);
-      let sum = 0;
-      for (let i = 2; i < 40; i++) sum += e.data[i];
-      const v = Math.min(1, (sum / 38) / 96);
+      const v = readLevel(e.analyser, e.data);
       levels.set(id, v);
       /* Only what reaches your ears counts as talking: a voice gated
          under Claudia, or too far off down a corridor, is not. */
-      if (v > TALK_ON && !e.el.muted && e.el.volume >= 0.05) talkUntil.set(id, now + TALK_HOLD);
+      if (e.el.muted || e.el.volume < 0.05) {
+        e.talkSince = null;
+        talkUntil.delete(id);
+        continue;
+      }
+      const active = (talkUntil.get(id) || 0) > now;
+      if (v > (active ? TALK_OFF : TALK_ON)) {
+        if (e.talkSince == null) e.talkSince = now;
+        if (active || now - e.talkSince >= TALK_START) talkUntil.set(id, now + TALK_HOLD);
+      } else e.talkSince = null;
     }
     emit('level', levels);
   }
@@ -276,12 +288,12 @@ const VoiceChat = (() => {
   const level = (id) => levels.get(id) || 0;
 
   /* Who is audibly talking right now, as a voice rather than a meter:
-     on at the first loud syllable, held through the gaps between words
+     on after a sustained syllable, held through the gaps between words
      so a sentence is one stretch rather than a flicker. The AI voices
      come in here exactly like a person's, so this is the one place
      that can say which of them it is. Offline bots speak through the
      host's synthesiser instead and are folded in by name. */
-  const TALK_ON = 0.10, TALK_HOLD = 650;
+  const TALK_ON = 0.15, TALK_OFF = 0.09, TALK_START = 100, TALK_HOLD = 650;
   const talkUntil = new Map();
   function talking(id) {
     if (!id) return false;

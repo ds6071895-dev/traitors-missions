@@ -6,7 +6,7 @@ const { test, eq } = H;
 
 function world() {
   let now = 1000, pump = null, attach = null;
-  const loud = new Map();            // peer id -> 0..255 across the voice band
+  const loud = new Map();            // peer id -> waveform RMS, 0..1
   const made = [];                   // every <audio> made, in order
   const document = {
     getElementById: () => null,
@@ -23,7 +23,10 @@ function world() {
     createMediaStreamSource: () => ({ connect() {} }),
     createAnalyser() {
       const id = meterFor;
-      return { frequencyBinCount: 128, getByteFrequencyData(d) { d.fill(loud.get(id) || 0); } };
+      return { fftSize: 2048, getFloatTimeDomainData(d) {
+        const amplitude = loud.get(id) || 0;
+        for (let i = 0; i < d.length; i++) d[i] = i % 2 ? amplitude : -amplitude;
+      } };
     },
   };
   const bots = { speaking: null };
@@ -42,8 +45,13 @@ function world() {
   const VC = c.VoiceChat;
   VC.init();
   VC.listen();
-  const join = (id) => {
+  const join = (id, node = false) => {
     meterFor = id;
+    if (node) {
+      attach(id, { gain: { gain: { setTargetAtTime() {} } }, ctx: { currentTime: 0 },
+                   analyser: audio.createAnalyser() });
+      return;
+    }
     attach(id, { getAudioTracks: () => [{}] });
     return made[made.length - 1];
   };
@@ -58,9 +66,9 @@ test('a loud voice is talking, held through the gap between words, then not', ()
   w.join('fergus');
   w.step(300);
   eq(w.VC.talking('fergus'), false, 'silent is not talking');
-  w.loud.set('fergus', 90);
+  w.loud.set('fergus', 0.09);
   w.step(200);
-  eq(w.VC.talking('fergus'), true, 'talking at the first loud syllable');
+  eq(w.VC.talking('fergus'), true, 'talking after a sustained syllable');
   w.loud.set('fergus', 0);
   w.step(300);
   eq(w.VC.talking('fergus'), true, 'still talking across a breath');
@@ -71,7 +79,7 @@ test('a loud voice is talking, held through the gap between words, then not', ()
 test('the loudest of two voices is named first', () => {
   const w = world();
   w.join('fergus'); w.join('isla');
-  w.loud.set('fergus', 40); w.loud.set('isla', 110);
+  w.loud.set('fergus', 0.04); w.loud.set('isla', 0.11);
   w.step(200);
   eq(w.VC.talkers().join(','), 'isla,fergus');
 });
@@ -79,8 +87,8 @@ test('the loudest of two voices is named first', () => {
 test('a voice you cannot hear is not talking, even though its meter moves', () => {
   const w = world();
   const el = w.join('isla');
-  w.loud.set('isla', 110);
-  w.step(100);
+  w.loud.set('isla', 0.11);
+  w.step(200);
   eq(w.VC.talking('isla'), true, 'heard while the room is open');
   w.scenes.botSpeechBlocked = true;      // the gate, while Claudia holds the room
   w.step(1000);
@@ -91,8 +99,47 @@ test('a voice you cannot hear is not talking, even though its meter moves', () =
   w.step(1000);
   eq(w.VC.talking('isla'), false, 'out of earshot');
   el.volume = 0.6;
-  w.step(100);
+  w.step(200);
   eq(w.VC.talking('isla'), true, 'in the next room');
+});
+
+test('faint background noise never lights a player, on either audio transport', () => {
+  for (const node of [false, true]) {
+    const w = world();
+    w.join('ann', node);
+    for (const noise of [0.001, 0.004, 0.01]) {
+      w.loud.set('ann', noise);
+      w.step(2000);
+      eq(w.VC.talking('ann'), false, 'quiet noise is not speech');
+      eq(w.VC.talkers().length, 0, 'no speaking chip');
+      eq(w.VC.loudest(), null, 'no camera focus for background noise');
+    }
+    w.loud.set('ann', 0.04);
+    w.step(200);
+    eq(w.VC.talking('ann'), true, 'normal voice still registers');
+    w.loud.set('ann', 0.004);
+    w.step(1000);
+    eq(w.VC.talking('ann'), false, 'room noise cannot keep speech active');
+  }
+});
+
+test('a brief click does not count as speech, but quiet syllables sustain a sentence', () => {
+  const w = world();
+  w.join('ann');
+  w.loud.set('ann', 0.09);
+  w.step(100);
+  eq(w.VC.talking('ann'), false, 'one noisy sample is not enough');
+  w.loud.set('ann', 0);
+  w.step(200);
+  w.loud.set('ann', 0.04);
+  w.step(200);
+  eq(w.VC.talking('ann'), true);
+  w.loud.set('ann', 0.012);
+  w.step(1000);
+  eq(w.VC.talking('ann'), true, 'quieter words do not flicker off');
+  w.loud.set('ann', 0.004);
+  w.step(1000);
+  eq(w.VC.talking('ann'), false);
 });
 
 test('an offline bot speaking through the synthesiser is talking by name', () => {
