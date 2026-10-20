@@ -578,6 +578,9 @@ const Party = (() => {
     /* Anybody: Claudia's line, read aloud by the server, to this browser only. */
     claudia(message) { if (joined && room && room.sendClaudia) room.sendClaudia(message); },
     get serverRoom() { return !!(room && room.server); },
+    /* How the room's line is doing: round trip, wobble, bytes each way.
+       Null in a peer-to-peer room, which has no one line to measure. */
+    get netStats() { return room && room.stats ? room.stats : null; },
     get isHost() { return host; },
     get hostId() { return hostPeer; },
     get code() { return code; },

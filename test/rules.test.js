@@ -52,7 +52,7 @@ function playGame(ctx, seed, n, opts = {}) {
   const log = { days: 0, deaths: [], poisons: [], exposed: [], recruits: [], recruitAllowed: [],
                 fireRounds: 0, decides: [], aliveAtFire: null, steps: 0, deathsPerNight: [],
                 victimsWereTraitors: 0, startTraitors: 0 };
-  S.startParty({ seed, players: roster(n), mode: 'host' });
+  S.startParty({ seed, players: roster(n), mode: 'host', cast: opts.cast, wants: opts.wants });
   openHouse(S);
   log.startTraitors = S._peek().seats.length;
   for (let guard = 0; S.state.phase !== 'verdict' && guard < 800; guard++) {
@@ -171,6 +171,107 @@ test('one Traitor at five or six, two at seven or eight, and every chair can be 
     }
     eq(seen.size, n, 'every chair can be a Traitor at ' + n);
   }
+});
+
+test('the host may choose one, two, or one-or-two; a hidden count is not told', () => {
+  const ctx = fresh();
+  const S = ctx.Session;
+  const sizes = (n, cast) => {
+    const out = {};
+    for (let seed = 1; seed <= 400; seed++) {
+      S.startParty({ seed, players: roster(n), mode: 'host', cast });
+      const k = S._peek().seats.length;
+      out[k] = (out[k] || 0) + 1;
+      eq(S.state.dealt, cast.count === 'random' || cast.none ? null : k, 'told only a fixed count');
+    }
+    return out;
+  };
+  eq(Object.keys(sizes(8, { count: '1' })), ['1'], 'one at eight');
+  eq(Object.keys(sizes(5, { count: '2' })), ['2'], 'two at five');
+  const both = sizes(6, { count: 'random' });
+  ok(both[1] > 140 && both[2] > 140, 'one or two, about evenly: ' + JSON.stringify(both));
+  const none = sizes(7, { count: '2', none: 0.25 });
+  ok(none[0] > 60 && none[0] < 140 && none[2] > 260, 'a quarter with nobody: ' + JSON.stringify(none));
+  eq(S.state.cast, { count: '2', none: 0.25 }, 'the choice is public');
+  S.startParty({ seed: 3, players: roster(6), mode: 'host', cast: { count: 'bogus', none: 9 } });
+  eq(S.state.cast, { count: 'auto', none: 0.5 }, 'and cleaned');
+});
+
+test('wants lean the deal and never decide it', () => {
+  const ctx = fresh();
+  const S = ctx.Session;
+  const chances = (w, k) => Array.from(S.castChances(w.map(x => ({ '-2': 0.1, '-1': 0.4, 0: 1, 1: 2.5, 2: 10 })[x]), k));
+  for (const [w, k] of [[[-2, -2, 0, 0, 0], 1], [[2, 2, 0, 0, 0], 1], [[2, 0, 0, 0, 0, 0, 0], 2],
+                        [[-2, -2, -2, -2, -2, -2, -2, 0], 2], [[2, 2, 2, 2, 2], 1], [[-2, 2, -1, 1, 0, 0], 2]]) {
+    const c = chances(w, k);
+    ok(Math.abs(c.reduce((a, b) => a + b, 0) - k) < 1e-6, 'adds up to ' + k);
+    ok(c.every(x => x >= S.WANT_MIN - 1e-9 && x <= S.WANT_MAX + 1e-9), 'never certain either way: ' + c.map(x => x.toFixed(3)));
+  }
+  // the asked-for case: two people who would rather not, three AIs, one Traitor
+  const people = ['ana', 'bo'];
+  const players = roster(5).map((p, i) => (i >= 2 ? Object.assign(p, { bot: true }) : p));
+  let humans = 0, games = 4000;
+  for (let seed = 1; seed <= games; seed++) {
+    S.startParty({ seed, players, mode: 'host', cast: { count: '1' }, wants: { ana: -2, bo: -2 } });
+    const seats = S._peek().seats;
+    eq(seats.length, 1, 'still exactly one');
+    if (seed === 1) ok(!/want|-2/.test(JSON.stringify(S.state)), 'and nobody\'s want is in the state');
+    if (seats.some(x => x < 2)) humans++;
+  }
+  ok(humans > 0, 'a person who said no is still dealt it now and then: ' + humans);
+  ok(humans / games < 0.1, 'but rarely: ' + humans + '/' + games);
+  // and a person who wants it gets it most of the time, an AI's want is ignored
+  let keen = 0;
+  for (let seed = 1; seed <= 2000; seed++) {
+    S.startParty({ seed, players, mode: 'host', cast: { count: '1' }, wants: { ana: 2, cy: -2 } });
+    if (S._peek().seats[0] === 0) keen++;
+  }
+  ok(keen / 2000 > 0.6 && keen / 2000 < 0.9, 'desperate, most of the time: ' + keen);
+  // indifference deals exactly the hand it always dealt
+  S.startParty({ seed: 77, players: roster(7), mode: 'host' });
+  const plain = S._peek().seats.slice().sort();
+  S.startParty({ seed: 77, players: roster(7), mode: 'host', wants: { ana: 0, bo: 0 } });
+  eq(S._peek().seats.slice().sort(), plain, 'same seed, same hand');
+});
+
+test('a night dealt nobody plays on to the fire and the Faithfuls take the pot', () => {
+  let played = 0;
+  for (let seed = 1; seed <= 400 && played < 25; seed++) {
+    const ctx = fresh();
+    ctx.Session.startParty({ seed, players: roster(6), mode: 'host', cast: { count: '1', none: 0.5 } });
+    if (ctx.Session._peek().seats.length) continue;
+    played++;
+    const log = playGame(ctx, seed, 6, { cast: { count: '1', none: 0.5 } });
+    eq(log.startTraitors, 0, 'nobody dealt');
+    eq(log.phase, 'verdict', 'it finished');
+    ok(log.aliveAtFire !== null, 'at the fire, not at the first breakfast');
+    ok(log.outcome.reason !== 'all-found', 'nobody was "found": ' + log.outcome.reason);
+    ok(!log.outcome.hadTraitor && log.outcome.roles.every(p => p.role === 'faithful'), 'all Faithful');
+    ok(log.outcome.roles.filter(p => p.alive).every(p => p.winner), 'the living win');
+  }
+  ok(played >= 10, 'enough empty nights: ' + played);
+});
+
+test('a hidden empty night still holds the Wise One\'s ten seconds, and chooses nobody', () => {
+  const ctx = fresh();
+  const S = ctx.Session;
+  let seed = 1;
+  for (; seed < 400; seed++) {
+    S.startParty({ seed, players: roster(6), mode: 'host', cast: { count: 'random', none: 0.5 } });
+    if (!S._peek().seats.length) break;
+  }
+  eq(S.state.dealt, null, 'the room is not told');
+  S.dispatch({ type: 'wiseOpen', authority: true });
+  ok(S.state.wise && !S.state.wise.done, 'the window opens');
+  now = S.state.wise.endsAt + 50;
+  S.dispatch({ type: 'wiseTick', authority: true });
+  ok(S.state.wise.done, 'and closes on the clock');
+  ok(roster(6).every(p => !S.privateView(p.id).wiseOne), 'and nobody is the Wise One');
+  // a known empty night (the rehearsal door) has no window at all
+  S.startParty({ seed: 5, players: roster(6), mode: 'host', rehearsal: true, traitorSeat: -1 });
+  eq(S.state.dealt, 0);
+  S.dispatch({ type: 'wiseOpen', authority: true });
+  ok(!S.state.wise, 'no window');
 });
 
 test('two Traitors know each other; Faithfuls know nothing', () => {

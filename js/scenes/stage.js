@@ -438,9 +438,9 @@ const Stage = (() => {
       figures.forEach(f => f && Figure.setSpeaking(f, f.userData.playerId === who));
       if (!changed || !who) return;
       for (const f of figures) {
-        if (!f || f.userData.playerId === who || Math.random() > 0.4) continue;
+        if (!f || f.userData.playerId === who || Math.random() > 0.12) continue;
         const pool = who === 'claudia' ? ['nod', 'leanIn', 'glance'] : ['nod', 'glance', 'leanIn', 'leanBack', 'think'];
-        reactions.push({ f, at: 0.4 + Math.random() * 2.2, name: pool[Math.floor(Math.random() * pool.length)] });
+        reactions.push({ f, at: 0.8 + Math.random() * 2.5, name: pool[Math.floor(Math.random() * pool.length)] });
       }
     }
 

@@ -84,9 +84,14 @@ class HillScene {
     };
 
     const count = s.players.length;
-    const two = (s.dealt || 1) > 1;
-    // a night with a Traitor and a round table in it has a Wise One
-    const wiseOn = (s.dealt || 0) > 0 && (!s.parts || s.parts.indexOf('table') >= 0);
+    /* A hidden count is never said: `random` is one or two, and a chance
+       of none makes it "there may be". */
+    const hidden = s.dealt === null;
+    const maybe = hidden && !!(s.cast && s.cast.none > 0);
+    const two = hidden ? !maybe : (s.dealt || 1) > 1;
+    const intro = maybe ? 'roleIntroMaybe' : hidden ? 'roleIntroOneOrTwo' : two ? 'roleIntroTwo' : 'roleIntro';
+    // a night with a Traitor and a round table in it has a Wise One — and so, for show, does one that may not
+    const wiseOn = s.dealt !== 0 && (!s.parts || s.parts.indexOf('table') >= 0);
     const partners = role === 'traitor'
       ? ((Session.myPrivate() || {}).partners || []).map(id => Session.playerById(id)).filter(Boolean)
       : [];
@@ -94,7 +99,7 @@ class HillScene {
     Scenes.run([
       ...speak('welcome', { count }, ['grass', 'rise', 'loch']),
       ...(count >= Session.MIN_PLAYERS ? speak('theRules', {}, ['claudia', null, null]) : []),
-      ...speak(two ? 'roleIntroTwo' : 'roleIntro', { count }, ['claudiaTight', null, null]),
+      ...speak(intro, { count }, ['claudiaTight', null, null]),
 
       // the one card that only you ever see
       { shot: 'claudiaTight',
@@ -103,6 +108,7 @@ class HillScene {
           title: role === 'traitor' ? 'A TRAITOR' : 'A FAITHFUL',
           sub: role === 'traitor'
             ? 'Nobody else is told. Poison them in plain sight, lie at the table, and be sitting there at the end.'
+            : maybe ? 'Nobody else is told. Find the Traitors, if there are any, before they find you.'
             : 'Nobody else is told. Find the Traitor' + (two ? 's' : '') + ' before they find you.',
           tone: role === 'traitor' ? 'traitor' : 'faithful',
         }),

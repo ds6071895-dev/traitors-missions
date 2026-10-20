@@ -194,7 +194,7 @@ const AIDirector = (() => {
     out.push('Still in the game: ' + alive.join(', ') + '.');
     if (s.murdered.length) out.push('Murdered (all were Faithful): ' + s.murdered.map(m => m.name).join(', ') + '.');
     if (s.banished.length) out.push('Banished: ' + s.banished.map(b => b.name + ' (' + (b.role === 'traitor' ? 'a TRAITOR' : 'a Faithful') + ')').join(', ') + '.');
-    out.push('Traitors dealt at the start: ' + (s.dealt || 1) + '. Prize pot: ' + U.money(s.pot) + '.');
+    out.push(dealtWords(s) + ' Prize pot: ' + U.money(s.pot) + '.');
     if (s.chores && s.chores.done) {
       out.push('Jobs done round the castle today: '
         + Session.alive().map(p => p.name + ' ' + (s.chores.done[p.id] || 0)).join(', ') + '.');
@@ -231,6 +231,18 @@ const AIDirector = (() => {
   };
 
   const beforeBreakfast = () => !!Session.state && (Session.state.phase === 'tasks' || Session.state.phase === 'night');
+
+  /* What the room was told about the count — and so what an AI may
+     reason from. A hidden count is told as the range, never the hand. */
+  const mostDealt = (s) => (s.dealt !== null && s.dealt !== undefined ? (s.dealt || 1)
+    : s.cast && s.cast.count === '1' ? 1 : 2);
+  function dealtWords(s) {
+    if (s.dealt !== null && s.dealt !== undefined) return 'Traitors dealt at the start: ' + (s.dealt || 1) + '.';
+    const none = s.cast && s.cast.none > 0;
+    const range = s.cast && s.cast.count === '1' ? 'one' : s.cast && s.cast.count === '2' ? 'two' : 'one or two';
+    return 'Traitors dealt at the start: ' + range + (none ? ', or possibly none at all' : '')
+      + ' (the host kept the exact number secret).';
+  }
 
   function phaseWords(s) {
     switch (s.phase) {
@@ -1408,7 +1420,7 @@ const AIDirector = (() => {
     if (v.role === 'traitor') return 'end';
     const s = Session.state;
     const caught = s.banished.filter(b => b.role === 'traitor').length;
-    return caught >= (s.dealt || 1) ? 'end' : (Math.random() < 0.45 ? 'end' : 'banish');
+    return caught >= mostDealt(s) ? 'end' : (Math.random() < 0.45 ? 'end' : 'banish');
   }
 
   /* ---------------- the Wise One ----------------

@@ -235,8 +235,10 @@ function fakeDeepgram() {
       B.Party.on('claudia', (m) => doneB.push(m));
       B.Party.claudia({ op: 'say', text: 'You are a Traitor.', line: 'l1' });
       B.Party.claudia({ op: 'say', text: 'Tell nobody.', line: 'l2' });
-      await until(() => doneB.length === 2);
-      eq(doneB.map(m => [m.line, m.op]), [['l1', 'done'], ['l2', 'done']], 'each line reports back, in order');
+      await until(() => doneB.filter(m => m.op === 'done').length === 2);
+      eq(doneB.filter(m => m.op === 'done').map(m => [m.line, m.op]), [['l1', 'done'], ['l2', 'done']], 'each line reports back, in order');
+      eq(doneB.map(m => [m.line, m.op]), [['l1', 'start'], ['l1', 'done'], ['l2', 'start'], ['l2', 'done']],
+        'and says when its first frame went out, before it is done');
       eq(speaks.slice(-2).map(x => x.text), ['You are a Traitor.', 'Tell nobody.']);
       ok(/model=aura-2-pandora-en/.test(speaks[0].url) && speaks[0].auth === 'Token good-key', 'her voice, the room’s key');
       eq(toA.filter(p => p.subarray(0, 36).toString() === CLAUDIA_LINE_ID).length, 0, 'the host never hears a guest’s private line');
@@ -252,7 +254,7 @@ function fakeDeepgram() {
       B.Party.claudia({ op: 'say', text: 'One two three four five six seven eight nine ten eleven twelve.', line: 'long' });
       await delay(60);
       B.Party.claudia({ op: 'hush' });
-      await until(() => doneB.some(m => m.line === 'long'));
+      await until(() => doneB.some(m => m.line === 'long' && m.op === 'done'));
       const room = app.rooms.get(A.Party.code);
       const r = app.ai.rooms.get(room.code).readers.get(B.Party.selfId());
       eq(r.queue.length, 0, 'nothing left queued');

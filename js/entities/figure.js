@@ -52,9 +52,10 @@ const Figure = (() => {
      stable hash of the look, so everybody's screen agrees on them. */
   const TROUSERS = ['#2b2e35', '#3a3631', '#25272c', '#3d4149', '#33302c'];
   const IRIS = ['#3b2a1e', '#5a3d24', '#4f6f8f', '#5b7a52', '#6b5a3a', '#2e2219', '#6a7f96'];
-  const SCLERA = '#e2dcd0', PUPIL = '#0b0a0a', MOUTH = '#3e1619', TEETH = '#e6e0d2';
+  const SCLERA = '#d6cec2', PUPIL = '#0b0a0a', MOUTH = '#3e1619', TEETH = '#e6e0d2';
 
   const THROW_AT = 0.68;
+  const HEAD_SCALE = 1.16;
   const SEAT_DROP = FigureSkeleton.Y.hip - FigureSkeleton.SEAT.hip;
 
   /* Legacy: the head's size, for anything that sat things on the old one. */
@@ -104,6 +105,11 @@ const Figure = (() => {
     root.add(sk.by.pelvis);
     root.updateMatrixWorld(true);
     const skeleton = new THREE.Skeleton(sk.bones);
+    /* A touch more head than strict anatomy gives. At a true seven and
+       a half heads, a small face over broad tailoring read as a
+       mannequin; the bind is already taken, so this only grows the head
+       (hair, hats, eyes and all) about the top of the neck. */
+    sk.by.head.scale.setScalar(HEAD_SCALE);
 
     /* -------- colour -------- */
     const col = (hex) => new THREE.Color(hex);
@@ -125,7 +131,7 @@ const Figure = (() => {
       : new THREE.MeshStandardMaterial(Object.assign({ color: colour, roughness: rough, metalness: 0,
                                                       vertexColors: true }, extra));
     const M = {
-      skin: mat(C.skin, 0.6, low ? {} : { emissive: col(C.skin).multiplyScalar(0.05) }),
+      skin: mat(C.skin, 0.72, low ? {} : { emissive: col(C.skin).multiplyScalar(0.05) }),
       coat: mat('#ffffff', 0.88, spec.long ? { side: THREE.DoubleSide } : {}),
       legs: mat('#ffffff', 0.82),
       hair: mat(C.hairColour, 0.55, { side: THREE.DoubleSide }),

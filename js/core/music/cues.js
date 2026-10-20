@@ -470,46 +470,70 @@ const MusicCues = (() => {
   };
 
   /* ---------------- the front door ----------------
-     The title. The hill states the theme; this one *announces* it, at a
-     run, the way a trailer does. Same four bars, played as an overture: `gate` is the tune alone
-     on a piano with a harp and the celli under it, and `anthem` is
-     what happens when the horns, the choir and two drums arrive and
-     the harmony opens out into the full eight bars.
+     The title. Not the lament — that is the fire's, and on a menu it
+     just sounded sad. This is the castle at a run: a riff on the
+     heroic minor (i, VI, III, VII), short hard notes that climb, a
+     chromatic slip onto the dominant at the end so it always wants
+     to go round again. Dark because it is minor and full of knives;
+     lively because nothing in it is longer than a beat.
 
-     It is the first thing anybody hears, so it earns the brass rather
-     than opening with it — `main.js` lifts the section a pass in, on
-     a bar line, behind a reverse cymbal. It loops there; a menu is
-     allowed to be a wall of sound, it is not allowed to end. */
+     `gate` is the riff on a piano over the celli chopping and a light
+     kit; `anthem` is the horns taking it, the choir in stabs, the
+     drums all in. `main.js` lifts the section a pass in, on a bar
+     line, behind a reverse cymbal. It loops there; it sits under a
+     menu, so it is kept well down. */
+  const OVERTURE = [
+    // Dm: up the triad to the octave and back down
+    [0, 0, 3, 1.1], [3, 3, 3], [6, 7, 2], [8, 12, 4, 1.05], [12, 10, 2], [14, 7, 2],
+    // Bb
+    [16, 8, 3, 1.1], [19, 12, 3], [22, 15, 2], [24, 12, 4], [28, 10, 2], [30, 8, 2],
+    // F
+    [32, 15, 3, 1.1], [35, 10, 3], [38, 7, 2], [40, 10, 4], [44, 12, 2], [46, 15, 2],
+    // C: the high point
+    [48, 17, 6, 1.15], [54, 15, 2], [56, 14, 4], [60, 10, 4, 0.9],
+    // Dm again, the answer
+    [64, 0, 3, 1.1], [67, 3, 3], [70, 7, 2], [72, 12, 4, 1.05], [76, 15, 2], [78, 12, 2],
+    // Bb
+    [80, 15, 3, 1.1], [83, 12, 3], [86, 8, 2], [88, 3, 4], [92, 8, 4],
+    // C
+    [96, 10, 3, 1.1], [99, 14, 3], [102, 17, 2], [104, 14, 4], [108, 10, 2], [110, 14, 2],
+    // A: the slip down onto the dominant, and the leading tone to go round
+    [112, 14, 4, 1.1], [116, 13, 2], [118, 11, 2], [120, 7, 4], [124, 11, 4, 0.9],
+  ];
+  MOTIFS.overture = motif(128, OVERTURE);
+  // the riff's off-beat push, for the celli: root, root, the fifth below
+  const RAID16_V = vel('X.7X.7X.X.7X.789');
+  const RAID16_P = pick('0.0a.0a.0.0a.012');
+
   const TITLE = {
-    level: 0.66, room: 'cathedral', reverb: 0.42,
+    level: 0.4, room: 'hall', reverb: 0.3,
     gears: ['gate', 'anthem'],
     sections: {
-      gate: { bpm: 104, prog: 'fire', duckLift: 0.3, talkDuck: 0.3, layers: [
-        L('piano', 'piano', { motif: 'theme', oct: 3, gain: 0.8 }),
-        L('ost', 'strings', { pat: OST16_V, pick: OST16_P, oct: 1, art: 'spic', gain: 0.6, fam: 'cello' }),
-        L('celli', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain',
-          gain: 0.5, fam: 'cello' }),
-        L('pad', 'strings', { pat: HALF, pick: 'chord', oct: 3, len: 8, art: 'swell', gain: 0.3, voices: 2 }),
-        L('taiko', 'taiko', { pat: vel('X.......X.......'), gain: 0.42 }),
-        L('timp', 'timpani', { pat: vel('X.............7.'), pick: 'root', oct: 1, gain: 0.38,
-          when: b => b % 2 === 1 }),
+      gate: { bpm: 132, prog: 'epic', duckLift: 0.3, talkDuck: 0.3, layers: [
+        L('lead', 'piano', { motif: 'overture', oct: 3, gain: 0.62 }),
+        L('riff', 'strings', { pat: RAID16_V, pick: RAID16_P, oct: 1, art: 'spic', gain: 0.6, fam: 'cello' }),
+        L('pizz', 'pizz', { pat: OST8_V, pick: OST8_P, oct: 2, gain: 0.4 }),
+        L('bass', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.35 }),
+        L('taiko', 'taiko', { pat: vel('X.....6.X.......'), gain: 0.42 }),
+        L('hat', 'hat', { pat: vel('..5...5...5...56'), gain: 0.22 }),
       ]},
 
-      /* Eight bars, because an anthem needs somewhere to go: the
-         theme over the first four and its answer over the second, the
-         ostinato driving underneath, drums on every beat that matters. */
-      anthem: { bpm: 104, prog: 'fate', duckLift: 0.3, talkDuck: 0.3, layers: [
-        L('horn', 'brass', { motif: 'fate', oct: 2, gain: 0.85 }),
-        L('violins', 'strings', { motif: 'fate', oct: 3, art: 'sustain', fam: 'hiStr', gain: 0.55 }),
-        L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'ah', gain: 0.55 }),
-        L('ost', 'strings', { pat: OST16_V, pick: OST16_P, oct: 1, art: 'spic', gain: 0.85, fam: 'cello' }),
-        L('ost2', 'strings', { pat: OST16_V, pick: OST16_P, oct: 2, art: 'spic', gain: 0.4, fam: 'hiStr' }),
-        L('celli', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain',
-          gain: 0.6, fam: 'cello' }),
-        L('taiko', 'taiko', { pat: vel('X.....6.X.6...7.'), gain: 0.72 }),
-        L('tom', 'tom', { pat: vel('....6.......6.7.'), gain: 0.4 }),
-        L('timp', 'timpani', { pat: vel('X.......X...X.X.'), pick: 'root', oct: 1, gain: 0.48 }),
-        L('crash', 'crash', { pat: BAR1, gain: 0.5, when: b => b % 4 === 0 }),
+      /* The same eight bars with everybody in: horns on the riff, the
+         violins doubling it on the second pass, the choir in short
+         stabs instead of a held chord, and drums on every push. */
+      anthem: { bpm: 132, prog: 'epic', duckLift: 0.3, talkDuck: 0.3, layers: [
+        L('horn', 'brass', { motif: 'overture', oct: 2, gain: 0.6 }),
+        L('violins', 'strings', { motif: 'overture', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.45,
+          when: b => b % 16 >= 8 }),
+        L('riff', 'strings', { pat: RAID16_V, pick: RAID16_P, oct: 1, art: 'spic', gain: 0.75, fam: 'cello' }),
+        L('riff2', 'strings', { pat: RAID16_V, pick: RAID16_P, oct: 2, art: 'spic', gain: 0.32, fam: 'hiStr' }),
+        L('stab', 'choir', { pat: vel('X.....7.....8...'), pick: 'chord', oct: 3, len: 2, vowel: 'ah', gain: 0.3 }),
+        L('bass', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.45 }),
+        L('taiko', 'taiko', { pat: vel('X.....6.X.6...7.'), gain: 0.6 }),
+        L('snare', 'snare', { pat: vel('....7.......7..5'), gain: 0.28 }),
+        L('hat', 'hat', { pat: vel('..5...5...5...56'), gain: 0.22 }),
+        L('tom', 'tom', { pat: vel('............6.78'), gain: 0.35, when: b => b % 4 === 3 }),
+        L('crash', 'crash', { pat: BAR1, gain: 0.35, when: b => b % 8 === 0 }),
       ]},
     },
   };

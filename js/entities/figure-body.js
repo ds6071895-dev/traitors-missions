@@ -337,17 +337,17 @@ const FigureBody = (() => {
   const HEAD_LOW = [
     [1.486, 0.036, 0.022, 0.034, 0.00, 2.0],
     [1.490, 0.046, 0.042, 0.044, 0.25, 2.1],
-    [1.493, 0.050, 0.064, 0.048, 0.50, 2.2],
-    [1.499, 0.052, 0.076, 0.051, 0.58, 2.2],
-    [1.509, 0.056, 0.082, 0.055, 0.54, 2.2],
-    [1.517, 0.058, 0.081, 0.060, 0.46, 2.2],
-    [1.525, 0.060, 0.086, 0.064, 0.40, 2.2],
+    [1.493, 0.051, 0.062, 0.048, 0.40, 2.2],
+    [1.499, 0.054, 0.073, 0.051, 0.44, 2.2],
+    [1.509, 0.058, 0.078, 0.055, 0.38, 2.25],
+    [1.517, 0.060, 0.079, 0.060, 0.32, 2.25],
+    [1.525, 0.062, 0.082, 0.064, 0.27, 2.25],
   ];
   const HEAD_HIGH = [
-    [1.525, 0.060, 0.086, 0.064, 0.40, 2.2],
-    [1.535, 0.062, 0.089, 0.069, 0.34, 2.2],
-    [1.548, 0.064, 0.089, 0.076, 0.29, 2.2],
-    [1.558, 0.066, 0.089, 0.081, 0.25, 2.2],
+    [1.525, 0.062, 0.082, 0.064, 0.27, 2.25],
+    [1.535, 0.064, 0.085, 0.069, 0.23, 2.25],
+    [1.548, 0.066, 0.087, 0.076, 0.20, 2.25],
+    [1.558, 0.067, 0.088, 0.081, 0.17, 2.25],
     [1.570, 0.069, 0.089, 0.087, 0.19, 2.25],
     [1.585, 0.072, 0.088, 0.093, 0.12, 2.3],
     [1.603, 0.074, 0.088, 0.097, 0.06, 2.3],
@@ -391,22 +391,22 @@ const FigureBody = (() => {
     let dz = 0;
     // nose: bridge to tip, the tip and the wings either side of it
     const nh = y > 1.615 ? 0 : y > 1.598 ? lerp(0.004, 0.008, (1.615 - y) / 0.017)
-             : y > 1.580 ? lerp(0.008, 0.016, (1.598 - y) / 0.018)
-             : y > 1.566 ? lerp(0.016, 0.026, (1.580 - y) / 0.014)
-             : y > 1.556 ? lerp(0.026, 0.017, (1.566 - y) / 0.010)
-             : y > 1.548 ? lerp(0.017, 0.000, (1.556 - y) / 0.008) : 0;
-    const nw = y > 1.58 ? 0.008 : lerp(0.0115, 0.008, (y - 1.552) / 0.028);
+             : y > 1.580 ? lerp(0.008, 0.014, (1.598 - y) / 0.018)
+             : y > 1.566 ? lerp(0.014, 0.020, (1.580 - y) / 0.014)
+             : y > 1.556 ? lerp(0.020, 0.012, (1.566 - y) / 0.010)
+             : y > 1.548 ? lerp(0.012, 0.000, (1.556 - y) / 0.008) : 0;
+    const nw = y > 1.58 ? 0.0075 : lerp(0.0100, 0.0075, (y - 1.552) / 0.028);
     dz += nh * face.nose * soft * gauss(x, Math.max(0.006, nw) * wide);
-    dz += 0.008 * face.nose * soft * gauss(ax - 0.0125, 0.006 * wide) * gauss(y - 1.557, 0.006 * wide);
+    dz += 0.005 * face.nose * soft * gauss(ax - 0.0115, 0.005 * wide) * gauss(y - 1.557, 0.005 * wide);
     // brow ridge, cheekbones
     dz += 0.0045 * face.brow * gauss(ax - 0.030, 0.024) * gauss(y - 1.623, 0.0065);
     dz += 0.006 * face.cheek * gauss(ax - 0.048, 0.016) * gauss(y - 1.583, 0.011);
     // eye sockets
     dz -= 0.011 * gauss(ax - 0.0315, 0.0145) * gauss(y - 1.603, 0.0095);
     // lips, and the corners tucked in
-    dz += 0.0055 * soft * gauss(x, 0.019) * gauss(y - 1.531, 0.0045 * wide);
-    dz += 0.0065 * soft * gauss(x, 0.017) * gauss(y - 1.519, 0.0045 * wide);
-    dz -= 0.0035 * gauss(ax - 0.026, 0.006) * gauss(y - 1.525, 0.006);
+    dz += 0.0035 * soft * gauss(x, 0.016) * gauss(y - 1.530, 0.0040 * wide);
+    dz += 0.0042 * soft * gauss(x, 0.015) * gauss(y - 1.519, 0.0042 * wide);
+    dz -= 0.0025 * gauss(ax - 0.024, 0.006) * gauss(y - 1.525, 0.006);
     // the groove under the lower lip, and the chin
     dz -= 0.0025 * gauss(x, 0.02) * gauss(y - 1.512, 0.004);
     dz += 0.0065 * face.chin * gauss(x, 0.02) * gauss(y - 1.502, 0.008);
@@ -783,13 +783,15 @@ const FigureBody = (() => {
     const hAll = hLow.concat(hHigh.slice(1));
     const eyeX = 0.0315 * D.hg, eyeR = 0.012;
     const eyeZ = headFrontZ(hAll, eyeX, SK().Y.eye) - eyeR + 0.0022;
-    const lipTint = [0.80, 0.52, 0.54];
+    const lipTint = [0.80, 0.50, 0.50], blush = [1.0, 0.90, 0.88];
     const headCol = (P) => {
       const front = ss(0.05, 0.075, P.z);
-      const lip = gauss(P.x, 0.021) * (gauss(P.y - 1.531, 0.0042) + gauss(P.y - 1.519, 0.0048)) * front;
-      const k = U.clamp(lip, 0, 1);
-      const line = 1 - 0.45 * gauss(P.y - 1.525, 0.0016) * gauss(P.x, 0.022) * front;
-      return [lerp(1, lipTint[0], k) * line, lerp(1, lipTint[1], k) * line, lerp(1, lipTint[2], k) * line];
+      const lip = gauss(P.x, 0.018) * (gauss(P.y - 1.530, 0.0040) + gauss(P.y - 1.519, 0.0046)) * front;
+      const k = U.clamp(lip * 1.15, 0, 1);
+      const line = 1 - 0.55 * gauss(P.y - 1.525, 0.0015) * gauss(P.x, 0.019) * front;
+      // a little colour in the cheeks: an even, bloodless face is a mannequin's
+      const c = 0.55 * gauss(Math.abs(P.x) - 0.044, 0.015) * gauss(P.y - 1.566, 0.012) * ss(0.03, 0.06, P.z);
+      return [0, 1, 2].map(i => lerp(1, lipTint[i], k) * lerp(1, blush[i], c) * line);
     };
     const soft = L.soft || 1;
     const headDisp = (P) => {
@@ -866,13 +868,15 @@ const FigureBody = (() => {
     for (const [k, s] of SK().SIDES) {
       const E = new THREE.Vector3(s * eyeX, SK().Y.eye, eyeZ);
       // resting just over the top of the iris: a lid above it is a stare
-      const up = new THREE.SphereGeometry(eyeR + 0.0016, L.eye, 8, 0, TAU, 0, 1.20);
+      const up = new THREE.SphereGeometry(eyeR + 0.0016, L.eye, 8, 0, TAU, 0, 1.25);
       const lash = (P) => {
         const c = (P.y - E.y) / (eyeR + 0.0016);
-        return c < 0.47 && P.z > E.z ? [0.22, 0.17, 0.16] : [0.96, 0.9, 0.9];
+        return c < 0.50 && P.z > E.z ? [0.14, 0.11, 0.10] : [0.94, 0.88, 0.87];
       };
       addGeom(B.skin, up, new THREE.Matrix4().makeTranslation(E.x, E.y, E.z), [[I['lid_' + k], 1]], 0, lash);
-      const lo = new THREE.SphereGeometry(eyeR + 0.0012, L.eye, 6, 0, TAU, Math.PI - 0.92, 0.92);
+      // and a lower lid up to the iris's bottom edge: white showing
+      // under the iris is the startled, staring look
+      const lo = new THREE.SphereGeometry(eyeR + 0.0012, L.eye, 6, 0, TAU, Math.PI - 1.04, 1.04);
       addGeom(B.skin, lo, new THREE.Matrix4().makeTranslation(E.x, E.y, E.z), [[I.head, 1]], 0);
     }
 
@@ -880,7 +884,7 @@ const FigureBody = (() => {
     for (const [k, s] of SK().SIDES) {
       const E = new THREE.Vector3(s * eyeX, SK().Y.eye, eyeZ);
       // latitude bands from the front pole: pupil, iris, the iris's rim, white
-      const bands = [[0, 0.22, 2], [0.22, 0.49, 1], [0.49, 0.57, 5], [0.57, Math.PI, 0]];
+      const bands = [[0, 0.25, 2], [0.25, 0.56, 1], [0.56, 0.64, 5], [0.64, Math.PI, 0]];
       for (const [a0, a1, tag] of bands) {
         const n = tag === 0 ? Math.max(4, L.eye >> 1) : 2;
         const rings = [];
@@ -920,10 +924,10 @@ const FigureBody = (() => {
         const t = i / 8;
         const x = s * lerp(0.011, 0.051, t) * D.hg;
         const y = SK().Y.brow + 0.0045 * Math.sin(Math.PI * Math.min(1, t * 1.25)) - 0.003 * t;
-        const z = headFrontZ(hAll, Math.abs(x), y) + faceDz(x, y, face) + 0.0018;
+        const z = headFrontZ(hAll, Math.abs(x), y) + faceDz(x, y, face) + 0.0010;
         path.push(new THREE.Vector3(x, y, z));
       }
-      tube(B.hair, path, 6, (t) => [lerp(0.0036, 0.0016, t), 0.0018], {
+      tube(B.hair, path, 6, (t) => [lerp(0.0028, 0.0013, t), 0.0012], {
         nrm: () => Z.clone(), wt: () => [[I['brow_' + k], 1]],
       });
     }

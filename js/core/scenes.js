@@ -100,9 +100,25 @@ const Scenes = (() => {
     try { return await runBeats(beats, scene); } finally { performing--; }
   }
 
+  /* Her next fixed line, if the list has one coming: the server reads it
+     while she says this one, so it is ready the moment she gets to it.
+     A line made by a function waits — it may depend on what happens. */
+  function readAhead(beats, from) {
+    if (typeof Voice === 'undefined' || !Voice.prefetch) return;
+    for (let k = from + 1; k < Math.min(beats.length, from + 4); k++) {
+      const b = beats[k];
+      if (!b || typeof b !== 'object' || b.when) return;
+      if (!b.line) continue;
+      const l = b.line;
+      if (typeof l === 'object' && l.text && (l.speaker === undefined || l.speaker === 'Claudia')) Voice.prefetch(l.text);
+      return;
+    }
+  }
+
   async function runBeats(beats, scene) {
     const mine = token;
-    for (const raw of beats) {
+    for (let i = 0; i < beats.length; i++) {
+      const raw = beats[i];
       if (mine !== token) return false;
       const b = typeof raw === 'function' ? raw() : raw;
       if (!b) continue;
@@ -117,8 +133,10 @@ const Scenes = (() => {
         const l = typeof b.line === 'function' ? b.line() : b.line;
         if (l && l.text) {
           if (scene && scene.setSpeaking) scene.setSpeaking(l.who || 'claudia');
-          await Voice.say(l.text, { speaker: l.speaker === undefined ? 'Claudia' : l.speaker,
-                                    rate: l.rate, pitch: l.pitch, public: !!l.public });
+          const saying = Voice.say(l.text, { speaker: l.speaker === undefined ? 'Claudia' : l.speaker,
+                                             rate: l.rate, pitch: l.pitch, public: !!l.public });
+          readAhead(beats, i);
+          await saying;
           if (mine !== token) return false;
           if (scene && scene.setSpeaking) scene.setSpeaking(null);
         }

@@ -154,7 +154,19 @@ const Engine = (() => {
       renderer.render(view.scene, view.camera);
       // a second pass a scene may draw over its own frame
       if (view.after) view.after(renderer);
+      if (drawnWaiters.length) drawnWaiters.splice(0).forEach(fn => fn());
     }
+  }
+
+  /* Resolves once the current view has really been drawn, warm-up and
+     all, so a cover can stay up over the old picture until there is a
+     new one to show. Capped, so a lost context never strands a fade. */
+  const drawnWaiters = [];
+  function drawn() {
+    return new Promise(resolve => {
+      const t = setTimeout(resolve, 5000);
+      drawnWaiters.push(() => { clearTimeout(t); resolve(); });
+    });
   }
 
   // dispose an entire subtree's GPU resources
@@ -178,7 +190,7 @@ const Engine = (() => {
 
   return {
     init, start, setView, clearView, addUpdater, onResize, resize,
-    setPaused, isPaused, disposeObject,
+    setPaused, isPaused, disposeObject, drawn,
     get renderer() { return renderer; },
     get hasView() { return !!view; },
     get size() { return size; },

@@ -21,6 +21,8 @@ const Lobby = (() => {
   let seated = false;              // a guest has heard its first roster
   let sharedAI = [];               // public seats received from the host
   let publishedAI = null;          // last room/roster/AI snapshot sent
+  let wants = {};                  // host only: each guest's want, by player id
+  let sentWant = null;             // guest only: the last want told to the host
 
   /* ---------------- the code control ----------------
      `Party.normaliseCode` is the whole of it: it upper-cases, drops
@@ -54,7 +56,7 @@ const Lobby = (() => {
 
   function paint() {
     const inRoom = Party.connected;
-    if (!inRoom) { sharedAI = []; publishedAI = null; }
+    if (!inRoom) { sharedAI = []; publishedAI = null; wants = {}; sentWant = null; }
     for (const id of ['lobby-host', 'lobby-join']) {
       const button = el(id);
       if (button) button.disabled = !!Party.connecting;
@@ -109,6 +111,9 @@ const Lobby = (() => {
       const opts = el('lobby-opts');
       if (opts) opts.hidden = !Party.isHost;
       paintTask();
+      paintCast();
+      paintWant();
+      tellWant();
     }
 
     RoomUI.paintMic();
@@ -222,8 +227,13 @@ const Lobby = (() => {
       .concat(ai.map(b => ({ id: b.id, name: b.name, look: b.look, bot: true, voice: b.voice })));
     const aiOn = { claudia: !!(typeof AIPlayers !== 'undefined' && AIPlayers.claudia) };
     const taskSeconds = taskTime();
-    Party.post('go', { seed, players, ai: aiOn, taskSeconds });
-    launch(seed, players, aiOn, taskSeconds);
+    const cast = castChoice();
+    // the wants stay on this machine: the deal is drawn here and nowhere else
+    const said = Object.assign({}, wants, { [Party.selfId()]: myWant() });
+    const dealWants = {};
+    for (const p of list) if (Object.hasOwn(said, p.id)) dealWants[p.id] = said[p.id];
+    Party.post('go', { seed, players, ai: aiOn, taskSeconds, cast });
+    launch(seed, players, aiOn, taskSeconds, cast, dealWants);
   }
 
   /* How long the day in the castle lasts: the host's to set, never under
@@ -242,7 +252,53 @@ const Lobby = (() => {
     out.textContent = Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0');
   }
 
-  function launch(seed, players, aiOn, taskSeconds) {
+  /* How many Traitors, and the chance of none: the host's to set and
+     remembered on this machine. Everybody is told the choice — that is
+     how Claudia knows to say "there may be" — and never the hand. */
+  const CAST_MODES = ['auto', '1', '2', 'random'];
+  function castChoice() {
+    const mode = String(GameState.settings.castTraitors || 'auto');
+    const none = Math.round(Number(GameState.settings.castNone) || 0);
+    return { count: CAST_MODES.indexOf(mode) >= 0 ? mode : 'auto',
+             none: Math.max(0, Math.min(50, none)) / 100 };
+  }
+  function paintCast() {
+    const c = castChoice();
+    document.querySelectorAll('#lobby-cast [data-cast]').forEach(b => {
+      const on = b.dataset.cast === c.count;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    const r = el('lobby-none'), out = el('lobby-none-out');
+    if (!r || !out) return;
+    const pct = Math.round(c.none * 100);
+    if (document.activeElement !== r) r.value = String(pct);
+    out.textContent = pct ? pct + '%' : 'Off';
+  }
+
+  /* How much you want the cloak, -2 to 2: yours, remembered here, and
+     told to the host alone — it would be a tell anywhere else. */
+  const WANT_WORDS = { '-2': 'Please no', '-1': 'Rather not', 0: "Don't mind", 1: 'Keen', 2: 'Desperate' };
+  function myWant() {
+    const n = Math.round(Number(GameState.settings.traitorWant) || 0);
+    return Math.max(-2, Math.min(2, n));
+  }
+  function paintWant() {
+    const r = el('lobby-want'), out = el('lobby-want-out');
+    if (!r || !out) return;
+    const n = myWant();
+    if (document.activeElement !== r) r.value = String(n);
+    out.textContent = WANT_WORDS[n];
+  }
+  function tellWant() {
+    if (Party.isHost || !Party.connected || !Party.hostId || !Party.self()) return;
+    const key = [Party.code, Party.hostId, myWant()].join(':');
+    if (key === sentWant) return;
+    sentWant = key;
+    Party.post('lobby', { want: myWant() }, Party.hostId);
+  }
+
+  function launch(seed, players, aiOn, taskSeconds, cast, dealWants) {
     const mine = Party.selfId();
     const seated = players.map(p => Object.assign({}, p, { local: p.id === mine }));
     const launchRoom = Party.room;
@@ -251,7 +307,8 @@ const Lobby = (() => {
     Screens.transition(() => {
       if (Party.room !== launchRoom || !Party.connected) return;
       Game.enterShow();
-      Show.beginParty({ seed, players: seated, host: Party.isHost, ai: aiOn || null, taskSeconds });
+      Show.beginParty({ seed, players: seated, host: Party.isHost, ai: aiOn || null, taskSeconds,
+                        cast: cast || null, wants: Party.isHost ? dealWants || null : null });
     }, 420);
   }
 
@@ -289,12 +346,30 @@ const Lobby = (() => {
       GameState.save();
       paintTask();
     });
+    const want = el('lobby-want');
+    if (want) want.addEventListener('input', () => {
+      GameState.settings.traitorWant = Number(want.value);
+      GameState.save();
+      paintWant();
+      tellWant();
+    });
+    const none = el('lobby-none');
+    if (none) none.addEventListener('input', () => {
+      GameState.settings.castNone = Number(none.value);
+      GameState.save();
+      paintCast();
+    });
+    document.querySelectorAll('#lobby-cast [data-cast]').forEach(b => b.addEventListener('click', () => {
+      GameState.settings.castTraitors = b.dataset.cast;
+      GameState.save();
+      paintCast();
+    }));
     el('lobby-host').onclick = host;
     el('lobby-join').onclick = join;
     el('lobby-leave').onclick = leave;
     el('lobby-start').onclick = start;
     el('lobby-mic-btn').onclick = toggleMic;
-    el('lobby-dress').onclick = () => Screens.show('dressing', { from: 'lobby' });
+    el('lobby-dress').onclick = () => Dressing.open('lobby');
     el('lobby-back').onclick = () => { leave(); Screens.show('play'); };
 
     Party.on('roster', () => {
@@ -307,7 +382,14 @@ const Lobby = (() => {
     Party.on('status', paint);
     Party.on('left', paint);
     Party.on('lobby', (data, from) => {
-      if (Party.isHost || from !== Party.hostId || !Array.isArray(data && data.seats)) return;
+      // a guest telling the host how much it wants the cloak
+      if (Party.isHost) {
+        if (data && from && from !== Party.selfId() && Number.isFinite(Number(data.want))) {
+          wants[from] = Math.max(-2, Math.min(2, Math.round(Number(data.want))));
+        }
+        return;
+      }
+      if (from !== Party.hostId || !Array.isArray(data && data.seats)) return;
       sharedAI = data.seats.slice(0, Party.MAX).filter(b => b && typeof b.name === 'string')
         .map(b => ({ id: b.id, name: b.name, ready: !!b.ready, status: String(b.status || 'waking') }));
       paint();
@@ -323,7 +405,7 @@ const Lobby = (() => {
     Party.on('go', (data) => {
       if (Party.isHost || started || !data) return;
       started = true;
-      launch(data.seed, data.players || [], data.ai || null, data.taskSeconds);
+      launch(data.seed, data.players || [], data.ai || null, data.taskSeconds, data.cast || null);
     });
     VoiceChat.on('state', paint);
 

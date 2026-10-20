@@ -251,7 +251,7 @@ const FigureClips = (() => {
   ACTS.distress = ACTS.handsFace;
 
   const MOODS = {
-    calm:    { fidget: 0.5, slump: 0.00, smile: 0.10, brow: 0.0, browIn: 0.0, lids: 0.05 },
+    calm:    { fidget: 0.5, slump: 0.00, smile: 0.30, brow: 0.0, browIn: 0.0, lids: 0.06 },
     nervous: { fidget: 1.8, slump: 0.03, smile: 0.00, brow: 0.3, browIn: 0.4, lids: 0.00 },
     smug:    { fidget: 0.4, slump: -0.03, smile: 0.35, brow: 0.0, browIn: 0.0, lids: 0.22, smirk: 0.5 },
     sad:     { fidget: 0.4, slump: 0.08, smile: 0.00, brow: 0.0, browIn: 0.6, lids: 0.25, frown: 0.5 },

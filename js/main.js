@@ -74,11 +74,11 @@ const Game = (() => {
      asks again once there is an audio context to ask with. */
 
   const MENU_SCREENS = new Set(['play', 'lobby', 'dressing']);
-  /* Four bars of `gate` at 84bpm is 11.4 seconds, which is one whole
-     statement of the theme. Ask a beat and a half early: the switch
-     waits for the bar line either way, and the reverse cymbal needs
-     that much runway to arrive on it. */
-  const OVERTURE_LIFT = 10000;
+  /* Eight bars of `gate` at 132bpm is 14.5 seconds, which is one whole
+     pass of the riff. Ask a bar early: the switch waits for the bar
+     line either way, and the reverse cymbal needs that much runway
+     to arrive on it. */
+  const OVERTURE_LIFT = 12800;
 
   let overture = null, overtureLift = null;
 
@@ -197,7 +197,7 @@ const Game = (() => {
   function toDressing() {
     AudioBus.resume();
     AudioBus.play('ui-click');
-    Screens.transition(() => Screens.show('dressing', { from: 'play' }), 320);
+    Dressing.open('play');
   }
 
   /* ---------------- somebody left ----------------

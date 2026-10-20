@@ -12,8 +12,9 @@
        room, fed from the voice frames the server already relays, so the
        host gets "[Ana]: …" transcripts with the speaker known exactly;
      - the agents' speech, cut into the game's own 20 ms voice frames,
-       paced at real time, and relayed into the room as if from a seat —
-       so the same night/dead routing applies to an AI as to a person.
+       paced at real time by one clock for the whole server, and relayed
+       into the room as if from a seat — so the same night/dead routing
+       applies to an AI as to a person.
 
    Agents get no microphone audio at all. They speak only when the host
    injects a turn, which is what stops eight voices answering at once.
@@ -38,6 +39,101 @@ const MAX_SOCKETS = Number(process.env.DEEPGRAM_MAX_SOCKETS || 15);
 const KEEPALIVE_MS = 5000;
 const LISTEN_TAIL_MS = 1500;        // enough audio silence for endpointing and UtteranceEnd
 const SILENCE = Buffer.alloc(FRAME);
+/* The smallest valid Opus packet: 20 ms of nothing. What keeps an Opus
+   ear's clock moving through a pause, as zero PCM does for a PCM one. */
+const OPUS_SILENCE = Buffer.from([0xf8, 0xff, 0xfe]);
+const LEAD_MS = 60;                 // how far ahead of real time a voice is sent
+const CATCH_UP_MS = 200;            // how much lost time a late tick may make up at once
+const LINE_TTL_MS = 120000;         // how long a read line is kept for the next listener
+const LINE_CACHE_BYTES = 24 * 1024 * 1024;
+const now = () => (globalThis.performance ? globalThis.performance.now() : Date.now());
+
+/* ---------------- one clock for every voice ----------------
+   Each voice the server speaks — an agent's turn, one of Claudia's lines
+   to one listener — is a queue of frames with a time each is due. One
+   timer sends whatever is due, a little ahead of time so the listener's
+   buffer never runs dry on a timer that fired late, and makes up lost
+   time after a stall rather than letting the voice drift slower and
+   slower. Twenty separate 20 ms intervals did drift, and stuttered. */
+const streams = new Set();
+let pacer = null;
+function pace(stream) {
+  stream.due = 0; stream.started = false;
+  streams.add(stream);
+  if (!pacer) { pacer = setInterval(tick, 10); if (pacer.unref) pacer.unref(); }
+}
+function unpace(stream) { if (stream) streams.delete(stream); }
+function tick() {
+  const t = now();
+  for (const st of streams) {
+    if (st.queue.length) {
+      if (!st.due) st.due = t;
+      else if (st.due < t - CATCH_UP_MS) st.due = t - CATCH_UP_MS;
+      while (st.queue.length && st.due <= t + LEAD_MS) {
+        const frame = st.queue.shift();
+        const first = !st.started;
+        st.started = true;
+        st.due += 20;
+        try { st.send(frame, first); } catch (e) { /* a listener gone mid-line */ }
+      }
+    } else if (st.finished() && (!st.due || t >= st.due)) {
+      // "done" when the last frame has been heard, not when it was sent
+      streams.delete(st);
+      try { st.drained(); } catch (e) { /* ditto */ }
+    }
+  }
+  if (!streams.size) { clearInterval(pacer); pacer = null; }
+}
+
+/* ---------------- Ogg, for an Opus ear ----------------
+   Deepgram reads Opus in an Ogg container (and works out the format
+   itself), so an ear fed from Opus voices gets each packet in a page of
+   its own behind the two header pages. */
+const OGG_CRC = new Uint32Array(256);
+for (let i = 0; i < 256; i++) {
+  let r = i << 24;
+  for (let j = 0; j < 8; j++) r = (r & 0x80000000) ? ((r << 1) ^ 0x04c11db7) : (r << 1);
+  OGG_CRC[i] = r >>> 0;
+}
+function oggCrc(buf) {
+  let c = 0;
+  for (let i = 0; i < buf.length; i++) c = ((c << 8) ^ OGG_CRC[((c >>> 24) ^ buf[i]) & 0xff]) >>> 0;
+  return c;
+}
+function oggPage(serial, sequence, granule, type, packet) {
+  const segments = [];
+  let n = packet.length;
+  while (n >= 255) { segments.push(255); n -= 255; }
+  segments.push(n);
+  const head = Buffer.alloc(27 + segments.length);
+  head.write('OggS', 0, 'ascii');
+  head[5] = type;
+  head.writeBigUInt64LE(BigInt(granule), 6);
+  head.writeUInt32LE(serial >>> 0, 14);
+  head.writeUInt32LE(sequence >>> 0, 18);
+  head[26] = segments.length;
+  segments.forEach((v, i) => { head[27 + i] = v; });
+  const page = Buffer.concat([head, packet]);
+  page.writeUInt32LE(oggCrc(page), 22);
+  return page;
+}
+function oggOpus(serial) {
+  let sequence = 0, granule = 0;
+  const opusHead = Buffer.alloc(19);
+  opusHead.write('OpusHead', 0, 'ascii');
+  opusHead[8] = 1; opusHead[9] = 1;               // version, mono
+  opusHead.writeUInt16LE(312, 10);                // pre-skip
+  opusHead.writeUInt32LE(24000, 12);              // what was said into it
+  const vendor = Buffer.from('traitors', 'ascii');
+  const opusTags = Buffer.alloc(16 + vendor.length);
+  opusTags.write('OpusTags', 0, 'ascii');
+  opusTags.writeUInt32LE(vendor.length, 8);
+  vendor.copy(opusTags, 12);
+  return {
+    headers: () => [oggPage(serial, sequence++, 0, 0x02, opusHead), oggPage(serial, sequence++, 0, 0, opusTags)],
+    packet: (data) => { granule += 960; return oggPage(serial, sequence++, granule, 0, data); },
+  };
+}
 
 const VOICES = new Set(['aura-2-pandora-en', 'aura-2-draco-en', 'aura-2-thalia-en', 'aura-2-andromeda-en',
   'aura-2-apollo-en', 'aura-2-arcas-en', 'aura-2-aries-en', 'aura-2-asteria-en', 'aura-2-athena-en',
@@ -124,7 +220,7 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
     if (s.agents.has(id)) return say(s, { op: 'ready', id });
     if (live(s) >= maxSockets) return say(s, { op: 'error', id, message: 'Too many live AI voices for this plan.' });
     const voice = VOICES.has(msg.voice) ? msg.voice : 'aura-2-thalia-en';
-    const agent = { id, voice, ws: null, ready: false, queue: [], pending: Buffer.alloc(0), pace: null,
+    const agent = { id, voice, ws: null, ready: false, queue: [], pending: Buffer.alloc(0), stream: null,
                     keepalive: null, hushed: false, speaking: false, outbox: [], closed: false,
                     inflight: false, cancelTimer: null, deferred: null, lastInject: null, refusals: 0,
                     name: str(msg.name, 24) };
@@ -200,16 +296,16 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
     ws.on('error', (e) => say(s, { op: 'error', id, message: 'Deepgram voice failed: ' + str(e && e.message, 200) }));
     ws.on('close', (code) => {
       clearInterval(agent.keepalive);
-      clearInterval(agent.pace);
+      unpace(agent.stream); agent.stream = null;
       if (s.agents.get(id) === agent) s.agents.delete(id);
       if (!agent.closed) say(s, { op: 'closed', id, code });
     });
   }
 
-  /* Deepgram sends speech faster than it is spoken. The room's playback
-     buffer is a fifth of a second, so the frames are queued here and
-     released one per 20 ms — the rate a person's microphone would send
-     them — through the same router as everybody's voice. */
+  /* Deepgram sends speech faster than it is spoken. The frames are queued
+     here and released on the server's one clock — the rate a person's
+     microphone would send them — through the same router as everybody's
+     voice. */
   function audioIn(s, agent, data) {
     if (agent.hushed) return;
     agent.pending = Buffer.concat([agent.pending, data]);
@@ -217,20 +313,22 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
       agent.queue.push(agent.pending.subarray(0, FRAME));
       agent.pending = agent.pending.subarray(FRAME);
     }
-    if (!agent.pace) {
-      agent.pace = setInterval(() => {
-        const frame = agent.queue.shift();
-        if (frame) { relayAudio(s.room, agent.id, Buffer.from(frame)); return; }
-        clearInterval(agent.pace); agent.pace = null;
-        flushDone(s, agent);
-      }, 20);
+    if (!agent.stream && agent.queue.length) {
+      const stream = {
+        queue: agent.queue,
+        send: (frame, first) => relayAudio(s.room, agent.id, Buffer.from(frame), 0, null, first),
+        finished: () => agent.audioDone,
+        drained: () => { if (agent.stream === stream) agent.stream = null; flushDone(s, agent); },
+      };
+      agent.stream = stream;
+      pace(stream);
     }
   }
 
   /* "Done" means the room has heard the last of it, not that Deepgram
      has sent the last of it — which can be seconds earlier. */
   function flushDone(s, agent) {
-    if (!agent.audioDone || agent.queue.length || agent.pace) return;
+    if (!agent.audioDone || agent.queue.length || agent.stream) return;
     agent.audioDone = false;
     agent.speaking = false;
     say(s, { op: 'done', id: agent.id });
@@ -269,7 +367,7 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
     const agent = s.agents.get(str(msg.id, 36));
     if (!agent) return;
     agent.queue.length = 0; agent.pending = Buffer.alloc(0);
-    if (agent.pace) { clearInterval(agent.pace); agent.pace = null; }
+    unpace(agent.stream); agent.stream = null;
     agent.audioDone = false;
     if (msg.on === false) { if (agent.hushed) settle(s, agent); return; }
     // Claudia taking the room also cancels any next turn waiting behind this one.
@@ -287,7 +385,7 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
     const agent = s.agents.get(id);
     if (!agent) return;
     agent.closed = true;
-    clearInterval(agent.keepalive); clearInterval(agent.pace); clearTimeout(agent.cancelTimer);
+    clearInterval(agent.keepalive); unpace(agent.stream); agent.stream = null; clearTimeout(agent.cancelTimer);
     try { agent.ws.close(1000); } catch (e) {}
     s.agents.delete(id);
   }
@@ -300,97 +398,197 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
      nobody's screen ever falls back to the browser's robot voice while
      a key is set.
 
+     A public line is asked for by everybody at once, so what Deepgram
+     reads is kept for the room: the first ask fetches it, every other
+     joins that fetch, and nobody waits for anybody. It is streamed — the
+     first frames go out while the rest is still being read — and a line
+     of several sentences fetches its first sentence on its own, so the
+     wait before her first word is one sentence long, not the whole line.
+
      Lines for one listener are played strictly in order: they are
      fetched as soon as they are asked for, but each waits for the one
      before it to finish before its frames go out. */
   function readerOf(s, memberId) {
     let r = s.readers.get(memberId);
     if (!r) {
-      r = { queue: [], pace: null, chain: Promise.resolve(), serial: 0, budget: [], current: null };
+      r = { queue: [], stream: null, chain: Promise.resolve(), serial: 0, budget: [], current: null };
       s.readers.set(memberId, r);
     }
     return r;
   }
 
   function overBudget(r, n) {
-    const now = Date.now();
-    while (r.budget.length && now - r.budget[0].at > 60000) r.budget.shift();
+    const t = Date.now();
+    while (r.budget.length && t - r.budget[0].at > 60000) r.budget.shift();
     const used = r.budget.reduce((a, b) => a + b.n, 0);
     if (used + n > SPEAK_CHARS_PER_MIN) return true;
-    r.budget.push({ at: now, n });
+    r.budget.push({ at: t, n });
     return false;
   }
 
+  // the first sentence, and the rest: her first word waits only for the first
+  function parts(text) {
+    const m = /^(.+?[.!?…])\s+(\S.*)$/s.exec(text);
+    return m && m[1].length < text.length * 0.8 ? [m[1], m[2]] : [text];
+  }
+
+  /* One read line, shared by everybody who asks for it: frames as they
+     arrive, whether it is finished, and who is waiting on more. */
+  function lineEntry(s, text, r) {
+    const lines = s.lines || (s.lines = new Map());
+    const key = CLAUDIA_VOICE + '|' + text;
+    let e = lines.get(key);
+    if (e && !e.error) {
+      lines.delete(key); lines.set(key, e);          // most recently used last
+      e.at = Date.now();
+      return e;
+    }
+    if (r && overBudget(r, text.length)) return null;
+    e = { frames: [], done: false, error: null, waiters: new Set(), at: Date.now(), bytes: 0 };
+    lines.set(key, e);
+    fetchLine(s, text, e).catch(() => {});
+    trimLines(s);
+    return e;
+  }
+
+  function trimLines(s) {
+    const lines = s.lines;
+    let total = 0;
+    for (const e of lines.values()) total += e.bytes;
+    const t = Date.now();
+    for (const [key, e] of lines) {
+      if (!e.done || e.waiters.size) continue;
+      if (total <= LINE_CACHE_BYTES && t - e.at < LINE_TTL_MS) continue;
+      lines.delete(key); total -= e.bytes;
+    }
+  }
+
+  const wake = (e) => { for (const fn of [...e.waiters]) fn(); };
+
   /* Deepgram answers a busy moment with a 429 or a 5xx, and a socket can
      drop mid-request. None of that should reach the browser as "read it
-     yourself": ask again, a few times, before giving up. */
-  async function fetchLine(s, text) {
+     yourself": ask again, a few times, before giving up — unless some of
+     it has already been heard, in which case what was heard is the line. */
+  async function fetchLine(s, text, e) {
     const q = new URLSearchParams({ model: CLAUDIA_VOICE, encoding: 'linear16', sample_rate: '24000', container: 'none' });
     let last = null;
+    const push = (buf) => { e.frames.push(buf); e.bytes += buf.length; };
     for (let attempt = 0; attempt < 4; attempt++) {
       if (attempt) await new Promise(r => setTimeout(r, 250 * attempt * attempt));
+      let pending = Buffer.alloc(0);
       try {
         const res = await fetchImpl(speakUrl + '?' + q, {
           method: 'POST',
           headers: { Authorization: 'Token ' + (s.key || process.env.DEEPGRAM_API_KEY), 'Content-Type': 'application/json' },
           body: JSON.stringify({ text }),
         });
-        if (res && res.ok) return Buffer.from(await res.arrayBuffer());
+        if (res && res.ok) {
+          const take = (chunk) => {
+            pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+            let any = false;
+            while (pending.length >= FRAME) { push(pending.subarray(0, FRAME)); pending = pending.subarray(FRAME); any = true; }
+            if (any) wake(e);
+          };
+          if (res.body && typeof res.body.getReader === 'function') {
+            const reader = res.body.getReader();
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (value && value.length) take(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+            }
+          } else take(Buffer.from(await res.arrayBuffer()));
+          if (pending.length) { const tail = Buffer.alloc(FRAME); pending.copy(tail); push(tail); }
+          e.done = true; wake(e);
+          return;
+        }
         last = new Error('Deepgram speak ' + (res ? res.status : 'failed'));
         if (res && res.status >= 400 && res.status < 500 && res.status !== 429 && res.status !== 408) break;
-      } catch (e) { last = e; }
+      } catch (err) {
+        last = err;
+        if (e.frames.length) { e.done = true; wake(e); return; }
+      }
     }
-    throw last || new Error('Deepgram speak failed');
+    e.error = last || new Error('Deepgram speak failed');
+    e.done = true;
+    wake(e);
   }
 
   function speak(room, memberId, msg) {
     const s = rooms.get(room.code);
     const line = str(msg.line, 40);
     const text = str(msg.text, 1800).replace(/\s+/g, ' ').trim();
-    const reply = (m) => { try { toMember(room, memberId, Object.assign({ type: 'claudia', line }, m)); } catch (e) {} };
+    const prefetch = msg.op === 'prefetch';
+    const reply = (m) => { if (!prefetch) try { toMember(room, memberId, Object.assign({ type: 'claudia', line }, m)); } catch (e) {} };
     if (!text) return reply({ op: 'done' });
     if (!s || !(s.key || process.env.DEEPGRAM_API_KEY) || !fetchImpl) return reply({ op: 'error', message: 'No Deepgram key.' });
     const r = readerOf(s, memberId);
-    if (overBudget(r, text.length)) return reply({ op: 'error', message: 'Too much speech this minute.' });
+    const entries = parts(text).map(t => lineEntry(s, t, r));
+    if (entries.some(e => !e)) return reply({ op: 'error', message: 'Too much speech this minute.' });
+    if (prefetch) return;
     const serial = r.serial;
-    const audio = fetchLine(s, text);
-    audio.catch(() => {});
     r.chain = r.chain.then(async () => {
-      let pcm;
-      try { pcm = await audio; } catch (e) { reply({ op: 'error', message: str(e && e.message, 200) }); return; }
       if (serial !== r.serial || !rooms.has(room.code)) return reply({ op: 'done', hushed: true });
-      await play(room, memberId, r, pcm, line);
-      reply({ op: 'done' });
+      const result = await play(room, memberId, r, entries, () => reply({ op: 'start' }));
+      if (result === 'error') reply({ op: 'error', message: str(entries[0].error && entries[0].error.message, 200) });
+      else reply({ op: 'done' });
     });
   }
 
-  function play(room, memberId, r, pcm, line) {
+  /* One line to one listener: its parts' frames, in order, as they arrive,
+     with a breath between parts. Resolves when the last has been heard,
+     or 'error' if nothing could be read at all. */
+  function play(room, memberId, r, entries, started) {
     return new Promise((resolve) => {
-      for (let i = 0; i + FRAME <= pcm.length; i += FRAME) r.queue.push(pcm.subarray(i, i + FRAME));
-      const tail = pcm.length % FRAME;
-      if (tail) { const last = Buffer.alloc(FRAME); pcm.copy(last, 0, pcm.length - tail); r.queue.push(last); }
-      r.current = { line, resolve };
-      clearInterval(r.pace);
-      r.pace = setInterval(() => {
-        const frame = r.queue.shift();
-        if (frame) { audioTo(room, memberId, CLAUDIA_LINE_ID, Buffer.from(frame)); return; }
-        clearInterval(r.pace); r.pace = null;
-        const c = r.current; r.current = null;
-        if (c) c.resolve();
-      }, 20);
+      let part = 0, idx = 0, produced = false, sent = false, over = false;
+      const cur = { resolve: () => finish() };
+      const finish = (v) => {
+        if (over) return;
+        over = true;
+        entries.forEach(e => e.waiters.delete(pump));
+        if (r.current === cur) r.current = null;
+        resolve(v);
+      };
+      function pump() {
+        while (part < entries.length) {
+          const e = entries[part];
+          while (idx < e.frames.length) r.queue.push(e.frames[idx++]);
+          if (!e.done) return;
+          if (e.error && !e.frames.length) {
+            if (part === 0) { unpace(stream); r.stream = null; finish('error'); produced = true; return; }
+          }
+          part++; idx = 0;
+          if (part < entries.length) for (let i = 0; i < 6; i++) r.queue.push(SILENCE);
+        }
+        produced = true;
+      }
+      const stream = {
+        queue: r.queue,
+        send: (frame, first) => {
+          if (first && !sent) { sent = true; started(); }
+          audioTo(room, memberId, CLAUDIA_LINE_ID, Buffer.from(frame), first);
+        },
+        finished: () => produced,
+        drained: () => { if (r.stream === stream) r.stream = null; finish(); },
+      };
+      r.current = cur;
+      entries.forEach(e => e.waiters.add(pump));
+      r.stream = stream;
+      pace(stream);
+      pump();
     });
   }
 
   /* A new scene, or a line cut short: whatever is queued for this one
      person is dropped, and anything still being fetched is thrown away
-     when it lands. */
+     when it lands. The read line stays in the room's keeping for anybody
+     else who is still hearing it. */
   function hushReader(room, memberId) {
     const s = rooms.get(room.code);
     const r = s && s.readers.get(memberId);
     if (!r) return;
     r.serial++;
     r.queue.length = 0;
-    if (r.pace) { clearInterval(r.pace); r.pace = null; }
+    unpace(r.stream); r.stream = null;
     const c = r.current; r.current = null;
     if (c) c.resolve();
   }
@@ -403,40 +601,48 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
       const id = str(h && h.id, 36);
       if (s.room.members.has(id)) want.set(id, str(h.name, 24));
     }
-    const keyterms = [...new Set([...want.values(), ...s.names.values()].filter(Boolean))].slice(0, 20);
+    s.keyterms = [...new Set([...want.values(), ...s.names.values()].filter(Boolean))].slice(0, 20);
     for (const [id, ear] of s.ears) if (!want.has(id)) { closeEar(ear); s.ears.delete(id); }
     for (const [id, name] of want) {
       s.names.set(id, name);
       if (s.ears.has(id) || !s.key) continue;
-      if (live(s) >= maxSockets) { say(s, { op: 'error', id, message: 'Too many live AI sockets to transcribe everybody.' }); continue; }
-      const q = new URLSearchParams({ model: 'nova-3', encoding: 'linear16', sample_rate: '24000',
-        channels: '1', punctuate: 'true', smart_format: 'true', interim_results: 'true',
-        endpointing: '400', utterance_end_ms: '1200' });
-      keyterms.forEach(k => q.append('keyterm', k));
-      let ws;
-      try { ws = new WebSocketImpl(listenUrl + '?' + q, { headers: { Authorization: 'Token ' + s.key } }); }
-      catch (e) { say(s, { op: 'error', id, message: 'Could not open transcription.' }); continue; }
-      const ear = { id, ws, keepalive: null, silence: null, lastAudio: 0, closed: false };
-      s.ears.set(id, ear);
-      ws.on('open', () => {
-        ear.keepalive = setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'KeepAlive' })); }, KEEPALIVE_MS);
-      });
-      ws.on('message', (data, binary) => {
-        if (binary) return;
-        let m; try { m = JSON.parse(data.toString()); } catch { return; }
-        if (m.type === 'Results') {
-          const text = m.channel && m.channel.alternatives && m.channel.alternatives[0]
-            && m.channel.alternatives[0].transcript;
-          if (text && m.is_final) say(s, { op: 'heard', id, text: str(text, 600), final: !!m.speech_final });
-          else if (text) say(s, { op: 'hearing', id, text: str(text, 200) });
-        } else if (m.type === 'UtteranceEnd') say(s, { op: 'pause', id });
-      });
-      ws.on('error', (e) => say(s, { op: 'error', id, message: 'Transcription failed: ' + str(e && e.message, 200) }));
-      ws.on('close', () => {
-        clearInterval(ear.keepalive); clearInterval(ear.silence);
-        if (s.ears.get(id) === ear) s.ears.delete(id);
-      });
+      openEar(s, id, s.room.voiceCodec === 'opus' ? 'opus' : 'pcm');
     }
+  }
+
+  /* One person's transcription. A PCM ear is told the format; an Opus ear
+     is sent Ogg pages and left to recognise them. */
+  function openEar(s, id, codec) {
+    if (live(s) >= maxSockets) { say(s, { op: 'error', id, message: 'Too many live AI sockets to transcribe everybody.' }); return; }
+    const q = new URLSearchParams(codec === 'opus' ? {} : { encoding: 'linear16', sample_rate: '24000', channels: '1' });
+    for (const [k, v] of Object.entries({ model: 'nova-3', punctuate: 'true', smart_format: 'true', interim_results: 'true',
+      endpointing: '400', utterance_end_ms: '1200' })) q.set(k, v);
+    (s.keyterms || []).forEach(k => q.append('keyterm', k));
+    let ws;
+    try { ws = new WebSocketImpl(listenUrl + '?' + q, { headers: { Authorization: 'Token ' + s.key } }); }
+    catch (e) { say(s, { op: 'error', id, message: 'Could not open transcription.' }); return; }
+    const ear = { id, ws, codec, ogg: codec === 'opus' ? oggOpus((Math.random() * 0xffffffff) >>> 0) : null,
+                  headed: false, keepalive: null, silence: null, lastAudio: 0, closed: false };
+    s.ears.set(id, ear);
+    ws.on('open', () => {
+      ear.keepalive = setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'KeepAlive' })); }, KEEPALIVE_MS);
+    });
+    ws.on('message', (data, binary) => {
+      if (binary) return;
+      let m; try { m = JSON.parse(data.toString()); } catch { return; }
+      if (m.type === 'Results') {
+        const text = m.channel && m.channel.alternatives && m.channel.alternatives[0]
+          && m.channel.alternatives[0].transcript;
+        if (text && m.is_final) say(s, { op: 'heard', id, text: str(text, 600), final: !!m.speech_final });
+        else if (text) say(s, { op: 'hearing', id, text: str(text, 200) });
+      } else if (m.type === 'UtteranceEnd') say(s, { op: 'pause', id });
+    });
+    ws.on('error', (e) => say(s, { op: 'error', id, message: 'Transcription failed: ' + str(e && e.message, 200) }));
+    ws.on('close', () => {
+      clearInterval(ear.keepalive); clearInterval(ear.silence);
+      if (s.ears.get(id) === ear) s.ears.delete(id);
+    });
+    return ear;
   }
 
   function closeEar(ear) {
@@ -446,22 +652,36 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
     try { if (ear.ws.readyState === 1) ear.ws.send(JSON.stringify({ type: 'CloseStream' })); ear.ws.close(1000); } catch (e) {}
   }
 
+  function feed(ear, data) {
+    if (!ear.ogg) { ear.ws.send(data); return; }
+    if (!ear.headed) { ear.headed = true; ear.ogg.headers().forEach(page => ear.ws.send(page)); }
+    ear.ws.send(ear.ogg.packet(data));
+  }
+
   /* A human's voice frame, on its way to the room anyway. */
-  function heard(room, speakerId, pcm) {
+  function heard(room, speakerId, payload, codec = 0) {
     const s = rooms.get(room.code);
     if (!s) return;
-    const ear = s.ears.get(speakerId);
-    if (!ear || ear.closed || ear.ws.readyState !== 1) return;
-    ear.ws.send(pcm);
+    let ear = s.ears.get(speakerId);
+    if (!ear || ear.closed) return;
+    // the room changed what it speaks: this person needs an ear for the other format
+    const want = codec === 1 ? 'opus' : 'pcm';
+    if (ear.codec !== want) {
+      closeEar(ear); s.ears.delete(speakerId);
+      if (s.key) openEar(s, speakerId, want);
+      return;
+    }
+    if (ear.ws.readyState !== 1) return;
+    feed(ear, payload);
     ear.lastAudio = Date.now();
-    /* Capture drops silence after 250 ms, before the recogniser's 400 ms
+    /* Capture drops silence after its hangover, before the recogniser's
        endpoint. Keep its audio clock moving after a short name or question,
        without sending silent packets to players or streaming them forever. */
     if (!ear.silence) ear.silence = setInterval(() => {
       const gap = Date.now() - ear.lastAudio;
       if (ear.closed || ear.ws.readyState !== 1 || gap > LISTEN_TAIL_MS) {
         clearInterval(ear.silence); ear.silence = null;
-      } else if (gap >= 40) ear.ws.send(SILENCE);
+      } else if (gap >= 40) feed(ear, ear.ogg ? OPUS_SILENCE : SILENCE);
     }, 20);
   }
 
@@ -510,4 +730,4 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
   return { handle, heard, end, isAgent, speak, hushReader, canSpeak, rooms, VOICES };
 }
 
-module.exports = { createAIBridge, VOICES, AI_ID, CLAUDIA_ID, CLAUDIA_LINE_ID };
+module.exports = { createAIBridge, VOICES, AI_ID, CLAUDIA_ID, CLAUDIA_LINE_ID, oggCrc, oggOpus };

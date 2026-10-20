@@ -1487,6 +1487,10 @@ select.nav-on{outline-offset:2px}
 .lr-task input{accent-color:var(--gold, #f2c14e); width:100%}
 .lr-task output{font-variant-numeric:tabular-nums; text-align:right; color:var(--gold, #f2c14e); font-weight:700}
 .lr-opt input{accent-color:var(--gold, #f2c14e)}
+.lr-want{grid-template-columns:1fr minmax(90px,1.2fr) 74px}
+.lr-cast{grid-template-columns:1fr minmax(90px,1.2fr) 74px}
+.lr-cast-chips{grid-column:2 / 4; display:flex; gap:6px}
+.lr-cast-chips .chip{flex:1; padding-left:6px; padding-right:6px}
 .lr-actions{display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
 
 .lobby-msg{

@@ -72,15 +72,16 @@ const FigureAnim = (() => {
       phase: Math.random(), gait: 0, speed: 0, dirX: 0, dirZ: 1, turn: 0,
       lastPos: null, lastYaw: 0, parent: null,
       seatT: 0, chairW: 0,
-      acts: [], talk: null, talkNext: 0.3,
+      acts: [], talk: null, talkNext: 1.2,
       jaw: 0, jawWant: 0, jawNext: 0,
       blink: 1.5 + Math.random() * 3, lid: 0,
       sacc: [0, 0], saccNext: 1, eyeY: 0, eyeX: 0,
       neckY: 0, neckX: 0, chestY: 0,
       face: { smile: 0, frown: 0, brow: 0, browIn: 0, jaw: 0, lids: 0, squint: 0, smirk: 0 },
       hands: { l: [0.35, 0.3, 0.2, 0.1], r: [0.35, 0.3, 0.2, 0.1] },
-      seatVariant: 0, seatVarNext: 6 + Math.random() * 8, seatPose: [0, 0, 0],
-      fidgetNext: 4 + Math.random() * 6,
+      seatVariant: 0, seatVarNext: 20 + Math.random() * 20, seatPose: [0, 0, 0],
+      fidgetNext: 15 + Math.random() * 20,
+      gazeRate: 0.7 + Math.random() * 0.6,
       reachW: 0, pointW: 0, armIK: { l: 0, r: 0 },
       cheerAct: null,
     };
@@ -130,31 +131,51 @@ const FigureAnim = (() => {
     for (const a of A.acts) if (!name || a.name === name) a.out = true;
   }
 
-  /* Sample a clip at u in [0, 1]: per bone, between the keys either
-     side, a key that leaves the bone out meaning "what is underneath". */
+  /* A cubic through the keys rather than an ease into each one: a
+     smoothstep per span brought the hand to a dead stop at every key,
+     several times a second. A key that is a turning point (both
+     neighbours on the same side) still stops, as a real reversal does;
+     anything on the way through keeps its speed. `val(m)` is the value
+     at key m. */
+  function through(keys, i, u, val) {
+    const n = keys.length;
+    const u0 = keys[i - 1][0], u1 = keys[i][0], h = u1 - u0;
+    const v0 = val(i - 1), v1 = val(i);
+    if (h <= 0) return v1;
+    const tan = (m) => {
+      if (m <= 0 || m >= n - 1) return 0;
+      const a = val(m - 1), b = val(m), c = val(m + 1);
+      if ((b - a) * (c - b) <= 0) return 0;
+      return (c - a) / (keys[m + 1][0] - keys[m - 1][0]);
+    };
+    const s = U.clamp((u - u0) / h, 0, 1), s2 = s * s, s3 = s2 * s;
+    return (2 * s3 - 3 * s2 + 1) * v0 + (s3 - 2 * s2 + s) * h * tan(i - 1)
+         + (-2 * s3 + 3 * s2) * v1 + (s3 - s2) * h * tan(i);
+  }
+
+  /* Sample a clip at u in [0, 1]: per bone, through the keys, a key
+     that leaves the bone out meaning "what is underneath". */
   function sampleInto(A, clip, u, w, R) {
     const keys = clip.keys;
     let i = 1;
     while (i < keys.length - 1 && keys[i][0] < u) i++;
-    const [u0, p0] = keys[i - 1], [u1, p1] = keys[Math.min(i, keys.length - 1)];
-    const k = u1 > u0 ? ss(0, 1, (u - u0) / (u1 - u0)) : 1;
+    if (keys.length < 2) i = 0;
     for (const name of clip._bones) {
       const j = I[name] * 3;
-      const va = p0[name], vb = p1[name];
       for (let c = 0; c < 3; c++) {
         const base = R[j + c];
-        const a = va ? va[c] : base, b = vb ? vb[c] : base;
-        R[j + c] = lerp(base, lerp(a, b, k), w);
+        const val = (m) => { const v = keys[m][1][name]; return v ? v[c] : base; };
+        R[j + c] = lerp(base, i ? through(keys, i, u, val) : val(0), w);
       }
     }
     for (const side of ['l', 'r']) {
       const nm = side === 'l' ? 'handL' : 'handR';
-      const ha = p0[nm] || p0.hand, hb = p1[nm] || p1.hand;
-      if (!ha && !hb) continue;
+      if (!keys.some(([, p]) => p[nm] || p.hand)) continue;
       const H = A.handWant[side];
       for (let c = 0; c < 4; c++) {
-        const a = ha ? ha[c] : H[c], b = hb ? hb[c] : H[c];
-        H[c] = lerp(H[c], lerp(a, b, k), w);
+        const base = H[c];
+        const val = (m) => { const v = keys[m][1][nm] || keys[m][1].hand; return v ? v[c] : base; };
+        H[c] = lerp(base, i ? through(keys, i, u, val) : val(0), w);
       }
     }
     if (clip.face) {
@@ -299,22 +320,24 @@ const FigureAnim = (() => {
     const mood = FigureClips.MOODS[d.mood] || FigureClips.MOODS.calm;
     for (const k in A.faceWant) if (mood[k]) A.faceWant[k] = mood[k];
 
-    // idle: weight from foot to foot, breathing, the odd shift
+    /* idle: weight from foot to foot, breathing, the odd shift. Kept
+       small and slow — people at rest are mostly still, and a body that
+       never stops drifting reads as something wrong with it. */
     const idle = 1 - gw;
-    const sway = noise(t * 0.23, A.seed) * idle * (1 - seat);
-    const breath = Math.sin(t * (1.1 + run * 1.8) + A.seed);
+    const sway = noise(t * 0.11, A.seed) * idle * (1 - seat);
+    const breath = Math.sin(t * (0.9 + run * 1.8) + A.seed);
     const fid = mood.fidget;
-    A.pel.set(sway * 0.016, Y.pelvis, 0);
-    add('pelvis', 0, noise(t * 0.17, A.seed + 3) * 0.05 * idle, sway * 0.035);
-    add('spine1', 0, 0, -sway * 0.025);
-    add('spine2', breath * 0.012 + mood.slump, noise(t * 0.21, A.seed + 5) * 0.03 * idle, -sway * 0.02);
-    add('chest', breath * 0.010, 0, 0);
+    A.pel.set(sway * 0.008, Y.pelvis, 0);
+    add('pelvis', 0, noise(t * 0.08, A.seed + 3) * 0.015 * idle, sway * 0.018);
+    add('spine1', 0, 0, -sway * 0.012);
+    add('spine2', breath * 0.008 + mood.slump, noise(t * 0.09, A.seed + 5) * 0.010 * idle, -sway * 0.01);
+    add('chest', breath * 0.007, 0, 0);
     add('neck', mood.slump * 0.5, 0, 0);
     add('head', mood.slump * 0.4, 0, 0);
     for (const [k, sd] of SIDES) {
       add('clav_' + k, 0, 0, sd * (breath * 0.012 - mood.slump * 0.6));
-      add('arm_' + k, noise(t * 0.3 * fid, A.seed + 7 + sd) * 0.04 * idle, 0, 0);
-      add('fore_' + k, noise(t * 0.27 * fid, A.seed + 11 + sd) * 0.06 * idle, 0, 0);
+      add('arm_' + k, noise(t * 0.12 * fid, A.seed + 7 + sd) * 0.012 * idle, 0, 0);
+      add('fore_' + k, noise(t * 0.10 * fid, A.seed + 11 + sd) * 0.018 * idle, 0, 0);
     }
 
     /* -------- the walk -------- */
@@ -445,10 +468,10 @@ const FigureAnim = (() => {
       A.seatVarNext -= dt;
       if (seat > 0.95 && A.seatVarNext < 0) {
         A.seatVariant = Math.floor(Math.random() * 3);
-        A.seatVarNext = 7 + Math.random() * 12;
+        A.seatVarNext = 25 + Math.random() * 30;
       }
-      const target = [[0, 0, 0], [-0.10, 0.05, 0], [0.14, -0.02, 0.06]][A.seatVariant];
-      for (let c = 0; c < 3; c++) A.seatPose[c] = U.damp(A.seatPose[c], target[c], 1.5, dt);
+      const target = [[0, 0, 0], [-0.06, 0.03, 0], [0.08, -0.01, 0.04]][A.seatVariant];
+      for (let c = 0; c < 3; c++) A.seatPose[c] = U.damp(A.seatPose[c], target[c], 0.8, dt);
       add('spine1', A.seatPose[0] * seat, 0, 0);
       add('spine2', A.seatPose[2] * seat, 0, 0);
       add('head', -A.seatPose[0] * 0.6 * seat, 0, 0);
@@ -482,22 +505,25 @@ const FigureAnim = (() => {
       add('fore_l', -0.45 * hold, 0, 0);
     }
 
-    /* -------- talking -------- */
+    /* -------- talking --------
+       The odd gesture, not one after another: most of a sentence is
+       said with the hands still, and a gesture is a half-size beat
+       (smaller again seated) rather than the full clip. */
     if (sp > 0.05) {
       A.talkNext -= dt;
       if (A.talkNext <= 0) {
         const names = FigureClips.TALK_NAMES;
         const busy = A.acts.some(a => !a.out && a.clip._arms && (a.clip._arms.r || a.clip._arms.l) && a.clip !== A.talkClip);
-        if (!busy && hold < 0.3) {
+        if (!busy && hold < 0.3 && Math.random() < 0.45) {
           const name = names[Math.floor(Math.random() * names.length)];
           A.talkClip = FigureClips.TALK[name];
-          startAct(A, name, { speed: 0.85 + Math.random() * 0.4 });
+          startAct(A, name, { speed: 0.75 + Math.random() * 0.25, amp: seat > 0.5 ? 0.4 : 0.55 });
         }
-        A.talkNext = 0.9 + Math.random() * 1.6;
+        A.talkNext = 3 + Math.random() * 4;
       }
-      // the head moves with the words
-      add('head', 0.035 * Math.sin(t * 3.1 + A.seed) * sp - 0.03 * sp, 0.05 * Math.sin(t * 1.9 + A.seed) * sp, 0);
-      A.faceWant.brow += sp * 0.25 * (0.5 + 0.5 * Math.sin(t * 1.3 + A.seed));
+      // the head moves a little with the words
+      add('head', 0.012 * noise(t * 0.9, A.seed + 13) * sp - 0.015 * sp, 0.018 * noise(t * 0.6, A.seed + 17) * sp, 0);
+      A.faceWant.brow += sp * 0.10 * (0.5 + 0.5 * noise(t * 0.5, A.seed + 19));
     }
 
     /* -------- fidgets -------- */
@@ -507,8 +533,23 @@ const FigureAnim = (() => {
                  : seat > 0.5 ? ['glance', 'nod', 'leanIn', 'leanBack'] : ['glance', 'crossArms', 'nod', 'handsHips'];
       const name = pool[Math.floor(Math.random() * pool.length)];
       if (name === 'crossArms' || name === 'handsHips') startAct(A, name, { hold: false, speed: 0.35 });
-      else startAct(A, name);
-      A.fidgetNext = 7 + Math.random() * 14;
+      else startAct(A, name, { speed: 0.7, amp: 0.6 });
+      A.fidgetNext = 20 + Math.random() * 30;
+    }
+
+    /* Seated, the arms' own pose underneath is the hands-on-the-table
+       one the IK last found, not arms hanging at the sides; otherwise a
+       gesture blends up from the hanging pose while the IK lets go, and
+       the hand sags halfway up before it rises. */
+    if (seatHands && A.seatArm) {
+      for (const [k] of SIDES) {
+        const C = A.seatArm[k];
+        if (!C) continue;
+        for (const [bone, e] of [['arm_' + k, C.arm], ['fore_' + k, C.fore]]) {
+          const j = I[bone] * 3;
+          for (let c = 0; c < 3; c++) R[j + c] = lerp(R[j + c], e[c], seatHands.w);
+        }
+      }
     }
 
     /* -------- acts -------- */
@@ -516,40 +557,50 @@ const FigureAnim = (() => {
     let reach = null;
     for (const a of A.acts) {
       a.t += dt;
-      const [fi, fo] = a.clip.fade;
+      // an arm never snaps into a gesture: a quarter of a second at the least (0.35 s)
+      const [fi0, fo] = a.clip.fade;
+      const fi = a.clip._arms && (a.clip._arms.l || a.clip._arms.r) ? Math.max(0.35, fi0) : fi0;
       let u = a.t / a.dur;
       if (a.loop) u %= 1;
       else if (u >= 1) { u = 1; if (!a.hold) a.out = true; }
       const want = a.out ? 0 : 1;
-      a.w = want > a.w ? Math.min(1, a.w + dt / Math.max(0.01, fi)) : Math.max(0, a.w - dt / Math.max(0.01, fo));
+      // at full weight it stays there: a bare else here took a fade-out
+      // step every other frame and shook every act at 30 Hz
+      if (want > a.w) a.w = Math.min(1, a.w + dt / Math.max(0.01, fi));
+      else if (want < a.w) a.w = Math.max(0, a.w - dt / Math.max(0.01, fo));
       if (a.w <= 0) continue;
-      const w = ss(0, 1, a.w);
+      const w = ss(0, 1, a.w) * (a.opts.amp !== undefined ? a.opts.amp : 1);
       sampleInto(A, a.clip, u, w, R);
       for (const k of ['l', 'r']) if (a.clip._arms[k]) armOver[k] = Math.max(armOver[k], w);
       if (a.clip.reach) reach = { side: a.clip.reach, w, target: a.opts.target || null };
     }
     A.acts = A.acts.filter(a => !(a.out && a.w <= 0));
 
-    /* -------- gaze -------- */
-    const yawWant = U.clamp(U.wrapAngle(d.yawWant || 0), -1.7, 1.7);
-    const pitchWant = U.clamp(d.pitchWant || 0, -0.5, 0.5);
-    A.eyeY = U.damp(A.eyeY, yawWant, 18, dt);
-    A.eyeX = U.damp(A.eyeX, pitchWant, 18, dt);
-    A.neckY = U.damp(A.neckY, yawWant, 4.2, dt);
-    A.neckX = U.damp(A.neckX, pitchWant, 4.2, dt);
-    A.chestY = U.damp(A.chestY, yawWant, 2.2, dt);
-    const chestShare = 0.18 * (1 - gw), headY = A.neckY;
+    /* -------- gaze --------
+       The head turns at its own unhurried pace (each figure a little
+       different, so a table does not swivel as one) and never further
+       than a neck goes; past that the eyes do the rest, and past those
+       the person simply is not looking. */
+    const yawWant = U.clamp(U.wrapAngle(d.yawWant || 0), -1.4, 1.4);
+    const pitchWant = U.clamp(d.pitchWant || 0, -0.4, 0.4);
+    const gr = A.gazeRate || 1;
+    A.eyeY = U.damp(A.eyeY, yawWant, 12, dt);
+    A.eyeX = U.damp(A.eyeX, pitchWant, 12, dt);
+    A.neckY = U.damp(A.neckY, U.clamp(yawWant, -1.05, 1.05), 2.4 * gr, dt);
+    A.neckX = U.damp(A.neckX, pitchWant, 2.4 * gr, dt);
+    A.chestY = U.damp(A.chestY, yawWant, 1.2 * gr, dt);
+    const chestShare = 0.22 * (1 - gw), headY = A.neckY;
     add('chest', 0, A.chestY * chestShare, 0);
     add('neck', -A.neckX * 0.35, (headY - A.chestY * chestShare) * 0.40, 0);
     add('head', -A.neckX * 0.65, (headY - A.chestY * chestShare) * 0.60, 0);
     // what the eyes still have to do once the head has turned
     A.saccNext -= dt;
     if (A.saccNext < 0) {
-      A.sacc = [(Math.random() - 0.5) * 0.14, (Math.random() - 0.5) * 0.08];
-      A.saccNext = 0.5 + Math.random() * 2.2;
+      A.sacc = [(Math.random() - 0.5) * 0.05, (Math.random() - 0.5) * 0.025];
+      A.saccNext = 1.5 + Math.random() * 3.5;
     }
-    const eyeY = U.clamp(A.eyeY - headY + A.sacc[0] * (1 - sp * 0.5), -0.42, 0.42);
-    const eyeX = U.clamp(A.eyeX - A.neckX + A.sacc[1], -0.3, 0.3);
+    const eyeY = U.clamp(A.eyeY - headY + A.sacc[0] * (1 - sp * 0.5), -0.3, 0.3);
+    const eyeX = U.clamp(A.eyeX - A.neckX + A.sacc[1], -0.22, 0.22);
     for (const [k] of SIDES) set('eye_' + k, -eyeX, eyeY, 0);
 
     /* -------- the face -------- */
@@ -563,10 +614,10 @@ const FigureAnim = (() => {
         ? (lv !== null && lv !== undefined ? U.clamp(lv * 1.4, 0, 1) * (0.55 + 0.45 * Math.random())
                                             : (Math.random() < 0.18 ? 0 : 0.25 + 0.75 * Math.pow(Math.random(), 0.8)))
         : 0;
-      A.jawNext = 0.07 + Math.random() * 0.11;
+      A.jawNext = 0.09 + Math.random() * 0.12;
     }
-    A.jaw = U.damp(A.jaw, A.jawWant * sp, 24, dt);
-    set('jaw', (A.jaw * 0.24 + F.jaw * 0.32), 0, 0);
+    A.jaw = U.damp(A.jaw, A.jawWant * sp, 16, dt);
+    set('jaw', (A.jaw * 0.17 + F.jaw * 0.32), 0, 0);
     // blink, and lids that follow the eyes down a little
     A.blink -= dt;
     const shut = A.blink < 0 ? 1 : 0;
@@ -650,7 +701,9 @@ const FigureAnim = (() => {
           // a seated person leans over the table a little with their posture
           target.z += A.seatPose[2] * 0.4;
           fig.localToWorld(target);
-          w = seatHands.w * (1 - armOver[k]);
+          // let go of the table ahead of the gesture taking the arm,
+          // or the two blends pull the hand down halfway up
+          w = seatHands.w * (1 - ss(0, 0.6, armOver[k]));
         }
         const shoulderW = _c;
         B[I['arm_' + k]].getWorldPosition(shoulderW);
@@ -690,6 +743,14 @@ const FigureAnim = (() => {
         _q2.setFromAxisAngle(X1, -flex);
         fore.quaternion.slerp(_q2, w);
         A.armIK[k] = w;
+        // the table pose, kept for the next frame's base (above) — only
+        // while nothing but the table has the arm
+        if (seatHands && seatHands.w > 0.9 && armOver[k] < 0.01 && A.pointW < 0.01 && A.reachW < 0.01 && !reach) {
+          A.seatArm = A.seatArm || {};
+          const C = A.seatArm[k] || (A.seatArm[k] = { arm: [0, 0, 0], fore: [0, 0, 0] });
+          _eu.setFromQuaternion(_qa, 'XYZ'); C.arm[0] = _eu.x; C.arm[1] = _eu.y; C.arm[2] = _eu.z;
+          _eu.setFromQuaternion(_q2, 'XYZ'); C.fore[0] = _eu.x; C.fore[1] = _eu.y; C.fore[2] = _eu.z;
+        }
       }
     }
   }

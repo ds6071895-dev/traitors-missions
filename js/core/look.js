@@ -18,7 +18,7 @@ const Look = (() => {
 
   /* Skin tones span the range properly rather than offering four
      shades of the same one. */
-  const SKIN = ['#f4d7c0', '#e9c3a4', '#dcae86', '#c68e63', '#a56b45',
+  const SKIN = ['#f1cfb5', '#e9c3a4', '#dcae86', '#c68e63', '#a56b45',
                 '#7d4a2d', '#5b3520', '#3f2416'];
 
   const HAIR_COLOUR = ['#1b1410', '#3b2a1e', '#6d4a2a', '#a06a2c', '#c9a227',

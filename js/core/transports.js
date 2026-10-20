@@ -105,6 +105,18 @@ const Transports = (() => {
 
   /* ---------------- host ---------------- */
 
+  /* A `change` event's state rides in the message's own `state`, not in
+     the event as well: it used to be on the wire twice, every time. */
+  const wireEvent = (ev) => (ev && ev.type === 'state' && ev.state !== undefined
+    ? Object.assign({}, ev, { state: undefined }) : ev);
+
+  /* Clocks the host stamps are host clock; what is left of them is what
+     matters here. Half the round trip is how long ago the host stamped it. */
+  const transit = () => {
+    const st = typeof Party !== 'undefined' && Party.netStats;
+    return st && st.rtt > 0 ? Math.min(1000, st.rtt / 2) : 0;
+  };
+
   const HostTransport = {
 
     open(emit) {
@@ -113,15 +125,16 @@ const Transports = (() => {
 
       this._sentViews = new Map();
       this._routes = null;
+      this._pending = [];
+      this._flushing = false;
+      this._lastState = null;
       this._offs = EVENTS.map(([name, shape]) =>
         Session.on(name, (a, b) => {
           const ev = shape(a, b);
           emit(ev);                         // the host is a client too
-          this._broadcast(ev);
-          privateSync(this);
-          routeSync(this);
+          this._queue(ev);
         }));
-      this._offs.push(Session.on('private', () => { privateSync(this); routeSync(this); }));
+      this._offs.push(Session.on('private', () => this._queue(null)));
 
       /* A guest that arrives — or comes back — needs the world as it
          stands, not the next thing that happens in it. */
@@ -159,6 +172,7 @@ const Transports = (() => {
       if (this._offWire) this._offWire();
       this._offs = null; this._offJoin = null; this._offWire = null;
       this._emit = null;
+      this._pending = [];
     },
 
     send(action) {
@@ -179,7 +193,37 @@ const Transports = (() => {
 
     /* -------- private -------- */
 
+    /* Everything the session says in one tick goes out as one message,
+       after it: one snapshot of the state they left behind, not one per
+       event, and none at all when it has not changed since the last. A
+       guest adopts it and then hears the events in order. */
+    _queue(ev) {
+      if (ev) this._pending.push(ev);
+      if (this._flushing) return;
+      this._flushing = true;
+      const go = () => this._flush();
+      if (typeof queueMicrotask === 'function') queueMicrotask(go); else Promise.resolve().then(go);
+    },
+
+    _flush() {
+      this._flushing = false;
+      if (!this._emit) return;
+      const evs = this._pending.splice(0);
+      if (evs.length) {
+        const msg = { at: Date.now() };
+        if (evs.length === 1) msg.ev = wireEvent(evs[0]); else msg.evs = evs.map(wireEvent);
+        if (Session.state) {
+          const json = JSON.stringify(Session.state);
+          if (json !== this._lastState) { this._lastState = json; msg.state = JSON.parse(json); }
+        }
+        Party.post('wire', msg);
+      }
+      privateSync(this);
+      routeSync(this);
+    },
+
     _broadcast(ev, toPeer) {
+      ev = wireEvent(ev);
       if (!Session.state) { Party.post('wire', { ev, at: Date.now() }, toPeer); return; }
       Party.post('wire', { ev, state: Session.snapshot(), at: Date.now() }, toPeer);
     },
@@ -188,7 +232,7 @@ const Transports = (() => {
       if (!Session.state) return;
       for (const p of Session.state.players) {
         if (p.local || p.bot) continue;
-        this._broadcast({ type: 'state', state: Session.snapshot(), catchUp: true }, p.id);
+        this._broadcast({ type: 'state', catchUp: true }, p.id);
         if (this._sentRoles.has(p.id)) continue;
         this._sentRoles.add(p.id);
         if (this._sentViews) this._sentViews.delete(p.id);
@@ -263,64 +307,37 @@ const Transports = (() => {
          it can on a fast local network — so registering the handler
          after the send loses exactly the message the send was for. */
       this._off = Party.on('wire', (msg) => {
-        if (!msg || !msg.ev) return;
+        if (!msg || !(msg.ev || Array.isArray(msg.evs))) return;
         /* State first, always. See rule 1 at the top of this file. */
-        const before = Session.state && Session.state.phase;
+        let seen = Session.state && Session.state.phase;
         if (msg.state) {
           /* Host absolute timestamps are meaningless if two device clocks
              differ. Preserve the remaining duration at send time and put
-             it onto this device's clock. */
+             it onto this device's clock, less the time it took to get here. */
+          const lag = transit();
           if (msg.at && msg.state.floor && msg.state.floor.endsAt) {
-            const left = Math.max(0, msg.state.floor.endsAt - msg.at);
+            const left = Math.max(0, msg.state.floor.endsAt - msg.at - lag);
             msg.state.floor.endsAt = Date.now() + left;
           }
           if (msg.at && msg.state.chores) {
             const c = msg.state.chores;
-            const shift = Date.now() - msg.at;
+            const shift = Date.now() - msg.at - lag;
             c.startedAt += shift;
             c.endsAt += shift;
           }
           if (msg.at && msg.state.night && msg.state.night.endsAt) {
-            msg.state.night.endsAt += Date.now() - msg.at;
+            msg.state.night.endsAt += Date.now() - msg.at - lag;
           }
           if (msg.at && msg.state.wise && msg.state.wise.endsAt) {
-            msg.state.wise.endsAt += Date.now() - msg.at;
+            msg.state.wise.endsAt += Date.now() - msg.at - lag;
           }
           Session.adopt(msg.state, Party.selfId());
         }
-        if (msg.ev.type === 'private') {
-          if (msg.ev.view) Session.setPrivate(msg.ev.view);
-          else Session.setMyRole(msg.ev.role);
-          this._gotRole = true;
-          emit({ type: 'private' });
-          return;
+        for (const ev of msg.evs || [msg.ev]) {
+          if (!ev) continue;
+          seen = this._event(ev, seen);
+          if (!this._emit) return;
         }
-        if (msg.ev.type === 'role') {
-          Session.setMyRole(msg.ev.role);
-          this._gotRole = true;
-          emit({ type: 'private' });
-          return;
-        }
-        if (msg.ev.type === 'state') {
-          this._gotState = true;
-          emit({ type: 'state', state: Session.state });
-          /* A catch-up snapshot is allowed to be the first news this
-             client gets. Reconcile the director as well as the reducer. */
-          if (before && Session.state && (before !== Session.state.phase
-              || (msg.ev.catchUp && Session.state.phase === 'verdict'))) {
-            emit({ type: 'phase', phase: Session.state.phase, prev: before, catchUp: true });
-          }
-          return;
-        }
-        if (msg.ev.type === 'floor' && Session.state && Session.state.floor) {
-          emit(Object.assign({}, msg.ev, { endsAt: Session.state.floor.endsAt }));
-          return;
-        }
-        if (msg.ev.type === 'outcome' && Session.state && Session.state.outcome) {
-          emit({ type: 'outcome', outcome: Session.state.outcome });
-          return;
-        }
-        emit(msg.ev);
       });
 
       /* Now say hello, and keep saying it until the host answers.
@@ -334,6 +351,48 @@ const Transports = (() => {
       };
       hello();
       this._hellos = [setTimeout(hello, 700), setTimeout(hello, 1800)];
+    },
+
+    /* One event from the host, after its state. `seen` is the phase this
+       client last knew about, so a state that moved the phase without a
+       phase event of its own still gets one — once. */
+    _event(ev, seen) {
+      const emit = this._emit;
+      if (ev.type === 'private') {
+        if (ev.view) Session.setPrivate(ev.view);
+        else Session.setMyRole(ev.role);
+        this._gotRole = true;
+        emit({ type: 'private' });
+        return seen;
+      }
+      if (ev.type === 'role') {
+        Session.setMyRole(ev.role);
+        this._gotRole = true;
+        emit({ type: 'private' });
+        return seen;
+      }
+      if (ev.type === 'phase') { emit(ev); return ev.phase; }
+      if (ev.type === 'state') {
+        this._gotState = true;
+        emit({ type: 'state', state: Session.state });
+        /* A catch-up snapshot is allowed to be the first news this
+           client gets. Reconcile the director as well as the reducer. */
+        if (seen && Session.state && (seen !== Session.state.phase
+            || (ev.catchUp && Session.state.phase === 'verdict'))) {
+          emit({ type: 'phase', phase: Session.state.phase, prev: seen, catchUp: true });
+        }
+        return Session.state ? Session.state.phase : seen;
+      }
+      if (ev.type === 'floor' && Session.state && Session.state.floor) {
+        emit(Object.assign({}, ev, { endsAt: Session.state.floor.endsAt }));
+        return seen;
+      }
+      if (ev.type === 'outcome' && Session.state && Session.state.outcome) {
+        emit({ type: 'outcome', outcome: Session.state.outcome });
+        return seen;
+      }
+      emit(ev);
+      return seen;
     },
 
     close() {

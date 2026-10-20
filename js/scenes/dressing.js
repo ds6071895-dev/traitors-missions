@@ -244,8 +244,13 @@ const Dressing = (() => {
     spin = 0; dragId = null;
     if (!view) build();
     turntable.rotation.y = 0;
-    Engine.setView(view, frame);
+    /* The figure goes on the turntable before the view goes to the
+       engine: the warm-up compiles whatever is in the scene when it is
+       handed over, and a figure added after it compiled its skinned
+       shaders in the middle of the first frame — seconds, on a slow
+       GPU, with the menu's castle frozen on screen and nobody in it. */
     dressFigure();
+    Engine.setView(view, frame);
     el('dress-name').value = Look.getName();
     buildRows();
     UINav.scan();
@@ -269,6 +274,16 @@ const Dressing = (() => {
        started underneath us, in which case the show owns the view and
        putting an ocean in it would be the last thing anybody sees. */
     if (typeof Show === 'undefined' || !Show.running) Game.showAttract();
+  }
+
+  /* The way in from any menu. The fade stays down until the studio
+     has drawn its first frame, figure and all, rather than lifting on
+     a timer over whatever picture the warm-up is still holding. */
+  function open(from) {
+    Screens.cover(async () => {
+      Screens.show('dressing', { from });
+      await Engine.drawn();
+    }, null, 320);
   }
 
   function init() {
@@ -296,5 +311,5 @@ const Dressing = (() => {
     scene = null; camera = null; view = null; turntable = null;
   }
 
-  return { init, dispose };
+  return { init, open, dispose };
 })();

@@ -68,6 +68,14 @@ const ClaudiaLines = (() => {
       [ "Among the {count} of you, there is a Traitor." ],
       [ "One of you is a Traitor.", "Only one of you knows it." ]
     ],
+    "roleIntroOneOrTwo": [
+      [ "Among the {count} of you, there are Traitors.", "One, or two. I will not say." ],
+      [ "One of you is a Traitor.", "Perhaps two. Only they know." ]
+    ],
+    "roleIntroMaybe": [
+      [ "Among the {count} of you, there may be Traitors.", "There may be none at all." ],
+      [ "Tonight there may be Traitors here.", "Or none. Trust nobody." ]
+    ],
     "roleIntroTwo": [
       [ "Among the {count} of you, there are two Traitors." ],
       [ "Two of you are Traitors.", "They are about to meet." ]

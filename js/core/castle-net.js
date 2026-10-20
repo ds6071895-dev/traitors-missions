@@ -3,11 +3,18 @@
 
    During the tasks everybody walks round the castle on their own, and
    every screen has to draw everybody else where they actually are. So
-   each browser says where its own person is ten times a second, the
-   host says where every AI contestant is in one packet, and everybody
-   keeps the latest of each. Poses ride the room's `sync` channel, which
-   the server relays live and never replays: a position from a second
-   ago is worth nothing.
+   each browser says where its own person is fifteen times a second while
+   they move (twice a second while they stand still), the host says where
+   every AI contestant is in one packet, and everybody keeps the latest of
+   each. Poses ride the room's `sync` channel, which the server relays
+   live and never replays: a position from a second ago is worth nothing.
+
+   The rules use the latest pose. The screen draws somebody a little in
+   the past instead — `DELAY` behind — between the two poses either side
+   of that moment, using the time each was sent, not the time it landed.
+   Over the internet packets arrive in clumps, and drawing the newest one
+   carried forward made every clump a lurch; drawing between two known
+   poses is smooth whatever the line does.
 
    A pose is castle-local (see `castle-layout.js`): x, z, the way they
    are facing as a heading (forward is (sin h, cos h), the same as a
@@ -27,28 +34,38 @@
 ------------------------------------------------------------------ */
 const CastleNet = (() => {
 
-  const SEND_MS = 100;
+  const SEND_MS = 66;               // while moving
+  const IDLE_MS = 500;              // while standing still
+  const DELAY = 120;                // ms behind now that somebody else is drawn
+  const EXTRAPOLATE = 100;          // ms past their newest pose we will guess
+  const HISTORY = 8;
   const SIGHT = 15;                 // metres: further than this, a reach is a blur
   const NEAR = 4.5;                 // metres: this close, you notice through a doorway
   const FOV = 62 * Math.PI / 180;   // half-angle a person is looking across
 
   const poses = new Map();          // id -> { x, z, h, g, t, room }
+  const trail = new Map();          // id -> [{ at, x, z, h }], oldest first, on our clock
+  const clocks = new Map();         // id -> { off, at }: their clock to ours
   let day = null;
   let offSync = null;
   let lastSend = 0;
+  let lastSent = null;
   let botSend = 0;
 
   function start(key) {
     stop();
     day = key;
     poses.clear();
+    trail.clear();
+    clocks.clear();
+    lastSent = null;
     if (typeof Party !== 'undefined' && Party.on) {
       offSync = Party.on('sync', (msg, from) => {
         if (!msg || msg.d !== day) return;
-        if (msg.k === 'cpose' && from) take(from, msg.p);
+        if (msg.k === 'cpose' && from) take(from, msg.p, msg.t);
         else if (msg.k === 'cposes' && Array.isArray(msg.list)
                  && typeof Party !== 'undefined' && from === Party.hostId) {
-          for (const row of msg.list) if (Array.isArray(row)) take(row[0], row.slice(1));
+          for (const row of msg.list) if (Array.isArray(row)) take(row[0], row.slice(1), msg.t);
         }
       });
     }
@@ -59,7 +76,7 @@ const CastleNet = (() => {
     day = null;
   }
 
-  function take(id, p) {
+  function take(id, p, sentAt) {
     if (!id || !Array.isArray(p) || !p.slice(0, 3).every(Number.isFinite)) return;
     if (Math.abs(p[0]) > 200 || Math.abs(p[1]) > 200) return;
     const prev = poses.get(id);
@@ -78,6 +95,29 @@ const CastleNet = (() => {
        drawn. A build that predates it sends four and ignores a fifth. */
     poses.set(id, { x: p[0], z: p[1], h: p[2], g: typeof p[3] === 'string' ? p[3] : null,
                     w: p[4] === 1, t: now, room, vx, vz });
+    if (Number.isFinite(sentAt)) remember(id, p, sentAt, now);
+  }
+
+  /* When a pose was true, on our clock. Their clock and ours differ by an
+     unknown amount plus however long the packet took; the least-delayed
+     packet so far is the best guess at the first, and the guess is let
+     creep up slowly so a clock that drifts is followed. */
+  function remember(id, p, sentAt, now) {
+    let c = clocks.get(id);
+    const gap = now - sentAt;
+    if (!c) c = { off: gap, at: now };
+    else c.off = Math.min(gap, c.off + (now - c.at) * 0.002);
+    c.at = now;
+    clocks.set(id, c);
+    const at = sentAt + c.off;
+    let list = trail.get(id);
+    if (!list) trail.set(id, list = []);
+    const last = list[list.length - 1];
+    // a jump across the castle is a teleport, not a walk: start again from here
+    if (last && Math.hypot(p[0] - last.x, p[1] - last.z) > 6) list.length = 0;
+    if (last && list.length && at <= last.at) list.pop();
+    list.push({ at, x: p[0], z: p[1], h: p[2] });
+    if (list.length > HISTORY) list.shift();
   }
 
   /* Rooms are where you are standing; a doorway is still the room you
@@ -89,14 +129,19 @@ const CastleNet = (() => {
 
   const wire = (v) => Math.round(v * 100) / 100;
 
-  /* Our own person: kept here at once, sent at ten a second. */
+  /* Our own person: kept here at once, sent fifteen times a second while
+     they move and twice a second while they do not. */
   function publish(id, x, z, h, g, w) {
     take(id, [x, z, h, g || 0, w ? 1 : 0]);
     const now = Date.now();
-    if (now - lastSend < SEND_MS) return;
+    const p = [wire(x), wire(z), wire(h), g || 0, w ? 1 : 0];
+    const still = lastSent && p.every((v, i) => (typeof v === 'number' && typeof lastSent[i] === 'number'
+      ? Math.abs(v - lastSent[i]) < (i === 2 ? 0.02 : 0.01) : v === lastSent[i]));
+    if (now - lastSend < (still ? IDLE_MS : SEND_MS)) return;
     lastSend = now;
     if (typeof Party === 'undefined' || !Party.connected || !Party.post) return;
-    Party.post('sync', { k: 'cpose', d: day, p: [wire(x), wire(z), wire(h), g || 0, w ? 1 : 0] });
+    lastSent = p;
+    Party.post('sync', { k: 'cpose', d: day, t: now, p });
   }
 
   /* The host's AI contestants, in one packet. */
@@ -106,20 +151,42 @@ const CastleNet = (() => {
     if (now - botSend < SEND_MS) return;
     botSend = now;
     if (typeof Party === 'undefined' || !Party.connected || !Party.isHost || !Party.post) return;
-    Party.post('sync', { k: 'cposes', d: day,
+    Party.post('sync', { k: 'cposes', d: day, t: now,
                          list: rows.map(r => [r[0], wire(r[1]), wire(r[2]), wire(r[3]), r[4] || 0, r[5] ? 1 : 0]) });
   }
 
   const get = (id) => poses.get(id) || null;
 
-  /* Where somebody is now: their last pose, carried forward by how fast
-     they were going for as long as it has been — but never more than a
-     fifth of a second, so a lost packet cannot walk them through a wall. */
+  /* Where to draw somebody: `DELAY` ago, between the poses either side of
+     it. Past their newest pose — a late packet — they are carried on by
+     how fast they were going, but only a tenth of a second, so a lost
+     packet cannot walk them through a wall. A pose with no send time (our
+     own, or an older page's) is the newest carried forward, as before. */
   function now(id) {
     const p = poses.get(id);
     if (!p) return null;
-    const ahead = Math.min(0.2, Math.max(0, (Date.now() - p.t) / 1000));
-    return { x: p.x + (p.vx || 0) * ahead, z: p.z + (p.vz || 0) * ahead, h: p.h, g: p.g, w: p.w, room: p.room };
+    const list = trail.get(id);
+    if (!list || list.length < 2) {
+      const ahead = Math.min(0.2, Math.max(0, (Date.now() - p.t) / 1000));
+      return { x: p.x + (p.vx || 0) * ahead, z: p.z + (p.vz || 0) * ahead, h: p.h, g: p.g, w: p.w, room: p.room };
+    }
+    const at = Date.now() - DELAY;
+    const pose = (x, z, h) => ({ x, z, h, g: p.g, w: p.w, room: p.room });
+    if (at <= list[0].at) return pose(list[0].x, list[0].z, list[0].h);
+    const last = list[list.length - 1];
+    if (at >= last.at) {
+      const prev = list[list.length - 2];
+      const dt = Math.max(30, last.at - prev.at) / 1000;
+      const vx = U.clamp((last.x - prev.x) / dt, -9, 9), vz = U.clamp((last.z - prev.z) / dt, -9, 9);
+      const ahead = Math.min(EXTRAPOLATE, at - last.at) / 1000;
+      return pose(last.x + vx * ahead, last.z + vz * ahead, last.h);
+    }
+    let i = list.length - 2;
+    while (i > 0 && list[i].at > at) i--;
+    const a = list[i], b = list[i + 1];
+    const f = b.at > a.at ? (at - a.at) / (b.at - a.at) : 1;
+    const turn = Math.atan2(Math.sin(b.h - a.h), Math.cos(b.h - a.h));
+    return pose(a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f, a.h + turn * f);
   }
 
   /* ---------------- the host's eyes ---------------- */
@@ -200,6 +267,6 @@ const CastleNet = (() => {
   const eyes = { reach, witnesses, presence, nearDoor, inDoorway };
 
   return { start, stop, publish, publishBots, get, now, roomOf, eyes, watchers, sees,
-           all: () => poses, SEND_MS, SIGHT, NEAR, FOV,
+           all: () => poses, SEND_MS, IDLE_MS, DELAY, SIGHT, NEAR, FOV,
            get day() { return day; } };
 })();

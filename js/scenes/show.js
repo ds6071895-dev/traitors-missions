@@ -44,6 +44,8 @@ const Show = (() => {
       traitorSeat: opts.traitorSeat,
       ai: opts.ai || null,
       taskSeconds: opts.taskSeconds,
+      cast: opts.cast || null,
+      wants: opts.wants || null,
     });
     /* With an AI Claudia in the room, every line of hers — yours alone
        as well as the room's — is read in her own voice by the room

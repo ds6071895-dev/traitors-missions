@@ -12,6 +12,8 @@ const ROOT = path.resolve(__dirname, '..');
 const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const CHANNELS = new Set(['lobby', 'go', 'wire', 'sync']);
 const LIVE_BUFFER = 16 * 1024;
+const VOICE_BUFFER = 16 * 1024;     // a voice socket behind by more than this skips frames
+const OPUS_MAX = 512;               // bytes in one 20 ms Opus packet, generously
 const MAX_MEMBERS = 8;              // the most the castle seats
 const MIN_NIGHT = 5;                // the fewest a full night is written for
 const livePost = msg => msg.channel === 'sync';
@@ -77,7 +79,7 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
         || new URL(origin).host === req.headers.host);
     } catch { /* malformed request */ }
     if (!valid) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
-    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws));
+    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
   });
 
   const list = room => [...room.members.values()].map(p => ({
@@ -110,6 +112,9 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
     const ws = p.ws;
     p.ws = null;
     if (ws) { raw(ws, JSON.stringify({ type: 'error', message: reason })); ws.close(1000); }
+    const voice = p.voiceWs;
+    p.voiceWs = null;
+    if (voice) voice.close(1000);
   }
   function remove(p, reason = 'You left the room.') {
     const room = p.room;
@@ -121,7 +126,7 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
       ai.end(room);
       for (const other of room.members.values()) endSocket(other, 'The host left the room.');
       room.members.clear();
-    } else roster(room);
+    } else { roster(room); negotiate(room); }
   }
   function profile(data) {
     return { name: String(data?.name || 'Player').slice(0, 16),
@@ -140,10 +145,13 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
     for (const x of players) if (!room.members.has(x?.id) && !x?.bot) return false;
     return true;
   }
+  const wantOnly = (d) => !!d && typeof d === 'object' && Object.keys(d).length === 1
+    && Number.isInteger(d.want) && d.want >= -2 && d.want <= 2;
   function permitted(p, msg) {
     const isHost = p.id === p.room.hostId;
     if (!CHANNELS.has(msg.channel)) return false;
-    if (msg.channel === 'lobby') return isHost;
+    // the host's seats for everybody; a guest's want for the host alone
+    if (msg.channel === 'lobby') return isHost || (msg.to === p.room.hostId && wantOnly(msg.data));
     // a night needs five
     if (msg.channel === 'go') return isHost && goValid(p.room, msg.data);
     if (msg.channel === 'wire') {
@@ -185,21 +193,129 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
     }
     return true;
   }
-  function relayAudio(room, speakerId, pcm) {
-    const packet = Buffer.concat([Buffer.from(String(speakerId).padEnd(36).slice(0, 36), 'ascii'), pcm]);
+  /* Voice has two ways in and out. A browser with a voice socket (see
+     `voiceConnection`) gets every frame as
+       [36-byte speaker id][codec: 0 PCM, 1 Opus; | 0x80 on a talkspurt's
+       first frame][seq, u16 LE][payload]
+     on that socket, off its game socket's back. Anybody else — an older
+     page, or one whose voice socket is reconnecting — gets PCM the old
+     way, [36-byte id][960 bytes], on the game socket. Opus is only spoken
+     in a room where every listener can take it; see `negotiate`. */
+  const speakerTag = id => Buffer.from(String(id).padEnd(36).slice(0, 36), 'ascii');
+  function nextSeq(room, key) {
+    const seqs = room.voiceSeq || (room.voiceSeq = new Map());
+    const n = ((seqs.get(key) || 0) + 1) & 0xffff;
+    seqs.set(key, n);
+    return n;
+  }
+  function voiceFrame(tag, payload, codec, seq, start) {
+    const head = Buffer.alloc(39);
+    tag.copy(head, 0);
+    head[36] = codec | (start ? 0x80 : 0);
+    head.writeUInt16LE(seq & 0xffff, 37);
+    return Buffer.concat([head, payload]);
+  }
+  /* One frame to one listener, by whichever way they can hear it. A late
+     frame is skipped rather than queued: voice is live, and is never
+     replayed on reconnect. */
+  function sendVoice(p, packets, limit = LIVE_BUFFER) {
+    if (p.voiceWs?.readyState === WebSocket.OPEN) {
+      if (p.voiceWs.bufferedAmount < Math.max(limit, VOICE_BUFFER)) p.voiceWs.send(packets.framed(), { binary: true });
+      return;
+    }
+    if (packets.codec !== 0) return;
+    if (p.ws?.readyState === WebSocket.OPEN && p.ws.bufferedAmount < limit) p.ws.send(packets.legacy(), { binary: true });
+  }
+  function packetsFor(speakerId, payload, codec, seq, start) {
+    const tag = speakerTag(speakerId);
+    let framed = null, legacy = null;
+    return { codec,
+      framed: () => framed || (framed = voiceFrame(tag, payload, codec, seq, start)),
+      legacy: () => legacy || (legacy = Buffer.concat([tag, payload])) };
+  }
+  function relayAudio(room, speakerId, payload, codec = 0, seq = null, start = false) {
+    if (seq === null || seq === undefined) seq = nextSeq(room, speakerId);
+    const packets = packetsFor(speakerId, payload, codec, seq, start);
     for (const p of room.members.values()) {
       if (p.id === speakerId || !hears(room, p.id, speakerId)) continue;
-      if (p.ws?.readyState === WebSocket.OPEN && p.ws.bufferedAmount < LIVE_BUFFER) {
-        p.ws.send(packet, { binary: true }); // audio is live; never replay it on reconnect
-      }
+      sendVoice(p, packets);
     }
   }
   /* One voice frame to one person, for a line only they are meant to hear. */
-  function audioTo(room, memberId, speakerId, pcm) {
+  function audioTo(room, memberId, speakerId, pcm, start = false) {
     const p = room.members.get(memberId);
-    if (!p || p.ws?.readyState !== WebSocket.OPEN || p.ws.bufferedAmount >= LIVE_BUFFER * 4) return;
-    const packet = Buffer.concat([Buffer.from(String(speakerId).padEnd(36).slice(0, 36), 'ascii'), pcm]);
-    p.ws.send(packet, { binary: true });
+    if (!p) return;
+    sendVoice(p, packetsFor(speakerId, pcm, 0, nextSeq(room, speakerId + ':' + memberId), start), LIVE_BUFFER * 4);
+  }
+  /* The room speaks Opus only while every person in it has a voice socket
+     whose browser can decode it; otherwise everybody falls back to PCM,
+     which every listener can play. Each voice socket is told, and each
+     browser encodes whatever it was last told. */
+  function negotiate(room) {
+    const members = [...room.members.values()];
+    const codec = members.length && members.every(p => p.voiceWs?.readyState === WebSocket.OPEN && p.voiceOpus)
+      ? 'opus' : 'pcm';
+    if (room.voiceCodec === codec) return;
+    room.voiceCodec = codec;
+    for (const p of members) if (p.voiceWs) raw(p.voiceWs, JSON.stringify({ type: 'codec', codec }));
+  }
+  /* A tagged frame from a voice socket, or an old bare 960-byte PCM frame. */
+  function parseFrame(data) {
+    if (data.length === 960) return { codec: 0, seq: null, start: false, payload: data };
+    if (data.length < 4) return null;
+    const codec = data[0] & 0x7f, start = !!(data[0] & 0x80);
+    const seq = data.readUInt16LE(1), payload = data.subarray(3);
+    if (codec === 0 && payload.length === 960) return { codec, seq, start, payload };
+    if (codec === 1 && payload.length <= OPUS_MAX) return { codec, seq, start, payload };
+    return null;
+  }
+
+  /* The second socket a browser opens: voice only, so a burst of game
+     state never queues a voice frame behind it, and a voice burst never
+     holds up a vote. It joins nothing; it proves which member it is with
+     the session token the game socket was given. */
+  function voiceConnection(ws) {
+    let member = null;
+    let count = 0, bytes = 0, since = Date.now();
+    ws.alive = true;
+    const admissionTimer = setTimeout(() => ws.close(1008, 'Join required'), 10000);
+    ws.on('error', () => {});
+    ws.on('pong', () => { ws.alive = true; });
+    ws.on('message', (data, binary) => {
+      if (Date.now() - since >= 1000) { since = Date.now(); count = bytes = 0; }
+      if (++count > 200 || (bytes += data.length) > 256 * 1024) return ws.close(1008, 'Rate limit');
+      if (binary) {
+        if (!member || member.voiceWs !== ws || !member.room.members.has(member.id)) return;
+        const frame = parseFrame(data);
+        if (!frame) return;
+        relayAudio(member.room, member.id, frame.payload, frame.codec, frame.seq, frame.start);
+        ai.heard(member.room, member.id, frame.payload, frame.codec);
+        return;
+      }
+      let msg;
+      try { msg = JSON.parse(data.toString()); } catch { return ws.close(1008, 'Invalid voice message'); }
+      if (msg?.type === 'ping') return raw(ws, JSON.stringify({ type: 'pong', t: Number.isFinite(msg.t) ? msg.t : undefined }));
+      if (msg?.type !== 'voice' || member) return;
+      const found = sessions.get(String(msg.token || ''));
+      if (!found || !found.room.members.has(found.id)) {
+        raw(ws, JSON.stringify({ type: 'error', message: 'Voice could not find your seat.' }));
+        return ws.close(1008);
+      }
+      clearTimeout(admissionTimer);
+      member = found;
+      const old = member.voiceWs;
+      member.voiceWs = ws;
+      member.voiceOpus = msg.opus === true;
+      if (old && old !== ws) old.close(1000, 'Reconnected');
+      raw(ws, JSON.stringify({ type: 'voiced', id: member.id, codec: member.room.voiceCodec || 'pcm' }));
+      negotiate(member.room);
+    });
+    ws.on('close', () => {
+      clearTimeout(admissionTimer);
+      if (!member || member.voiceWs !== ws) return;
+      member.voiceWs = null;
+      if (!stopping) negotiate(member.room);
+    });
   }
   /* AI voices: Deepgram behind the host's back, never the guests'. */
   const ai = createAIBridge(Object.assign({
@@ -225,7 +341,10 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
     }
   }
 
-  wss.on('connection', ws => {
+  wss.on('connection', (ws, req) => {
+    let voice = false;
+    try { voice = new URL(req?.url || '/', 'http://localhost').searchParams.get('voice') === '1'; } catch { /* plain */ }
+    if (voice) return voiceConnection(ws);
     let member = null;
     let count = 0, bytes = 0, since = Date.now();
     ws.alive = true;
@@ -239,14 +358,15 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
       if (member && member.ws !== ws) return; // replaced by an authenticated resume
       if (binary) {
         if (!member || data.length !== 960) return; // 20 ms of 24 kHz, mono PCM16
-        relayAudio(member.room, member.id, data);
-        ai.heard(member.room, member.id, data);
+        relayAudio(member.room, member.id, data, 0);
+        ai.heard(member.room, member.id, data, 0);
         return;
       }
       let msg;
       try { msg = JSON.parse(data.toString()); } catch { return fail('Invalid room message.'); }
       if (!msg || typeof msg !== 'object') return fail('Invalid room message.');
-      if (msg.type === 'ping') return raw(ws, JSON.stringify({ type: 'pong' }));
+      // the client's clock comes back as sent, so it can time the round trip
+      if (msg.type === 'ping') return raw(ws, JSON.stringify({ type: 'pong', t: Number.isFinite(msg.t) ? msg.t : undefined }));
       if (!member) {
         if (msg.type !== 'join') return fail('Join a room first.');
         if (msg.token) {
@@ -263,7 +383,7 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
             let code;
             do { code = Array.from({ length: 4 }, () => LETTERS[randomInt(LETTERS.length)]).join(''); }
             while (rooms.has(code));
-            room = { code, members: new Map(), hostId: null, started: false, routes: null };
+            room = { code, members: new Map(), hostId: null, started: false, routes: null, voiceCodec: 'pcm' };
             rooms.set(code, room);
           } else {
             room = rooms.get(msg.code);
@@ -275,7 +395,8 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
           let seat = 0;
           while (occupied.has(seat)) seat++;
           member = { id: randomUUID(), token: randomBytes(32).toString('hex'), room, seat,
-            profile: profile(msg.profile), ws, queue: [], bytes: 0, outSeq: 0, inSeq: 0, expiry: null };
+            profile: profile(msg.profile), ws, queue: [], bytes: 0, outSeq: 0, inSeq: 0, expiry: null,
+            voiceWs: null, voiceOpus: false };
           if (msg.host === true) room.hostId = member.id;
           room.members.set(member.id, member);
           sessions.set(member.token, member);
@@ -285,6 +406,7 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
           code: member.room.code, hostId: member.room.hostId, players: list(member.room) }));
         for (const item of member.queue) raw(ws, item.data);
         roster(member.room);
+        negotiate(member.room);
         return;
       }
       if (msg.type === 'leave') { remove(member); return; }
@@ -340,7 +462,7 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
     }
   }, heartbeatMs);
   heartbeat.unref();
-  return { server, rooms, wss, relayAudio, hears, ai, async close() {
+  return { server, rooms, wss, relayAudio, hears, ai, negotiate, async close() {
     stopping = true;
     for (const room of rooms.values()) ai.end(room);
     clearInterval(heartbeat);

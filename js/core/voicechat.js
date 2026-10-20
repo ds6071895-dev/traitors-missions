@@ -149,8 +149,21 @@ const VoiceChat = (() => {
     }
   }
 
-  function attach(peerId, peerStream) {
+  /* A voice arrives as one of two things: a MediaStream (a peer
+     connection), played by a hidden <audio>; or, from the room server, a
+     handle on its own playback node and gain, which is played already
+     and only needs its volume. The second is given the same `el` face as
+     the first — `muted` and `volume` — so nothing below cares which. */
+  function attach(peerId, source) {
     detach(peerId);
+    const entry = source && source.gain ? nodeEntry(source) : elementEntry(source);
+    peers.set(peerId, entry);
+    refreshSpeechGate();
+    if (volumes.has(peerId)) entry.el.volume = volumes.get(peerId);
+    if (!entry.analyser) meter(peerId, entry);
+  }
+
+  function elementEntry(peerStream) {
     const el = document.createElement('audio');
     el.autoplay = true;
     el.playsInline = true;
@@ -163,12 +176,24 @@ const VoiceChat = (() => {
     const go = () => el.play().catch(() => {});
     go();
     document.addEventListener('pointerdown', go, { once: true });
+    return { stream: peerStream, el, analyser: null, data: null };
+  }
 
-    const entry = { stream: peerStream, el, analyser: null, data: null };
-    peers.set(peerId, entry);
-    refreshSpeechGate();
-    if (volumes.has(peerId)) el.volume = volumes.get(peerId);
-    meter(peerId, entry);
+  function nodeEntry(handle) {
+    let isMuted = false, vol = 1;
+    const apply = () => {
+      try { handle.gain.gain.setTargetAtTime(isMuted ? 0 : vol, handle.ctx.currentTime, 0.03); } catch (e) {}
+    };
+    const el = {
+      get muted() { return isMuted; },
+      set muted(v) { if (!!v !== isMuted) { isMuted = !!v; apply(); } },
+      get volume() { return vol; },
+      set volume(v) { if (v !== vol) { vol = v; apply(); } },
+      srcObject: null,
+      remove() {},
+    };
+    return { stream: null, el, analyser: handle.analyser,
+             data: handle.analyser ? new Uint8Array(handle.analyser.frequencyBinCount) : null };
   }
 
   function detach(peerId) {

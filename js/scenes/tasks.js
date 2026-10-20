@@ -578,9 +578,10 @@ class TasksScene {
     this._mats.gold.opacity = a; this._mats.blue.opacity = a;
   }
 
-  /* Everybody else, where their pose says they are now — carried forward
-     by their speed, then eased — so ten updates a second reads as one
-     smooth walk. A reach is drawn as a reach. */
+  /* Everybody else, where their pose says they are — a moment in the
+     past, between two poses they actually sent, then lightly eased — so
+     a clumpy connection still reads as one smooth walk. A reach is drawn
+     as a reach. */
   _drawOthers(dt) {
     for (const f of this.stage.figures) {
       if (!f) continue;
@@ -589,7 +590,7 @@ class TasksScene {
       if (!q) continue;
       const w = this._land.toWorld(q.x, q.z);
       const before = f.position.clone();
-      const k = 1 - Math.exp(-16 * dt);
+      const k = 1 - Math.exp(-24 * dt);
       f.position.x += (w.x - f.position.x) * k;
       f.position.z += (w.z - f.position.z) * k;
       if (Math.hypot(w.x - f.position.x, w.z - f.position.z) > 6) f.position.set(w.x, f.position.y, w.z);

@@ -12,6 +12,27 @@ const RoomSocket = (() => {
     const outgoing = new Map();
     let outgoingBytes = 0;
     const incoming = [];
+    /* How the line is doing, for anybody who wants to tell a slow network
+       from a slow machine: the round trip (smoothed), how much it wobbles,
+       and bytes each way over the last second. */
+    const stats = { rtt: 0, jitter: 0, inBps: 0, outBps: 0, backlog: 0, reconnects: 0 };
+    let bytesIn = 0, bytesOut = 0, bytesAt = Date.now();
+    function count(dir, n) {
+      const now = Date.now();
+      if (now - bytesAt >= 1000) {
+        const secs = (now - bytesAt) / 1000;
+        stats.inBps = Math.round(bytesIn / secs); stats.outBps = Math.round(bytesOut / secs);
+        bytesIn = bytesOut = 0; bytesAt = now;
+      }
+      if (dir) bytesIn += n; else bytesOut += n;
+    }
+    function sampleRtt(t) {
+      if (!Number.isFinite(t)) return;
+      const rtt = Math.max(0, Date.now() - t);
+      if (!stats.rtt) { stats.rtt = rtt; return; }
+      stats.jitter += (Math.abs(rtt - stats.rtt) - stats.jitter) / 8;
+      stats.rtt += (rtt - stats.rtt) / 8;
+    }
     const ready = new Promise((resolve, reject) => { resolveOpen = resolve; rejectOpen = reject; });
     const room = {
       server: true, selfId: null, code: null, hostId: null, players: [],
@@ -31,8 +52,20 @@ const RoomSocket = (() => {
       sendAI(message) { reliable(Object.assign({}, message, { type: 'ai' })); },
       sendClaudia(message) { reliable(Object.assign({}, message, { type: 'claudia' })); },
       sendAudio(data) {
-        if (live() && socket.bufferedAmount < LIVE_BUFFER) socket.send(data);
+        if (live() && socket.bufferedAmount < LIVE_BUFFER) { socket.send(data); count(0, data.byteLength || 0); }
       },
+      /* For the voice worker, which opens its own socket as this member. */
+      get token() { return token; },
+      get voiceUrl() {
+        try {
+          const url = new URL(window.ROOM_SERVER_URL || '/rooms', window.location.href);
+          if (url.protocol === 'http:') url.protocol = 'ws:';
+          if (url.protocol === 'https:') url.protocol = 'wss:';
+          url.searchParams.set('voice', '1');
+          return url.href;
+        } catch (e) { return null; }
+      },
+      get stats() { stats.backlog = socket ? socket.bufferedAmount || 0 : 0; return stats; },
       leave() {
         if (stopped) return;
         send({ type: 'leave' });
@@ -44,7 +77,7 @@ const RoomSocket = (() => {
     };
     const live = () => admitted && socket && socket.readyState === 1 && !retrySince;
     function send(message) {
-      if (socket && socket.readyState === 1) socket.send(JSON.stringify(message));
+      if (socket && socket.readyState === 1) { const data = JSON.stringify(message); socket.send(data); count(0, data.length); }
     }
     function reliable(message) {
       if (stopped) return;
@@ -53,7 +86,7 @@ const RoomSocket = (() => {
       if (outgoing.size > 1024 || outgoingBytes > 2 * 1024 * 1024) {
         fail('The connection fell too far behind. Please rejoin.'); return;
       }
-      if (live()) socket.send(value);
+      if (live()) { socket.send(value); count(0, value.length); }
     }
     function stop() {
       stopped = true;
@@ -102,6 +135,7 @@ const RoomSocket = (() => {
       current.onmessage = event => {
         if (!isCurrent()) return;
         lastSeen = Date.now();
+        count(1, typeof event.data === 'string' ? event.data.length : (event.data.byteLength || 0));
         if (typeof event.data !== 'string') {
           if (active && room.onAudio) room.onAudio(event.data);
           return;
@@ -121,12 +155,13 @@ const RoomSocket = (() => {
           if (!heartbeat) heartbeat = setInterval(() => {
             if (!socket || socket.readyState !== 1) return;
             if (Date.now() - lastSeen > 12000) { socket.close(); return; }
-            send({ type: 'ping' });
+            send({ type: 'ping', t: Date.now() });
           }, 4000);
           resolveOpen(room);
           if (room.onStatus) room.onStatus(false);
           return;
         }
+        if (msg.type === 'pong') { sampleRtt(msg.t); return; }
         if (msg.type === 'ack') {
           for (const [id, value] of outgoing) {
             if (id <= msg.seq) { outgoing.delete(id); outgoingBytes -= value.length; }
@@ -147,7 +182,7 @@ const RoomSocket = (() => {
         clearTimeout(connectTimer);
         socket = null;
         if (!admitted) { fail('Could not reach the room server. Please try again.'); return; }
-        if (!retrySince) retrySince = Date.now();
+        if (!retrySince) { retrySince = Date.now(); stats.reconnects++; }
         if (Date.now() - retrySince >= 15000) { fail('The room connection was lost. Please rejoin.'); return; }
         if (room.onStatus) room.onStatus(true);
         retryTimer = setTimeout(connect, 500);

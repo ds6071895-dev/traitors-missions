@@ -173,7 +173,11 @@ const Voice = (() => {
 
      The beat is held for whichever is longer: the text clock everybody
      shares, or the audio actually finishing — capped, so a line that
-     never reports back cannot hold the show. */
+     never reports back cannot hold the show. The clock, and her caption,
+     start when her voice does (the server says when the first frame
+     went out), so the words on the screen are the words in the air; a
+     voice slow to come is not waited for beyond START_WAIT. */
+  const START_WAIT = 1200;
   let remote = false;
   let remoteLine = 0;
   let remotePlaying = false;
@@ -184,10 +188,11 @@ const Voice = (() => {
     if (remote && !remoteWired && typeof Party !== 'undefined' && Party.on) {
       remoteWired = true;
       Party.on('claudia', (m) => {
-        const fn = m && remoteWaits.get(String(m.line));
-        if (!fn) return;
+        const w = m && remoteWaits.get(String(m.line));
+        if (!w) return;
+        if (m.op === 'start') { if (w.start) w.start(); return; }
         remoteWaits.delete(String(m.line));
-        fn({ ok: m.op === 'done', message: m.message || null });
+        w.end({ ok: m.op === 'done', message: m.message || null });
       });
     }
     if (!remote) hushRemote();
@@ -201,18 +206,26 @@ const Voice = (() => {
     if (typeof VoiceChat !== 'undefined' && VoiceChat.refreshSpeechGate) VoiceChat.refreshSpeechGate();
   }
   function hushRemote() {
-    for (const fn of remoteWaits.values()) fn({ ok: false, hushed: true });
+    for (const w of remoteWaits.values()) w.end({ ok: false, hushed: true });
     remoteWaits.clear();
     if (remotePlaying && typeof Party !== 'undefined' && Party.claudia) Party.claudia({ op: 'hush' });
     remotePlaying = false;
   }
-  function askRemote(text) {
+  function askRemote(text, start) {
     const line = 'l' + (++remoteLine);
     remotePlaying = true;
     return new Promise((resolve) => {
-      remoteWaits.set(line, (r) => { if (line === 'l' + remoteLine) remotePlaying = false; resolve(r); });
+      remoteWaits.set(line, { start, end: (r) => { if (line === 'l' + remoteLine) remotePlaying = false; resolve(r); } });
       Party.claudia({ op: 'say', text, line });
     });
+  }
+
+  /* A line she is about to say, read ahead by the server so it is ready
+     the moment it is asked for. Nothing is played. */
+  function prefetch(text) {
+    const body = String(text || '').trim();
+    if (!body || !remote || muted || !canRemote()) return;
+    Party.claudia({ op: 'prefetch', text: body });
   }
 
   /* Always resolves, exactly once, whatever the browser does. */
@@ -252,24 +265,32 @@ const Voice = (() => {
          line read in silence. */
       if (claudia && remote && !opts.silent && !muted) {
         if (typeof Music !== 'undefined' && Music.duckAll) Music.duckAll(0.45, 0.6);
-        let clock = false, heard = false;
-        live.timer = setTimeout(done, duration * 1.6 + 6000);
-        setTimeout(() => { clock = true; if (heard) done(); }, duration);
+        let clock = false, heard = false, begun = false;
+        const speaker = opts.speaker === undefined ? 'Claudia' : opts.speaker;
+        const begin = () => {
+          if (begun || t !== token || !live) return;
+          begun = true;
+          show(speaker, body);
+          setTimeout(() => { clock = true; if (heard) done(); }, duration);
+        };
+        clear();
+        setTimeout(begin, START_WAIT);
+        live.timer = setTimeout(done, duration * 1.6 + 6000 + START_WAIT);
         const attempt = (n) => {
           if (t !== token || !live) return;
           if (!canRemote()) {
             // not in a room that can read it right now: wait for the connection
             if (n < 12) setTimeout(() => attempt(n + 1), 500);
-            else { heard = true; if (clock) done(); }
+            else { begin(); heard = true; if (clock) done(); }
             return;
           }
-          askRemote(body).then((r) => {
+          askRemote(body, begin).then((r) => {
             if (t !== token || !live) return;
-            if (r.ok) { heard = true; lastSpoke.at = Date.now(); if (clock) done(); return; }
+            if (r.ok) { begin(); heard = true; lastSpoke.at = Date.now(); if (clock) done(); return; }
             if (r.hushed) return;
             console.warn('Claudia line did not come back from the server:', r.message);
             if (n < 3 && !/No Deepgram key/.test(r.message || '')) setTimeout(() => attempt(n + 1), 400 + n * 700);
-            else { heard = true; if (clock) done(); }        // silent: the subtitles carry it
+            else { begin(); heard = true; if (clock) done(); }        // silent: the subtitles carry it
           });
         };
         attempt(0);
@@ -382,7 +403,7 @@ const Voice = (() => {
     } catch (e) {}
   }
 
-  return { init, unlock, say, stop, clear, show, list, setVoice, setMuted, refresh, setRemote, setHostSpeaking,
+  return { init, unlock, say, prefetch, stop, clear, show, list, setVoice, setMuted, refresh, setRemote, setHostSpeaking,
            get remote() { return remote; },
            /* Whether a line is still running its clock. Not "is the
               synthesiser making a noise" — a muted player and a machine

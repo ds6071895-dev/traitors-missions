@@ -175,13 +175,35 @@ are comma-separated. Same-origin deployment needs neither setting.
   between games. Starting a game closes admission until the host returns.
 - The host continues to own game state and secret roles. Targeted roles are delivered only
   to that player. The server is a room/message relay, not a new game simulation.
-- Voice uses AudioWorklet capture/playback and 24 kHz mono PCM16 over the same socket.
-  Permission, mute, voice meters and speaking-turn gates stay in `VoiceChat`. Playback has
-  a bounded jitter buffer. Capture skips silence and discards packets older than 120 ms
-  after a main-thread stall. Voice is never recorded or replayed by the server. At full
-  continuous transmission, each microphone sends about 48 KB/s; a full room's server audio
-  egress is about 288 KB/s. This deliberately simple format trades bandwidth for broad
-  browser support; congested TCP connections can add voice latency.
+- Voice has a socket of its own: once in a room, each page opens `/rooms?voice=1` from a
+  Worker (`js/core/voice-worker.js`) and proves its seat with the session token, so a
+  burst of game state never queues a voice frame behind it. The worker is wired straight
+  to the capture and playback AudioWorklets, so a slow frame on the page never breaks
+  anybody's voice. A reverse proxy that forwards `/rooms` forwards this too, since it is
+  the same path.
+- The room speaks **Opus** (WebCodecs, 24 kbps) while every person in it has a voice
+  socket and a browser that can decode it, and 24 kHz PCM16 otherwise. The server decides
+  and tells everybody; every frame is tagged with its codec, a sequence number and a
+  talkspurt-start bit. Per talker that is about 5 KB/s into each listener instead of
+  50 KB/s. A page whose voice socket is down still hears PCM on the game socket and sends
+  on it. The server never decodes voice: Deepgram transcription of Opus voices is fed as
+  Ogg Opus.
+- Playback is an adaptive jitter buffer (60–250 ms, learned per talkspurt from how late
+  frames run). It fades rather than clicks on a gap, picks up again quickly after running
+  dry, and steers its depth by playing a couple of percent slow or fast. It never drops
+  everything to catch up. Capture skips silence, with a 400 ms hangover and the frame
+  before speech sent as a lead-in. Voice is never recorded or replayed by the server.
+- Claudia's lines (with an AI Claudia) are read by Deepgram once per room, however many
+  people ask, and streamed: her first frame goes out while the rest is still being read,
+  and a long line's first sentence is fetched on its own. Scenes ask the server to read
+  her next fixed line ahead while she is speaking. Every server-made voice is paced by
+  one clock that makes up lost time after a stall, and her caption and reading clock
+  start when her voice does.
+- The host sends one message per tick of the session, with the state in it once, and
+  none when the state has not changed. Castle poses carry the sender's clock and are
+  drawn 120 ms in the past, between two real poses, so a clumpy connection still shows
+  a steady walk. Open the game with `?net=1` for an overlay of round trip, jitter, bytes
+  each way, frame rate and each voice's buffer, to tell a slow line from a slow machine.
 - Game joining does not depend on microphone permission. Modern browsers with AudioWorklet
   support can listen without enabling their own microphone. Voice failure leaves gameplay
   connected. A player who leaves mid-game is out, as if banished; the host must remain.
@@ -215,8 +237,12 @@ comes from a CDN and is not a dependency):
 npm pack three@0.160.0 && tar xzf three-0.160.0.tgz
 THREE_CJS=$PWD/package/build/three.cjs npm test
 ``` The WebSocket tests cover admission, private routing, voice routing
-(the turret and the dead), reconnection and retry. Physical devices and production HTTPS
-still need a smoke test after deployment.
+(the turret and the dead), reconnection and retry; `voice-socket.test.js` covers the
+voice socket and codec negotiation, `voice-worker.test.js` the worker against fake
+WebCodecs, `jitter.test.js` the playback buffer against a simulated bad line,
+`netcode.test.js` the batched wire and pose interpolation, and `claudia-stream.test.js`
+Claudia's shared, streamed lines. Physical devices and production HTTPS still need a
+smoke test after deployment.
 
 ## Under the hood
 

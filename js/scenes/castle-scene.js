@@ -301,7 +301,7 @@ class CastleScene {
     const armed = () => { const o = Session.state.finale.overrule; return !!(o && o.armed && !o.by); };
     if (armed()) {
       if (this.music) this.music.stinger('overrule-warn', { at: 'beat' });
-      this._react(['gasp', 'handChest', 'shake'], null, 0.6);
+      this._react(['gasp', 'handChest', 'shake'], null, 0.4);
       await this._say('overruleWarn', {}, 'claudia');
       if (!this._alive) return;
     }
@@ -379,7 +379,7 @@ class CastleScene {
       : { kicker: voter.local ? 'Your slate' : voter.name + '’s slate',
           title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'bad' });
     if (st && st.act) st.act(voter.id, 'nod');
-    this._react(['gasp', 'handsFace', 'shake', 'handChest'], voter.id, 0.9);
+    this._react(['gasp', 'handsFace', 'shake', 'handChest'], voter.id, real ? 0.6 : 0.2);
     if (real) {
       await this._sleep(1.0);
       if (!this._alive) return;
@@ -415,20 +415,20 @@ class CastleScene {
     st.pointAt(voterId, at);
     if (tf) {
       st.setMood(targetId, 'nervous');
-      if (Math.random() < 0.7) st.act(targetId, Math.random() < 0.5 ? 'shake' : 'handChest');
+      if (Math.random() < 0.35) st.act(targetId, Math.random() < 0.5 ? 'shake' : 'handChest');
     }
     clearTimeout(this._pointT);
     this._pointT = setTimeout(() => { if (st.pointAt) st.pointAt(voterId, null); }, 2400);
   }
 
   /* The room takes a reveal: a few of them at a time, not in unison. */
-  _react(pool, exceptId, chance = 0.75) {
+  _react(pool, exceptId, chance = 0.5) {
     const st = this.stage;
     if (!st || !st.figures) return;
     st.figures.forEach((f) => {
       if (!f || f.userData.hidden || f.userData.playerId === exceptId || Math.random() > chance) return;
       const name = pool[Math.floor(Math.random() * pool.length)];
-      setTimeout(() => { if (this._alive) Figure.act(f, name, { hold: false }); }, 150 + Math.random() * 1100);
+      setTimeout(() => { if (this._alive) Figure.act(f, name, { hold: false }); }, 300 + Math.random() * 2000);
     });
   }
 

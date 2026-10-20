@@ -186,7 +186,28 @@
         <div class="lobby-roster" id="lobby-roster"></div>
       </div>
       <div class="lr-status" id="lobby-status">Waiting for players… 1/8</div>
+      <!-- Everybody's own, and only the host hears it: it leans the deal,
+           never decides it. -->
+      <label class="lr-task lr-want" for="lobby-want">
+        <span><b>Want to be a Traitor?</b><small>leans the draw, never decides it</small></span>
+        <input type="range" id="lobby-want" min="-2" max="2" step="1" value="0" data-nav>
+        <output id="lobby-want-out">Don't mind</output>
+      </label>
       <div class="lr-opts" id="lobby-opts" hidden>
+        <div class="lr-task lr-cast">
+          <span><b>Traitors</b><small>how many are dealt</small></span>
+          <div class="lr-cast-chips" id="lobby-cast" role="group" aria-label="Traitors dealt">
+            <button class="chip" data-cast="auto" data-nav>Auto</button>
+            <button class="chip" data-cast="1" data-nav>1</button>
+            <button class="chip" data-cast="2" data-nav>2</button>
+            <button class="chip" data-cast="random" data-nav>1 or 2</button>
+          </div>
+        </div>
+        <label class="lr-task lr-want" for="lobby-none">
+          <span><b>Chance of none</b><small>a night with no Traitor at all</small></span>
+          <input type="range" id="lobby-none" min="0" max="50" step="5" value="0" data-nav>
+          <output id="lobby-none-out">Off</output>
+        </label>
         <label class="lr-task" for="lobby-task">
           <span><b>Jobs time</b><small>how long the day in the castle lasts</small></span>
           <input type="range" id="lobby-task" min="30" max="180" step="15" value="180" data-nav>
@@ -415,6 +436,7 @@
 <script src="js/core/net.js"></script>
 <script src="js/core/transports.js"></script>
 <script src="js/core/voicechat.js"></script>
+<script src="js/core/netstats.js"></script>
 <script src="js/core/lobby.js"></script>
 <script src="js/core/bots.js"></script>
 <script src="js/core/roomui.js"></script>

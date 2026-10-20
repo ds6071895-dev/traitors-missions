@@ -177,25 +177,92 @@ const Session = (() => {
     night:    0x27d4eb2f,
     breakfast:0x165667b1,
     wise:     0x3c6ef372,
+    count:    0x7f4a7c15,
   };
 
   const traitorCount = (n) => (n >= 7 ? 2 : 1);
 
+  /* ---------------- the cast ----------------
+     The host chooses how many: `auto` (one, or two from seven up), `1`,
+     `2`, or `random` — one or two, the seed's choice. On top of that a
+     chance, up to a half, that nobody is dealt at all. Whenever the
+     count is not fixed the room is not told it (`dealt` is null) and
+     Claudia says only that there may be Traitors.
+
+     Each player also says how much they want the cloak, from -2 (please
+     not) to 2 (desperately). That leans the draw and never decides it:
+     nobody's chance goes under WANT_MIN or over WANT_MAX, however the
+     rest of the table answered. The wants reach the host and nobody
+     else, and are never written into `state`. */
+  const CAST_MODES = ['auto', '1', '2', 'random'];
+  const NONE_MAX = 0.5;
+  const WANT_WEIGHT = { '-2': 0.1, '-1': 0.4, 0: 1, 1: 2.5, 2: 10 };
+  const WANT_MIN = 0.03, WANT_MAX = 0.9;
+
+  function cleanCast(c) {
+    const mode = c && CAST_MODES.indexOf(String(c.count)) >= 0 ? String(c.count) : 'auto';
+    const none = Number(c && c.none);
+    return { count: mode, none: Number.isFinite(none) ? U.clamp(Math.round(none * 100) / 100, 0, NONE_MAX) : 0 };
+  }
+  const castHidden = (cast) => cast.count === 'random' || cast.none > 0;
+  const cleanWant = (w) => U.clamp(Math.round(Number(w) || 0), -2, 2);
+
+  function castSize(seed, n, cast) {
+    const r = rngFor(SALT.count, seed);
+    if (cast.none > 0 && r() < cast.none) return 0;
+    const k = cast.count === '1' ? 1 : cast.count === '2' ? 2
+      : cast.count === 'random' ? r.int(1, 2) : traitorCount(n);
+    return Math.min(k, Math.max(1, n - 1));
+  }
+
+  /* Each seat's chance of being dealt, given the weights: proportional
+     to its weight, held inside [WANT_MIN, WANT_MAX], and adding up to k.
+     The scale is found by bisection — the sum only grows with it. */
+  function castChances(weights, k) {
+    const n = weights.length;
+    if (!k || !n) return weights.map(() => 0);
+    const lo = Math.min(WANT_MIN, k / n), hi = Math.max(WANT_MAX, k / n);
+    const at = (c) => weights.map(w => U.clamp(c * w, lo, hi));
+    const sum = (c) => at(c).reduce((a, b) => a + b, 0);
+    let a = 0, b = 1;
+    while (sum(b) < k && b < 1e9) b *= 2;
+    for (let i = 0; i < 60; i++) { const m = (a + b) / 2; if (sum(m) < k) a = m; else b = m; }
+    return at(b);
+  }
+
   /* `force` is the rehearsal door and nothing else uses it: a seat
      number (or a list of them) puts the Traitors in those chairs, and
      -1 deals a night with no Traitor in it at all. Left undefined —
-     which is every real run — the hand is dealt from the seed. */
-  function drawRoles(seed, n, force) {
+     which is every real run — the hand is dealt from the seed.
+
+     With everybody indifferent it is the plain draw it always was, so a
+     seed still deals the hand it dealt before; otherwise it is a
+     systematic draw over the chances in a shuffled order, which picks
+     exactly k and gives every seat exactly its chance. */
+  function drawRoles(seed, n, force, cast, wants) {
     if (force !== undefined && force !== null) {
       const want = (Array.isArray(force) ? force : [force]).map(Math.floor);
       return new Set(want.filter(s => s >= 0 && s < n));
     }
+    const k = castSize(seed, n, cast || cleanCast(null));
     const r = rngFor(SALT.roles, seed);
     const seats = [];
     for (let i = 0; i < n; i++) seats.push(i);
     const out = new Set();
-    const k = Math.min(traitorCount(n), Math.max(1, n - 1));
-    while (out.size < k) out.add(seats.splice(r.int(0, seats.length - 1), 1)[0]);
+    const weights = seats.map(i => WANT_WEIGHT[cleanWant(wants && wants[i])]);
+    if (weights.every(w => w === 1)) {
+      while (out.size < k) out.add(seats.splice(r.int(0, seats.length - 1), 1)[0]);
+      return out;
+    }
+    const chance = castChances(weights, k);
+    for (let i = n - 1; i > 0; i--) { const j = r.int(0, i); [seats[i], seats[j]] = [seats[j], seats[i]]; }
+    let u = r(), acc = 0;
+    for (const s of seats) {
+      if (acc <= u && u < acc + chance[s] && out.size < k) { out.add(s); u += 1; }
+      acc += chance[s];
+    }
+    // a hair of rounding on the last step: the likeliest left out fill in
+    seats.slice().sort((x, y) => chance[y] - chance[x]).forEach(s => { if (out.size < k) out.add(s); });
     return out;
   }
 
@@ -259,7 +326,8 @@ const Session = (() => {
       parts: parts && parts.length ? parts.slice() : PARTS.slice(),
       ai: opts && opts.ai ? { claudia: !!opts.ai.claudia } : null,
       taskSeconds: clampTask(opts && opts.taskSeconds === undefined ? TASK_SECONDS : opts && opts.taskSeconds),
-      dealt: players.length ? Math.min(traitorCount(players.length), players.length - 1) : 0,  // how many were dealt, which the room is told
+      cast: cleanCast(opts && opts.cast),  // what the host chose, which everybody may know
+      dealt: players.length ? Math.min(traitorCount(players.length), players.length - 1) : 0,  // how many were dealt, which the room is told — null when the host hid it
       beat: 0,                  // shared scene beat, for when scenes sync
       day: 0,
       players,
@@ -324,8 +392,10 @@ const Session = (() => {
     state = fresh(seed, opts.players || [], parts, opts);
     secret = blankSecret();
     if (mode === 'host') {
-      secret.traitors = drawRoles(seed, state.players.length, forced);
-      state.dealt = secret.traitors.size;
+      /* Wants arrive by player id; the draw reads them by seat. */
+      const wants = opts.wants ? state.players.map(p => (p.bot ? 0 : opts.wants[p.id])) : null;
+      secret.traitors = drawRoles(seed, state.players.length, forced, state.cast, wants);
+      state.dealt = forced === undefined && castHidden(state.cast) ? null : secret.traitors.size;
       chooseCarrier(0);
     }
     /* A night that is not playing its welcome starts wherever it does
@@ -503,6 +573,10 @@ const Session = (() => {
      no buttons — the host acts for them — so a room never waits on one. */
   const present = () => alive().filter(p => !p.bot);
   const traitorsAlive = () => alive().filter(isTraitor);
+  /* Every Traitor dealt has been found. A night dealt none has nobody
+     to find, so it plays on to the fire: the Faithfuls end it there, or
+     banish each other down to two. */
+  const allFound = () => secret.traitors.size > 0 && traitorsAlive().length === 0;
 
   /* ---------------- the reducer ----------------
      The only mutator. Everything a scene wants to do arrives here as an
@@ -568,7 +642,10 @@ const Session = (() => {
 
   function doWiseOpen() {
     if (state.phase !== 'hill' || state.wise || secret.wise) return false;
-    if (!traitorsAlive().length || !wiseCandidates().length) return false;
+    /* With the count hidden, a night dealt nobody still holds its ten
+       seconds — skipping them would tell the room — and chooses nobody. */
+    if (!(traitorsAlive().length || (state.dealt === null && !secret.traitors.size))
+        || !wiseCandidates().length) return false;
     const now = Date.now();
     state.wise = { endsAt: now + WISE_SECONDS * 1000, seconds: WISE_SECONDS, done: false, used: null };
     secret.wisePick = null;
@@ -603,7 +680,7 @@ const Session = (() => {
   function closeWise() {
     clearWiseTimer();
     if (!state || !state.wise || state.wise.done) return false;
-    const pool = wiseCandidates();
+    const pool = traitorsAlive().length ? wiseCandidates() : [];
     const pick = secret.wisePick && pool.find(p => p.id === secret.wisePick.targetId);
     const chosen = pick || (pool.length ? pool[rngFor(SALT.wise, state.seed).int(0, pool.length - 1)] : null);
     secret.wise = chosen ? chosen.id : null;
@@ -931,13 +1008,13 @@ const Session = (() => {
   }
 
   function afterBreakfast() {
-    if (traitorsAlive().length === 0) { endGame('all-found'); return true; }
+    if (allFound()) { endGame('all-found'); return true; }
     if (partOn('table')) return beginTable();
     return afterTable();
   }
 
   function afterTable() {
-    if (traitorsAlive().length === 0) { endGame('all-found'); return true; }
+    if (allFound()) { endGame('all-found'); return true; }
     const next = state.day + 1;
     if (!bigNight() || alive().length <= FINALE_AT || next >= MAX_DAYS) return beginFinale();
     return beginDay(next);
@@ -947,7 +1024,7 @@ const Session = (() => {
      another day's work. The same test `afterTable` makes. */
   function finaleNext() {
     if (!state) return false;
-    return traitorsAlive().length === 0 || !bigNight() || alive().length <= FINALE_AT
+    return allFound() || !bigNight() || alive().length <= FINALE_AT
       || state.day + 1 >= MAX_DAYS;
   }
 
@@ -980,7 +1057,7 @@ const Session = (() => {
        seat, and not counting tonight's victim, the Faithfuls must still
        outnumber the Traitors. (The loss was at a table that sat after a
        breakfast, so a murder more is already gone from these numbers.) */
-    return lost && t >= 1 && t < state.dealt + 1 && (f - 1) >= (t + 1) + 1;
+    return lost && t >= 1 && t < secret.traitors.size + 1 && (f - 1) >= (t + 1) + 1;
   }
 
   function beginNight() {
@@ -1221,8 +1298,8 @@ const Session = (() => {
     if (secret.wise === p.id && !(state.wise && state.wise.used)) secret.wise = null;
     delete secret.picks[p.id];
     if (state.phase === 'verdict') return true;
-    if (traitorsAlive().length === 0 || alive().length < 2) {
-      endGame(traitorsAlive().length ? 'final-two' : 'all-found');
+    if (allFound() || alive().length < 2) {
+      endGame(allFound() ? 'all-found' : 'final-two');
       return true;
     }
     if (f && f.stage === 'name' && alive().every(q => f.names[q.id])) beginNameReveal();
@@ -1753,12 +1830,12 @@ const Session = (() => {
     if (f.kind === 'table') {
       /* The last Traitor burned at a table: there is nobody left to
          find. The verdict waits for the ceremony to finish saying so. */
-      if (traitorsAlive().length === 0) { endGame('all-found'); return; }
+      if (allFound()) { endGame('all-found'); return; }
       f.stage = 'done';
       return;
     }
     /* At the fire: two left is the end, whatever is in the pouches. */
-    if (alive().length <= 2 || traitorsAlive().length === 0) {
+    if (alive().length <= 2 || allFound()) {
       openPouches(alive().length <= 2 ? 'final-two' : 'all-found');
       return;
     }
@@ -1861,7 +1938,8 @@ const Session = (() => {
     finaleNext,
     SEATS, MIN_PLAYERS, FINALE_AT, NIGHT_SECONDS, PICK_SECONDS, TASK_SECONDS, TASK_MIN, BELL_AT,
     RECRUIT_SECONDS, LAST_WORDS_SECONDS, FLOOR_SECONDS, WISE_SECONDS,
-    tableSeconds, traitorCount,
+    tableSeconds, traitorCount, castChances, cleanCast,
+    CAST_MODES, NONE_MAX, WANT_MIN, WANT_MAX,
 
     /* Host-only: who is standing next to whom, and who can see it. The
        castle scene answers; the rules only ask. */
