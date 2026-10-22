@@ -98,6 +98,23 @@ contestants to fill the empty chairs, and tick **AI Claudia** for a live host.
   will not go off alone with somebody it suspects, and if somebody it suspects reaches for
   it or shuts it in, or it comes to suspect them mid-conversation, it makes for the
   busiest room in the house — and remembers.
+- **Alliances.** Say *"Isla, want to team up?"* and the AI decides from its read of you: a
+  Faithful turns down somebody it suspects or who betrayed it before, a Traitor happily
+  takes a Faithful as cover. AIs offer deals too — behind a shut door, between jobs, and to
+  each other. An ally is told who you said you are voting for, will not vote you out, and
+  remembers it if you put its name on your slate (that ends the alliance). *"Our alliance
+  is over"* ends one out loud.
+- **They talk to each other.** An AI that asks another a question by name gets an answer
+  from that one — a few exchanges, then the room is yours again, and a person speaking
+  ends it at once. Two AIs working side by side have a word you can overhear; with nobody
+  about, they just remember it. At breakfast, in the lulls, they turn to each other about
+  last night.
+- **Playing to win.** Each AI keeps a read on everybody *with reasons* — who voted out a
+  Faithful, who stood up for somebody who turned out a Traitor, who it saw hand what to
+  whom, who keeps pointing at it — and a plan for the phase: whom to press, whom to
+  defend, whom to ally with; a Traitor whom to frame or poison, and when to vote out its
+  own partner because the room has already decided. Every turn it takes starts with who
+  is still playing and who is gone, so nobody talks to the dead.
 - **AI Claudia** reads every one of her lines in a British Deepgram voice — the room's
   lines and the ones only you may hear — and decides when a discussion is over. Each
   browser asks the room server for its own reading of each line, so "You are a Traitor"
@@ -108,7 +125,9 @@ contestants to fill the empty chairs, and tick **AI Claudia** for a live host.
   one streaming transcription per person, and Deepgram text-to-speech for Claudia's
   lines. AI voices arrive as ordinary voice frames. Nothing is opened until the host asks,
   and everything closes when the room does. A `DEEPGRAM_API_KEY` environment variable on
-  the server works instead of pasting.
+  the server works instead of pasting. The contestants think with OpenAI's
+  `gpt-4.1-mini` through Deepgram (`DEEPGRAM_THINK_MODEL` changes it); if the account
+  cannot use it, each voice falls back to `gpt-4o-mini` (`DEEPGRAM_THINK_FALLBACK`).
 - **Cost.** About $0.075 a minute per AI voice while it is open, well under a cent a
   minute per transcribed person, and a few cents of speech per player for Claudia's lines.
 - **Without a key** nothing changes: Claudia uses the browser's speech voice, and the

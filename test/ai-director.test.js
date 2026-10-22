@@ -636,7 +636,8 @@ test('job-time visits are occasional across the cast and do not crowd the same p
   N.start('d0');
   N.publish('p1', 0, 10, 0);
   N.publish('p2', 0, -25, 0);
-  for (const id of ['m', 'f', 'i', 's']) N.publish(id, 5, 10, 0);
+  // each at their own job, too far apart to chat among themselves
+  [['m', 5, 10], ['f', 12, 10], ['i', 19, 10], ['s', 5, 17]].forEach(([id, x, z]) => N.publish(id, x, z, 0));
   W.net({ type: 'phase' });
   W.step(39);
   eq(visits.length, 0, 'no immediate rush after entering the castle');
@@ -713,6 +714,278 @@ test('in the castle, an AI the other side of a shut door hears nothing — until
   W.say('p1', 'Is anybody out there?');
   W.step(2);
   eq(W.asked.map(a => a.id), ['f'], 'Fergus, with the door open');
+});
+
+section('ai — the dead stay dead');
+
+function kill(W, id, how) {
+  const s = W.ctx.Session.state, p = W.ctx.Session.playerById(id);
+  p.alive = false;
+  if (how === 'murdered') s.murdered.push({ id, name: p.name, day: s.day });
+  else s.banished.push({ id, name: p.name, day: s.day, role: how });
+}
+const latest = (W, id) => W.prompts.filter(p => p.id === id).slice(-1)[0].text;
+
+test('a dead AI never answers its name, and every turn says who is gone', () => {
+  const W = world();
+  kill(W, 'm', 'murdered');
+  W.say('p1', 'Morag, are you there?');
+  W.step(2);
+  ok(!W.asked.some(a => a.id === 'm'), 'Morag does not answer from the grave');
+  W.say('p1', 'Fergus, where were you last night?');
+  W.step(2);
+  const turn = W.asked.find(a => a.id === 'f');
+  ok(turn, 'Fergus answers his name');
+  ok(/GONE for good/.test(turn.text) && /Morag \(poisoned on day 1, a Faithful\)/.test(turn.text), 'his turn says who is gone, and how');
+  ok(/Still playing: Ana, Bo, Fergus, Isla, Struan\./.test(turn.text), 'and who is still here');
+  ok(/never speak to them/.test(latest(W, 'f')), 'the prompt forbids talking to the gone');
+});
+
+test('words from somebody since gone are marked, and a dead voice adds nothing new', () => {
+  const W = world();
+  W.say('p1', 'Morag, what do you reckon?');
+  W.step(2);
+  W.reply('m', 'I reckon Bo is hiding something.');
+  kill(W, 'm', 'faithful');
+  W.emit('text', { id: 'm', text: 'I am still right here with you all.' });
+  W.say('p1', 'Fergus, thoughts?');
+  W.step(2);
+  const p = latest(W, 'f');
+  ok(/\[Morag, since gone\]: I reckon Bo/.test(p), 'her old line is hers, from before she went');
+  ok(!/still right here/.test(p), 'a late line from the dead never reaches anybody');
+  ok(/Morag \(banished on day 1, a Faithful\)/.test(W.asked.slice(-1)[0].text));
+});
+
+section('ai — alliances');
+
+test('ask an AI to team up: it shakes on it, remembers it, and will not vote you out', () => {
+  const W = world();
+  W.say('p1', 'Fergus, do you want to form an alliance with me?');
+  W.step(2);
+  eq(W.asked[0].id, 'f', 'Fergus answers');
+  ok(/decided to say YES/.test(W.asked[0].text), 'his words match the deal');
+  eq(W.ctx.AIDirector.allies('f'), ['p1'], 'and it is a deal');
+  W.reply('f', 'Deal, Ana.');
+  W.say('p2', 'I think Ana is the traitor, honestly. Vote Ana.');
+  // let whoever answers Bo, and anybody chipping in, finish
+  for (let k = 0; k < 6; k++) { W.step(1); for (const id of [...W.speaking]) W.reply(id, 'Hmm.'); }
+  ok(/Ana: allies since day 1/.test(latest(W, 'f')), 'he remembers it');
+  const sent = [];
+  W.ctx.Net.send = (m) => sent.push(m);
+  const s = W.ctx.Session.state;
+  W.phase = 'table';
+  s.finale = { stage: 'name', names: {}, votes: {}, round: 0, nameRound: 0 };
+  // one voice at a time is asked for its slate; each says nothing aloud and is done
+  for (let k = 0; k < 6; k++) { W.step(1); for (const id of [...W.speaking]) { W.speaking.delete(id); W.emit('done', { id }); } }
+  const cue = W.asked.find(a => a.id === 'f' && /Time to vote/.test(a.text));
+  ok(cue && /Do not vote for your ally Ana/.test(cue.text), 'the ballot reminds him');
+  W.step(20);
+  const vote = sent.find(m => m.type === 'name' && m.playerId === 'f');
+  ok(vote && vote.targetId !== 'p1', 'and even his fallback leaves his ally alone');
+});
+
+test('a Faithful AI turns down an alliance with somebody it has seen do something odd', () => {
+  const W = world();
+  const faithful = ['m', 'f', 'i', 's'].find(id => W.ctx.Session.privateView(id).role === 'faithful');
+  const name = W.ctx.Session.playerById(faithful).name;
+  const pv = W.ctx.Session.privateView;
+  W.ctx.Session.privateView = id => {
+    const v = pv(id);
+    return id === faithful ? Object.assign({}, v, { notes: [{ kind: 'handover', day: 0, t: 25, a: 'p1', b: 'p2', room: 'hall' }] }) : v;
+  };
+  W.say('p1', name + ', shall we team up?');
+  W.step(2);
+  eq(W.asked[0].id, faithful);
+  ok(/not sure about Ana|NOT ally/.test(W.asked[0].text), 'it will not commit');
+  eq(W.ctx.AIDirector.allies(faithful), [], 'no deal');
+});
+
+test('a vote against your ally ends the alliance, and it is remembered', () => {
+  const W = world();
+  W.say('p1', 'Isla, want to work together?');
+  W.step(2);
+  W.reply('i', 'Go on then.');
+  eq(W.ctx.AIDirector.allies('i'), ['p1']);
+  W.net({ type: 'nameReveal', playerId: 'p1', targetId: 'i' });
+  eq(W.ctx.AIDirector.allies('i'), [], 'broken');
+  W.say('p1', 'Isla, no hard feelings?');
+  W.step(2);
+  ok(/Ana: no longer allies — Ana broke it: voted against Isla/.test(latest(W, 'i')), 'and Isla knows who broke it');
+});
+
+test('alone behind a door, an AI offers a deal — and hears your yes', () => {
+  const W = world({ phase: 'tasks' });
+  const N = W.ctx.CastleNet;
+  N.start('d0');
+  N.publish('p1', 0, 10, 0);
+  N.publish('p2', 0, -25, 0);
+  N.publish('f', 1.2, 10, 0);
+  for (const id of ['m', 'i', 's']) N.publish(id, -16, -20, 0);
+  W.step(1);
+  W.ctx.AIDirector.moved('private', 'f', 'p1');
+  W.step(1);
+  eq(W.asked[0].id, 'f');
+  ok(/team up with you/.test(W.asked[0].text), 'Fergus, who has nothing against Ana, offers a deal');
+  W.reply('f', 'So, Ana — shall we team up?');
+  W.step(1);
+  W.say('p1', 'Yeah, go on then.');
+  W.step(2);
+  eq(W.ctx.AIDirector.allies('f'), ['p1'], 'the yes sealed it');
+  ok(/you are allies now/.test(W.asked.slice(-1)[0].text), 'and he shakes on it');
+});
+
+section('ai — talking to each other');
+
+test('an AI that names another AI hands it the next turn, and a person speaking ends the chain', () => {
+  const W = world();
+  W.say('p1', 'Morag, what do you make of all this?');
+  W.step(2);
+  eq(W.asked[0].id, 'm');
+  W.reply('m', 'Honestly, Isla, you went very quiet when the body came up — where were you?');
+  W.step(2);
+  eq(W.asked[1].id, 'i', 'Isla answers Morag');
+  ok(/Morag just said to you: "Honestly, Isla/.test(W.asked[1].text), 'to what Morag said');
+  W.reply('i', 'Fergus, tell her, Morag will not listen to me — I was with you all afternoon.');
+  W.step(2);
+  eq(W.asked[2].id, 'f', 'Fergus is brought in by name');
+  W.say('p1', 'Hang on, everybody.');
+  W.reply('f', 'Struan, back me up here.');
+  W.step(1.5);
+  ok(!W.asked.slice(3).some(a => a.id === 's'), 'a person speaking ends the AIs’ chain');
+});
+
+test('mentioning another AI is not handing it the floor; asking it something is', () => {
+  const W = world();
+  W.say('p1', 'Morag, what do you make of all this?');
+  W.step(2);
+  W.reply('m', 'I agree with Fergus about the library.');
+  W.step(3);
+  ok(!W.asked.some(a => a.id === 'f' && /Morag just said to you/.test(a.text)), 'a mention is not a question');
+  for (const id of [...W.speaking]) W.reply(id, 'Aye.');      // anybody chipping in finishes
+  W.step(1);
+  W.say('p1', 'Isla, anything else?');
+  W.step(2);
+  eq(W.asked.slice(-1)[0].id, 'i');
+  W.reply('i', 'What do you think, Fergus?');
+  W.step(2);
+  ok(W.asked.some(a => a.id === 'f' && /just said to you/.test(a.text)), 'a question is');
+});
+
+test('a long game trims the oldest talk, never the facts or the newest lines', () => {
+  const W = world();
+  for (let k = 0; k < 120; k++) W.net({ type: 'nameReveal', playerId: 'p1', targetId: 'p2' });
+  for (let k = 0; k < 190; k++) W.emit('heard', { id: 'p2', text: 'Line ' + k + ' — ' + 'a long, winding remark about the library and the turret and the stair. '.repeat(3), final: true });
+  W.say('p1', 'Fergus, the very latest thing I said.');
+  W.step(2);
+  const p = latest(W, 'f');
+  ok(p.length <= 28000, 'inside the bridge’s limit: ' + p.length);
+  ok(/YOUR PLAN RIGHT NOW/.test(p) && /YOUR READ ON THE OTHERS/.test(p), 'the read and the plan survive');
+  ok(/the very latest thing I said/.test(p), 'and so does the newest line');
+});
+
+test('the AIs’ chain gives the room back after a few exchanges', () => {
+  const W = world();
+  W.say('p1', 'Morag?');
+  W.step(2);
+  const names = { m: 'Morag', f: 'Fergus', i: 'Isla', s: 'Struan' };
+  const order = ['m', 'f', 'i', 's', 'm', 'f', 'i'];
+  for (let k = 0; k < order.length - 1; k++) {
+    const who = W.asked.slice(-1)[0].id;
+    if (who !== order[k]) break;
+    W.reply(who, names[order[k + 1]] + ', what do you think?');
+    W.step(2);
+  }
+  ok(W.asked.length <= 5, 'one answer to Ana, then at most four AI-to-AI turns: ' + W.asked.length);
+});
+
+test('two AIs working side by side have a word you can overhear', () => {
+  const W = world({ phase: 'tasks' });
+  W.ctx.CastleBots = { running: true, canApproach: () => false, approach: () => false, company: () => null };
+  const N = W.ctx.CastleNet;
+  N.start('d0');
+  N.publish('p1', 0, 10, 0);
+  N.publish('p2', 0, -25, 0);
+  N.publish('m', 3, 10, 0);
+  N.publish('f', 4, 10, 0);
+  N.publish('i', 30, -20, 0);
+  N.publish('s', -30, -20, 0);
+  W.net({ type: 'phase' });
+  W.step(31);
+  eq(W.asked.length, 1, 'one of them speaks');
+  const a = W.asked[0].id, c = a === 'm' ? 'f' : 'm';
+  ok(['m', 'f'].indexOf(a) >= 0 && /working right beside you/.test(W.asked[0].text), 'to the one beside them');
+  W.reply(a, (c === 'm' ? 'Morag' : 'Fergus') + ', who are you watching today?');
+  W.step(2);
+  eq(W.asked[1].id, c, 'and the other answers');
+  ok(/just said to you/.test(W.asked[1].text));
+});
+
+test('with nobody about, two AIs at work just remember the word', () => {
+  const W = world({ phase: 'tasks' });
+  W.ctx.CastleBots = { running: true, canApproach: () => false, approach: () => false, company: () => null };
+  const ids = ['m', 'f', 'i', 's'];
+  const pair = [];
+  for (const x of ids) for (const y of ids) {
+    if (!pair.length && x < y && !(W.ctx.Session.privateView(x).role === 'traitor' && W.ctx.Session.privateView(y).role === 'traitor')) pair.push(x, y);
+  }
+  const N = W.ctx.CastleNet;
+  N.start('d0');
+  N.publish('p1', 0, -25, 0);
+  N.publish('p2', 0, -25, 0);
+  N.publish(pair[0], 5, 10, 0);
+  N.publish(pair[1], 6, 10, 0);
+  for (const id of ids.filter(id => pair.indexOf(id) < 0)) N.publish(id, -30, -20, 0);
+  W.net({ type: 'phase' });
+  W.step(31);
+  eq(W.asked.length, 0, 'nobody to hear it, so nothing is voiced');
+  eq(W.ctx.AIDirector.allies(pair[0]), [pair[1]], 'but they did a deal between jobs');
+  W.step(25);
+  ok(/agreed to work together/.test(latest(W, pair[1])), 'and both remember it');
+});
+
+section('ai — playing to win');
+
+test('the read gives reasons, and the plan names the suspect', () => {
+  const W = world({ phase: 'table' });
+  const faithful = ['f', 'i', 's'].find(id => W.ctx.Session.privateView(id).role === 'faithful');
+  W.net({ type: 'nameReveal', playerId: 'm', targetId: 'p2' });
+  kill(W, 'p2', 'faithful');
+  W.net({ type: 'reveal', name: 'Bo', role: 'faithful' });
+  W.step(21);
+  const p = latest(W, faithful);
+  ok(/Morag \+3 \(voted for Bo on day 1, who turned out Faithful\)/.test(p), 'the score comes with its reason');
+  ok(/YOUR PLAN RIGHT NOW:/.test(p) && /Prime suspect: Morag/.test(p), 'and a plan to act on it');
+});
+
+test('somebody who stood up for a Traitor is suspected once the Traitor is caught', () => {
+  const W = world({ phase: 'table' });
+  const faithful = ['f', 'i', 's'].find(id => W.ctx.Session.privateView(id).role === 'faithful');
+  W.say('p1', 'I trust Bo completely, Bo is innocent.');
+  W.step(1);
+  kill(W, 'p2', 'traitor');
+  W.net({ type: 'reveal', name: 'Bo', role: 'traitor' });
+  W.step(21);
+  ok(/Ana \+2 \(stood up for Bo, who turned out a Traitor\)/.test(latest(W, faithful)), 'Ana defended a Traitor');
+});
+
+test('a Traitor carrying the poison looks for the Faithful who is getting it right', () => {
+  let W, traitor;
+  // a deal with an AI Traitor in it
+  for (let seed = 1; !traitor && seed < 80; seed++) {
+    W = world({ seed });
+    traitor = ['m', 'f', 'i', 's'].find(id => W.ctx.Session.privateView(id).role === 'traitor');
+  }
+  ok(traitor, 'found a deal with an AI Traitor');
+  // the read works from the public record: who went, and what the castle said they were
+  const others = ['p1', 'p2', 'm', 'f', 'i', 's'].filter(id => id !== traitor);
+  const [sharp, dull, caught, victim] = others;
+  W.net({ type: 'nameReveal', playerId: sharp, targetId: caught });
+  W.net({ type: 'nameReveal', playerId: dull, targetId: victim });
+  kill(W, caught, 'traitor');
+  kill(W, victim, 'faithful');
+  const t = W.ctx.AIDirector.threats(traitor);
+  ok(t.get(sharp) >= 3, 'voting out a Traitor makes you a target');
+  ok(!t.get(dull), 'voting out a Faithful does not');
 });
 
 H.report();

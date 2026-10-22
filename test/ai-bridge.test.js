@@ -57,7 +57,15 @@ function fakeDeepgram() {
       ws.on('message', (data, binary) => {
         if (binary) return;
         const m = JSON.parse(data.toString());
-        if (m.type === 'Settings') { seen.settings.push(m); ws.send(JSON.stringify({ type: 'SettingsApplied' })); }
+        if (m.type === 'Settings') {
+          seen.settings.push(m);
+          // an account that may not use the bigger model
+          if (seen.smallOnly && m.agent.think.provider.model !== 'gpt-4o-mini') {
+            ws.send(JSON.stringify({ type: 'Error', description: 'Unsupported think model', code: 'INVALID_SETTINGS' }));
+            return;
+          }
+          ws.send(JSON.stringify({ type: 'SettingsApplied' }));
+        }
         if (m.type === 'KeepAlive') seen.keepalives++;
         if (m.type === 'InjectAgentMessage' || m.type === 'InjectUserMessage') {
           seen.injected.push(m);
@@ -155,6 +163,21 @@ function fakeDeepgram() {
       eq(st.agent.speak.provider.model, 'aura-2-thalia-en', 'its own voice');
       eq(st.agent.think.prompt, 'You are Morag.');
       eq(st.agent.think.functions[0].name, 'vote_banish', 'with its tools');
+      eq(st.agent.think.provider.model, 'gpt-4.1-mini', 'thinking with the model that can hold a whole game');
+    });
+
+    await atest('a model the account cannot use falls back to the small one, without an error', async () => {
+      const OTHER = '11111111-2222-4333-8444-666666666666';
+      dg.seen.smallOnly = true;
+      const settingsBefore = dg.seen.settings.length;
+      A.Party.ai({ op: 'spawn', id: OTHER, name: 'Fergus', voice: 'aura-2-thalia-en', prompt: 'You are Fergus.', functions: [] });
+      await until(() => fromHost.some(m => m.op === 'ready' && m.id === OTHER));
+      dg.seen.smallOnly = false;
+      const tried = dg.seen.settings.slice(settingsBefore).map(x => x.agent.think.provider.model);
+      eq(tried, ['gpt-4.1-mini', 'gpt-4o-mini'], 'tried the big one, then the small one');
+      ok(!fromHost.some(m => m.id === OTHER && (m.op === 'error' || m.op === 'closed')), 'the host never hears about it');
+      A.Party.ai({ op: 'close', id: OTHER });
+      await until(() => fromHost.some(m => m.op === 'closed' && m.id === OTHER) || true);
     });
 
     await atest('an agent’s speech reaches the room as paced 20 ms voice frames', async () => {

@@ -32,8 +32,14 @@ const PROJECTS_URL = process.env.DEEPGRAM_PROJECTS_URL || 'https://api.deepgram.
 const SPEAK_URL = process.env.DEEPGRAM_SPEAK_URL || 'https://api.deepgram.com/v1/speak';
 const CLAUDIA_VOICE = 'aura-2-pandora-en';
 const SPEAK_CHARS_PER_MIN = 5000;  // one listener's share of Claudia, generously
-const THINK_MODEL = process.env.DEEPGRAM_THINK_MODEL || 'gpt-4o-mini';
+/* The contestants reason over a whole game's record — votes, deaths,
+   alliances, who said what — so they think with a model that can hold
+   it. If Deepgram will not take it, an agent falls back once to the
+   small one rather than staying silent. */
+const THINK_MODEL = process.env.DEEPGRAM_THINK_MODEL || 'gpt-4.1-mini';
+const THINK_FALLBACK = process.env.DEEPGRAM_THINK_FALLBACK || 'gpt-4o-mini';
 const THINK_PROVIDER = process.env.DEEPGRAM_THINK_PROVIDER || 'open_ai';
+const THINK_TEMPERATURE = 0.7;
 const FRAME = 960;                 // 20 ms of 24 kHz mono PCM16
 const MAX_SOCKETS = Number(process.env.DEEPGRAM_MAX_SOCKETS || 15);
 const KEEPALIVE_MS = 5000;
@@ -226,80 +232,93 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
                     name: str(msg.name, 24) };
     s.agents.set(id, agent);
     s.names.set(id, agent.name);
-    let ws;
-    try {
-      ws = new WebSocketImpl(agentUrl, { headers: { Authorization: 'Token ' + s.key } });
-    } catch (e) {
-      s.agents.delete(id);
-      return say(s, { op: 'error', id, message: 'Could not open a Deepgram voice.' });
-    }
-    agent.ws = ws;
-    ws.on('open', () => {
-      ws.send(JSON.stringify({
-        type: 'Settings',
-        audio: { input: { encoding: 'linear16', sample_rate: 24000 },
-                 output: { encoding: 'linear16', sample_rate: 24000, container: 'none' } },
-        agent: {
-          language: 'en',
-          listen: { provider: { type: 'deepgram', model: 'nova-3' } },
-          think: { provider: { type: THINK_PROVIDER, model: THINK_MODEL, temperature: 0.85 },
-                   prompt: str(msg.prompt, 30000), functions: cleanFunctions(msg.functions) },
-          speak: { provider: { type: 'deepgram', model: voice } },
-        },
-      }));
-      agent.keepalive = setInterval(() => {
-        if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'KeepAlive' }));
-      }, KEEPALIVE_MS);
-    });
-    ws.on('message', (data, binary) => {
-      if (binary) { audioIn(s, agent, data); return; }
-      let m; try { m = JSON.parse(data.toString()); } catch { return; }
-      switch (m.type) {
-        case 'SettingsApplied':
-          agent.ready = true;
-          say(s, { op: 'ready', id });
-          agent.outbox.splice(0).forEach(x => ws.send(x));
-          break;
-        case 'ConversationText':
-          if (!agent.hushed && m.role === 'assistant') say(s, { op: 'text', id, text: str(m.content, 1200) });
-          break;
-        case 'AgentStartedSpeaking':
-          if (agent.hushed) break;
-          agent.speaking = true; say(s, { op: 'speaking', id }); break;
-        case 'AgentAudioDone':
-          agent.inflight = false;
-          /* The tail of a turn that was cut short: its audio was dropped,
-             and it must not report "done" for whatever is asked next. */
-          if (agent.hushed) { agent.audioDone = false; agent.speaking = false; settle(s, agent); break; }
-          agent.audioDone = true; flushDone(s, agent); break;
-        case 'FunctionCallRequest':
-          say(s, { op: 'tool', id, calls: (m.functions || []).slice(0, 4).map(f => ({
-            callId: str(f.id, 80), name: str(f.name, 64), arguments: str(f.arguments, 2000) })) });
-          break;
-        case 'InjectionRefused':
-          /* Deepgram will not take a turn while the agent is still
-             speaking or thinking. Try again in a moment; only a turn
-             that keeps being refused is reported, so the director can
-             give the floor to somebody else instead of waiting it out. */
-          if (agent.lastInject && agent.refusals++ < 4) {
-            const again = agent.lastInject;
-            setTimeout(() => { if (!agent.closed && agent.lastInject === again && ws.readyState === 1) ws.send(again); }, 600);
-          } else { agent.inflight = false; say(s, { op: 'refused', id, final: true }); }
-          break;
-        case 'Error':
-          say(s, { op: 'error', id, message: str(m.description || m.message || 'Deepgram error', 300),
-                   code: str(m.code, 60) });
-          break;
-        default: break;
+    connect(THINK_MODEL);
+
+    function connect(model) {
+      let ws;
+      try {
+        ws = new WebSocketImpl(agentUrl, { headers: { Authorization: 'Token ' + s.key } });
+      } catch (e) {
+        s.agents.delete(id);
+        return say(s, { op: 'error', id, message: 'Could not open a Deepgram voice.' });
       }
-    });
-    ws.on('error', (e) => say(s, { op: 'error', id, message: 'Deepgram voice failed: ' + str(e && e.message, 200) }));
-    ws.on('close', (code) => {
-      clearInterval(agent.keepalive);
-      unpace(agent.stream); agent.stream = null;
-      if (s.agents.get(id) === agent) s.agents.delete(id);
-      if (!agent.closed) say(s, { op: 'closed', id, code });
-    });
+      agent.ws = ws;
+      ws.on('open', () => {
+        ws.send(JSON.stringify({
+          type: 'Settings',
+          audio: { input: { encoding: 'linear16', sample_rate: 24000 },
+                   output: { encoding: 'linear16', sample_rate: 24000, container: 'none' } },
+          agent: {
+            language: 'en',
+            listen: { provider: { type: 'deepgram', model: 'nova-3' } },
+            think: { provider: { type: THINK_PROVIDER, model, temperature: THINK_TEMPERATURE },
+                     prompt: str(msg.prompt, 30000), functions: cleanFunctions(msg.functions) },
+            speak: { provider: { type: 'deepgram', model: voice } },
+          },
+        }));
+        agent.keepalive = setInterval(() => {
+          if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'KeepAlive' }));
+        }, KEEPALIVE_MS);
+      });
+      ws.on('message', (data, binary) => {
+        if (binary) { audioIn(s, agent, data); return; }
+        let m; try { m = JSON.parse(data.toString()); } catch { return; }
+        switch (m.type) {
+          case 'SettingsApplied':
+            agent.ready = true;
+            say(s, { op: 'ready', id });
+            agent.outbox.splice(0).forEach(x => ws.send(x));
+            break;
+          case 'ConversationText':
+            if (!agent.hushed && m.role === 'assistant') say(s, { op: 'text', id, text: str(m.content, 1200) });
+            break;
+          case 'AgentStartedSpeaking':
+            if (agent.hushed) break;
+            agent.speaking = true; say(s, { op: 'speaking', id }); break;
+          case 'AgentAudioDone':
+            agent.inflight = false;
+            /* The tail of a turn that was cut short: its audio was dropped,
+               and it must not report "done" for whatever is asked next. */
+            if (agent.hushed) { agent.audioDone = false; agent.speaking = false; settle(s, agent); break; }
+            agent.audioDone = true; flushDone(s, agent); break;
+          case 'FunctionCallRequest':
+            say(s, { op: 'tool', id, calls: (m.functions || []).slice(0, 4).map(f => ({
+              callId: str(f.id, 80), name: str(f.name, 64), arguments: str(f.arguments, 2000) })) });
+            break;
+          case 'InjectionRefused':
+            /* Deepgram will not take a turn while the agent is still
+               speaking or thinking. Try again in a moment; only a turn
+               that keeps being refused is reported, so the director can
+               give the floor to somebody else instead of waiting it out. */
+            if (agent.lastInject && agent.refusals++ < 4) {
+              const again = agent.lastInject;
+              setTimeout(() => { if (!agent.closed && agent.lastInject === again && ws.readyState === 1) ws.send(again); }, 600);
+            } else { agent.inflight = false; say(s, { op: 'refused', id, final: true }); }
+            break;
+          case 'Error':
+            // a model this account or region cannot use: the small one, once
+            if (!agent.ready && !agent.closed && model !== THINK_FALLBACK) {
+              clearInterval(agent.keepalive);
+              agent.ws = null;
+              connect(THINK_FALLBACK);
+              try { ws.close(); } catch (e) { /* already gone */ }
+              break;
+            }
+            say(s, { op: 'error', id, message: str(m.description || m.message || 'Deepgram error', 300),
+                     code: str(m.code, 60) });
+            break;
+          default: break;
+        }
+      });
+      ws.on('error', (e) => { if (agent.ws === ws) say(s, { op: 'error', id, message: 'Deepgram voice failed: ' + str(e && e.message, 200) }); });
+      ws.on('close', (code) => {
+        if (agent.ws && agent.ws !== ws) return;     // replaced by the fallback
+        clearInterval(agent.keepalive);
+        unpace(agent.stream); agent.stream = null;
+        if (s.agents.get(id) === agent) s.agents.delete(id);
+        if (!agent.closed) say(s, { op: 'closed', id, code });
+      });
+    }
   }
 
   /* Deepgram sends speech faster than it is spoken. The frames are queued
