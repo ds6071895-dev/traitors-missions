@@ -221,7 +221,13 @@ const RoomUI = (() => {
     const who = s ? VoiceChat.talkers()
       .map(id => s.players.find(p => p.id === id && !p.local))
       .filter(Boolean).slice(0, 3) : [];
-    const key = who.map(p => p.id).join(',');
+    /* Two voices at once at the table: say whose turn it is, so the
+       one who is being turned down (see VoiceChat's courtesy) knows to
+       hold on — including you. */
+    const me = s && s.players.find(p => p.local);
+    const holder = VoiceChat.holder;
+    const clash = !!holder && who.length + (me && VoiceChat.voiced(me.id) ? 1 : 0) > 1;
+    const key = who.map(p => p.id).join(',') + (clash ? '|' + holder : '');
     if (key === talkKey) return;
     talkKey = key;
     chip.classList.toggle('on', who.length > 0);
@@ -229,7 +235,9 @@ const RoomUI = (() => {
     chip.innerHTML = who.map(p => {
       const look = p.look && typeof Look !== 'undefined' ? Look.resolve(p.look) : null;
       const accent = (look && look.accent) || '#f2c14e';
-      return '<span class="tc-who" style="--tc:' + esc(accent) + '"><i></i>' + esc(p.name)
+      const cls = !clash ? '' : p.id === holder ? ' hold' : ' over';
+      return '<span class="tc-who' + cls + '" style="--tc:' + esc(accent) + '"><i></i>' + esc(p.name)
+        + (cls === ' hold' ? '<em>has the room</em>' : '')
         + '<b class="tc-bars"><b></b><b></b><b></b></b></span>';
     }).join('');
   }

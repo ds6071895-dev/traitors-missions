@@ -31,13 +31,14 @@ function world() {
   };
   const bots = { speaking: null };
   const scenes = { botSpeechBlocked: false };
+  const session = { state: { players: [{ id: 'me', local: true }, { id: 'fergus', bot: true },
+                                         { id: 'isla', bot: true }, { id: 'ann' }] } };
   const c = H.load(['js/core/voicechat.js'], {
     document, Date: FakeDate,
     setInterval(fn) { pump = fn; return 1; },
     MediaStream: function (tracks) { this.tracks = tracks; },
     AudioBus: { ctx: audio, init: () => audio },
-    Session: { state: { players: [{ id: 'me', local: true }, { id: 'fergus', bot: true },
-                                   { id: 'isla', bot: true }, { id: 'ann' }] } },
+    Session: session,
     Party: { room: { server: true }, selfId: () => 'me', on() {} },
     ServerAudio: { listen(room, fn) { attach = fn; } },
     Bots: bots, Scenes: scenes,
@@ -56,7 +57,7 @@ function world() {
     return made[made.length - 1];
   };
   return {
-    VC, loud, bots, scenes, join,
+    VC, loud, bots, scenes, join, session,
     step(ms) { const end = now + ms; while (now < end) { now += 100; pump(); } },
   };
 }
@@ -152,3 +153,49 @@ test('an offline bot speaking through the synthesiser is talking by name', () =>
 });
 
 H.report();
+
+/* Courtesy: at the table, whoever started talking first has the room,
+   and anybody talking over them is turned down until they stop. */
+test('at the table the first voice has the room and the one talking over it is turned down', () => {
+  const w = world();
+  w.session.state = { phase: 'table', players: ['me', 'ann', 'bob', 'fergus'].map(id =>
+    ({ id, alive: true, local: id === 'me', bot: id === 'fergus' })) };
+  const ann = w.join('ann'), bob = w.join('bob'), fergus = w.join('fergus');
+  w.VC.setCourtesy(true);
+  w.loud.set('ann', 0.09);
+  w.step(300);
+  eq(w.VC.holder, 'ann', 'the first voice has the room');
+  w.loud.set('bob', 0.09);
+  w.loud.set('fergus', 0.09);
+  w.step(300);
+  eq(w.VC.holder, 'ann', 'talking over her does not take it');
+  eq([ann.volume, bob.volume, fergus.volume].map(v => +v.toFixed(2)).join(' '), '1 0.4 0.4',
+     'a person and an AI talking over her are both turned down');
+  w.VC.setVolume('bob', 0.5);
+  eq(+bob.volume.toFixed(2), 0.2, 'on top of whatever distance does');
+  w.loud.set('ann', 0);
+  w.step(1000);
+  eq(w.VC.holder, 'bob', 'when she stops, whoever is still going has it');
+  eq(+bob.volume.toFixed(2), 0.5, 'and is back to full');
+  w.loud.set('bob', 0); w.loud.set('fergus', 0);
+  w.step(1000);
+  eq(w.VC.holder, null, 'a quiet room belongs to nobody');
+  eq(+ann.volume.toFixed(2) + ' ' + +fergus.volume.toFixed(2), '1 1', 'and nobody is turned down');
+});
+
+test('courtesy is only for the argument at the table, and only while it is on', () => {
+  const w = world();
+  w.session.state = { phase: 'tasks', players: ['me', 'ann', 'bob'].map(id => ({ id, alive: true, local: id === 'me' })) };
+  const ann = w.join('ann'), bob = w.join('bob');
+  w.VC.setCourtesy(true);
+  w.loud.set('ann', 0.09); w.step(300);
+  w.loud.set('bob', 0.09); w.step(300);
+  eq(w.VC.holder, null, 'a scene that ended mid-argument does not carry it into the castle');
+  eq(bob.volume, 1);
+  w.session.state.phase = 'table';
+  w.step(200);
+  eq(w.VC.holder, 'ann');
+  w.VC.setCourtesy(false);
+  eq(w.VC.holder + ' ' + bob.volume, 'null 1', 'switched off, everybody is back at once');
+  void ann;
+});

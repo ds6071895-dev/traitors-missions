@@ -173,6 +173,12 @@ class CastleScene {
     return typeof VoiceChat !== 'undefined' && VoiceChat.levels.has(id);
   }
 
+  /* The open argument: the first voice has the room, and anybody
+     talking over it is turned down (see VoiceChat's courtesy). */
+  _courtesy(on) {
+    if (typeof VoiceChat !== 'undefined' && VoiceChat.setCourtesy) VoiceChat.setCourtesy(on);
+  }
+
   /* A turn floor: one name, a few seconds, nobody else live. Used for
      last words, and round the circle at the fire. */
   _turnFloor(only, seconds) {

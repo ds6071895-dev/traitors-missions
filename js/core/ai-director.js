@@ -43,7 +43,7 @@ const AIDirector = (() => {
   const TALK_TOGETHER_MS = 14000;    // two people speaking within this are talking to each other
   const LULL_AMONG_PEOPLE = 0.9;     // give a human conversation a little more room
   const ROOM_TURN_GAP = 3000;        // leave space for people between unprompted comments
-  const SPEECH_GRACE_MS = 1800;     // protected opening, measured from actual audio, not the request
+  const SPEECH_GRACE_MS = 1000;     // protected opening, measured from actual audio, not the request
   const INTERRUPT_HOLD_MS = 600;    // continued human speech, rather than one overlapping word
   const INTERRUPT_GAP_MS = 1200;    // allow for the recognizer's spacing between interim results
   const CUT_IN_CHECK_MS = 6000;     // one chance per interval, not one roll every clock tick
@@ -125,6 +125,7 @@ const AIDirector = (() => {
     chronicle.length = 0;
     voteLog.length = 0;
     humanTalk.length = 0;
+    wordsAt.clear();
     commentOpportunity = 0;
     lastBotTurn = 0;
     leaveRoomUntil = 0;
@@ -152,6 +153,7 @@ const AIDirector = (() => {
     offs.push(AI.on('hearing', (m) => {
       if (!humanSpeaker(m)) return;
       lastHuman = Date.now();
+      wordsAt.set(m.id, lastHuman);
       interrupt(m.id, m.text);
     }));
     offs.push(AI.on('refused', (m) => { if (m.final && speaking && speaking.id === m.id) finishTurn(m.id); }));
@@ -159,7 +161,19 @@ const AIDirector = (() => {
     offs.push(AI.on('speaking', (m) => {
       if (m.id === AI.CLAUDIA) { pauseBots(); hostSpeech(true); }
       else if (botSpeechBlocked(Session.state)) pauseBots();
-      else if (speaking && speaking.id === m.id && speaking.audioAt === null) speaking.audioAt = Date.now();
+      else if (speaking && speaking.id === m.id && speaking.audioAt === null) {
+        /* The reply took a second or two to write and voice, and a
+           person started talking in the meantime: say nothing rather
+           than talk over them, and answer them once they stop. */
+        if (!speaking.firm && voiceNow(m.id)) {
+          const origin = speaking.origin;
+          AI.hush(m.id, true);
+          finishTurn(m.id);
+          if (origin && !heardLast) heardLast = Object.assign({}, origin, { at: Date.now() });
+          return;
+        }
+        speaking.audioAt = Date.now();
+      }
     }));
     offs.push(AI.on('tool', onTool));
     offs.push(AI.on('done', onDone));
@@ -491,6 +505,7 @@ const AIDirector = (() => {
     const p = humanSpeaker(m);
     if (!p) return;
     lastHuman = Date.now();
+    wordsAt.set(p.id, lastHuman);
     interrupt(p.id, m.text);
     const s = Session.state;
     const turret = s.phase === 'night';
@@ -805,12 +820,34 @@ const AIDirector = (() => {
     return (Date.now() - lastHuman) / 1000;
   }
 
+  /* A person's voice on the meters right now — anybody's, or only
+     those within earshot of `near`. In the turret at night only a
+     Traitor counts, the same as the words. A meter also hears a fan or
+     a television, so a stretch counts only while it is new — the words
+     take a second to arrive — or while it is still bringing words. */
+  const VOICE_UNHEARD_MS = 2500;
+  const wordsAt = new Map();         // person -> Date.now() of their last recognised words
+  function voiceNow(near) {
+    const s = Session.state;
+    if (!s || typeof VoiceChat === 'undefined' || !VoiceChat.voicedFor) return false;
+    const now = Date.now();
+    for (const p of s.players) {
+      if (p.bot || !p.alive || !VoiceChat.voiced(p.id)) continue;
+      if (VoiceChat.voicedFor(p.id) > VOICE_UNHEARD_MS && now - (wordsAt.get(p.id) || 0) > VOICE_UNHEARD_MS) continue;
+      if (s.phase === 'night' && (Session.privateView(p.id) || {}).role !== 'traitor') continue;
+      if (near && !inEarshot(p.id, near)) continue;
+      return true;
+    }
+    return false;
+  }
+
   function tick() {
     if (!active || !Session.state) return;
     const s = Session.state;
     refreshPrompts(false);
     if (speaking && Date.now() - speaking.since > TURN_TIMEOUT * 1000) finishTurn(speaking.id);
     if (s.phase === 'hill') wiseTick(s);
+    if (voiceNow()) lastHuman = Date.now();
     const quiet = humansQuietFor();
     // nobody talks over Claudia: an AI mid-sentence gives way to her
     if (botSpeechBlocked(s)) {
@@ -951,8 +988,8 @@ const AIDirector = (() => {
     if (!cutIn && !intent && n >= 1 && Math.random() < 0.35) left++;
     thread = { origin: h, said: [], left, waiting: b.id, nextAt: 0, used: new Set([b.id]) };
     if (intent) { speak(b.id, intent); return; }
-    speak(b.id, chatCue(b, h, s) + (cutIn
-      ? ' Briefly cut in with one relevant point, naturally and confidently. One short sentence; do not ask permission to speak.' : ''));
+    if (speak(b.id, chatCue(b, h, s) + (cutIn
+      ? ' Briefly cut in with one relevant point, naturally and confidently. One short sentence; do not ask permission to speak.' : ''))) speaking.origin = h;
   }
 
   function canCutIn(quiet) {

@@ -10,7 +10,7 @@ const AudioBus = (() => {
   let master, busses = {}, noiseBuf = null;
   let muted = false;
   const recipes = {};
-  const VOL = { master: 0.85, sfx: 0.9, music: 0.5, ambience: 0.6 };
+  const VOL = { master: 0.85, sfx: 0.9, music: 0.36, ambience: 0.6 };
 
   function init() {
     if (ctx) return ctx;

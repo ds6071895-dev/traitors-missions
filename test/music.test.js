@@ -75,7 +75,7 @@ function makeCtx() {
   return ctx;
 }
 
-function load(voiceChat) {
+function load(voiceChat, extra = {}) {
   const ac = makeCtx();
   const dest = { connect() {}, disconnect() {} };
   const AudioBus = {
@@ -87,7 +87,7 @@ function load(voiceChat) {
   const G = H.load(['js/core/util.js', 'js/core/music/mix.js', 'js/core/music/instruments.js',
                     'js/core/music/cues.js', 'js/core/music.js'],
                    { AudioBus, setInterval: noop, clearInterval: noop, setTimeout: noop,
-                     VoiceChat: voiceChat });
+                     VoiceChat: voiceChat, ...extra });
   return { G, ac, Music: G.Music };
 }
 
@@ -326,18 +326,28 @@ test('a key change lands on the next bar and moves every note', () => {
   ok(near(s.hz(0) / a, Math.pow(2, 2 / 12)), 'transposition');
 });
 
-test('the band steps back when a player talks', () => {
-  let loud = false;
-  const { Music, ac } = load({ loudest: () => loud });
-  const s = Music.play('finale', { section: 'floor' });
-  s.speakerDuck(true);
-  run([s], ac, 0.5);
-  eq(s.talk.gain.value, 1, 'ducked for nobody');
-  loud = true;
-  run([s], ac, 0.2);
-  ok(near(s.talk.gain.value, Music.CUES.finale.sections.floor.talkDuck), 'did not duck under a voice');
-  s.speakerDuck(false);
-  eq(s.talk.gain.value, 1, 'duck left on');
+test('the band steps back when anybody talks, in every scene, without being asked', () => {
+  let talkers = [];
+  const Voice = { speaking: false };
+  const { Music, ac } = load({ talkers: () => talkers }, { Voice });
+  const deepest = (sec) => Math.min(sec.talkDuck || 1, 0.28);
+  for (const [cue, section] of [['finale', 'floor'], ['tasks', 'work'], ['murder', 'nightfall']]) {
+    const s = Music.play(cue, { section });
+    talkers = []; Voice.speaking = false;
+    run([s], ac, 0.5);
+    eq(s.talk.gain.value, 1, cue + ': ducked for nobody');
+    talkers = ['p1'];
+    run([s], ac, 0.2);
+    ok(near(s.talk.gain.value, deepest(s.sec)), cue + ': did not duck under a player');
+    talkers = [];
+    run([s], ac, 0.2);
+    Voice.speaking = true;
+    run([s], ac, 0.2);
+    ok(near(s.talk.gain.value, deepest(s.sec)), cue + ': did not duck under Claudia');
+    s.speakerDuck(false);
+    eq(s.talk.gain.value, 1, cue + ': duck left on');
+    s.stop(0.1);
+  }
 });
 
 /* ---------------- a night at the fire ----------------
@@ -347,7 +357,7 @@ test('the band steps back when a player talks', () => {
    a silence nobody lifts) shows up here. */
 
 test('a whole night at the fire, in order', () => {
-  const { Music, ac } = load({ loudest: () => false });
+  const { Music, ac } = load({ talkers: () => [] });
   const m = Music.finale();
   const seen = [];
   const orig = m._enter.bind(m);

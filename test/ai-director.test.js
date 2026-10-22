@@ -288,6 +288,58 @@ test('short acknowledgements cannot cut off a contestant mid-sentence', () => {
   ok(W.speaking.has('m'), 'a brief acknowledgement is not taking over the room');
 });
 
+/* The words arrive a second or more after they are said, and in bursts;
+   the meters are live. A reply waits on the meters, and one that took
+   so long to write that the person has started again is never heard. */
+function metered(W) {
+  const on = new Map();                     // id -> how long this stretch has run, ms
+  W.ctx.VoiceChat.voiced = (id) => on.has(id);
+  W.ctx.VoiceChat.voicedFor = (id) => on.get(id) || 0;
+  return on;
+}
+
+test('a person still talking between transcripts is not talked over', () => {
+  const W = world();
+  const voice = metered(W);
+  W.say('p1', 'Morag, what do you think of');
+  voice.set('p1', 800);
+  W.step(3);
+  eq(W.asked.length, 0, 'the meter says she is still going');
+  voice.delete('p1');
+  W.step(1.5);
+  eq(W.asked.length, 1, 'answered once she stops');
+});
+
+test('a reply that would start over somebody is dropped, and they are answered when they stop', () => {
+  const W = world();
+  const voice = metered(W);
+  W.say('p1', 'Morag, what do you think?');
+  W.step(0.6);
+  eq(W.asked.length, 1);
+  voice.set('p1', 300);                     // she carries on while Morag is thinking
+  W.emit('speaking', { id: 'm' });
+  ok(!W.speaking.has('m'), 'Morag does not start over her');
+  W.say('p1', 'About the letter, I mean.');
+  W.step(3);
+  eq(W.asked.length, 1, 'not while she is talking');
+  voice.delete('p1');
+  W.step(1.5);
+  eq(W.asked.length, 2, 'then Morag answers');
+  eq(W.asked[1].id, 'm');
+  ok(/what do you think\?.*About the letter/.test(W.asked[1].text), 'the whole of what she said');
+});
+
+test('a noisy microphone with no words in it does not silence the AIs', () => {
+  const W = world();
+  const voice = metered(W);
+  voice.set('p2', 6000);                    // a fan, a television
+  W.say('p1', 'Morag, what do you think?');
+  W.step(1.5);
+  eq(W.asked.length, 1);
+  W.emit('speaking', { id: 'm' });
+  ok(W.speaking.has('m'), 'and the reply is spoken');
+});
+
 test('assigned AI turns hold their floor against human speech', () => {
   const W = world({ phase: 'finale' });
   W.ctx.Session.state.floor = { playerId: 'm', done: false, endsAt: 123 };

@@ -123,6 +123,31 @@ const Game = (() => {
     renderVoices();
   }
 
+  const MUSIC_LEVELS = { normal: 0.36, quiet: 0.16, off: 0 };
+  const MUSIC_ORDER = ['normal', 'quiet', 'off'];
+  function setMusic(level) {
+    const m = MUSIC_LEVELS[level] != null ? level : 'normal';
+    AudioBus.setVolume('music', MUSIC_LEVELS[m]);
+    const b = document.getElementById('music-btn');
+    if (b) {
+      b.dataset.level = m;
+      b.title = 'Music: ' + m + ' (M)';
+      b.setAttribute('aria-label', b.title);
+    }
+    const chip = document.getElementById('play-music');
+    if (chip) {
+      chip.textContent = 'Music ' + m;
+      chip.classList.toggle('on', m !== 'off');
+    }
+    return m;
+  }
+  function cycleMusic() {
+    const now = MUSIC_ORDER.indexOf(GameState.settings.music);
+    GameState.settings.music = setMusic(MUSIC_ORDER[(Math.max(0, now) + 1) % MUSIC_ORDER.length]);
+    GameState.save();
+    AudioBus.play('ui-click');
+  }
+
   function syncMuteChip() {
     const b = document.getElementById('play-mute');
     if (b) {
@@ -287,6 +312,7 @@ const Game = (() => {
     const kick = () => {
       AudioBus.init(); AudioBus.resume();
       AudioBus.setMuted(GameState.settings.muted);
+      setMusic(GameState.settings.music);
       Voice.setMuted(GameState.settings.muted);
       Voice.refresh();
       renderVoices();
@@ -355,6 +381,14 @@ const Game = (() => {
       syncMute(m); syncMuteChip(); syncOverture();
     };
     syncMute(GameState.settings.muted);
+
+    /* The band, on its own: a game is voices first, and how loud the
+       music should sit under them depends on the room you play in. M,
+       the button by the microphone, or the chip on the front door. */
+    document.getElementById('music-btn').onclick = cycleMusic;
+    document.getElementById('play-music').onclick = cycleMusic;
+    Engine.addUpdater(() => { if (Input.pressed('mute')) cycleMusic(); });
+    setMusic(GameState.settings.music);
 
     showAttract();
     EstateMaterials.preload();

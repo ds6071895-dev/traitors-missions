@@ -296,6 +296,8 @@ class FinaleScene {
 
   // a section of the fire's score, by name
   _cue(name, o) { if (this.music) this.music.section(name, o); }
+  // the first voice has the room; see VoiceChat's courtesy
+  _courtesy(on) { if (typeof VoiceChat !== 'undefined' && VoiceChat.setCourtesy) VoiceChat.setCourtesy(on); }
 
   /* ---------------- waiting on the session ---------------- */
 
@@ -384,11 +386,12 @@ class FinaleScene {
     this._floorWho = null;
     this._floorN = 0;
     this._cue('floor', { at: 'bar', glide: 3 });
-    if (this.music) { this.music.setIntensity(0.7); this.music.speakerDuck(true); }
+    if (this.music) this.music.setIntensity(0.7);
+    this._courtesy(true);
     await this._say('floorOpen', {}, 'players');
     if (!this._alive) return;
     await this._floorRound();
-    if (this.music) this.music.speakerDuck(false);
+    this._courtesy(false);
     RoomUI.hideBoard();
     if (!this._alive || Session.state.finale.stage !== 'decide') return;
 
@@ -474,11 +477,12 @@ class FinaleScene {
       this._floorWho = null;
       this._floorN = 0;
       this._cue('floor', { at: 'bar', glide: 3 });
-      if (this.music) { this.music.setIntensity(0.7); this.music.speakerDuck(true); }
+      if (this.music) this.music.setIntensity(0.7);
+      this._courtesy(true);
       await this._say('floorOpen', {}, 'players');
       if (!this._alive) return;
       await this._floorRound();
-      if (this.music) this.music.speakerDuck(false);
+      this._courtesy(false);
       RoomUI.hideBoard();
       if (!this._alive || Session.state.finale.stage !== 'name') return;
     }

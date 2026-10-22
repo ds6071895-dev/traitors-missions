@@ -159,7 +159,7 @@ const VoiceChat = (() => {
     const entry = source && source.gain ? nodeEntry(source) : elementEntry(source);
     peers.set(peerId, entry);
     refreshSpeechGate();
-    if (volumes.has(peerId)) entry.el.volume = volumes.get(peerId);
+    applyVolume(peerId, entry);
     if (!entry.analyser) meter(peerId, entry);
   }
 
@@ -264,11 +264,13 @@ const VoiceChat = (() => {
       const gagged = muted || (floorId !== null && floorId !== selfId);
       selfLevel = gagged ? 0 : readLevel(selfMeter.an, selfMeter.data);
     } else selfLevel = 0;
-    if (!peers.size) { emit('level', levels); return; }
+    voice(selfId || (typeof Party !== 'undefined' && Party.selfId ? Party.selfId() : null), selfLevel, now);
+    if (!peers.size) { courtesyPass(); emit('level', levels); return; }
     for (const [id, e] of peers) {
       if (!e.analyser) continue;
       const v = readLevel(e.analyser, e.data);
       levels.set(id, v);
+      voice(id, v, now);
       /* Only what reaches your ears counts as talking: a voice gated
          under Claudia, or too far off down a corridor, is not. */
       if (e.el.muted || e.el.volume < 0.05) {
@@ -282,7 +284,72 @@ const VoiceChat = (() => {
         if (active || now - e.talkSince >= TALK_START) talkUntil.set(id, now + TALK_HOLD);
       } else e.talkSince = null;
     }
+    courtesyPass();
     emit('level', levels);
+  }
+
+  /* Whether a microphone is carrying a voice, whatever reaches your own
+     ears: the same thresholds as `talking`, but before distance, Claudia
+     or courtesy turn it down. This is what the AIs wait on — the
+     recogniser's words arrive late and in bursts, and a gap between two
+     transcripts is not a gap in the sentence. Ours is in here too. */
+  const voicedUntil = new Map(), voiceSince = new Map(), voiceRun = new Map();
+  function voice(id, v, now) {
+    if (!id) return;
+    const active = (voicedUntil.get(id) || 0) > now;
+    if (v > (active ? TALK_OFF : TALK_ON)) {
+      if (!voiceRun.has(id)) voiceRun.set(id, now);
+      if (active || now - voiceRun.get(id) >= TALK_START) {
+        if (!active) voiceSince.set(id, now);
+        voicedUntil.set(id, now + TALK_HOLD);
+      }
+    } else voiceRun.delete(id);
+  }
+  const voiced = (id) => !!id && (voicedUntil.get(id) || 0) > Date.now();
+  // how long this stretch of voice has run, in ms; 0 when there is none
+  const voicedFor = (id) => voiced(id) ? Date.now() - (voiceSince.get(id) || Date.now()) : 0;
+
+  /* ---------------- courtesy ----------------
+     At the table everybody's microphone is open, and two people talking
+     at once is two people nobody can follow. Whoever started first has
+     the room: anybody talking over them — a person or an AI — is played
+     at under half volume until they stop, on every screen alike, since
+     every screen meters the same voices. Nobody is cut off, and the one
+     who holds on keeps the room. Claudia is not a player and is never
+     turned down. */
+  const COURTESY = 0.4;
+  let courtesy = false, holder = null;
+  const humanIds = () => {
+    const s = typeof Session !== 'undefined' && Session.state;
+    return s ? s.players.filter(p => !p.bot && p.alive).map(p => p.id) : [];
+  };
+  const isPlayer = (id) => {
+    const s = typeof Session !== 'undefined' && Session.state;
+    return !!s && s.players.some(p => p.id === id);
+  };
+  function courtesyPass() {
+    const was = holder;
+    const st = typeof Session !== 'undefined' && Session.state;
+    // a scene that ended mid-argument does not carry it into the castle
+    if (!courtesy || !st || (st.phase !== 'table' && st.phase !== 'finale')) holder = null;
+    else if (!voiced(holder)) {
+      holder = null;
+      let first = Infinity;
+      for (const id of humanIds()) {
+        if (voiced(id) && voiceSince.get(id) < first) { first = voiceSince.get(id); holder = id; }
+      }
+    }
+    if (holder !== was) for (const [id, e] of peers) applyVolume(id, e);
+  }
+  function setCourtesy(on) {
+    courtesy = !!on;
+    courtesyPass();
+  }
+  function applyVolume(id, e) {
+    if (!e || !e.el) return;
+    const base = volumes.has(id) ? volumes.get(id) : 1;
+    const vol = holder && id !== holder && isPlayer(id) ? base * COURTESY : base;
+    if (Math.abs(e.el.volume - vol) > 0.02) e.el.volume = vol;
   }
 
   const level = (id) => levels.get(id) || 0;
@@ -382,12 +449,11 @@ const VoiceChat = (() => {
     const vol = Math.max(0, Math.min(1, Number(v)));
     if (!Number.isFinite(vol)) return;
     if (vol >= 0.999) volumes.delete(peerId); else volumes.set(peerId, vol);
-    const e = peers.get(peerId);
-    if (e && e.el && Math.abs(e.el.volume - vol) > 0.02) e.el.volume = vol;
+    applyVolume(peerId, peers.get(peerId));
   }
   function resetVolumes() {
     volumes.clear();
-    for (const e of peers.values()) if (e.el) e.el.volume = 1;
+    for (const [id, e] of peers) applyVolume(id, e);
   }
 
   /* The meters only need to move as fast as a person can see them. */
@@ -399,7 +465,8 @@ const VoiceChat = (() => {
 
   return {
     init, listen, start, stop, on, setMuted, toggleMuted, setFloor, openFloor, setVolume, resetVolumes, refreshSpeechGate,
-    level, levels, loudest, talking, talkers,
+    level, levels, loudest, talking, talkers, voiced, voicedFor, setCourtesy,
+    get holder() { return holder; },
     get selfLevel() { return selfLevel; },
     get available() { return available; },
     get muted() { return muted; },

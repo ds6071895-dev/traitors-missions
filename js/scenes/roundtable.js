@@ -86,14 +86,15 @@ class RoundtableScene extends CastleScene {
 
     // the argument, with the day's jobs on the board
     RoomUI.showBoard(RoomUI.choreBoard());
-    if (this.music) { this.music.section('debate', { at: 'bar', glide: 3 }); this.music.speakerDuck(true); }
+    if (this.music) this.music.section('debate', { at: 'bar', glide: 3 });
+    this._courtesy(true);
     const ai = typeof AIDirector !== 'undefined' && AIDirector.active ? AIDirector : null;
     await this._discussion(Session.tableSeconds(Session.alive().length), {
       judge: ai && ai.claudiaJudge ? ai.claudiaJudge('table') : undefined,
       extraLevels: ai ? () => ai.levels() : undefined,
       onModerator: ai ? () => ai.discussionStarted('table') : undefined,
     });
-    if (this.music) this.music.speakerDuck(false);
+    this._courtesy(false);
     RoomUI.hideBoard();
     if (!this._alive) return;
     if (ai) ai.discussionEnded('table');

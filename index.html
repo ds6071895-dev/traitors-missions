@@ -125,6 +125,7 @@
         <span class="pot-value" id="play-pot">£0</span>
       </div>
       <button class="chip" id="play-mute" data-nav>Sound</button>
+      <button class="chip" id="play-music" data-nav title="Music under the voices (M)">Music normal</button>
       <button class="chip" id="play-howto" data-nav title="Replay every tutorial from the start">How to play</button>
       <label class="chip estate-setting"><input id="estate-motion" type="checkbox"> Reduced motion</label>
       <label class="chip estate-setting">Scenery <select id="estate-quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
@@ -337,6 +338,17 @@
           stroke-width="1.8" stroke-linecap="round"/>
     <path class="slash" d="M4 20L20 4" stroke="currentColor" stroke-width="2"
           stroke-linecap="round"/>
+  </svg>
+</button>
+
+<!-- The band, separately from the voices: normal, quiet, off. M on a
+     keyboard. -->
+<button id="music-btn" title="Music: normal (M)" aria-label="Music: normal (M)" data-level="normal">
+  <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+    <path d="M9 17V5l10-2v12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+    <circle cx="6.5" cy="17" r="2.5" fill="currentColor"/>
+    <circle class="hi" cx="16.5" cy="15" r="2.5" fill="currentColor"/>
+    <path class="slash" d="M4 20L20 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
   </svg>
 </button>
 

@@ -28,6 +28,7 @@ const Music = (() => {
   const LOOKAHEAD = 0.34;     // seconds of future booked at a time
   const TICK = 40;            // ms between wakeups
   const EPS = 0.0001;
+  const TALK_DUCK = 0.28;     // the most the band may sit at while somebody talks
   const BUDGET = 110;         // live oscillators before optional notes are skipped
 
   const PROGRESSIONS = MusicCues.PROGRESSIONS;
@@ -157,7 +158,7 @@ const Music = (() => {
       this._pendingKey = null;
       this.progOverride = null;
       this._talking = false;
-      this.speakDuck = false;
+      this.speakDuck = true;
     }
 
     /* ---------------- plumbing the instruments use ---------------- */
@@ -449,13 +450,19 @@ const Music = (() => {
       if (!this.ok || this.paused) return;
       const now = this.ctx.currentTime;
 
-      if (this.speakDuck && typeof VoiceChat !== 'undefined' && VoiceChat.loudest) {
+      /* Anybody you can hear — a player, an AI, Claudia — and the band
+         steps back for as long as they talk, in every scene: the music
+         is under the game, never on top of the people in it. */
+      if (this.speakDuck) {
         let loud = false;
-        try { loud = !!VoiceChat.loudest(0.1); } catch (e) {}
+        try {
+          loud = (typeof VoiceChat !== 'undefined' && VoiceChat.talkers && VoiceChat.talkers().length > 0)
+            || (typeof Voice !== 'undefined' && !!Voice.speaking);
+        } catch (e) {}
         if (loud !== this._talking) {
           this._talking = loud;
-          this.talk.gain.setTargetAtTime(loud ? (this.sec.talkDuck || 0.35) : 1,
-                                         now, loud ? 0.08 : 0.6);
+          this.talk.gain.setTargetAtTime(loud ? Math.min(this.sec.talkDuck || TALK_DUCK, TALK_DUCK) : 1,
+                                         now, loud ? 0.08 : 0.8);
         }
       }
 

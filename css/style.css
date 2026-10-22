@@ -1636,6 +1636,8 @@ select.nav-on{outline-offset:2px}
 .tc-bars > b:nth-child(2){animation-delay:-.3s}
 .tc-bars > b:nth-child(3){animation-delay:-.6s}
 @keyframes tc-bar{0%,100%{transform:scaleY(.35)} 50%{transform:scaleY(1)}}
+.tc-who > em{font-style:normal; font-weight:600; letter-spacing:.02em; color:var(--muted)}
+.tc-who.over{opacity:.5}
 @media (prefers-reduced-motion: reduce){ .tc-bars > b{animation:none} }
 
 /* ---------------- the board ----------------
@@ -1900,6 +1902,25 @@ body[data-screen]:not([data-screen=""]):not([data-screen^="hud"]) #agenda-chip{d
 #mic-btn.muted{color:#ff8fa3}
 #mic-btn.muted .slash{opacity:1}
 @media (pointer:coarse){ #mic-btn{width:46px; height:46px} }
+
+/* The music level, beside the microphone, in play only. */
+#music-btn{
+  position:fixed; right:calc(max(14px, env(safe-area-inset-right)) + 46px);
+  bottom:max(14px, env(safe-area-inset-bottom)); z-index:48;
+  pointer-events:all; background:rgba(8,18,30,.6); border:1px solid rgba(255,255,255,.16);
+  color:var(--paper); width:38px; height:38px; border-radius:10px; cursor:var(--cur-hand, pointer);
+  display:grid; place-items:center; padding:0; backdrop-filter:blur(8px);
+}
+#music-btn:hover{background:rgba(8,18,30,.9)}
+#music-btn .slash{opacity:0; transition:opacity .15s}
+#music-btn[data-level="quiet"]{color:var(--muted)}
+#music-btn[data-level="quiet"] .hi{opacity:.25}
+#music-btn[data-level="off"]{color:#ff8fa3}
+#music-btn[data-level="off"] .slash{opacity:1}
+body:has(#mic-btn[hidden]) #music-btn{right:max(14px, env(safe-area-inset-right))}
+body[data-screen="play"] #music-btn, body[data-screen="lobby"] #music-btn,
+body[data-screen="dressing"] #music-btn{display:none}
+@media (pointer:coarse){ #music-btn{width:46px; height:46px; right:calc(max(14px, env(safe-area-inset-right)) + 54px)} }
 
 /* ==================================================================
    TUTORIAL
@@ -2311,8 +2332,8 @@ body[data-screen]:not([data-screen=""]):not([data-screen^="hud"]) #agenda-chip{d
   border:1px solid rgba(125,252,208,.35); box-shadow:0 10px 30px rgba(0,0,0,.35)}
 .tk-practice small{font-size:8.5px; letter-spacing:.28em; color:var(--mint)}
 .tk-practice b{font:400 19px/1 var(--display); letter-spacing:.05em; color:var(--paper)}
-/* the corner the microphone button owns */
-body:has(#mic-btn:not([hidden])) .tk-map{bottom:64px}
+/* the corner the music and microphone buttons own */
+body:has(#music-btn) .tk-map{bottom:64px}
 .tk-touch button{transition:transform .12s, box-shadow .2s, background .2s; touch-action:none}
 .tk-touch button:active{transform:scale(.92)}
 .tk-touch .tk-use.ready{background:rgba(70,54,14,.9); color:#ffe9a8;
