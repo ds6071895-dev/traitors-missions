@@ -6,11 +6,13 @@
    for — the same convention the old rig used, so a `height` is still
    the height you get and every camera framed against it still works.
 
-   The proportions are realistic now rather than chunky: seven heads
-   tall, shoulders at about a quarter of the height across, the wrist
-   level with the crotch and the fingertips at mid-thigh. The old
-   figures were five and three-quarter heads of cylinders and read as
-   toys inside a castle that had become a real place around them.
+   The limbs keep real proportions — shoulders at about a quarter of
+   the height across, the wrist level with the crotch — because the
+   gait, the seats and the hand-overs are all solved against them. The
+   look is a toy's all the same: `figure.js` grows the head to about a
+   quarter of the height and shrinks the body under it, and the face
+   (`figure-body.js`) is a cartoon's. The realistic seven-heads person
+   read as creepy, however its face was softened.
 
    Bind pose: every bone at zero rotation, standing straight, arms
    hanging at the sides with the palms turned in to the thighs. All
@@ -35,15 +37,38 @@ const FigureSkeleton = (() => {
     pelvis: 0.960, spine1: 1.030, spine2: 1.160, chest: 1.290,
     shoulder: 1.385, neck: 1.465, head: 1.548,
     elbow: 1.100, wrist: 0.858, knuckle: 0.800,
-    eye: 1.603, brow: 1.627, mouth: 1.525, chin: 1.495, crown: 1.722,
+    eye: 1.590, brow: 1.633, mouth: 1.542, chin: 1.495, crown: 1.722,
   };
 
   /* Seated: the castle chairs have their cushion at 0.48, so the hip
      joint is about a hand above it and the feet are planted forward. */
   const SEAT = { hip: 0.605, hipZ: -0.045, footZ: 0.330, footX: 0.115 };
 
-  const THIGH = Y.hip - Y.knee;            // 0.405
-  const SHIN = Y.knee - Y.ankle;           // 0.405
+  /* The eyes are set wide, as a toy's are: half the gap between them. */
+  const EYE_X = 0.038;
+
+  /* Short legs. Every table here and in `figure-body.js` is drawn at the
+     old, realistic heights; this squeezes everything between the ankle
+     and the hip to LEG_K of its height and drops all above by the
+     difference, bones and surfaces alike, so a design height `y`
+     becomes `remap(y)` in the figure. `Y` stays the design table the
+     surfaces are drawn against; `YR` is where things really are, for
+     posing. */
+  /* `rigid` is for the arms, whose hands hang below the hip: they only
+     come down with the shoulders, and are never squeezed. */
+  const LEG_K = 0.65;
+  const DROP = (Y.hip - Y.ankle) * (1 - LEG_K);
+  function remap(y, rigid) {
+    if (rigid || y >= Y.hip) return y - DROP;
+    if (y <= Y.ankle) return y;
+    return Y.ankle + (y - Y.ankle) * LEG_K;
+  }
+  const RIGID = /^(arm|fore|hand|thumb\d|index\d|fing\d)_/;
+  const YR = {};
+  for (const k in Y) YR[k] = remap(Y[k]);
+
+  const THIGH = YR.hip - YR.knee;          // 0.263
+  const SHIN = YR.knee - YR.ankle;         // 0.263
   const UPPER = Y.shoulder - Y.elbow;      // 0.285
   const FORE = Y.elbow - Y.wrist;          // 0.242
 
@@ -76,10 +101,10 @@ const FigureSkeleton = (() => {
     ];
     for (const [k, s] of SIDES) {
       const hx = s * D.hg;
-      rows.push(['eye_' + k,   'head', [s * 0.0315 * D.hg, Y.eye, 0.0]]);   // z set by the body
-      rows.push(['lid_' + k,   'head', [s * 0.0315 * D.hg, Y.eye, 0.0]]);
-      rows.push(['brow_' + k,  'head', [hx * 0.033, Y.brow, 0.0]]);
-      rows.push(['mouth_' + k, 'head', [hx * 0.024, Y.mouth, 0.0]]);
+      rows.push(['eye_' + k,   'head', [s * EYE_X * D.hg, Y.eye, 0.0]]);   // z set by the body
+      rows.push(['lid_' + k,   'head', [s * EYE_X * D.hg, Y.eye, 0.0]]);
+      rows.push(['brow_' + k,  'head', [hx * 0.037, Y.brow, 0.0]]);
+      rows.push(['mouth_' + k, 'head', [hx * 0.015, Y.mouth, 0.0]]);
     }
     for (const [k, s] of SIDES) {
       const ax = s * D.armX;
@@ -117,6 +142,7 @@ const FigureSkeleton = (() => {
     const bones = [], by = {}, bind = {};
     for (const [name, parent, at] of rows) {
       const p = at.slice();
+      p[1] = remap(p[1], RIGID.test(name));
       if (/^(eye|lid)_/.test(name)) p[2] = eyeZ;
       bind[name] = p;
       const b = new THREE.Bone();
@@ -134,5 +160,5 @@ const FigureSkeleton = (() => {
     return { bones, by, bind };
   }
 
-  return { H0, Y, SEAT, THIGH, SHIN, UPPER, FORE, SIDES, NAMES, INDEX, dims, table, build };
+  return { H0, Y, YR, remap, LEG_K, SEAT, EYE_X, THIGH, SHIN, UPPER, FORE, SIDES, NAMES, INDEX, dims, table, build };
 })();

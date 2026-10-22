@@ -37,10 +37,12 @@ const FigureAnim = (() => {
   const I = SK.INDEX;
   const NB = SK.NAMES.length;
   const SIDES = SK.SIDES;
-  const Y = SK.Y;
+  const Y = SK.YR;              // where the joints really are, short legs and all
   const LEG_A = SK.THIGH, LEG_B = SK.SHIN;
   const ARM_A = SK.UPPER, ARM_B = SK.FORE + 0.004;
   const PELVIS_OVER_HIP = Y.pelvis - Y.hip;     // 0.075
+  const SEAT_UNDER = SK.SEAT.hip - 0.48;         // the hip over the cushion it sits on
+  const LEG_SHARE = (LEG_A + LEG_B) / 0.81;      // these legs against the realistic ones the gait was tuned on
   const TAU = Math.PI * 2;
   const ss = (a, b, x) => U.smoothstep(a, b, x);
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -290,7 +292,10 @@ const FigureAnim = (() => {
     const gw = A.gait;
     const run = ss(2.4, 5.0, v);
     const k1 = U.clamp(v / 1.4, 0, 1), k2 = U.clamp((v - 1.4) / 3.6, 0, 1);
-    const cycle = SK.H0 * (0.30 + 0.50 * k1 + 0.90 * k2);
+    /* short legs take shorter, quicker steps — but only by the square
+       root of the leg, or a walk turns into a scurry (planted feet still
+       slide under 2 cm at any pace) */
+    const cycle = SK.H0 * Math.pow(LEG_SHARE, 0.5) * (0.30 + 0.50 * k1 + 0.90 * k2);
     if (travel > 1e-6) A.phase = (A.phase + travel / Math.max(0.3, cycle)) % 1;
     if (turning && v < 0.3) A.phase = (A.phase + Math.abs(dyaw) * 0.35) % 1;
     const ph = A.phase;
@@ -300,7 +305,7 @@ const FigureAnim = (() => {
        cycle's length: at a stroll most of it, at a run little more than
        a third. A fixed share is how a fast walk asked a planted foot to
        be a metre behind the hips, and the IK dragged it instead. */
-    const front0 = 0.27 + 0.18 * run, back0 = 0.40 + 0.12 * run;
+    const front0 = (0.27 + 0.18 * run) * LEG_SHARE, back0 = (0.40 + 0.12 * run) * LEG_SHARE;
     const fs = U.clamp((front0 + back0) / Math.max(0.3, stepLen), 0.32, 0.62);
     A.fs = fs;
 
@@ -446,14 +451,25 @@ const FigureAnim = (() => {
     if (A.seatT > 0.001) {
       const so = d.seatOpts || {};
       const S0 = SK.SEAT;
-      const seatHip = so.hip || S0.hip, seatZ = so.hipZ !== undefined ? so.hipZ : S0.hipZ;
-      const footZ = so.footZ || S0.footZ, footX = so.footX || S0.footX;
+      /* The seat is a height in the world, the hip a height in the
+         figure: keep the seat of the trousers on the cushion whatever
+         the figure's scale. */
+      const seatHip = ((so.hip || S0.hip) - SEAT_UNDER) / s + SEAT_UNDER;
+      const seatZ = so.hipZ !== undefined ? so.hipZ : S0.hipZ;
+      const footX = so.footX || S0.footX;
+      /* Short legs on a grown-up's chair: when the floor is out of
+         reach the feet hang, the shins dropping from the cushion's
+         edge, rather than a straight leg stretching for it. */
+      const reachLeg = LEG_A + LEG_B;
+      const dangle = ss(0.9, 1.0, Math.hypot(seatHip - Y.ankle, (so.footZ || S0.footZ) - seatZ) / reachLeg);
+      const footZ = lerp(so.footZ || S0.footZ, seatZ + LEG_A * 0.93 + LEG_B * 0.22, dangle);
+      const footY = lerp(Y.ankle, seatHip - LEG_B * 0.94 - LEG_A * 0.12, dangle);
       A.pel.x = lerp(A.pel.x, 0, seat);
       A.pel.y = lerp(A.pel.y, seatHip + PELVIS_OVER_HIP, seat) - bump * 0.02;
       A.pel.z = lerp(A.pel.z, seatZ, ss(0.1, 0.9, A.seatT)) + bump * 0.05;
       for (const [k, sd] of SIDES) {
         feet[k].x = lerp(feet[k].x, sd * footX, seat);
-        feet[k].y = lerp(feet[k].y, Y.ankle, seat);
+        feet[k].y = lerp(feet[k].y, footY, seat);
         feet[k].z = lerp(feet[k].z, footZ, seat);
         footPitch[k] *= 1 - seat; toeBend[k] *= 1 - seat;
       }
@@ -475,8 +491,11 @@ const FigureAnim = (() => {
       add('spine1', A.seatPose[0] * seat, 0, 0);
       add('spine2', A.seatPose[2] * seat, 0, 0);
       add('head', -A.seatPose[0] * 0.6 * seat, 0, 0);
+      /* The table is where it is in the world, whatever size the
+         sitter; the lap goes with the hip. */
       const H = FigureClips.SEAT_HANDS[so.table ? 'table' : 'lap'];
-      seatHands = { l: H.l, r: H.r, w: seat * (1 - bump * 0.7) };
+      const at = so.table ? (h) => [h[0], h[1] / s, h[2] / s] : (h) => [h[0], h[1] - S0.hip + seatHip, h[2]];
+      seatHands = { l: at(H.l), r: at(H.r), w: seat * (1 - bump * 0.7) };
       for (const [k] of SIDES) A.handWant[k] = [0.25, 0.2, 0.2, 0.15];
     }
 
@@ -623,8 +642,11 @@ const FigureAnim = (() => {
     const shut = A.blink < 0 ? 1 : 0;
     if (A.blink < -0.12) A.blink = (d.mood === 'nervous' ? 1.0 : 2.0) + Math.random() * 4.0;
     A.lid = U.damp(A.lid, shut, 32, dt);
-    const lidX = Math.max(-0.2, A.lid * 1.0 + F.lids * 0.45 + F.squint * 0.25 + eyeX * 0.55) + Math.min(0, F.lids * 0.3);
-    for (const [k] of SIDES) set('lid_' + k, lidX, 0, 0);
+    /* The eyes have no lids: they squash flat to blink, the way a
+       cartoon's do, and a sleepy or narrowed mood squashes them part
+       way. Looking down narrows them a touch. */
+    const shutK = U.clamp(A.lid + F.lids * 0.45 + F.squint * 0.30 + Math.max(0, eyeX) * 0.5, 0, 1);
+    for (const [k] of SIDES) B[I['eye_' + k]].scale.set(1, 1 - 0.92 * shutK, 1);
 
     /* -------- hands -------- */
     const pointTo = d.pointAt || null, reachTo = d.reachAt || null;

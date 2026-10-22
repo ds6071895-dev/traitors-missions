@@ -4,7 +4,7 @@
    This file is the front door and nothing else. The person is built in
    three other places:
 
-     figure-skeleton.js  the bones, at real proportions
+     figure-skeleton.js  the bones: real arms, short legs
      figure-body.js      the surfaces: a jacket, trousers, a face, hands
                          and hair, lofted and skinned onto those bones,
                          six draw calls a person and cached by build
@@ -52,11 +52,19 @@ const Figure = (() => {
      stable hash of the look, so everybody's screen agrees on them. */
   const TROUSERS = ['#2b2e35', '#3a3631', '#25272c', '#3d4149', '#33302c'];
   const IRIS = ['#3b2a1e', '#5a3d24', '#4f6f8f', '#5b7a52', '#6b5a3a', '#2e2219', '#6a7f96'];
-  const SCLERA = '#d6cec2', PUPIL = '#0b0a0a', MOUTH = '#3e1619', TEETH = '#e6e0d2';
+  const SCLERA = '#e8e2d8', PUPIL = '#0b0a0a', MOUTH = '#4a1c22', TEETH = '#e6e0d2', GLINT = '#ffffff';
 
   const THROW_AT = 0.68;
-  const HEAD_SCALE = 1.16;
-  const SEAT_DROP = FigureSkeleton.Y.hip - FigureSkeleton.SEAT.hip;
+  /* The toy proportions: the head grown to about a quarter of the
+     height and lifted clear of the collar, a hand and a shoe a size up
+     to go with it. The whole person is then scaled so the top of the
+     head is still the height asked for — so the body under the big head
+     is a smaller one, which is most of what makes it read as cute. */
+  const HEAD_SCALE = 1.95, HEAD_LIFT = 0.035, HAND_SCALE = 1.22, FOOT_SCALE = 1.12;
+  const SKY = FigureSkeleton.YR;
+  const TOP = SKY.head + HEAD_LIFT + (SKY.crown - SKY.head) * HEAD_SCALE;
+  const EYE_AT = (SKY.head + HEAD_LIFT + (SKY.eye - SKY.head) * HEAD_SCALE) / TOP;
+  const SEAT_DROP = Math.max(0, SKY.hip - FigureSkeleton.SEAT.hip);
 
   /* Legacy: the head's size, for anything that sat things on the old one. */
   const HEAD = { cy: 0.075, rx: 0.075, ry: 0.115, rz: 0.098 };
@@ -105,11 +113,15 @@ const Figure = (() => {
     root.add(sk.by.pelvis);
     root.updateMatrixWorld(true);
     const skeleton = new THREE.Skeleton(sk.bones);
-    /* A touch more head than strict anatomy gives. At a true seven and
-       a half heads, a small face over broad tailoring read as a
-       mannequin; the bind is already taken, so this only grows the head
-       (hair, hats, eyes and all) about the top of the neck. */
+    /* The bind is already taken, so these only grow the head (hair,
+       hats, eyes and all) about the top of the neck, and the hands and
+       shoes about the wrist and ankle. */
     sk.by.head.scale.setScalar(HEAD_SCALE);
+    sk.by.head.position.y += HEAD_LIFT;
+    for (const [k] of FigureSkeleton.SIDES) {
+      sk.by['hand_' + k].scale.setScalar(HAND_SCALE);
+      sk.by['foot_' + k].scale.setScalar(FOOT_SCALE);
+    }
 
     /* -------- colour -------- */
     const col = (hex) => new THREE.Color(hex);
@@ -121,7 +133,7 @@ const Figure = (() => {
       legs: [col(C.legs || TROUSERS[h % TROUSERS.length]), col(C.boot || '#241f1a'), col('#14100d')],
       hair: [col('#ffffff')],
       features: [col(SCLERA), col(IRIS[(h >>> 3) % IRIS.length]), col(PUPIL), col(MOUTH), col(TEETH),
-                 darker(col(IRIS[(h >>> 3) % IRIS.length]), 0.45)],
+                 darker(col(IRIS[(h >>> 3) % IRIS.length]), 0.45), col(GLINT)],
       accent: [col(C.accent), trim],
     };
 
@@ -131,11 +143,12 @@ const Figure = (() => {
       : new THREE.MeshStandardMaterial(Object.assign({ color: colour, roughness: rough, metalness: 0,
                                                       vertexColors: true }, extra));
     const M = {
-      skin: mat(C.skin, 0.72, low ? {} : { emissive: col(C.skin).multiplyScalar(0.05) }),
+      // smooth and soft, like a painted toy: no pores, a little glow
+      skin: mat(C.skin, 0.80, low ? {} : { emissive: col(C.skin).multiplyScalar(0.09) }),
       coat: mat('#ffffff', 0.88, spec.long ? { side: THREE.DoubleSide } : {}),
       legs: mat('#ffffff', 0.82),
-      hair: mat(C.hairColour, 0.55, { side: THREE.DoubleSide }),
-      features: mat('#ffffff', 0.28),
+      hair: mat(C.hairColour, 0.62, { side: THREE.DoubleSide }),
+      features: mat('#ffffff', 0.18),
       accent: mat('#ffffff', 0.85, { side: THREE.DoubleSide }),
     };
 
@@ -159,11 +172,11 @@ const Figure = (() => {
     let textured = false;
     if (typeof FigureMaterials !== 'undefined') {
       const F = FigureMaterials;
-      F.material(M.coat, C.fabric || 'waxed', 0.70);
-      F.material(M.legs, 'twill', 0.55);
-      F.material(M.hair, C.hair === 'braids' || C.hair === 'bun' ? 'wavy' : 'hair', 0.55);
-      F.material(M.skin, 'skin', 0.15);
-      F.material(M.accent, spec.scarf === 'sash' ? 'tartan' : 'cable', 0.65);
+      // softer weaves than before, and none on the skin
+      F.material(M.coat, C.fabric || 'waxed', 0.45);
+      F.material(M.legs, 'twill', 0.35);
+      F.material(M.hair, C.hair === 'braids' || C.hair === 'bun' ? 'wavy' : 'hair', 0.35);
+      F.material(M.accent, spec.scarf === 'sash' ? 'tartan' : 'cable', 0.55);
       textured = F.dress(root) && !F.failed;
     }
 
@@ -193,7 +206,7 @@ const Figure = (() => {
     d.mood = 'calm';
     d.voiceLevel = null;
 
-    root.scale.setScalar((C.height || FigureSkeleton.H0) / FigureSkeleton.H0);
+    root.scale.setScalar((C.height || FigureSkeleton.H0) / TOP);
     return root;
   }
 
@@ -272,7 +285,7 @@ const Figure = (() => {
     const dx = target.x - fig.position.x, dz = target.z - fig.position.z;
     fig.userData.yawWant = Math.atan2(dx, dz) - fig.rotation.y;
     if (!opts || !opts.pitch) { fig.userData.pitchWant = 0; return; }
-    const dy = (target.y || 0) - (fig.position.y + (fig.userData.h || 1.72) * 0.93);
+    const dy = (target.y || 0) - (fig.position.y + (fig.userData.h || 1.72) * EYE_AT);
     const flat = Math.hypot(dx, dz) || 0.0001;
     fig.userData.pitchWant = U.clamp(Math.atan2(dy, flat), -0.45, 0.45);
   }
