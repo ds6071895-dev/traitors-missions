@@ -28,6 +28,7 @@ const Music = (() => {
   const LOOKAHEAD = 0.34;     // seconds of future booked at a time
   const TICK = 40;            // ms between wakeups
   const EPS = 0.0001;
+  const SILENCE_MAX = 9;      // seconds a dramatic silence may hold before the band comes back on its own
   const TALK_DUCK = 0.28;     // the most the band may sit at while somebody talks
   const BUDGET = 110;         // live oscillators before optional notes are skipped
 
@@ -362,6 +363,7 @@ const Music = (() => {
       if (!this.ok) return;
       const t = this.ctx.currentTime;
       this.silent = !!on;
+      this._silentAt = t;
       this.out.gain.cancelScheduledValues(t);
       this.out.gain.setValueAtTime(Math.max(EPS, this.out.gain.value), t);
       if (on) this.out.gain.exponentialRampToValueAtTime(EPS, t + 0.06);
@@ -449,6 +451,11 @@ const Music = (() => {
     _pump() {
       if (!this.ok || this.paused) return;
       const now = this.ctx.currentTime;
+      /* A silence is a held breath — a second or two before an answer —
+         and the stinger that answers it is what lets go. A beat whose
+         answer never came (a reveal recovered from state, a ceremony cut
+         short) must not leave the band off for the rest of the night. */
+      if (this.silent && now - (this._silentAt || now) > SILENCE_MAX) this.silence(false);
 
       /* Anybody you can hear — a player, an AI, Claudia — and the band
          steps back for as long as they talk, in every scene: the music

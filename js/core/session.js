@@ -1964,7 +1964,7 @@ const Session = (() => {
     voiceRoutes() {
       if (mode !== 'host' || !state) return null;
       const living = alive().map(p => p.id);
-      const routes = { open: living, deaf: [] };
+      const routes = { open: living, deaf: [], traitors: traitorsAlive().map(p => p.id) };
       if (state.phase === 'night') {
         routes.night = traitorsAlive().map(p => p.id);
       }

@@ -200,8 +200,14 @@ const Voice = (() => {
   const canRemote = () => remote && typeof Party !== 'undefined' && Party.connected
     && Party.serverRoom && typeof Party.claudia === 'function';
   const lastSpoke = { at: 0 };
+  /* "She has finished" can be lost — a turn cut off, a reconnect — and a
+     Claudia stuck speaking holds the band ducked and every AI silent for
+     the rest of the night. No turn of hers runs this long. */
+  let hostSpeakingTimer = null;
   function setHostSpeaking(on) {
     hostSpeaking = !!on;
+    clearTimeout(hostSpeakingTimer);
+    if (hostSpeaking) hostSpeakingTimer = setTimeout(() => setHostSpeaking(false), 32000);
     if (hostSpeaking) clear(); else lastSpoke.at = Date.now();
     if (typeof VoiceChat !== 'undefined' && VoiceChat.refreshSpeechGate) VoiceChat.refreshSpeechGate();
   }
@@ -250,6 +256,10 @@ const Voice = (() => {
       live = { resolve, timer: null, claudia };
       if (claudia) {
         if (typeof AIDirector !== 'undefined' && AIDirector.pauseBots) AIDirector.pauseBots();
+        /* One Claudia at a time: the script has the room, so a live AI
+           Claudia still finishing a thought is cut off rather than heard
+           underneath her own scripted line. */
+        if (typeof AIDirector !== 'undefined' && AIDirector.hushClaudia) AIDirector.hushClaudia();
         if (typeof VoiceChat !== 'undefined' && VoiceChat.refreshSpeechGate) VoiceChat.refreshSpeechGate();
       }
 
@@ -267,11 +277,16 @@ const Voice = (() => {
         if (typeof Music !== 'undefined' && Music.duckAll) Music.duckAll(0.45, 0.6);
         let clock = false, heard = false, begun = false;
         const speaker = opts.speaker === undefined ? 'Claudia' : opts.speaker;
-        const begin = () => {
+        /* Her real voice says when it has finished, so the clock under it
+           is only a floor for a line that arrives clipped — not the slow
+           robot-voice estimate, which left a second or two of nothing
+           after every line. A line held as subtitles alone keeps that. */
+        const voiced = Math.min(duration, (body.length * 46) / (opts.rate || 0.94));
+        const begin = (spoken) => {
           if (begun || t !== token || !live) return;
           begun = true;
           show(speaker, body);
-          setTimeout(() => { clock = true; if (heard) done(); }, duration);
+          setTimeout(() => { clock = true; if (heard) done(); }, spoken === false ? duration : voiced);
         };
         clear();
         setTimeout(begin, START_WAIT);
@@ -281,16 +296,16 @@ const Voice = (() => {
           if (!canRemote()) {
             // not in a room that can read it right now: wait for the connection
             if (n < 12) setTimeout(() => attempt(n + 1), 500);
-            else { begin(); heard = true; if (clock) done(); }
+            else { begin(false); heard = true; if (clock) done(); }
             return;
           }
-          askRemote(body, begin).then((r) => {
+          askRemote(body, () => begin(true)).then((r) => {
             if (t !== token || !live) return;
             if (r.ok) { begin(); heard = true; lastSpoke.at = Date.now(); if (clock) done(); return; }
             if (r.hushed) return;
             console.warn('Claudia line did not come back from the server:', r.message);
             if (n < 3 && !/No Deepgram key/.test(r.message || '')) setTimeout(() => attempt(n + 1), 400 + n * 700);
-            else { begin(); heard = true; if (clock) done(); }        // silent: the subtitles carry it
+            else { begin(false); heard = true; if (clock) done(); }   // silent: the subtitles carry it
           });
         };
         attempt(0);
@@ -412,6 +427,8 @@ const Voice = (() => {
               know. Used as a liveness signal: a room that is still
               talking is a room whose ceremony has not stalled. */
            get speaking() { return !!live || hostSpeaking; },
+           // one of her scripted lines is being read right now (not the live AI Claudia)
+           get reading() { return !!(live && live.claudia); },
            /* Milliseconds since a line last finished, for anybody who needs
               to leave a breath after her before speaking themselves. */
            get sinceSpoke() { return live || hostSpeaking ? 0 : Date.now() - lastSpoke.at; },

@@ -28,6 +28,9 @@ const VoiceChat = (() => {
   let floorId = null;            // who holds the floor, or null for open mic
   let selfId = null;
   let denied = null;             // why it is not available, for the UI
+  let whisper = 'off';           // our Traitor whisper: off | opening | on | closing
+  let whisperTimer = null;
+  const whisperIn = new Set();   // fellow Traitors whispering to us now
 
   const peers = new Map();       // peerId -> { stream, el, analyser, data }
   let meterCtx = null;
@@ -145,7 +148,9 @@ const VoiceChat = (() => {
       Party.on('left', peerId => {
         if (typeof ServerAudio !== 'undefined') ServerAudio.detach(peerId);
         detach(peerId);
+        whisperIn.delete(peerId);
       });
+      Party.on('whisper', onWhisper);
     }
   }
 
@@ -259,10 +264,10 @@ const VoiceChat = (() => {
   function pump() {
     const now = Date.now();
     refreshSpeechGate();
+    if ((whisper === 'on' || whisper === 'opening') && !canWhisper()) holdWhisper(false);
     meterSelf();
     if (selfMeter && stream) {
-      const gagged = muted || (floorId !== null && floorId !== selfId);
-      selfLevel = gagged ? 0 : readLevel(selfMeter.an, selfMeter.data);
+      selfLevel = isGagged() ? 0 : readLevel(selfMeter.an, selfMeter.data);
     } else selfLevel = 0;
     voice(selfId || (typeof Party !== 'undefined' && Party.selfId ? Party.selfId() : null), selfLevel, now);
     if (!peers.size) { courtesyPass(); emit('level', levels); return; }
@@ -347,6 +352,8 @@ const VoiceChat = (() => {
   }
   function applyVolume(id, e) {
     if (!e || !e.el) return;
+    // a fellow Traitor's whisper is close in your ear, wherever they are
+    if (whisperIn.has(id) && amTraitor()) { if (Math.abs(e.el.volume - 1) > 0.02) e.el.volume = 1; return; }
     const base = volumes.has(id) ? volumes.get(id) : 1;
     const vol = holder && id !== holder && isPlayer(id) ? base * COURTESY : base;
     if (Math.abs(e.el.volume - vol) > 0.02) e.el.volume = vol;
@@ -389,10 +396,60 @@ const VoiceChat = (() => {
      One function decides whether our microphone is live, and it is the
      only thing that ever touches `track.enabled`. */
 
+  /* Muted, or somebody else has the floor. Holding the whisper speaks
+     through a mute (it is a push-to-talk), never through the floor; and
+     the microphone is shut for a moment either side of a whisper, so
+     the server has the switch before the first word of it and after the
+     last — nothing said to the Traitors arrives as a public frame. */
+  function isGagged() {
+    if (floorId !== null && floorId !== selfId) return true;
+    if (whisper === 'opening' || whisper === 'closing') return true;
+    if (whisper === 'on') return false;
+    return muted;
+  }
   function applyGate() {
     if (!stream) return;
-    const gagged = muted || (floorId !== null && floorId !== selfId);
+    const gagged = isGagged();
     stream.getAudioTracks().forEach(t => { t.enabled = !gagged; });
+  }
+
+  const WHISPER_EDGE = 220;      // ms the mic is shut while the switch reaches the server
+  function amTraitor() {
+    const s = typeof Session !== 'undefined' && Session.state;
+    if (!s || !Session.myRole || Session.myRole() !== 'traitor') return false;
+    const me = s.players.find(p => p.local);
+    return !!me && me.alive;
+  }
+  const canWhisper = () => available && amTraitor()
+    && typeof Party !== 'undefined' && Party.canWhisper && (floorId === null || floorId === selfId);
+  function holdWhisper(on) {
+    on = !!on && canWhisper();
+    if (on ? (whisper === 'on' || whisper === 'opening') : (whisper === 'off' || whisper === 'closing')) return;
+    clearTimeout(whisperTimer);
+    const was = whisper;
+    if (on) {
+      whisper = 'opening';
+      Party.setWhisper(true);
+      whisperTimer = setTimeout(() => { whisper = 'on'; applyGate(); emit('state'); }, WHISPER_EDGE);
+    } else if (was === 'opening') {
+      // let go before it opened: nothing was said, so nothing to wait for
+      whisper = 'off';
+      Party.setWhisper(false);
+    } else {
+      whisper = 'closing';
+      whisperTimer = setTimeout(() => {
+        whisper = 'off';
+        if (typeof Party !== 'undefined' && Party.setWhisper) Party.setWhisper(false);
+        applyGate(); emit('state');
+      }, WHISPER_EDGE);
+    }
+    applyGate();
+    emit('state');
+  }
+  function onWhisper(m) {
+    if (!m || !m.id) return;
+    if (m.on) whisperIn.add(m.id); else whisperIn.delete(m.id);
+    applyVolume(m.id, peers.get(m.id));
   }
 
   function setMuted(v) {
@@ -421,6 +478,10 @@ const VoiceChat = (() => {
     stream = null;
     available = false;
     floorId = null;
+    clearTimeout(whisperTimer);
+    if (whisper !== 'off' && typeof Party !== 'undefined' && Party.setWhisper) Party.setWhisper(false);
+    whisper = 'off';
+    whisperIn.clear();
     for (const id of [...peers.keys()]) detach(id);
     /* Forget which room we were listening to as well. The next one is a
        different object and has to be hooked again, and leaving this set
@@ -438,11 +499,18 @@ const VoiceChat = (() => {
   function refreshSpeechGate() {
     const s = typeof Session !== 'undefined' && Session.state;
     if (!s) return;
-    const blocked = (typeof Voice !== 'undefined' && (Voice.speaking || Voice.sinceSpoke < 3500))
+    /* Only while she is actually talking, and a breath after: the director
+       keeps the longer gap after her for chatter, and an AI she has just
+       handed the floor to must not be muted for seconds on every screen. */
+    const blocked = (typeof Voice !== 'undefined' && (Voice.speaking || Voice.sinceSpoke < 600))
       || (typeof Scenes !== 'undefined' && Scenes.botSpeechBlocked)
       || (typeof AI !== 'undefined' && AI.speaking(AI.CLAUDIA));
+    // her live voice never plays under one of her own scripted lines
+    const reading = typeof Voice !== 'undefined' && !!Voice.reading;
+    const live = typeof ServerAudio !== 'undefined' ? ServerAudio.CLAUDIA : null;
     for (const [id, e] of peers) {
       if (s.players.some(p => p.id === id && p.bot)) e.el.muted = !!blocked;
+      else if (live && id === live) e.el.muted = reading;
     }
   }
   function setVolume(peerId, v) {
@@ -464,6 +532,9 @@ const VoiceChat = (() => {
   }
 
   return {
+    holdWhisper, whisperingFrom: (id) => whisperIn.has(id) && amTraitor(),
+    get canWhisper() { return canWhisper(); },
+    get whispering() { return whisper === 'on' || whisper === 'opening'; },
     init, listen, start, stop, on, setMuted, toggleMuted, setFloor, openFloor, setVolume, resetVolumes, refreshSpeechGate,
     level, levels, loudest, talking, talkers, voiced, voicedFor, setCourtesy,
     get holder() { return holder; },
@@ -471,7 +542,7 @@ const VoiceChat = (() => {
     get available() { return available; },
     get muted() { return muted; },
     get speaking() { return floorId; },
-    get gagged() { return muted || (floorId !== null && floorId !== selfId); },
+    get gagged() { return isGagged(); },
     get reason() { return denied; },
     get stream() { return stream; },
   };

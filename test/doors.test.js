@@ -232,4 +232,27 @@ test('the server keeps a shut room\'s voices in it, both ways', async () => {
   }
 });
 
+section('the Traitors\' whisper — the server');
+
+test('a living Traitor holding the whisper is heard by the Traitors alone, anywhere', async () => {
+  const { createServer } = require('../server');
+  const app = createServer({});
+  try {
+    const room = { routes: { open: ['a', 'b', 'c', 'd'], night: null, rooms: [['a', 'b']], traitors: ['a', 'c'] },
+      whisper: new Set(['a']) };
+    eq(app.hears(room, 'c', 'a'), true, 'the other Traitor hears through a shut door');
+    eq(app.hears(room, 'b', 'a'), false, 'a Faithful shut in beside them hears nothing');
+    eq(app.hears(room, 'd', 'a'), false, 'nor does anybody else');
+    room.whisper = new Set(['b']);
+    eq(app.hears(room, 'a', 'b'), true, 'a Faithful cannot whisper: their voice goes the usual way');
+    eq(app.hears(room, 'c', 'b'), false, 'and the shut door still holds it in');
+    room.whisper = new Set(['a']);
+    room.routes.open = ['b', 'c', 'd'];
+    room.routes.traitors = ['c'];
+    eq(app.hears(room, 'c', 'a'), false, 'a Traitor who is out cannot whisper to the living');
+  } finally {
+    await app.close();
+  }
+});
+
 H.report();

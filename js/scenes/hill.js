@@ -67,7 +67,8 @@ class HillScene {
     Scenes.Cine.bars(false);
     this.music = Music.ceremony();
     this.wind = AudioBus.wind();
-    if (this.wind) this.wind.set(0.34);
+    // a breeze under Claudia and the Traitors' choosing, not a gale over them
+    if (this.wind) this.wind.set(0.08);
 
     // one beat per sentence, so a shot can change on a full stop
     const speak = (set, vars, shots) => {

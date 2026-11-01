@@ -49,6 +49,7 @@ const RoomSocket = (() => {
       updateProfile(profile) { reliable({ type: 'profile', profile }); },
       setLobby() { reliable({ type: 'lobby' }); },
       setRoutes(routes) { reliable({ type: 'routes', routes }); },
+      setWhisper(on) { reliable({ type: 'whisper', on: !!on }); },
       sendAI(message) { reliable(Object.assign({}, message, { type: 'ai' })); },
       sendClaudia(message) { reliable(Object.assign({}, message, { type: 'claudia' })); },
       sendAudio(data) {
@@ -108,6 +109,7 @@ const RoomSocket = (() => {
       } else if (msg.type === 'post' && room.onMessage) room.onMessage(msg.channel, msg.data, msg.from);
       else if (msg.type === 'ai' && room.onAI) room.onAI(msg);
       else if (msg.type === 'claudia' && room.onClaudia) room.onClaudia(msg);
+      else if (msg.type === 'whisper' && room.onWhisper) room.onWhisper(msg);
     }
     function connect() {
       if (stopped) return;

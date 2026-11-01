@@ -206,7 +206,7 @@ class FinaleScene {
        the loch: a fifth on the low strings and the theme on a piano. */
     this.music = Music.finale();
     this.wind = AudioBus.wind();
-    if (this.wind) this.wind.set(0.14);
+    if (this.wind) this.wind.set(0.32);
 
     // the tally has to land vote by vote, so it is driven by events
     this._offNet = Net.on((e) => {

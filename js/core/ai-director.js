@@ -129,6 +129,8 @@ const AIDirector = (() => {
       parameters: { type: 'object', properties: {} } },
   ];
 
+  const CLAUDIA_VOICE = 'aura-2-pandora-en';     // the same as the lobby's (ai-players.js)
+
   /* ---------------- lifecycle ---------------- */
 
   function start() {
@@ -172,16 +174,31 @@ const AIDirector = (() => {
     speaking = null;
     judgeAsk = null;
     heardLast = null;
+    /* A new night is a new cast. The voices were made in the lobby and
+       may have played a whole game since; a prompt update does not wipe
+       what they said and heard then, so the old night comes back as
+       memories of people and deaths from another game. Each one starts
+       this night as a fresh voice with nothing behind it. */
+    sentAt.clear();
     for (const b of bots) {
       state.set(b.id, { spoken: 0, last: 0, said: 0, pending: new Map(), turnKey: null });
-      if (!AI.agent(b.id)) AI.spawn({ id: b.id, name: b.name, voice: b.voice || 'aura-2-thalia-en',
-                                       prompt: promptFor(b), functions: BOT_FUNCTIONS });
+      if (AI.agent(b.id) && AI.close) AI.close(b.id);
+      AI.spawn({ id: b.id, name: b.name, voice: b.voice || 'aura-2-thalia-en',
+                 prompt: promptFor(b), functions: BOT_FUNCTIONS });
     }
-    if (claudiaLive) AI.prompt(AI.CLAUDIA, claudiaPrompt());
+    if (claudiaLive) {
+      if (AI.close) AI.close(AI.CLAUDIA);
+      AI.spawn({ id: AI.CLAUDIA, name: 'Claudia', voice: CLAUDIA_VOICE,
+                 prompt: claudiaPrompt(), functions: CLAUDIA_FUNCTIONS });
+    }
     AI.listen(s.players.filter(p => !p.bot).map(p => ({ id: p.id, name: p.name })));
     offs.push(AI.on('heard', onHeard));
+    whisperUntil.clear();
+    if (typeof Party !== 'undefined' && Party.on) offs.push(Party.on('whisper', (m) => {
+      if (m && m.id) whisperUntil.set(m.id, m.on ? Infinity : Date.now() + WHISPER_TAIL);
+    }));
     offs.push(AI.on('hearing', (m) => {
-      if (!humanSpeaker(m)) return;
+      if (!humanSpeaker(m) || whispered(m.id)) return;
       lastHuman = Date.now();
       wordsAt.set(m.id, lastHuman);
       interrupt(m.id, m.text);
@@ -190,12 +207,12 @@ const AIDirector = (() => {
     offs.push(AI.on('text', onText));
     offs.push(AI.on('speaking', (m) => {
       if (m.id === AI.CLAUDIA) { pauseBots(); hostSpeech(true); }
-      else if (botSpeechBlocked(Session.state)) pauseBots();
+      else if (botSpeechBlocked(Session.state, m.id)) pauseBots();
       else if (speaking && speaking.id === m.id && speaking.audioAt === null) {
         /* The reply took a second or two to write and voice, and a
            person started talking in the meantime: say nothing rather
            than talk over them, and answer them once they stop. */
-        if (!speaking.firm && voiceNow(m.id)) {
+        if (!speaking.firm && voiceNow(m.id) && wordsNear(m.id)) {
           const origin = speaking.origin;
           AI.hush(m.id, true);
           finishTurn(m.id);
@@ -279,6 +296,11 @@ const AIDirector = (() => {
     }
     for (const p of s.players) if (!p.alive && !out.some(x => x.id === p.id)) out.push({ id: p.id, name: p.name, how: 'left the game' });
     return out;
+  }
+  // Traitors caught or gone who were on this voice's side
+  function lostPartners(botId) {
+    const s = Session.state;
+    return (s.banished || []).filter(x => x.role === 'traitor' && x.id !== botId).map(x => x.name).join(' and ');
   }
   function factsNow(s) {
     const gone = goneList(s);
@@ -691,7 +713,7 @@ const AIDirector = (() => {
       'Make this fun to play with: respond to the actual thing a human said, remember their jokes and earlier answers, and sometimes ask them a short question they can answer. Be curious about them, not just the game. Mix warmth, humour and genuine disagreement; avoid stock agreement, repetitive accusations, forced jokes, insults, and monologues. Leave room for them to reply.',
       '',
       traitor
-        ? 'SECRET: You are a TRAITOR. ' + (partner ? 'Your fellow Traitor is ' + partner + '. Protect them without being obvious. ' : 'You are the only Traitor. ')
+        ? 'SECRET: You are a TRAITOR. ' + (partner ? 'Your fellow Traitor is ' + partner + '. Protect them without being obvious. ' : lostPartners(b.id) ? 'Your fellow Traitor ' + lostPartners(b.id) + ' is gone: you are the only Traitor left. ' : 'You are the only Traitor. ')
           + 'Win by still being in the game at the end. Lie convincingly, steer suspicion onto Faithfuls, never admit it.'
           + (p ? (p.used ? (beforeBreakfast() ? ' Today the poison went into ' + nameOf(p.target)
                                                + (shieldedTonight(p.target) ? ' — but they won the shield, so it will not kill them.' : ' — they die tonight.')
@@ -753,9 +775,16 @@ const AIDirector = (() => {
      else is refreshed in the background, no more than every few seconds. */
   let lastRefresh = 0;
   const sentAt = new Map();          // id -> the transcript length its prompt last saw
+  /* Who is still here, as a key: a death or a banishment changes it, and
+     every voice is told at once — not at its next turn, not in twenty
+     seconds — so nobody spends the gap talking to somebody who is gone. */
+  let goneKey = '';
+  const aliveKey = () => (Session.state ? Session.alive().map(p => p.id).join(',') : '');
   function refreshPrompts(force) {
     if (!active) return;
     const now = Date.now();
+    const key = aliveKey();
+    if (key !== goneKey) { goneKey = key; force = true; }
     if (!force && (!promptDirty || now - lastRefresh < 20000)) return;
     promptDirty = false;
     lastRefresh = now;
@@ -763,7 +792,7 @@ const AIDirector = (() => {
     if (claudiaLive) freshen(AI.CLAUDIA, true);
   }
   function freshen(id, force) {
-    const stamp = lines.length + ':' + (Session.state ? Session.state.phase + Session.state.day : '');
+    const stamp = lines.length + ':' + (Session.state ? Session.state.phase + Session.state.day : '') + ':' + aliveKey();
     if (!force && sentAt.get(id) === stamp) return;
     sentAt.set(id, stamp);
     if (id === AI.CLAUDIA) AI.prompt(id, claudiaPrompt());
@@ -824,9 +853,19 @@ const AIDirector = (() => {
     return p;
   }
 
+  /* A person's Traitor whisper (see VoiceChat.holdWhisper): heard by
+     the Traitors and nobody else, so it is a turret line — the Traitor
+     AIs keep it, the Faithful ones never had it — and it is not a
+     reason for anybody in the room to stop, answer or turn round. The
+     words land a beat after the button is let go, hence the tail. */
+  const WHISPER_TAIL = 3000;
+  const whisperUntil = new Map();
+  const whispered = (id) => (whisperUntil.get(id) || 0) > Date.now();
+
   function onHeard(m) {
     const p = humanSpeaker(m);
     if (!p) return;
+    if (whispered(p.id)) { note(p.id, p.name, m.text, 'turret', null); return; }
     lastHuman = Date.now();
     wordsAt.set(p.id, lastHuman);
     interrupt(p.id, m.text);
@@ -993,7 +1032,7 @@ const AIDirector = (() => {
     const b = bots.find(x => x.id === m.id);
     if (!b) return;
     // A cancelled/deferred turn can still deliver text after Claudia takes over.
-    if (botSpeechBlocked(s)) { AI.hush(b.id, true); return; }
+    if (botSpeechBlocked(s, b.id)) { AI.hush(b.id, true); return; }
     // nor does anybody hear from somebody who is out of the game
     if (!(Session.playerById(b.id) || {}).alive) { AI.hush(b.id, true); return; }
     if (speaking && speaking.id === b.id && speaking.onText) {
@@ -1040,12 +1079,16 @@ const AIDirector = (() => {
   }
 
   function speak(id, cue, after, firm, onText) {
-    if (!active || (id !== AI.CLAUDIA && botSpeechBlocked(Session.state))) return false;
+    if (!active || (id !== AI.CLAUDIA && botSpeechBlocked(Session.state, id))) return false;
+    if (id === AI.CLAUDIA && typeof Voice !== 'undefined' && Voice.reading) return false;
     speaking = { id, since: Date.now(), audioAt: null, overlap: null,
       after: after || null, firm: !!firm, onText: onText || null, to: null, ally: false };
     if (id !== AI.CLAUDIA) lastBotTurn = Date.now();
     freshen(id, false);
-    AI.ask(id, id === AI.CLAUDIA ? cue : factsNow(Session.state) + '\n' + cue);
+    const self = id === AI.CLAUDIA ? null : Session.playerById(id);
+    AI.ask(id, factsNow(Session.state) + '\n'
+      + (self ? '[You are ' + self.name + '. Anybody named in quotes below is somebody else talking, not you; never answer as them or speak for them.]\n' : '')
+      + cue);
     return true;
   }
 
@@ -1400,12 +1443,25 @@ const AIDirector = (() => {
      take a second to arrive — or while it is still bringing words. */
   const VOICE_UNHEARD_MS = 2500;
   const wordsAt = new Map();         // person -> Date.now() of their last recognised words
+  /* Somebody near actually saying words, by the recogniser, just now —
+     not only a lit meter, which a fan, a breath or this AI's own voice
+     coming back through a speaker also light. */
+  const WORDS_FRESH_MS = 1500;
+  function wordsNear(near) {
+    const now = Date.now();
+    for (const [id, at] of wordsAt) {
+      if (now - at > WORDS_FRESH_MS || whispered(id)) continue;
+      const p = Session.playerById(id);
+      if (p && p.alive && (!near || inEarshot(id, near))) return true;
+    }
+    return false;
+  }
   function voiceNow(near) {
     const s = Session.state;
     if (!s || typeof VoiceChat === 'undefined' || !VoiceChat.voicedFor) return false;
     const now = Date.now();
     for (const p of s.players) {
-      if (p.bot || !p.alive || !VoiceChat.voiced(p.id)) continue;
+      if (p.bot || !p.alive || !VoiceChat.voiced(p.id) || whispered(p.id)) continue;
       if (VoiceChat.voicedFor(p.id) > VOICE_UNHEARD_MS && now - (wordsAt.get(p.id) || 0) > VOICE_UNHEARD_MS) continue;
       if (s.phase === 'night' && (Session.privateView(p.id) || {}).role !== 'traitor') continue;
       if (near && !inEarshot(p.id, near)) continue;
@@ -1423,7 +1479,7 @@ const AIDirector = (() => {
     if (voiceNow()) lastHuman = Date.now();
     const quiet = humansQuietFor();
     // nobody talks over Claudia: an AI mid-sentence gives way to her
-    if (botSpeechBlocked(s)) {
+    if (botSpeechBlocked(s, s.floor && !s.floor.done ? s.floor.playerId : null)) {
       pauseBots();
       return;
     }
@@ -1502,8 +1558,22 @@ const AIDirector = (() => {
       || (typeof Voice !== 'undefined' && Voice.sinceSpoke < AFTER_CLAUDIA_MS);
   }
 
-  function botSpeechBlocked(s) {
-    return !s || s.phase === 'hill' || s.phase === 'verdict' || claudiaBusy();
+  /* An AI Claudia has just handed the floor to is not chatter: it was
+     asked to speak, and three and a half seconds of nothing on top of the
+     time its reply takes to write is a long dead pause on a 30-second
+     clock. It waits only for her to actually stop, and a breath. */
+  const FLOOR_AFTER_CLAUDIA_MS = 700;
+  const floorTurn = (s, id) => !!id && !!s && !!s.floor && !s.floor.done && s.floor.playerId === id && isBot(id);
+  function botSpeechBlocked(s, id) {
+    if (!s || s.phase === 'hill' || s.phase === 'verdict') return true;
+    const busy = claudiaBusy();
+    if (!floorTurn(s, id)) return busy;
+    const now = Date.now();
+    const talking = (claudiaLive && AI.speaking(AI.CLAUDIA))
+      || (typeof Voice !== 'undefined' && !!Voice.speaking)
+      || (typeof Scenes !== 'undefined' && (!!Scenes.performing || !!Scenes.botSpeechBlocked));
+    return talking || now - claudiaLastBusy < FLOOR_AFTER_CLAUDIA_MS
+      || (typeof Voice !== 'undefined' && Voice.sinceSpoke < FLOOR_AFTER_CLAUDIA_MS);
   }
 
   function pauseBots() {
@@ -2210,7 +2280,7 @@ const AIDirector = (() => {
       if (judgeAsk && judgeAsk.keepUntil && Date.now() < judgeAsk.keepUntil) return null;
       const min = Math.min(60, 20 + 6 * pic.of);
       const candidate = pic.elapsed >= min && pic.quiet >= 2.2 && (pic.everyone || pic.elapsed > 150);
-      if (!candidate || speaking) return null;
+      if (!candidate || speaking || (typeof Voice !== 'undefined' && Voice.reading)) return null;
       judgeAsk = { at: Date.now(), verdict: null, done: false };
       const stats = pic.spoken.map(x => nameOf(x.id) + ' ' + Math.round(x.seconds) + 's').join(', ');
       AI.ask(AI.CLAUDIA, 'The ' + (kind === 'table' ? 'round table' : 'fire') + ' discussion has run '
@@ -2219,6 +2289,17 @@ const AIDirector = (() => {
         + 'Decide now: end_discussion, invite_player, or keep_going.');
       return null;
     };
+  }
+
+  /* A scripted line of hers is starting (see Voice.say): the live AI
+     Claudia stops mid-sentence rather than talk over herself. Host only —
+     it owns her agent — and only when she is actually talking. */
+  function hushClaudia() {
+    if (!active || !claudiaLive || !Session.isHost) return;
+    if (!AI.speaking(AI.CLAUDIA) && !(speaking && speaking.id === AI.CLAUDIA)) return;
+    AI.hush(AI.CLAUDIA, true);
+    if (speaking && speaking.id === AI.CLAUDIA) finishTurn(AI.CLAUDIA);
+    hostSpeech(false);
   }
 
   function discussionStarted() { if (claudiaLive) promptDirty = true; }
@@ -2303,5 +2384,6 @@ const AIDirector = (() => {
     BOT_FUNCTIONS, CLAUDIA_FUNCTIONS,
     get active() { return active; },
     get claudiaLive() { return active && claudiaLive; },
+    hushClaudia,
   };
 })();

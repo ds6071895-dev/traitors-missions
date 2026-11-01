@@ -435,7 +435,7 @@ const Stage = (() => {
       const changed = who !== speakingId;
       speakingId = who;
       Figure.setSpeaking(claudia, who === 'claudia');
-      figures.forEach(f => f && Figure.setSpeaking(f, f.userData.playerId === who));
+      // a player's mouth is their own voice's business: see the frame loop
       if (!changed || !who) return;
       for (const f of figures) {
         if (!f || f.userData.playerId === who || Math.random() > 0.12) continue;
@@ -600,10 +600,13 @@ const Stage = (() => {
                        f.position.y + h + 0.30 - drop, f.position.z, camera);
         } else Nametag.hide(f.userData.tag);
         if (!f.visible) continue;
-        /* The jaw follows the real voice when there is one; a floor
-           holder who is quiet still gets the made-up syllables. */
-        const lv = heard ? VoiceChat.level(pid) : 0;     // 0: an offline bot, no meter
-        Figure.setSpeaking(f, heard || speakingId === pid, lv > 0 ? lv : undefined);
+        /* A mouth moves only while that person's voice is actually coming
+           out — not because they hold the floor, or a line is about them.
+           Yours is your own microphone, live and above the talking line. */
+        const me = !!f.userData.local || (Session.state && Session.state.players.some(p => p.id === pid && p.local));
+        const own = me && typeof VoiceChat !== 'undefined' && !VoiceChat.gagged && VoiceChat.voiced(pid);
+        const lv = heard ? VoiceChat.level(pid) : own ? VoiceChat.selfLevel : 0;   // 0: an offline bot, no meter
+        Figure.setSpeaking(f, heard || own, lv > 0 ? lv : undefined);
         Figure.update(f, dt, t);
         EstateMaterials.figureLOD(f,camera);
         if (f.userData.walk || o.free) continue;

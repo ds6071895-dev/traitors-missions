@@ -227,7 +227,8 @@ const RoomUI = (() => {
     const me = s && s.players.find(p => p.local);
     const holder = VoiceChat.holder;
     const clash = !!holder && who.length + (me && VoiceChat.voiced(me.id) ? 1 : 0) > 1;
-    const key = who.map(p => p.id).join(',') + (clash ? '|' + holder : '');
+    const key = who.map(p => p.id + (VoiceChat.whisperingFrom && VoiceChat.whisperingFrom(p.id) ? '~' : '')).join(',')
+      + (clash ? '|' + holder : '');
     if (key === talkKey) return;
     talkKey = key;
     chip.classList.toggle('on', who.length > 0);
@@ -238,6 +239,7 @@ const RoomUI = (() => {
       const cls = !clash ? '' : p.id === holder ? ' hold' : ' over';
       return '<span class="tc-who' + cls + '" style="--tc:' + esc(accent) + '"><i></i>' + esc(p.name)
         + (cls === ' hold' ? '<em>has the room</em>' : '')
+        + (VoiceChat.whisperingFrom && VoiceChat.whisperingFrom(p.id) ? '<em class="tc-wh">to the Traitors</em>' : '')
         + '<b class="tc-bars"><b></b><b></b><b></b></b></span>';
     }).join('');
   }
@@ -259,6 +261,23 @@ const RoomUI = (() => {
             : (VoiceChat.muted ? 'Unmute microphone (V)' : 'Mute microphone (V)');
   }
 
+  /* The Traitors' whisper: the button and G are both held. The button
+     keeps its own hold, so a finger on it and a key down are one hold
+     and letting go of either does not end the other. */
+  let wbHeld = false, wkHeld = false;
+  function paintWhisper() {
+    const b = el('whisper-btn');
+    if (!b) return;
+    const can = typeof VoiceChat !== 'undefined' && VoiceChat.canWhisper;
+    b.hidden = !can;
+    b.classList.toggle('on', !!(can && VoiceChat.whispering));
+  }
+  function syncWhisper() {
+    if (typeof VoiceChat === 'undefined') return;
+    VoiceChat.holdWhisper(wbHeld || wkHeld);
+    paintWhisper();
+  }
+
   async function toggleMic() {
     if (typeof Party === 'undefined' || !Party.connected) return;
     if (!VoiceChat.available) await VoiceChat.start();
@@ -270,12 +289,26 @@ const RoomUI = (() => {
     const b = el('mic-btn');
     if (b) b.onclick = toggleMic;
     VoiceChat.on('state', paintMic);
+    VoiceChat.on('state', paintWhisper);
+    const w = el('whisper-btn');
+    if (w) {
+      const down = (e) => { e.preventDefault(); wbHeld = true; try { w.setPointerCapture(e.pointerId); } catch (x) {} syncWhisper(); };
+      const up = () => { if (!wbHeld) return; wbHeld = false; syncWhisper(); };
+      w.addEventListener('pointerdown', down);
+      w.addEventListener('pointerup', up);
+      w.addEventListener('pointercancel', up);
+      w.addEventListener('lostpointercapture', up);
+      w.addEventListener('contextmenu', e => e.preventDefault());
+      window.addEventListener('blur', () => { wbHeld = wkHeld = false; syncWhisper(); });
+    }
     /* One place polls the key and the pad button, rather than every
        scene growing its own copy of this. */
     Engine.addUpdater(() => {
       if (Input.pressed('mic')) toggleMic();
+      const k = Input.held('whisper');
+      if (k !== wkHeld) { wkHeld = k; syncWhisper(); }
       const now = Date.now();
-      if (now - talkAt > 100) { talkAt = now; paintTalk(); }
+      if (now - talkAt > 100) { talkAt = now; paintTalk(); paintWhisper(); }
     });
     paintMic();
   }

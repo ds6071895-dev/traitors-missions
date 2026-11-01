@@ -120,6 +120,7 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
     const room = p.room;
     if (!room.members.has(p.id)) return;
     room.members.delete(p.id);
+    if (room.whisper?.has(p.id)) setWhisper(room, p.id, false);
     endSocket(p, reason);
     if (p.id === room.hostId) {
       rooms.delete(room.code);
@@ -177,11 +178,40 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
     if (!r || typeof r !== 'object') return null;
     const ids = (v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, 16) : null);
     const rooms = Array.isArray(r.rooms) ? r.rooms.slice(0, 12).map(ids).filter(g => g && g.length) : null;
-    return { open: ids(r.open), night: ids(r.night), rooms: rooms && rooms.length ? rooms : null };
+    return { open: ids(r.open), night: ids(r.night), rooms: rooms && rooms.length ? rooms : null,
+      traitors: ids(r.traitors) };
+  }
+  /* The Traitors' whisper: a living Traitor holding the button is heard
+     by the other living Traitors, wherever they are standing, and by
+     nobody else — not a Faithful in the same room, not the dead. The
+     host names the Traitors in its routes; a speaker not named there
+     cannot whisper, whatever their browser asks for. */
+  const whisperers = (room) => room.whisper || (room.whisper = new Set());
+  function canWhisper(room, id) {
+    return !!room.routes?.traitors?.includes(id) && !!room.routes.open?.includes(id);
+  }
+  function tellWhisper(room, id, on) {
+    const msg = { type: 'whisper', id, on: !!on };
+    for (const p of room.members.values()) {
+      if (p.id === id) continue;
+      // the host runs the AI Traitors' ears; it knows the roles already
+      if (p.id === room.hostId || room.routes?.traitors?.includes(p.id)) deliver(p, msg);
+    }
+  }
+  function setWhisper(room, id, on) {
+    const set = whisperers(room);
+    on = !!on && canWhisper(room, id);
+    if (on === set.has(id)) return;
+    if (on) set.add(id); else set.delete(id);
+    tellWhisper(room, id, on);
+  }
+  function recheckWhisper(room) {
+    for (const id of [...whisperers(room)]) if (!canWhisper(room, id)) setWhisper(room, id, false);
   }
   function hears(room, listenerId, speakerId) {
     const r = room.routes;
     if (!r || !r.open || speakerId === CLAUDIA_ID || speakerId === CLAUDIA_LINE_ID) return true;   // the host is heard everywhere
+    if (room.whisper?.has(speakerId) && canWhisper(room, speakerId)) return canWhisper(room, listenerId);
     const speakerIn = r.open.includes(speakerId), listenerIn = r.open.includes(listenerId);
     if (!speakerIn) return !listenerIn;           // the dead talk among the dead
     if (r.night) return r.night.includes(speakerId) && r.night.includes(listenerId);
@@ -433,8 +463,12 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
       } else if (msg.type === 'lobby' && member.id === member.room.hostId) {
         member.room.started = false;
         member.room.routes = null;
+        recheckWhisper(member.room);
       } else if (msg.type === 'routes' && member.id === member.room.hostId) {
         member.room.routes = cleanRoutes(msg.routes);
+        recheckWhisper(member.room);
+      } else if (msg.type === 'whisper') {
+        setWhisper(member.room, member.id, msg.on === true);
       } else if (msg.type === 'ai' && member.id === member.room.hostId) {
         ai.handle(member.room, msg);
       } else if (msg.type === 'claudia') {

@@ -1903,6 +1903,21 @@ body[data-screen]:not([data-screen=""]):not([data-screen^="hud"]) #agenda-chip{d
 #mic-btn.muted .slash{opacity:1}
 @media (pointer:coarse){ #mic-btn{width:46px; height:46px} }
 
+/* The Traitors' whisper, above the microphone: held, not toggled. */
+#whisper-btn{
+  position:fixed; right:max(14px, env(safe-area-inset-right));
+  bottom:calc(max(14px, env(safe-area-inset-bottom)) + 46px); z-index:48;
+  pointer-events:all; background:rgba(40,6,12,.66); border:1px solid rgba(255,120,140,.35);
+  color:#ffb3c0; height:38px; padding:0 10px; border-radius:10px; cursor:var(--cur-hand, pointer);
+  display:flex; align-items:center; gap:6px; font:600 12px/1 inherit; letter-spacing:.04em;
+  backdrop-filter:blur(8px); touch-action:none; user-select:none; -webkit-user-select:none;
+  -webkit-touch-callout:none;
+}
+#whisper-btn[hidden]{display:none}
+#whisper-btn.on{background:#8a1426; color:#fff; border-color:#ff8fa3; box-shadow:0 0 14px rgba(255,80,110,.55)}
+@media (pointer:coarse){ #whisper-btn{height:46px; bottom:calc(max(14px, env(safe-area-inset-bottom)) + 54px)} }
+.tc-who em.tc-wh{color:#ff8fa3}
+
 /* The music level, beside the microphone, in play only. */
 #music-btn{
   position:fixed; right:calc(max(14px, env(safe-area-inset-right)) + 46px);

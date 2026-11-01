@@ -31,12 +31,27 @@ const AudioBus = (() => {
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     ready = true;
+    keepAlive();
     return ctx;
   }
 
+  /* A context can stop under the game: suspended by autoplay rules, or
+     on iOS "interrupted" when the microphone opens, a call comes in or
+     the tab goes to the background — and then the band simply stops.
+     Every touch, key and return to the tab tries to start it again. */
+  const stalled = () => ctx && ctx.state !== 'running' && ctx.state !== 'closed';
   function resume() {
     init();
-    if (ctx && ctx.state === 'suspended') ctx.resume();
+    if (stalled()) { try { ctx.resume().catch(() => {}); } catch (e) {} }
+  }
+  let watching = false;
+  function keepAlive() {
+    if (watching || typeof document === 'undefined') return;
+    watching = true;
+    const kick = () => { if (stalled()) resume(); };
+    for (const ev of ['pointerdown', 'touchend', 'keydown']) document.addEventListener(ev, kick, true);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
+    if (ctx) ctx.addEventListener && ctx.addEventListener('statechange', () => { if (!document.hidden) setTimeout(kick, 300); });
   }
 
   const now = () => (ctx ? ctx.currentTime : 0);
@@ -60,7 +75,7 @@ const AudioBus = (() => {
 
   function play(name, opts = {}) {
     if (!ready || muted || !recipes[name]) return null;
-    if (ctx.state === 'suspended') ctx.resume();
+    if (stalled()) resume();
     try { return recipes[name](ctx, busses[opts.bus || 'sfx'], opts); }
     catch (e) { return null; }
   }
@@ -306,12 +321,12 @@ const AudioBus = (() => {
     lfo.connect(lfoG); lfoG.connect(lp.frequency);
     n.connect(hp); hp.connect(lp); lp.connect(g); g.connect(busses.ambience);
     n.start(t); lfo.start(t);
-    g.gain.setTargetAtTime(0.22, t, 1.5);
+    g.gain.setTargetAtTime(0.05, t, 1.5);
     return {
       // strength 0..1 — a gale should be audible before you see the trees move
       set(strength) {
         const tt = now();
-        g.gain.setTargetAtTime(0.10 + strength * 0.42, tt, 0.8);
+        g.gain.setTargetAtTime(0.025 + strength * 0.42, tt, 0.8);
         lp.frequency.setTargetAtTime(500 + strength * 1900, tt, 0.8);
       },
       stop() {
