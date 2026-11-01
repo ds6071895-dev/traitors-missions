@@ -354,6 +354,9 @@ const VoiceChat = (() => {
     if (!e || !e.el) return;
     // a fellow Traitor's whisper is close in your ear, wherever they are
     if (whisperIn.has(id) && amTraitor()) { if (Math.abs(e.el.volume - 1) > 0.02) e.el.volume = 1; return; }
+    /* In the Traitors' chat the Faithful AIs are shut out both ways:
+       they never hear you, and you do not hear them. */
+    if (whisperOpen() && outsiderAI(id)) { if (e.el.volume > 0.001) e.el.volume = 0; return; }
     const base = volumes.has(id) ? volumes.get(id) : 1;
     const vol = holder && id !== holder && isPlayer(id) ? base * COURTESY : base;
     if (Math.abs(e.el.volume - vol) > 0.02) e.el.volume = vol;
@@ -413,6 +416,16 @@ const VoiceChat = (() => {
     stream.getAudioTracks().forEach(t => { t.enabled = !gagged; });
   }
 
+  const whisperOpen = () => whisper === 'on' || whisper === 'opening';
+  function outsiderAI(id) {
+    const s = typeof Session !== 'undefined' && Session.state;
+    const p = s && s.players.find(q => q.id === id);
+    if (!p || !p.bot) return false;
+    const mine = (Session.myPrivate && Session.myPrivate()) || {};
+    return (mine.partners || []).indexOf(id) < 0;
+  }
+  const revolume = () => { for (const [id, e] of peers) applyVolume(id, e); };
+
   const WHISPER_EDGE = 220;      // ms the mic is shut while the switch reaches the server
   function amTraitor() {
     const s = typeof Session !== 'undefined' && Session.state;
@@ -430,7 +443,7 @@ const VoiceChat = (() => {
     if (on) {
       whisper = 'opening';
       Party.setWhisper(true);
-      whisperTimer = setTimeout(() => { whisper = 'on'; applyGate(); emit('state'); }, WHISPER_EDGE);
+      whisperTimer = setTimeout(() => { whisper = 'on'; applyGate(); revolume(); emit('state'); }, WHISPER_EDGE);
     } else if (was === 'opening') {
       // let go before it opened: nothing was said, so nothing to wait for
       whisper = 'off';
@@ -440,10 +453,11 @@ const VoiceChat = (() => {
       whisperTimer = setTimeout(() => {
         whisper = 'off';
         if (typeof Party !== 'undefined' && Party.setWhisper) Party.setWhisper(false);
-        applyGate(); emit('state');
+        applyGate(); revolume(); emit('state');
       }, WHISPER_EDGE);
     }
     applyGate();
+    revolume();
     emit('state');
   }
   function onWhisper(m) {

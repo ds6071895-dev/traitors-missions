@@ -49,7 +49,7 @@ const RoomSocket = (() => {
       updateProfile(profile) { reliable({ type: 'profile', profile }); },
       setLobby() { reliable({ type: 'lobby' }); },
       setRoutes(routes) { reliable({ type: 'routes', routes }); },
-      setWhisper(on) { reliable({ type: 'whisper', on: !!on }); },
+      setWhisper(on, id) { reliable(id ? { type: 'whisper', on: !!on, id } : { type: 'whisper', on: !!on }); },
       sendAI(message) { reliable(Object.assign({}, message, { type: 'ai' })); },
       sendClaudia(message) { reliable(Object.assign({}, message, { type: 'claudia' })); },
       sendAudio(data) {

@@ -30,7 +30,8 @@ const Music = (() => {
   const EPS = 0.0001;
   const SILENCE_MAX = 9;      // seconds a dramatic silence may hold before the band comes back on its own
   const TALK_DUCK = 0.28;     // the most the band may sit at while somebody talks
-  const BUDGET = 110;         // live oscillators before optional notes are skipped
+  const BUDGET = 110;
+  const LIFTS = [0, 2, 0, 3, 0, 2, 5, 0];   // semitones, one per sixteen bars         // live oscillators before optional notes are skipped
 
   const PROGRESSIONS = MusicCues.PROGRESSIONS;
   const MOTIFS = MusicCues.MOTIFS;
@@ -200,7 +201,8 @@ const Music = (() => {
       return true;
     }
 
-    hz(semi) { return hz(semi + this.key); }
+    // the key, plus the lift the phrase has climbed to (see `_play`)
+    hz(semi) { return hz(semi + this.key + (this.lift || 0)); }
 
     get voices() {
       const now = this.ctx.currentTime;
@@ -515,6 +517,11 @@ const Music = (() => {
       if (s === 0) {
         if (this._pendingProg) { this.progOverride = this._pendingProg; this._pendingProg = null; }
         if (this._pendingKey != null) { this.key = this._pendingKey; this._pendingKey = null; }
+        /* Every sixteen bars the whole band lifts — up a tone, back,
+           up a minor third, back — so a section that runs for minutes
+           keeps climbing instead of going round. */
+        const b16 = Math.floor(Math.floor(this.secStep / steps) / 16);
+        this.lift = LIFTS[b16 % LIFTS.length];
       }
       if (!this.silent) {
         const bar = Math.floor(this.secStep / steps);

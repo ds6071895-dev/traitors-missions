@@ -1056,6 +1056,30 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .cine-card.t-shield{border-color:rgba(150,200,255,.6); box-shadow:0 0 50px rgba(120,180,255,.2)}
 .cine-card.t-shield .cc-title{color:#cfe6ff; text-shadow:0 0 44px rgba(120,180,255,.7)}
 .cine-card.t-wise .cc-title{color:#ffd877; text-shadow:0 0 50px rgba(242,193,78,.75), 0 0 12px rgba(255,236,170,.5)}
+/* A slate turned at the round table: chalk on slate, in a wooden frame. */
+.cine-card.t-slate{background:linear-gradient(160deg,#2b3236,#1b2023 60%,#22292c); border:7px solid #6b4a2b;
+  box-shadow:0 0 0 2px #3a2614, 0 18px 50px rgba(0,0,0,.6); animation:slate-slam .32s cubic-bezier(.2,1.6,.4,1)}
+.cine-card.t-slate .cc-title{font-family:Caveat, 'Comic Sans MS', cursive; font-weight:700; letter-spacing:.02em;
+  color:#f1efe6; text-shadow:0 0 2px rgba(255,255,255,.5), 1px 1px 0 rgba(255,255,255,.12)}
+@keyframes slate-slam{0%{transform:translate(-50%,-50%) scale(1.35) rotate(-4deg)}100%{transform:translate(-50%,-50%) scale(1) rotate(0)}}
+@media (prefers-reduced-motion:reduce){ .cine-card.t-slate{animation:none} }
+
+/* Writing your own slate: comes up over the table, then turns face down. */
+.slate-wrap{position:fixed; inset:0; z-index:70; display:flex; align-items:center; justify-content:center;
+  background:rgba(0,0,0,.45); padding:16px; pointer-events:all; animation:slate-in .25s ease-out}
+.slate-board{position:relative; width:min(560px,100%); background:linear-gradient(160deg,#2f373b,#1c2225 65%,#262e31);
+  border:12px solid #6b4a2b; border-radius:8px; box-shadow:0 0 0 2px #3a2614, 0 24px 70px rgba(0,0,0,.7);
+  transition:transform .35s ease-in, opacity .35s ease-in; transform-origin:50% 100%}
+.slate-canvas{display:block; width:100%; aspect-ratio:560/300; touch-action:none; cursor:crosshair}
+.slate-hint{position:absolute; left:12px; top:8px; font:600 11px/1.2 var(--body); color:rgba(240,238,228,.45)}
+.slate-done{position:absolute; right:10px; bottom:10px; background:rgba(240,238,228,.12); color:#f1efe6;
+  border:1px solid rgba(240,238,228,.35); border-radius:8px; padding:8px 12px; font:800 12px/1 var(--body);
+  letter-spacing:.08em; cursor:var(--cur-hand, pointer)}
+.slate-wrap.turned{background:rgba(0,0,0,0); transition:background .35s}
+.slate-wrap.turned .slate-board{transform:perspective(800px) rotateX(88deg); opacity:0}
+@keyframes slate-in{from{opacity:0}to{opacity:1}}
+.slate-mini{display:inline-block; background:#22292c; border:3px solid #6b4a2b; border-radius:4px; padding:2px 10px;
+  font:700 22px/1.1 Caveat, cursive; color:#f1efe6}
 
 /* ---------------- the round table: your line ---------------- */
 
@@ -1915,6 +1939,10 @@ body[data-screen]:not([data-screen=""]):not([data-screen^="hud"]) #agenda-chip{d
 }
 #whisper-btn[hidden]{display:none}
 #whisper-btn.on{background:#8a1426; color:#fff; border-color:#ff8fa3; box-shadow:0 0 14px rgba(255,80,110,.55)}
+/* latched with R or a tap: stays lit, with a slow pulse so it is not forgotten */
+#whisper-btn.latched{animation:wb-latch 1.6s ease-in-out infinite}
+@keyframes wb-latch{50%{box-shadow:0 0 22px rgba(255,80,110,.9)}}
+@media (prefers-reduced-motion:reduce){ #whisper-btn.latched{animation:none} }
 @media (pointer:coarse){ #whisper-btn{height:46px; bottom:calc(max(14px, env(safe-area-inset-bottom)) + 54px)} }
 .tc-who em.tc-wh{color:#ff8fa3}
 

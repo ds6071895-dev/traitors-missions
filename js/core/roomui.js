@@ -264,18 +264,34 @@ const RoomUI = (() => {
   /* The Traitors' whisper: the button and G are both held. The button
      keeps its own hold, so a finger on it and a key down are one hold
      and letting go of either does not end the other. */
-  let wbHeld = false, wkHeld = false;
+  /* R (or a quick tap of the button) latches it instead: you stay in the
+     Traitors' chat — the Faithful AIs neither hear you nor reach you,
+     and the Traitor AIs answer you there — until it is pressed again. */
+  let wbHeld = false, wkHeld = false, latched = false, wbDownAt = 0;
+  const TAP_MS = 260;
   function paintWhisper() {
     const b = el('whisper-btn');
     if (!b) return;
     const can = typeof VoiceChat !== 'undefined' && VoiceChat.canWhisper;
+    if (!can && latched) latched = false;
     b.hidden = !can;
     b.classList.toggle('on', !!(can && VoiceChat.whispering));
+    b.classList.toggle('latched', !!(can && latched));
+    b.title = latched ? 'Traitors\' chat is on — press R or tap to leave' : 'Hold to whisper to the Traitors (G) · press R or tap to stay in Traitors\' chat';
   }
   function syncWhisper() {
     if (typeof VoiceChat === 'undefined') return;
-    VoiceChat.holdWhisper(wbHeld || wkHeld);
+    VoiceChat.holdWhisper(wbHeld || wkHeld || latched);
     paintWhisper();
+  }
+  function toggleTraitorChat() {
+    if (typeof VoiceChat === 'undefined') return;
+    latched = !latched && !!VoiceChat.canWhisper;
+    syncWhisper();
+    if (typeof Voice !== 'undefined' && Voice.show && !Voice.speaking) {
+      Voice.show('', latched ? 'Traitors\' chat on — only Traitors hear you.' : 'Traitors\' chat off.');
+      setTimeout(() => { if (!Voice.speaking) Voice.clear(); }, 1600);
+    }
   }
 
   async function toggleMic() {
@@ -292,8 +308,13 @@ const RoomUI = (() => {
     VoiceChat.on('state', paintWhisper);
     const w = el('whisper-btn');
     if (w) {
-      const down = (e) => { e.preventDefault(); wbHeld = true; try { w.setPointerCapture(e.pointerId); } catch (x) {} syncWhisper(); };
-      const up = () => { if (!wbHeld) return; wbHeld = false; syncWhisper(); };
+      const down = (e) => { e.preventDefault(); wbHeld = true; wbDownAt = Date.now(); try { w.setPointerCapture(e.pointerId); } catch (x) {} syncWhisper(); };
+      const up = () => {
+        if (!wbHeld) return;
+        wbHeld = false;
+        if (Date.now() - wbDownAt < TAP_MS) toggleTraitorChat();   // a tap latches; a hold is push-to-talk
+        else syncWhisper();
+      };
       w.addEventListener('pointerdown', down);
       w.addEventListener('pointerup', up);
       w.addEventListener('pointercancel', up);
@@ -305,6 +326,7 @@ const RoomUI = (() => {
        scene growing its own copy of this. */
     Engine.addUpdater(() => {
       if (Input.pressed('mic')) toggleMic();
+      if (Input.pressed('traitorChat')) toggleTraitorChat();
       const k = Input.held('whisper');
       if (k !== wkHeld) { wkHeld = k; syncWhisper(); }
       const now = Date.now();
@@ -317,7 +339,7 @@ const RoomUI = (() => {
     hideFloor(); hideBoard();
   }
 
-  return { init, toggleMic, paintMic, paintTalk,
+  return { init, toggleMic, toggleTraitorChat, paintMic, paintTalk,
            showFloor, hideFloor, showBoard, hideBoard, choreBoard,
            hideAll, paintTick, boardHTML, boardCols,
            get floorWho() { return floorWho; },

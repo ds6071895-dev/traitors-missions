@@ -70,9 +70,9 @@ function endDay(ctx) {
 
 function toBreakfast(ctx) {
   for (const t of traitorsOf(ctx)) ctx.Session.dispatch({ type: 'turretPick', playerId: t.id, kind: 'carrier', targetId: t.id });
-  clock += (ctx.Session.NIGHT_SECONDS + 1) * 1000;
+  clock += (ctx.Session.nightSeconds(true) + 1) * 1000;
   ctx.Session.dispatch({ type: 'nightTick', authority: true });
-  clock += (ctx.Session.NIGHT_SECONDS + 1) * 1000;
+  clock += (ctx.Session.nightSeconds(true) + 1) * 1000;
   ctx.Session.dispatch({ type: 'nightTick', authority: true });
   eq(ctx.Session.state.phase, 'breakfast', 'down to breakfast');
 }

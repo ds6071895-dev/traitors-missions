@@ -575,6 +575,8 @@ const Party = (() => {
     MAX, MIN, CODE_LEN, ALPHABET,
     // the Traitors' whisper; the server decides whether we may
     setWhisper(on) { if (joined && room && room.setWhisper) room.setWhisper(on); },
+    // host-only: an AI Traitor answering in the whisper
+    setWhisperFor(id, on) { if (host && joined && room && room.setWhisper) room.setWhisper(on, id); },
     get canWhisper() { return !!(joined && room && room.server && room.setWhisper); },
     /* Host-only: who may hear whom, enforced by the room server. */
     setVoiceRoutes(routes) { if (host && joined && room && room.setRoutes) room.setRoutes(routes || null); },

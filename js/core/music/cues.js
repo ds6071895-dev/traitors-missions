@@ -1256,5 +1256,43 @@ const MusicCues = (() => {
     },
   };
 
-  return { PROGRESSIONS, MOTIFS, CUES, STINGERS, vel, pick };
+  /* ---------------- epic drive ----------------
+     The whole score, faster and bigger. Every section's tempo goes up
+     (the slow beds most of all), and every section that has no engine
+     of its own gets one: spiccato cellos, taiko, a snare on the back
+     half of the phrase, a tom fill into every eighth bar, a crash on
+     the downbeat, brass stabs as the phrase builds. Each of them comes
+     and goes on its own 8/16/32-bar cycle, so the same four bars never
+     come round twice in the same clothes. A few held breaths — the
+     pause before a pouch burns, a name about to be read — keep their
+     stillness; the music around them is what got faster. */
+  const STILL = new Set(['held', 'names', 'pouch', 'drumroll', 'arrival', 'warn']);
+  const faster = (bpm) => Math.min(172, Math.round(bpm < 70 ? bpm * 1.7 : bpm < 100 ? bpm * 1.45 : bpm * 1.18));
+  function epicise(sec, name) {
+    if (sec._epic) return;
+    sec._epic = true;
+    sec.bpm = faster(sec.bpm);
+    if (STILL.has(name)) return;
+    const tri = sec.steps === 12;
+    const has = (inst) => sec.layers.some(l => l.inst === inst);
+    const spic = sec.layers.some(l => l.art === 'spic');
+    const add = [];
+    if (!spic) {
+      add.push(L('ep-riff', 'strings', { pat: tri ? vel('X.7X.7X.7X.8') : RAID16_V, pick: tri ? pick('0.0a.00.0a.1') : RAID16_P,
+        oct: 1, art: 'spic', fam: 'cello', gain: 0.4, when: b => b % 16 >= 2 }));
+      add.push(L('ep-riff2', 'strings', { pat: tri ? vel('X.7X.7X.7X.8') : RAID16_V, pick: tri ? pick('0.0a.00.0a.1') : RAID16_P,
+        oct: 2, art: 'spic', fam: 'hiStr', gain: 0.2, when: b => b % 32 >= 16 }));
+    }
+    if (!has('taiko')) add.push(L('ep-taiko', 'taiko', { pat: tri ? vel('X.....6..X..') : vel('X.....6.X.6...7.'), gain: 0.38, when: b => b % 8 !== 7 || b % 16 >= 8 }));
+    if (!has('snare')) add.push(L('ep-snare', 'snare', { pat: tri ? vel('...7.....7.5') : vel('....7.......7..5'), gain: 0.17, when: b => b % 16 >= 8 }));
+    if (!has('tom')) add.push(L('ep-tom', 'tom', { pat: tri ? vel('.......6.789') : vel('............6.78'), gain: 0.3, when: b => b % 8 === 7 }));
+    if (!has('crash')) add.push(L('ep-crash', 'crash', { pat: BAR1, gain: 0.22, when: b => b % 8 === 0 && b > 0 }));
+    if (!has('synthBass')) add.push(L('ep-bass', 'synthBass', { pat: tri ? vel('X.6X.6X.6X.6') : PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.26 }));
+    if (!has('brass')) add.push(L('ep-brass', 'brass', { pat: tri ? vel('X.....7.....') : vel('X.......7.....8.'), pick: 'chord', oct: 2, len: 3, gain: 0.2,
+      when: b => b % 16 >= 12 }));
+    sec.layers = sec.layers.concat(add);
+  }
+  for (const cue of Object.values(CUES)) for (const [n, sec] of Object.entries(cue.sections || {})) epicise(sec, n);
+
+  return { PROGRESSIONS, MOTIFS, CUES, STINGERS, vel, pick, faster };
 })();

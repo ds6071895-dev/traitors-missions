@@ -49,6 +49,8 @@ const Input = (() => {
     mic:       ['KeyV'],
     // a living Traitor, held: only the other Traitors hear you, anywhere
     whisper:   ['KeyG'],
+    // ...or pressed once to stay in the Traitors' chat until pressed again
+    traitorChat: ['KeyR'],
     /* Marking the Traitor's task done, mid-mission, without letting go
        of anything. Nobody who is not carrying a card can do anything
        with this, so it costs one key and nothing else. The chip on the

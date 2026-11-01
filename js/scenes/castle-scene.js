@@ -11,6 +11,9 @@
    rest. It is deliberately a small class rather than a framework: the
    fire predates it and keeps its own copy of the same few habits.
 ------------------------------------------------------------------ */
+// how long each person has to say why they wrote the name they wrote
+const WHY_SECONDS = 10;
+
 class CastleScene {
 
   constructor(opts = {}) {
@@ -301,6 +304,7 @@ class CastleScene {
      slate and the name is said out loud; the hits climb as they go. */
   async _slates(roomKey) {
     let guard = 0, said = 0;
+    const total = Math.max(1, (Session.state.finale.nameQueue || []).length);
     /* The Wise One has overruled. The room is told before a slate turns
        — not whose, only that one of them outranks the rest — and that
        slate is the last. */
@@ -326,10 +330,29 @@ class CastleScene {
         await this._overrule(voter, target, roomKey + '-slate-' + f.nameRound + '-' + voter.id);
         break;
       }
+      /* Each slate lands harder than the one before — a shorter breath,
+         a bigger hit, a redder flash — and the last is the biggest. Never
+         long: under two seconds of theatre a slate. */
+      const heat = Math.min(1, (said + 1) / total), last = f.nameQueue.length === 1;
+      Scenes.Cine.card(null);
+      await Scenes.Drama.hush(this.stage, null, 'on:' + voter.id,
+                              { hold: 0.25 + 0.45 * heat, silent: false, speed: 2.6 + heat });
+      if (!this._alive) return;
+      Scenes.Drama.hit(this.stage, null, null, {
+        shake: 0.12 + 0.55 * heat + (last ? 0.2 : 0),
+        flash: 'rgba(' + (150 + Math.round(70 * heat)) + ',12,24,' + (0.18 + 0.42 * heat).toFixed(2) + ')',
+        haptic: 20 + Math.round(60 * heat),
+      });
       Scenes.Cine.card({ kicker: voter.local ? 'Your slate' : voter.name + '’s slate',
-                         title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'bad' });
+                         title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'slate',
+                         sub: last ? 'The last slate.' : (said + 1) + ' of ' + total });
       this._accuse(voter.id, target.id);
-      if (this.music) this.music.stinger('slate-turn', { n: said++ });
+      if (this.music) {
+        this.music.stinger('slate-turn', { n: said });
+        if (last && this.music.riser) this.music.riser(1.2);
+      }
+      said++;
+      Scenes.Drama.shot(this.stage, 'on:' + target.id, { speed: 2.4 });
       // nobody announces their own vote: Claudia reads each slate out
       await Scenes.run([{
         line: { text: (voter.local ? 'You vote' : voter.name + ' votes') + ' for '
@@ -337,6 +360,16 @@ class CastleScene {
         hold: 0.2,
       }], this);
       if (!this._alive) return;
+      /* Then Claudia turns to them: why? Up to ten seconds, theirs alone,
+         and they can finish early. The AIs are not asked. */
+      if (!voter.bot && voter.alive) {
+        Scenes.Drama.shot(this.stage, 'on:' + voter.id, { speed: 2.2 });
+        await Scenes.run([{ line: { text: 'Why ' + (target.local ? 'me' : target.name) + ', ' + (voter.local ? 'you' : voter.name) + '?' }, hold: 0.1 }], this);
+        if (!this._alive) return;
+        await this._turnFloor(voter.id, WHY_SECONDS);
+        if (!this._alive) return;
+      }
+      Scenes.Drama.end(this.stage, null);
       await Scenes.barrier(roomKey + '-slate-' + f.nameRound + '-' + voter.id);
       if (!this._alive) return;
       const before = voter.id;

@@ -468,7 +468,10 @@ function createServer({ reconnectMs = 15000, heartbeatMs = 10000, maxRooms = 100
         member.room.routes = cleanRoutes(msg.routes);
         recheckWhisper(member.room);
       } else if (msg.type === 'whisper') {
-        setWhisper(member.room, member.id, msg.on === true);
+        /* The host speaks for its AI Traitors: one of them answering a
+           person's whisper is heard by the Traitors and nobody else. */
+        const forAI = typeof msg.id === 'string' && member.id === member.room.hostId && ai.isAgent(member.room, msg.id);
+        setWhisper(member.room, forAI ? msg.id : member.id, msg.on === true);
       } else if (msg.type === 'ai' && member.id === member.room.hostId) {
         ai.handle(member.room, msg);
       } else if (msg.type === 'claudia') {

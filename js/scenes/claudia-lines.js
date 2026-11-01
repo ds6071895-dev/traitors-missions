@@ -141,6 +141,14 @@ const ClaudiaLines = (() => {
     "recruitedYou": [
       [ "Welcome to the turret.", "You are a Traitor now." ]
     ],
+    "recruitAccepted": [
+      [ "{name} said yes.", "There are more of you now." ],
+      [ "{name} has taken the seat.", "Welcome your new Traitor." ]
+    ],
+    "recruitRefused": [
+      [ "{name} said no.", "Pray they keep it to themselves." ],
+      [ "{name} refused you.", "The seat stays empty." ]
+    ],
     "breakfastOpen": [
       [ "Good morning.", "Not all of you will come down." ],
       [ "Breakfast.", "Let us see who made it." ],
@@ -512,7 +520,7 @@ const ClaudiaLines = (() => {
      says to the room — which matters once she is a live AI voice, since
      then the room is exactly who hears it. */
   const PRIVATE = new Set(['roleTraitor', 'roleFaithful', 'traitorPartner', 'poisonYou', 'poisonPartner',
-    'murderedYou', 'recruitOffer', 'recruitedYou', 'conclaveOpen', 'conclaveAgree',
+    'murderedYou', 'recruitOffer', 'recruitedYou', 'recruitAccepted', 'recruitRefused', 'conclaveOpen', 'conclaveAgree',
     'conclaveRecruit', 'conclaveDone', 'nightFaithful', 'wiseYou', 'wiseTraitor']);
   /* A "You" twin is the second-person version of a public line: the room
      hears the third-person one, and the person it is about reads theirs. */

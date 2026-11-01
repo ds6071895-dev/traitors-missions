@@ -607,6 +607,9 @@ const CastleBots = (() => {
     const cands = Session.alive().filter(p => p.id !== b.id && !partners.has(p.id));
     // the Faithfuls getting it right are worth a longer walk
     const danger = typeof AIDirector !== 'undefined' && AIDirector.threats ? AIDirector.threats(b.id) : new Map();
+    // a fellow Traitor said who to go after: that one, unless it is hopeless
+    const o = typeof AIDirector !== 'undefined' && AIDirector.order ? AIDirector.order() : null;
+    const wanted = o && o.how !== 'vote' && o.how !== 'recruit' ? o.target : null;
     let best = null;
     for (const p of cands) {
       const pose = poseOf(p.id);
@@ -616,7 +619,7 @@ const CastleBots = (() => {
       const d = Math.hypot(pose.x - b.x, pose.z - b.z);
       // somebody in a room with a door that shuts is worth the walk
       const score = company * 10 + d * 0.3 + rng() * 3 - (oneDoorRoom(pose.room) ? 4 : 0) + (shielded(p.id) ? 60 : 0)
-        - (danger.get(p.id) || 0) * 2;
+        - (danger.get(p.id) || 0) * 2 - (p.id === wanted ? 30 : 0);
       if (!best || score < best.score) best = { id: p.id, score };
     }
     return best ? best.id : null;

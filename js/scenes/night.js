@@ -216,6 +216,17 @@ class NightScene extends CastleScene {
       Scenes.Cine.card({ kicker: 'The offer is made', title: (t ? t.name : 'They').toUpperCase(),
                          sub: 'Waiting for their answer…', tone: 'traitor' });
       await this._waitFor(() => { const x = Session.myPrivate() || {}; return !x.night || !x.night.offer || x.night.offer.answer !== null; });
+      /* Claudia comes up the turret stair with the answer. */
+      const ans = ((Session.myPrivate() || {}).night || {}).offer;
+      if (this._alive && ans && ans.answer !== null && Session.state.phase === 'night') {
+        const yes = ans.answer === true, name = t ? t.name : 'They';
+        if (this.music) this.music.stinger(yes ? 'recruited' : 'murder-hit', { at: 'now' });
+        Scenes.Cine.card({ kicker: 'Claudia, at the turret door', tone: 'traitor',
+                           title: yes ? name.toUpperCase() + ' ACCEPTED' : name.toUpperCase() + ' REFUSED',
+                           sub: yes ? 'A new Traitor joins you.' : 'The seat stays empty.' });
+        await this._say(yes ? 'recruitAccepted' : 'recruitRefused', { name }, null);
+        await this._sleep(1.2);
+      }
     }
     if (!this._alive || Session.state.phase !== 'night') return;
     const after = Session.myPrivate() || {};

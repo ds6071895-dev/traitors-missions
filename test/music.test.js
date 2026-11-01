@@ -140,7 +140,7 @@ test('every stinger plays in every cue', () => {
 test('notes land on the sixteenth grid at a steady tempo', () => {
   const { Music, ac } = load();
   const s = Music.play('finale', { section: 'ballot' });
-  const t0 = s.t0, sps = 60 / 96 / 4;
+  const t0 = s.t0, sps = 60 / Music.CUES.finale.sections.ballot.bpm / 4;
   const from = ac.log.starts.length;
   run([s], ac, 12);
   const starts = ac.log.starts.slice(from);
@@ -154,7 +154,7 @@ test('notes land on the sixteenth grid at a steady tempo', () => {
 test('a section asked for mid-bar starts on the next bar line', () => {
   const { Music, ac } = load();
   const s = Music.play('finale', { section: 'ballot' });
-  const sps = 60 / 96 / 4, bar = sps * 16;
+  const sps = 60 / Music.CUES.finale.sections.ballot.bpm / 4, bar = sps * 16;
   run([s], ac, bar * 1.37);
   s.section('names', { at: 'bar' });
   let switched = null;
@@ -172,7 +172,7 @@ test('a stinger asked for on the beat lands on a beat you have not heard yet', (
   const s = Music.play('finale', { section: 'ballot' });
   run([s], ac, 3.13);
   const T = s._gridTime(4, true);
-  const spb = 60 / 96;
+  const spb = 60 / Music.CUES.finale.sections.ballot.bpm;
   ok(T >= ac.currentTime, 'beat is in the past');
   ok(T - ac.currentTime <= spb + 1e-6, 'skipped a beat: ' + (T - ac.currentTime));
   const k = (T - s.t0) / spb;

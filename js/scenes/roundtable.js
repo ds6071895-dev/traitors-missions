@@ -202,7 +202,11 @@ class RoundtableScene extends CastleScene {
           keepOpen: wise,
           options: targets.map(p => ({
             id: p.id, label: p.name.toUpperCase(), sub: sub(),
-            tone: 'name', action: () => ({ type: 'name', targetId: p.id, overrule: over }),
+            tone: 'name', action: () => {
+              // a vote is written, not clicked: chalk on your slate
+              if (typeof Slate !== 'undefined') Slate.write(p.name);
+              return { type: 'name', targetId: p.id, overrule: over };
+            },
           })),
           onPick: (opt) => { chose = opt.id; },
           toggle: wise ? {
@@ -229,6 +233,7 @@ class RoundtableScene extends CastleScene {
     await this._waitFor(() => Session.state.phase !== 'table' || Session.state.finale.stage !== 'name');
     offVote();
     this._closeVote();
+    if (typeof Slate !== 'undefined') Slate.close();
     await this._sleep(0.8);
   }
 

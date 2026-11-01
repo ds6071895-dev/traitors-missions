@@ -82,9 +82,11 @@ const Session = (() => {
     return Number.isFinite(n) ? Math.max(TASK_MIN, Math.min(TASK_SECONDS, n)) : TASK_SECONDS;
   };
   const NOTE_EVERY = 4;            // seconds between looks round the room
-  const NIGHT_SECONDS = 20;        // every night lasts exactly this, whatever was decided
+  const NIGHT_SECONDS = 25;        // every night lasts exactly this, whatever was decided
+  const RECRUIT_NIGHT_EXTRA = 15;  // ...and this much more when a seat may be offered
   const PICK_SECONDS = 12;         // the Traitors have this long (from lights out) to agree
-  const RECRUIT_SECONDS = 7;       // an offer is answered or refused
+  const RECRUIT_PICK_EXTRA = 8;    // more time to talk it over when a seat is on the table
+  const RECRUIT_SECONDS = 12;      // an offer is answered or refused (Claudia knocks first)
   const WISE_SECONDS = 10;         // the Traitors' window to choose the Wise One
   const tableSeconds = (n) => Math.min(240, 50 + 22 * n);
 
@@ -1060,6 +1062,8 @@ const Session = (() => {
     return lost && t >= 1 && t < secret.traitors.size + 1 && (f - 1) >= (t + 1) + 1;
   }
 
+  const nightSeconds = (recruit) => NIGHT_SECONDS + (recruit ? RECRUIT_NIGHT_EXTRA : 0);
+
   function beginNight() {
     // a carrier who left the castle today hands it on before the turret meets
     if (secret.carrier && !(playerById(secret.carrier) || {}).alive) secret.carrier = null;
@@ -1072,12 +1076,16 @@ const Session = (() => {
     const choose = tr.length > 1;
     const recruit = canRecruit();
     /* The night is the same length every time, so how long the house
-       sleeps says nothing about whether anybody had anything to decide. */
+       sleeps says nothing about whether anybody had anything to decide.
+       A night when a seat may be offered runs longer — but whether one
+       may is already public (`state.night.canRecruit`, from who has been
+       banished and how many are left), so the extra time tells nobody
+       whether a seat was offered, or to whom. */
     const t0 = Date.now();
     state.night = { day: state.day, done: false, startedAt: t0,
-                    endsAt: t0 + NIGHT_SECONDS * 1000,
+                    endsAt: t0 + nightSeconds(recruit) * 1000,
                     canRecruit: recruit, choose };
-    secret.pickBy = t0 + PICK_SECONDS * 1000;
+    secret.pickBy = t0 + (PICK_SECONDS + (recruit ? RECRUIT_PICK_EXTRA : 0)) * 1000;
     if (secret.victim && (playerById(secret.victim) || {}).alive) secret.fate[secret.victim] = 'murdered';
     else secret.victim = null;
     setPhase('night', true);
@@ -1936,7 +1944,7 @@ const Session = (() => {
       return JSON.parse(JSON.stringify(state));
     },
     finaleNext,
-    SEATS, MIN_PLAYERS, FINALE_AT, NIGHT_SECONDS, PICK_SECONDS, TASK_SECONDS, TASK_MIN, BELL_AT,
+    SEATS, MIN_PLAYERS, FINALE_AT, NIGHT_SECONDS, RECRUIT_NIGHT_EXTRA, nightSeconds, PICK_SECONDS, TASK_SECONDS, TASK_MIN, BELL_AT,
     RECRUIT_SECONDS, LAST_WORDS_SECONDS, FLOOR_SECONDS, WISE_SECONDS,
     tableSeconds, traitorCount, castChances, cleanCast,
     CAST_MODES, NONE_MAX, WANT_MIN, WANT_MAX,
