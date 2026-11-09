@@ -293,6 +293,8 @@ const Scenes = (() => {
      back. A scene that was already cinematic (the fire's pouch, a
      banished player on their feet) stays cinematic. */
   const drama = new WeakMap();
+  // the build a scene gets when there is no band to build with
+  const NO_BUILD = { live: false, holding: false, p: 0, shape: null, release() { return 0; }, cancel() {} };
   let vig = null;
   const vignette = (on) => {
     if (!vig && typeof document !== 'undefined') vig = document.getElementById('drama-vignette');
@@ -329,6 +331,39 @@ const Scenes = (() => {
     },
     shot(stage, shot, o = {}) {
       if (stage && stage.setShot) stage.setShot(shot, { speed: o.speed || 1.6, cut: !!o.cut });
+    },
+    /* The long breath before an answer, which `hush` is the short one
+       of: the bars and the dark edges as before, the camera if asked
+       for, and under it the band's build (see `music/build.js`) — a
+       crescendo that climbs to the top and holds there until somebody
+       releases it with the answer. Returns the build. A scene with no
+       band gets one that does nothing, so the staging is the same. */
+    build(stage, music, shape, o = {}) {
+      Cine.bars(true);
+      vignette(true);
+      if (stage && stage.setCinematic && o.camera !== false) {
+        if (!drama.has(stage)) {
+          drama.set(stage, { was: !!stage.cinematic, controls: !!(stage.rig && stage.rig.controls) });
+        }
+        stage.setCinematic(true, o.shot || null, { speed: o.speed || 2.2, cut: !!o.cut });
+      }
+      if (!music || !music.build) return NO_BUILD;
+      return music.build({ shape, secs: o.secs, ramp: o.ramp, bed: o.bed });
+    },
+    /* Wait for a build to reach its top: at least `min` seconds and at
+       most `max` from `since` (a `Date.now()`), and sooner than `min`
+       never — so a screen with no band waits as long as one with. */
+    peak(b, o = {}) {
+      const since = o.since || Date.now();
+      const min = o.min != null ? o.min : 0, max = o.max != null ? o.max : 8;
+      return new Promise((resolve) => {
+        const look = () => {
+          const el = (Date.now() - since) / 1000;
+          if (el >= max || (el >= min && (!b || !b.live || b.holding))) return resolve();
+          setTimeout(look, 50);
+        };
+        look();
+      });
     },
     end(stage, music) {
       Cine.bars(false);

@@ -56,7 +56,8 @@ class RoundtableScene extends CastleScene {
   }
 
   async drive() {
-    this.music = Music.roundtable(Music.dayMusic(Session.state.seed, Session.state.day));
+    // a fourth up from home: the table is not the castle, and it is not the fire
+    this.music = Music.roundtable(Music.sceneMusic('table', Session.state.seed, Session.state.day));
     this._quietCues = false;
 
     await this._gather();
@@ -89,7 +90,10 @@ class RoundtableScene extends CastleScene {
     if (this.music) this.music.section('debate', { at: 'bar', glide: 3 });
     this._courtesy(true);
     const ai = typeof AIDirector !== 'undefined' && AIDirector.active ? AIDirector : null;
-    await this._discussion(Session.tableSeconds(Session.alive().length), {
+    const talkSecs = Session.tableSeconds(Session.alive().length);
+    // the argument winds itself up over exactly the time it has
+    if (this.music && this.music.setTension) { this.music.setTension(0.2, 0); this.music.setTension(0.95, talkSecs); }
+    await this._discussion(talkSecs, {
       judge: ai && ai.claudiaJudge ? ai.claudiaJudge('table') : undefined,
       extraLevels: ai ? () => ai.levels() : undefined,
       onModerator: ai ? () => ai.discussionStarted('table') : undefined,
@@ -171,6 +175,8 @@ class RoundtableScene extends CastleScene {
     const revote = f.nameRound > 0;
     if (this.music) this.music.section('slate', { at: 'bar', glide: 1.5 });
     if (revote) {
+      // a table that cannot decide goes up a semitone
+      if (this.music) this.music.setKey(Music.sceneMusic('table', Session.state.seed, Session.state.day, { revote: f.nameRound }).key);
       const names = (f.tied || []).map(id => Session.playerById(id)).filter(Boolean)
         .map(p => p.local ? 'you' : p.name);
       await this._say('tableTie', { names: joinNames(names) }, 'claudia');
@@ -273,20 +279,27 @@ class RoundtableScene extends CastleScene {
     if (!this._alive) return;
     await this._say(this._setFor('lastWords', target), { name: target.name }, null);
     if (!this._alive) return;
-    // a few seconds that belong to them and nobody else
+    // a few seconds that belong to them and nobody else: one held string and a heart
+    if (this.music) this.music.section('lastWords', { at: 'bar', glide: 1 });
     await this._turnFloor(target.id, Session.LAST_WORDS_SECONDS);
     if (!this._alive) return;
     await Scenes.barrier('table-banish-' + Session.state.day + '-' + target.id);
     if (!this._alive) return;
-    // the drumroll, with the bars in and the room gone dark at the edges
-    if (this.music) { this.music.section('drumroll', { at: 'beat', glide: 0.3 }); }
+    /* "I am…" — and the build, with the bars in and the room gone dark
+       at the edges: a pulse that doubles until it is a roll, a line that
+       climbs to the note before home and stays there. Every screen
+       starts it off the same barrier, so they reach the top together;
+       the answer cuts it to silence, and the colour lands on the hit. */
     Voice.show(target.local ? 'You' : target.name, 'I am…');
-    await Scenes.Drama.hush(st, null, null, { hold: 2.2, silent: false, camera: false });
-    if (!this._alive) return;
+    const t0 = Date.now();
+    const build = Scenes.Drama.build(st, this.music, 'banish', { camera: false, bed: 'drumroll', ramp: 3.6 });
+    await Scenes.Drama.peak(build, { since: t0, min: 3.6, max: 6 });
+    if (!this._alive) { build.cancel(); return; }
     const role = await this._burn(target.id);
-    if (!this._alive || !role) return;
+    if (!this._alive || !role) { build.cancel(); return; }
+    await this._strike(role, target.id, role === 'traitor' ? 'banishTraitor' : 'banishFaithful', build);
+    if (!this._alive) return;
     Voice.show(target.local ? 'You' : target.name, role === 'traitor' ? 'I am a Traitor.' : 'I am a Faithful.');
-    this._flare(role, target.id, role === 'traitor' ? 'banishTraitor' : 'banishFaithful');
     this._react(role === 'traitor' ? ['clap', 'relief', 'nod', 'relief'] : ['handsFace', 'gasp', 'shake', 'headDown'],
                 target.id);
     await this._sleep(1.8);
@@ -346,6 +359,8 @@ class RoundtableScene extends CastleScene {
     if (Session.finaleNext()) await this._say('tableToFire', { count: Session.alive().length }, 'claudia');
     else await this._say('tableToWork', {}, 'claudia');
     if (!this._alive) return;
+    // the door shuts behind them: the band lands on the key and lets it ring
+    if (this.music && this.music.coda) this.music.coda();
     await Scenes.barrier('table-close-' + Session.state.day);
     if (Session.isHost) Net.send({ type: 'advance' });
   }
@@ -357,7 +372,7 @@ class RoundtableScene extends CastleScene {
     if (this.music) {
       const V = Music.verdictCue(o);
       this.music.stop(0.8);
-      this.music = Music.finale();
+      this.music = Music.finale(Music.dayMusic(Session.state.seed, Session.state.day));
       this.music.stinger(V.sting);
       this.music.section(V.section, { at: 'bar', glide: 2 });
     }

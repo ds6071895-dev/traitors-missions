@@ -1,14 +1,9 @@
 /* ------------------------------------------------------------------
    music/cues.js — the score itself, as data.
 
-   One theme runs through the whole night. Four bars in D minor: a
-   rise to the minor sixth that leans on it and falls back, a descent
-   to the leading tone, a climb up the triad, and the old lament walk
-   from the octave down to the dominant — so it never finishes, and
-   every loop of it wants the next one. It is stated on a piano on the
-   loch, answered by a cello, snarled by horns over the owl, played as
-   a music box when the Traitor wins and turned to D major for the
-   Faithful. The player never has to notice that it is one tune.
+   The arrangements. The tunes and the chords are in `themes.js`, the
+   hits in `stingers.js`; this file is how the band plays them, scene
+   by scene.
 
    A cue is a list of **sections**. A section is an arrangement: a
    tempo, a chord loop, and layers, each of which is an instrument, a
@@ -27,151 +22,8 @@
 ------------------------------------------------------------------ */
 const MusicCues = (() => {
 
-  /* ---------------- chords ---------------- */
-  const Dm = [0, 3, 7], D = [0, 4, 7], Gm = [5, 8, 12], G = [5, 9, 12],
-        A = [7, 11, 14], Bb = [8, 12, 15], C = [10, 14, 17], F = [3, 7, 10],
-        Bm = [9, 12, 16], Am = [7, 10, 14],
-        // the dark ones: the flat second (Phrygian, the sound of a knife)
-        // and the diminished second degree
-        Eb = [1, 5, 8], Edim = [4, 7, 10];
-
-  /* A bar is a chord, or two chords for a half bar each. */
-  const PROGRESSIONS = {
-    // kept by name: reveal.js asks for these
-    dread:   [Dm, Dm, Bb, Gm, Dm, C, Bb, A],
-    hymn:    [Bb, F, Gm, C, Bb, Dm, C, Gm],
-    tide:    [[0, 7, 14], [0, 7, 14], [8, 12, 19], [3, 7, 10],
-              [5, 12, 17], [10, 14, 21], [8, 12, 15], [3, 10, 14]],
-    descent: [[0, 7, 12], [0, 7, 12], Bb, C, Gm, C, Bb, [10, 14, 19]],
-    verdict: [Dm, Dm, D, Dm, Bb, Bb, A, A],
-
-    // the theme's own harmony, four bars and eight
-    fire:    [Dm, [Gm, A], Dm, [Bb, A]],
-    fate:    [Dm, [Gm, A], Dm, [Bb, A], Bb, Gm, A, Dm],
-    victory: [D, [G, A], D, [Bm, A], Bm, G, A, D],
-
-    // the fire's underscore
-    floor:   [Dm, Dm, Bb, A, Gm, Gm, Bb, A],
-    ballot:  [Dm, Dm, Bb, Bb, Gm, Gm, A, A],
-    hold:    [Dm, Dm, Bb, A],
-    pouch:   [Dm, Bb, Gm, A],
-
-    // the day in the castle: a jig in D minor, driving and dark — the
-    // G major it used to have was the light in it, and it has gone out;
-    // the A major is the dominant, pulling back to D every eight bars
-    jig:     [Dm, C, Gm, Dm, F, C, A, Dm],
-    // the reel: the same run, Phrygian, with the flat second leaning in
-    jigDark: [Dm, Eb, Dm, C, Bb, Gm, A, A],
-    // the hunt: two bars a chord, the flat second, a long dominant
-    hunt:    [Dm, Dm, Eb, Eb, Bb, Bb, [Gm, A], A],
-    // four bars of dread, for a breakdown or a turn in the room
-    omen:    [Dm, Eb, Dm, [Bb, A]],
-    abyss:   [Dm, Bb, Gm, [Eb, A]],
-    knife:   [Gm, Eb, [Edim, A], Dm],
-    // the heroic minor: i, VI, III, VII — the sound of a trailer
-    epic:    [Dm, Bb, F, C, Dm, Bb, C, A],
-
-    // the castle: the turret's whisper, the vigil before the fire
-    conclave: [Dm, [Dm, Bb], Gm, A, Dm, [Bb, Gm], [Gm, A], Dm],
-    vigil:   [Dm, Bb, F, C, Gm, Bb, [Gm, A], A],
-    table:   [Dm, Dm, Gm, Gm, Bb, Bb, A, A],
-  };
-
-  /* ---------------- the theme ---------------- */
-
-  // [start sixteenth, semitone above D, length in sixteenths, velocity]
-  const THEME_MINOR = [
-    [0, 0, 4], [4, 7, 4], [8, 8, 6, 1.1], [14, 7, 2, 0.8],
-    [16, 5, 4], [20, 3, 4], [24, 2, 4], [28, -1, 4, 0.9],
-    [32, 0, 4], [36, 3, 4], [40, 7, 4], [44, 12, 4, 1.1],
-    [48, 12, 4, 1.05], [52, 10, 2, 0.85], [54, 8, 2, 0.9], [56, 7, 8],
-  ];
-  const ANSWER_MINOR = [
-    [64, 12, 6, 1.1], [70, 10, 2, 0.8], [72, 8, 4], [76, 7, 4],
-    [80, 5, 4], [84, 3, 4], [88, 2, 4], [92, 3, 4, 0.85],
-    [96, 7, 6, 1.05], [102, 5, 2, 0.8], [104, 3, 4], [108, 2, 4],
-    [112, 0, 16, 1],
-  ];
-  const THEME_MAJOR = [
-    [0, 0, 4], [4, 7, 4], [8, 9, 6, 1.1], [14, 7, 2, 0.8],
-    [16, 5, 4], [20, 4, 4], [24, 2, 4], [28, -1, 4, 0.9],
-    [32, 0, 4], [36, 4, 4], [40, 7, 4], [44, 12, 4, 1.1],
-    [48, 12, 4, 1.05], [52, 11, 2, 0.85], [54, 9, 2, 0.9], [56, 7, 8],
-  ];
-  const ANSWER_MAJOR = [
-    [64, 12, 6, 1.1], [70, 11, 2, 0.8], [72, 9, 4], [76, 7, 4],
-    [80, 5, 4], [84, 4, 4], [88, 2, 4], [92, 4, 4, 0.85],
-    [96, 7, 6, 1.05], [102, 5, 2, 0.8], [104, 4, 4], [108, 2, 4],
-    [112, 0, 16, 1],
-  ];
-  /* The jig the castle works to: eight bars of six-eight in D Dorian,
-     quavers on the fiddle, the first of each three leaned on. Minor
-     enough to have somebody in the house with poison in their pocket,
-     quick enough to make you run. [step, semitone above D, length] */
-  function sixEight(bars) {
-    const out = [];
-    bars.forEach((bar, b) => bar.forEach((semi, q) => {
-      if (semi === null) return;
-      let len = 2;
-      while (q + len / 2 < 6 && bar[q + len / 2] === null) len += 2;
-      out.push([b * 12 + q * 2, semi, len, q % 3 === 0 ? 1.05 : 0.78]);
-    }));
-    return out;
-  }
-  const JIG = sixEight([
-    [0, 3, 7, 12, 7, 3], [-2, 2, 5, 10, 5, 2], [5, 8, 12, 8, 5, 2], [3, 2, 0, null, 0, null],
-    [10, 12, 15, 12, 10, 7], [5, 10, 5, 2, 5, 7], [7, 11, 14, 12, 11, 7], [12, null, null, 0, null, null],
-  ]);
-  /* The reel: the same quick six-eight, on the Phrygian run — up the
-     triad, onto the flat second, and a chromatic slide down onto the
-     dominant at the end that sounds like somebody on the stairs. */
-  const REEL = sixEight([
-    [7, 3, 0, 3, 7, 12], [8, 5, 1, 5, 8, 13], [12, 10, 7, 3, 2, 0], [-2, 2, 5, 10, 5, 2],
-    [3, 5, 8, 12, 8, 5], [5, 8, 12, 10, 8, 5], [7, 11, 14, 11, 7, 2], [14, 13, 11, 7, null, null],
-  ]);
-  /* The hunt: a horn line for four-four, eight bars over `hunt`. Up the
-     minor triad, onto the flat second and back, and a long climb
-     through the dominant. Short, hard notes: a riff, not a song. */
-  const HUNT = [
-    [0, 0, 3, 1.1], [3, 3, 3], [6, 7, 2], [8, 5, 4], [12, 3, 4],
-    [16, 3, 4], [20, 2, 4], [24, 0, 8, 1.05],
-    [32, 1, 3, 1.1], [35, 5, 3], [38, 8, 2], [40, 7, 4], [44, 5, 4],
-    [48, 5, 4], [52, 3, 4], [56, 1, 8, 1.05],
-    [64, 8, 3, 1.1], [67, 10, 3], [70, 12, 2], [72, 10, 4], [76, 8, 4],
-    [80, 8, 8], [88, 10, 4], [92, 12, 4, 1.1],
-    [96, 12, 4, 1.1], [100, 8, 4], [104, 11, 4], [108, 7, 4],
-    [112, 7, 10, 1.05], [124, 11, 4, 0.9],
-  ];
-
-  // the horn call: the theme's first bar, alone, as a signal
-  const CALL = [[0, 0, 3, 1], [4, 7, 3, 1], [8, 8, 5, 1.1], [14, 7, 2, 0.8]];
-
-  function motif(len, notes) {
-    const at = {};
-    for (const [s, semi, d, v] of notes) at[s] = { s: semi, d, v: v == null ? 1 : v };
-    return { len, at };
-  }
-
-  // the same tune in 6/8: every bar squeezed from sixteen steps to twelve
-  function compound(len, notes) {
-    return motif(len / 16 * 12, notes.map(([s, semi, d, v]) => {
-      const bar = Math.floor(s / 16), pos = s % 16;
-      return [bar * 12 + Math.round(pos * 12 / 16), semi, Math.max(1, Math.round(d * 12 / 16)), v];
-    }));
-  }
-
-  const MOTIFS = {
-    theme:   motif(64, THEME_MINOR),
-    fate:    motif(128, THEME_MINOR.concat(ANSWER_MINOR)),
-    hymn:    motif(128, THEME_MAJOR.concat(ANSWER_MAJOR)),
-    call:    motif(32, CALL),
-    call16:  motif(16, CALL),
-    theme68: compound(64, THEME_MINOR),
-    jig:     motif(96, JIG),
-    reel:    motif(96, REEL),
-    hunt:    motif(128, HUNT),
-    hymn68:  compound(128, THEME_MAJOR.concat(ANSWER_MAJOR)),
-  };
+  const { PROGRESSIONS, MOTIFS, SCALES, motif, variants } = MusicThemes;
+  const STINGERS = MusicStingers.STINGERS;
 
   /* ---------------- pattern helpers ---------------- */
 
@@ -195,6 +47,18 @@ const MusicCues = (() => {
   const HUNT16_P = pick('0.0.0a.00.0.0a.1');
   // eights in the low synth, the modern part of the orchestra
   const PULSE8 = vel('X.6.7.6.X.6.7.6.');
+  /* The plucked figure under an argument, three ways: the walk, the
+     walk with a held breath in it, and one that leans on the off-beat.
+     A layer given a pool plays a different one each phrase. */
+  const TALK_V = [OST8_V, vel('X.6...6.X.6.8...'), vel('X...6.8.X.6...7.')];
+  const TALK_P = [OST8_P, pick('0.2...3.0.2.1...'), pick('0...2.3.0.1...2.')];
+  // the bodhran's way into the next phrase, in six-eight
+  const JIG_FILLS = [vel('X.4.5.7.8.9X'), vel('X..7..X.789X'), vel('X.5.X.5.X8X8')];
+  /* Who takes the tune this phrase: the fiddles, a whistle, the
+     fiddles, a hammered dulcimer. The same notes, somebody else's
+     hands. */
+  const PASS_TUNE = [{}, { inst: 'whistle', oct: 3, gain: 0.72, art: null, fam: null }, {},
+                     { inst: 'dulcimer', oct: 3, gain: 0.8, art: null, fam: null }];
 
   const L = (id, inst, spec) => Object.assign({ id, inst, gain: 1 }, spec);
 
@@ -204,8 +68,9 @@ const MusicCues = (() => {
      order they arrive in. */
 
   const FINALE = {
-    level: 0.84, room: 'hall', reverb: 0.34,
+    level: 0.84, room: 'epic', reverb: 0.34,
     gears: ['arrival', 'floor', 'ballot', 'afterTraitor'],
+    trans: { '*>ballot': 'fill' },
     sections: {
 
       /* The loch. A fifth on the low strings, the theme on a piano
@@ -217,7 +82,7 @@ const MusicCues = (() => {
         L('drone5', 'strings', { pat: BAR1, abs: 7, oct: 1, len: 32,
           art: 'sustain', gain: 0.55, when: b => b % 2 === 0, voices: 2 }),
         L('piano', 'piano', { motif: 'theme', oct: 3, gain: 0.9, when: b => b % 8 < 4 }),
-        L('cello', 'strings', { motif: 'theme', oct: 2, gain: 1.05, art: 'sustain',
+        L('cello', 'strings', { motif: 'theme', oct: 2, gain: 1.05, art: 'sustain', legato: true,
           fam: 'cello', when: b => b % 8 >= 4, peak: 0.07 }),
         L('air', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo',
           gain: 0.35, a: 1.2 }),
@@ -230,7 +95,7 @@ const MusicCues = (() => {
           gain: 0.9, when: b => b % 2 === 0 }),
         L('swell', 'strings', { pat: HALF, pick: 'chord', oct: 3, len: 8, art: 'swell',
           gain: 0.5 }),
-        L('cello', 'strings', { motif: 'theme', oct: 2, gain: 0.9, art: 'sustain', fam: 'cello' }),
+        L('cello', 'strings', { motif: 'theme', oct: 2, gain: 0.9, art: 'sustain', fam: 'cello', legato: true }),
         L('heart', 'heartbeat', { pat: HALF, gain: 0.55 }),
         L('air', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.4 }),
       ]},
@@ -242,7 +107,7 @@ const MusicCues = (() => {
          and the layers gated on `minInt` arrive with them. */
       floor: { bpm: 72, prog: 'floor', form: ['AAB AAC', 'ABA ACC'], progs: { B: 'omen', C: 'abyss' },
         talkDuck: 0.32, duckLift: 0, layers: [
-        L('pizz', 'pizz', { pat: OST8_V, pick: OST8_P, oct: 2, gain: 0.75, int: true }),
+        L('pizz', 'pizz', { pat: OST8_V, pick: OST8_P, pats: TALK_V, picks: TALK_P, oct: 2, gain: 0.75, int: true }),
         L('heart', 'heartbeat', { pat: HALF, gain: 0.45 }),
         L('low', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain',
           gain: 0.55, voices: 2 }),
@@ -312,7 +177,8 @@ const MusicCues = (() => {
       afterTraitor: { bpm: 104, prog: 'fire', layers: [
         L('ost', 'strings', { pat: OST16_V, pick: OST16_P, oct: 1, art: 'spic',
           gain: 1, int: true, fam: 'cello' }),
-        L('taiko', 'taiko', { pat: vel('X.....7.X.....8.'), gain: 0.85, int: true }),
+        L('ens', 'taikoEns', { pat: BAR1, gain: 0.85 }),
+        L('taiko', 'taiko', { pat: vel('......7.X.....8.'), gain: 0.85, int: true }),
         L('horn', 'brass', { motif: 'theme', oct: 2, gain: 0.85 }),
         L('horn8', 'brass', { motif: 'theme', oct: 1, gain: 0.5 }),
         L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'ah', gain: 0.5 }),
@@ -324,10 +190,10 @@ const MusicCues = (() => {
          strings that hardly move. Somebody innocent just went into
          the fire, and the music is the only thing that says so. */
       afterFaithful: { bpm: 64, prog: 'fire', layers: [
-        L('cello', 'strings', { motif: 'theme', oct: 2, gain: 1.1, art: 'sustain',
+        L('cello', 'strings', { motif: 'theme', oct: 2, gain: 1.1, art: 'sustain', legato: true,
           fam: 'cello', peak: 0.07, voices: 2 }),
         L('pad', 'strings', { pat: HALF, pick: 'chord', oct: 3, len: 8, art: 'swell', gain: 0.35 }),
-        L('low', 'piano', { pat: BAR1, pick: 'root', oct: 1, gain: 0.55 }),
+        L('low', 'pianoLow', { pat: BAR1, pick: 'root', oct: 2, gain: 0.5, when: b => b % 2 === 0 }),
         L('air', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.3 }),
       ]},
 
@@ -335,6 +201,11 @@ const MusicCues = (() => {
          key rises a semitone per pouch, set by the scene. */
       lastPouches: { bpm: 72, prog: 'pouch', layers: [
         L('pizz', 'pizz', { pat: OST8_V, pick: OST8_P, oct: 2, gain: 0.7 }),
+        // each pouch opened winds it tighter (`setTension`, from fireplace.js)
+        L('timpT', 'timpani', { pat: vel('X.......X.......'), pick: 'root', oct: 1, gain: 0.45, tens: [0.5, 1] }),
+        L('ostT', 'strings', { pat: OST8_V, pick: OST8_P, oct: 1, art: 'spic', fam: 'cello', gain: 0.6, tens: [0.65, 1] }),
+        L('hornT', 'horn', { pat: BAR1, pick: 'chord', oct: 2, len: 16, art: 'swell', gain: 0.5, tens: [0.8, 1],
+          when: b => b % 2 === 1 }),
         L('trem', 'strings', { pat: BAR1, pick: 'chord', oct: 3, len: 16, art: 'tremolo',
           gain: 0.5 }),
         L('choir', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.5 }),
@@ -342,11 +213,30 @@ const MusicCues = (() => {
         L('heart', 'heartbeat', { pat: HALF, gain: 0.5 }),
       ]},
 
+      /* A Traitor in the very last pouch. They got away with it, and the
+         Traitors' motif is stated whole for the first time — by all of
+         it: the horns and trombones, the violins an octave up, the
+         chant, the anvils, three taikos to a beat and the floor going. */
+      finalBurn: { bpm: 84, prog: 'omen', layers: [
+        L('brass', 'brass', { motif: 'traitors', oct: 2, gain: 0.95 }),
+        L('low', 'lowBrass', { motif: 'traitors', oct: 2, gain: 0.7 }),
+        L('violins', 'strings', { motif: 'traitors', oct: 3, art: 'sustain', fam: 'hiStr', gain: 0.6, oct8: true, legato: true }),
+        L('ost', 'strings', { pat: OST16_V, pick: OST16_P, oct: 1, art: 'spic', gain: 1, fam: 'cello' }),
+        L('chant', 'chant', { pat: vel('X...X...X.X.X...'), pick: 'chord', oct: 3, gain: 0.6 }),
+        L('ens', 'taikoEns', { pat: vel('X.......X.....7.'), gain: 0.9 }),
+        L('anvil', 'anvil', { pat: vel('....X.......X...'), gain: 0.55, when: b => b % 2 === 1 }),
+        L('drop', 'subDrop', { pat: BAR1, gain: 0.6, len: 16, when: b => b % 4 === 0 }),
+        L('braam', 'braam', { pat: BAR1, pick: 'root', oct: 1, len: 16, gain: 0.5, when: b => b % 4 === 2 }),
+        L('toll', 'bell', { pat: HALF, abs: 0, oct: 3, gain: 0.45, ratio: 1.4, decay: 3.5 }),
+      ]},
+
       /* The verdicts. Each is the whole theme, eight bars, and each is
-         a different piece of music. */
-      verdictWin: { bpm: 76, prog: 'victory', layers: [
-        L('violins', 'strings', { motif: 'hymn', oct: 3, gain: 0.9, art: 'sustain', fam: 'hiStr' }),
-        L('horn', 'brass', { motif: 'hymn', oct: 2, gain: 0.6 }),
+         a different piece of music — and each has a second arrangement,
+         which the night's seed picks (`alt`), so two games do not end on
+         the same recording. */
+      verdictWin: { bpm: 76, prog: 'victory', alt: ['verdictWin2'], layers: [
+        L('violins', 'strings', { motif: 'hymn', oct: 3, gain: 0.9, art: 'sustain', fam: 'hiStr', legato: true, oct8: true }),
+        L('horn', 'horn', { motif: 'hymn', oct: 2, gain: 0.8 }),
         L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'ah', gain: 0.6 }),
         L('celli', 'strings', { pat: HALF, pick: 'root', oct: 1, len: 8, art: 'sustain',
           gain: 0.7, fam: 'cello' }),
@@ -355,8 +245,21 @@ const MusicCues = (() => {
         L('harp', 'harp', { pat: vel('X.6.7.6.X.6.7.6.'), pick: ARP8_P, oct: 3, gain: 0.45 }),
       ]},
 
-      verdictLoss: { bpm: 58, prog: 'fate', layers: [
-        L('cello', 'strings', { motif: 'fate', oct: 2, gain: 1.05, art: 'sustain',
+      // the Faithful's own motif, at last, on the horns, over the whole band
+      verdictWin2: { bpm: 80, prog: 'victory', layers: [
+        L('horn', 'horn', { motif: 'faithful', oct: 2, gain: 0.95 }),
+        L('violins', 'strings', { motif: 'faithful', oct: 3, art: 'sustain', fam: 'hiStr', gain: 0.7, legato: true,
+          when: b => b % 8 >= 4 }),
+        L('pad', 'strings', { pat: HALF, pick: 'chord', oct: 3, len: 8, art: 'sustain', gain: 0.4 }),
+        L('celli', 'strings', { pat: OST8_V, pick: OST8_P, oct: 1, art: 'spic', fam: 'cello', gain: 0.7 }),
+        L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'ah', gain: 0.55 }),
+        L('ens', 'taikoEns', { pat: vel('X.......X.......'), gain: 0.7 }),
+        L('timp', 'timpani', { pat: vel('X.......6...6...'), pick: 'root', oct: 1, gain: 0.5 }),
+        L('bells', 'bell', { pat: HALF, pick: 'top', oct: 4, gain: 0.3 }),
+      ]},
+
+      verdictLoss: { bpm: 58, prog: 'fate', alt: ['verdictLoss2'], layers: [
+        L('cello', 'strings', { motif: 'fate', oct: 2, gain: 1.05, art: 'sustain', legato: true,
           fam: 'cello', peak: 0.07, voices: 2 }),
         L('pad', 'strings', { pat: BAR1, pick: 'chord', oct: 3, len: 16, art: 'swell', gain: 0.3 }),
         L('piano', 'piano', { pat: vel('X.......5.......'), pick: pick('0.......2.......'),
@@ -364,9 +267,18 @@ const MusicCues = (() => {
         L('air', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.3 }),
       ]},
 
+      // the castle theme on a solo cello over one low piano note and glass
+      verdictLoss2: { bpm: 56, prog: 'fire', layers: [
+        L('cello', 'strings', { motif: 'theme', oct: 2, gain: 1.05, art: 'sustain', fam: 'cello', legato: true,
+          peak: 0.07, voices: 2, vary: true }),
+        L('low', 'pianoLow', { pat: BAR1, pick: 'root', oct: 2, gain: 0.45, when: b => b % 2 === 0 }),
+        L('glass', 'glass', { pat: BAR1, pick: 'top', oct: 4, len: 14, gain: 0.45, when: b => b % 4 === 3 }),
+        L('air', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.25 }),
+      ]},
+
       /* The Traitor got away with it. Minor, triumphant, with bells
          tolling — the villain's anthem, not the victim's. */
-      verdictTraitor: { bpm: 72, prog: 'fate', layers: [
+      verdictTraitor: { bpm: 72, prog: 'fate', alt: ['verdictTraitor2'], layers: [
         L('toll', 'bell', { pat: HALF, abs: 0, oct: 3, gain: 0.55, ratio: 1.4, decay: 3.5 }),
         L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'ah', gain: 0.65 }),
         L('horn', 'brass', { motif: 'fate', oct: 2, gain: 0.7 }),
@@ -375,22 +287,36 @@ const MusicCues = (() => {
         L('taiko', 'taiko', { pat: vel('X.......X.....5.'), gain: 0.7 }),
       ]},
 
+      // the Traitors' motif, low and slow, on the trombones, with the bells
+      verdictTraitor2: { bpm: 66, prog: 'omen', layers: [
+        L('low', 'lowBrass', { motif: 'traitors', oct: 2, gain: 0.8 }),
+        L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'ah', gain: 0.6 }),
+        L('toll', 'bell', { pat: HALF, abs: 0, oct: 3, gain: 0.5, ratio: 1.4, decay: 3.5 }),
+        L('ost', 'strings', { pat: OST8_V, pick: OST8_P, oct: 1, art: 'spic', gain: 0.8, fam: 'cello' }),
+        L('ens', 'taikoEns', { pat: vel('X.......X.......'), gain: 0.7 }),
+        L('glass', 'glass', { pat: BAR1, abs: 13, oct: 3, len: 14, gain: 0.35, bend: true, when: b => b % 4 === 3 }),
+      ]},
+
       /* The credits, under the verdict panel: the same three, gentler,
-         so the table can sit with the result for as long as it likes. */
-      creditsWin: { bpm: 76, prog: 'victory', layers: [
+         so the table can sit with the result for as long as it likes.
+         Each is a medley — the night's tunes in turn, one a phrase. */
+      creditsWin: { bpm: 76, prog: 'victory', form: 'AABB', phrase: 8, layers: [
         L('harp', 'harp', { pat: vel('X.6.7.6.X.6.7.6.'), pick: ARP8_P, oct: 3, gain: 0.5 }),
-        L('violins', 'strings', { motif: 'hymn', oct: 3, gain: 0.55, art: 'sustain', fam: 'hiStr' }),
+        L('horn', 'horn', { motif: 'faithful', oct: 2, gain: 0.6, parts: 'B' }),
+        L('violins', 'strings', { motif: 'hymn', oct: 3, gain: 0.55, art: 'sustain', fam: 'hiStr', parts: 'A', legato: true }),
         L('celli', 'strings', { pat: HALF, pick: 'root', oct: 1, len: 8, art: 'sustain',
           gain: 0.5, fam: 'cello' }),
         L('air', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.3 }),
       ]},
-      creditsLoss: { bpm: 58, prog: 'fate', layers: [
-        L('piano', 'piano', { motif: 'fate', oct: 3, gain: 0.75 }),
+      creditsLoss: { bpm: 58, prog: 'fate', form: 'AABB', phrase: 8, progs: { B: 'fire' }, layers: [
+        L('piano', 'piano', { motif: 'fate', oct: 3, gain: 0.75, parts: 'A' }),
+        L('cello', 'strings', { motif: 'theme', oct: 2, gain: 0.8, art: 'sustain', fam: 'cello', legato: true, parts: 'B' }),
         L('low', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain', gain: 0.45 }),
         L('pad', 'strings', { pat: BAR1, pick: 'chord', oct: 3, len: 16, art: 'swell', gain: 0.22 }),
       ]},
-      creditsTraitor: { bpm: 72, prog: 'fate', layers: [
-        L('box', 'celesta', { motif: 'fate', oct: 4, gain: 0.6 }),
+      creditsTraitor: { bpm: 72, prog: 'fate', form: 'AABB', phrase: 8, progs: { B: 'omen' }, layers: [
+        L('box', 'celesta', { motif: 'fate', oct: 4, gain: 0.6, parts: 'A' }),
+        L('box2', 'celesta', { motif: 'traitors', oct: 4, gain: 0.6, parts: 'B' }),
         L('ost', 'strings', { pat: OST8_V, pick: OST8_P, oct: 1, art: 'spic', gain: 0.5,
           fam: 'cello' }),
         L('air', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.32 }),
@@ -410,8 +336,8 @@ const MusicCues = (() => {
          enough to feel like the opening titles, never cheerful. */
       title: { bpm: 92, prog: 'fire', form: ['AABC', 'ABAC'], progs: { C: 'omen' },
         duckLift: 0.25, talkDuck: 0.32, layers: [
-        L('piano', 'piano', { motif: 'theme', oct: 3, gain: 0.75, parts: 'AB' }),
-        L('horn', 'brass', { motif: 'theme', oct: 2, gain: 0.5, parts: 'B' }),
+        L('piano', 'piano', { motif: 'theme', oct: 3, gain: 0.75, parts: 'AB', vary: true }),
+        L('horn', 'horn', { motif: 'theme', oct: 2, gain: 0.7, parts: 'B' }),
         L('braam', 'braam', { pat: BAR1, pick: 'root', oct: 1, len: 24, gain: 0.5, parts: 'C',
           when: b => b % 2 === 0 }),
         L('bass', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.45, parts: 'BC' }),
@@ -442,7 +368,8 @@ const MusicCues = (() => {
          same ten seconds, whoever is choosing. */
       wiseClock: { bpm: 120, prog: 'knife', duckLift: 0, layers: [
         L('heart', 'heartbeat', { pat: BEATS, gain: 0.7 }),
-        L('clock', 'pizz', { pat: vel('X.6.X.6.X.6.X.6.'), pick: pick('3.3.3.3.3.3.3.3.'), oct: 3, gain: 0.5 }),
+        L('clock', 'tick', { pat: vel('X...X...X...X...'), gain: 0.55 }),
+        L('tock', 'tick', { pat: vel('..8...8...8...8.'), tock: true, gain: 0.55 }),
         L('trem', 'strings', { pat: BAR1, pick: 'chord', oct: 3, len: 16, art: 'tremolo', gain: 0.5 }),
         L('low', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain', gain: 0.6, voices: 2 }),
         L('pulse', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.45 }),
@@ -450,11 +377,11 @@ const MusicCues = (() => {
       ]},
       /* The rise: the roll that keeps climbing, the choir coming up
          under it, and nothing resolving until the name lands. */
+      /* The bed under the Wise One's build (`build.js`, shape 'wise'):
+         the key held low and a choir on "oo". The build does the rest. */
       wiseRise: { bpm: 84, prog: 'hold', duckLift: 0, layers: [
-        L('roll', 'timpani', { pat: vel('3344556677889XXX'), pick: 'root', oct: 1, gain: 0.6 }),
-        L('trem', 'strings', { pat: BAR1, pick: 'chord', oct: 3, len: 16, art: 'tremolo', gain: 0.6 }),
-        L('choir', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'ah', gain: 0.5 }),
         L('low', 'strings', { pat: BAR1, abs: 0, oct: 1, len: 16, art: 'sustain', gain: 0.6, voices: 2 }),
+        L('air', 'choir', { pat: BAR1, abs: 0, oct: 3, len: 16, vowel: 'oo', gain: 0.3 }),
       ]},
       /* And the Wise One is named — to two screens. The theme, whole,
          on the horns, which is the first time the hill has heard it. */
@@ -508,9 +435,10 @@ const MusicCues = (() => {
   const TITLE = {
     level: 0.4, room: 'hall', reverb: 0.3,
     gears: ['gate', 'anthem'],
+    trans: { '*>anthem': 'fill' },
     sections: {
-      gate: { bpm: 132, prog: 'epic', duckLift: 0.3, talkDuck: 0.3, layers: [
-        L('lead', 'piano', { motif: 'overture', oct: 3, gain: 0.62 }),
+      gate: { bpm: 132, prog: 'epic', alt: ['gate2', 'gate3'], duckLift: 0.3, talkDuck: 0.3, layers: [
+        L('lead', 'piano', { motif: 'overture', oct: 3, gain: 0.62, vary: true }),
         L('riff', 'strings', { pat: RAID16_V, pick: RAID16_P, oct: 1, art: 'spic', gain: 0.6, fam: 'cello' }),
         L('pizz', 'pizz', { pat: OST8_V, pick: OST8_P, oct: 2, gain: 0.4 }),
         L('bass', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.35 }),
@@ -521,13 +449,33 @@ const MusicCues = (() => {
       /* The same eight bars with everybody in: horns on the riff, the
          violins doubling it on the second pass, the choir in short
          stabs instead of a held chord, and drums on every push. */
-      anthem: { bpm: 132, prog: 'epic', duckLift: 0.3, talkDuck: 0.3, layers: [
-        L('horn', 'brass', { motif: 'overture', oct: 2, gain: 0.6 }),
+      /* The second visit to the front door: the riff plucked, a ticking
+         synth under it and a music box an octave up. */
+      gate2: { bpm: 132, prog: 'epic', duckLift: 0.3, talkDuck: 0.3, layers: [
+        L('lead', 'pizz', { motif: 'overture', oct: 3, gain: 0.8, vary: true }),
+        L('box', 'celesta', { motif: 'overture', oct: 4, gain: 0.25, when: b => b % 16 >= 8 }),
+        L('ticker', 'ostSynth', { pat: vel('X5657565X5657565'), pick: 'root', oct: 2, gain: 0.3 }),
+        L('low', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain', gain: 0.45, voices: 2 }),
+        L('bass', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.35 }),
+        L('taiko', 'taiko', { pat: vel('X.......X.....6.'), gain: 0.42 }),
+      ]},
+      // the third: the horns on the riff over the pipes' drones, and a side drum
+      gate3: { bpm: 132, prog: 'epic', duckLift: 0.3, talkDuck: 0.3, layers: [
+        L('lead', 'horn', { motif: 'overture', oct: 2, gain: 0.7, vary: true }),
+        L('drones', 'pipeDrone', { pat: BAR1, abs: 0, oct: 2, len: 32, gain: 0.55, when: b => b % 2 === 0 }),
+        L('riff', 'strings', { pat: RAID16_V, pick: RAID16_P, oct: 1, art: 'spic', gain: 0.55, fam: 'cello' }),
+        L('snare', 'snare', { pat: vel('X.5.7.5.X.5.757X'), gain: 0.12 }),
+        L('taiko', 'taiko', { pat: vel('X.....6.X.......'), gain: 0.42 }),
+      ]},
+
+      anthem: { bpm: 132, prog: 'epic', alt: ['anthem2', 'anthem3'], duckLift: 0.3, talkDuck: 0.3, layers: [
+        L('horn', 'brass', { motif: 'overture', oct: 2, gain: 0.6, vary: true }),
         L('violins', 'strings', { motif: 'overture', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.45,
           when: b => b % 16 >= 8 }),
         L('riff', 'strings', { pat: RAID16_V, pick: RAID16_P, oct: 1, art: 'spic', gain: 0.75, fam: 'cello' }),
         L('riff2', 'strings', { pat: RAID16_V, pick: RAID16_P, oct: 2, art: 'spic', gain: 0.32, fam: 'hiStr' }),
         L('stab', 'choir', { pat: vel('X.....7.....8...'), pick: 'chord', oct: 3, len: 2, vowel: 'ah', gain: 0.3 }),
+        L('ticker', 'ostSynth', { pat: vel('X5657565X5657565'), pick: 'root', oct: 2, gain: 0.3, when: b => b % 16 >= 4 }),
         L('bass', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.45 }),
         L('taiko', 'taiko', { pat: vel('X.....6.X.6...7.'), gain: 0.6 }),
         L('snare', 'snare', { pat: vel('....7.......7..5'), gain: 0.28 }),
@@ -538,6 +486,33 @@ const MusicCues = (() => {
     },
   };
 
+  // the lifts of the other two arrangements, everybody in
+  Object.assign(TITLE.sections, {
+    anthem2: { bpm: 132, prog: 'epic', duckLift: 0.3, talkDuck: 0.3, layers: [
+      L('low', 'lowBrass', { motif: 'overture', oct: 2, gain: 0.55, vary: true }),
+      L('violins', 'strings', { motif: 'overture', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.45, oct8: true }),
+      L('riff', 'strings', { pat: RAID16_V, pick: RAID16_P, oct: 1, art: 'spic', gain: 0.75, fam: 'cello' }),
+      L('stab', 'choir', { pat: vel('X.....7.....8...'), pick: 'chord', oct: 3, len: 2, vowel: 'ah', gain: 0.3 }),
+      L('ticker', 'ostSynth', { pat: vel('X5657565X5657565'), pick: 'root', oct: 2, gain: 0.28 }),
+      L('bass', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.45 }),
+      L('ens', 'taikoEns', { pat: vel('X.......X.......'), gain: 0.55 }),
+      L('taiko', 'taiko', { pat: vel('......6.....6.7.'), gain: 0.5 }),
+      L('snare', 'snare', { pat: vel('....7.......7..5'), gain: 0.26 }),
+      L('crash', 'crash', { pat: BAR1, gain: 0.35, when: b => b % 8 === 0 }),
+    ]},
+    anthem3: { bpm: 132, prog: 'epic', duckLift: 0.3, talkDuck: 0.3, layers: [
+      L('horn', 'brass', { motif: 'overture', oct: 2, gain: 0.55, vary: true }),
+      L('chanter', 'pipes', { motif: 'overture', oct: 3, gain: 0.45, when: b => b % 16 >= 8 }),
+      L('drones', 'pipeDrone', { pat: BAR1, abs: 0, oct: 2, len: 16, gain: 0.6 }),
+      L('riff', 'strings', { pat: RAID16_V, pick: RAID16_P, oct: 1, art: 'spic', gain: 0.75, fam: 'cello' }),
+      L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'oh', gain: 0.32 }),
+      L('bass', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.45 }),
+      L('snare', 'snare', { pat: vel('X5X57575X5X575XX'), gain: 0.18 }),
+      L('taiko', 'taiko', { pat: vel('X.....6.X.6...7.'), gain: 0.6 }),
+      L('crash', 'crash', { pat: BAR1, gain: 0.35, when: b => b % 8 === 0 }),
+    ]},
+  });
+
   /* ---------------- the round table ----------------
      Candles, a ring of chairs, and an argument. Everything under the
      discussion is low and rhythmic and ducks hard under any voice;
@@ -545,14 +520,16 @@ const MusicCues = (() => {
      banishment is the whole hall at once, then either the hymn's
      relief or the lament. */
   const ROUNDTABLE = {
-    level: 0.82, room: 'hall', reverb: 0.36,
+    level: 0.82, room: 'epic', reverb: 0.36,
     gears: ['gather', 'debate', 'slate', 'reveal'],
+    // the argument stops dead before the slates; the walk out is kicked in
+    trans: { 'debate>slate': 'cut', '*>walkout': 'fill' },
     sections: {
       gather: { bpm: 66, prog: 'table', form: 'AABC', progs: { C: 'omen' }, duckLift: 0.3, layers: [
         L('drone', 'strings', { pat: BAR1, abs: 0, oct: 1, len: 32, art: 'sustain',
           gain: 0.8, when: b => b % 2 === 0, voices: 3 }),
         L('harp', 'harp', { pat: vel('X.5.6.5.X.5.6.5.'), pick: ARP8_P, oct: 2, gain: 0.45 }),
-        L('cello', 'strings', { motif: 'theme', oct: 2, gain: 0.85, art: 'sustain',
+        L('cello', 'strings', { motif: 'theme', oct: 2, gain: 0.85, art: 'sustain', legato: true,
           fam: 'cello', when: b => b % 8 >= 4, parts: 'AB' }),
         L('air', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.32 }),
         L('pizz', 'pizz', { pat: OST8_V, pick: OST8_P, oct: 2, gain: 0.5, parts: 'BC' }),
@@ -563,9 +540,9 @@ const MusicCues = (() => {
          the harmony to the flat second with a choir humming under it,
          C is the abyss chords with a pulse in the low synth and the
          drums a long way off. Never a tune: it is underneath voices. */
-      debate: { bpm: 84, prog: 'table', form: ['AABA CB', 'ABAC BC', 'AACA BB'],
+      debate: { bpm: 84, prog: 'table', form: ['AABA CB', 'ABAC BC', 'AACA BB'], alt: ['debateClock'],
         progs: { B: 'omen', C: 'abyss' }, talkDuck: 0.28, duckLift: 0, layers: [
-        L('pizz', 'pizz', { pat: OST8_V, pick: OST8_P, oct: 2, gain: 0.7, int: true }),
+        L('pizz', 'pizz', { pat: OST8_V, pick: OST8_P, pats: TALK_V, picks: TALK_P, oct: 2, gain: 0.7, int: true }),
         L('low', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain',
           gain: 0.5, voices: 2 }),
         L('heart', 'heartbeat', { pat: HALF, gain: 0.35, minInt: 0.8 }),
@@ -578,26 +555,55 @@ const MusicCues = (() => {
         L('pulse', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.4, parts: 'C' }),
         L('taiko', 'taiko', { pat: vel('X.........6.....'), gain: 0.35, parts: 'C' }),
       ]},
+      /* The slates. A clock and a heart; and as each slate turns the
+         tension goes up a notch (castle-scene.js), the clock doubles, a
+         pulse arrives under it and the strings start to shiver. */
+      /* The other day's argument: the suspicion clock, in seven-eight —
+         a tick grouped two, two, three, so the bar comes round a quaver
+         before you expect it, and the clock's own tune on a music box.
+         Underneath voices, so still never a tune you could hum. */
+      debateClock: { bpm: 84, steps: 14, prog: 'omen', form: ['AABA', 'ABAB'], progs: { B: 'abyss' },
+        talkDuck: 0.28, duckLift: 0, layers: [
+        L('tick', 'tick', { pat: vel('X...6...7.....'), gain: 0.45 }),
+        L('tock', 'tick', { pat: vel('..5...5...5.5.'), tock: true, gain: 0.35 }),
+        L('pizz', 'pizz', { pat: vel('X.6.X.6.X.6.8.'), pick: pick('0.2.3.2.0.2.1.'), oct: 2, gain: 0.6, int: true }),
+        L('low', 'strings', { pat: vel('X.............'), pick: 'root', oct: 1, len: 14, art: 'sustain', gain: 0.5, voices: 2 }),
+        L('box', 'celesta', { motif: 'suspicion', oct: 4, gain: 0.3, parts: 'A', vary: true }),
+        L('heart', 'heartbeat', { pat: vel('X.......X.....'), gain: 0.35, minInt: 0.8 }),
+        L('mm', 'choir', { pat: vel('X.............'), pick: 'chord', oct: 2, len: 14, vowel: 'mm', gain: 0.3, parts: 'B' }),
+        L('pulse', 'synthBass', { pat: vel('X.6.X.6.X.6.6.'), pick: 'root', oct: 1, len: 2, gain: 0.35, minInt: 1.0 }),
+        L('trem', 'strings', { pat: vel('X.............'), pick: 'top', oct: 4, len: 14, art: 'tremolo', gain: 0.22, minInt: 1.1 }),
+      ]},
       slate: { bpm: 60, prog: 'hold', layers: [
+        L('tick8', 'tick', { pat: vel('..6...6...6...6.'), gain: 0.4, tens: [0.55, 1] }),
+        L('pulseT', 'synthBass', { pat: vel('X.......X.......'), pick: 'root', oct: 1, len: 3, gain: 0.45, tens: [0.7, 1] }),
+        L('tremT', 'strings', { pat: BAR1, pick: 'top', oct: 4, len: 16, art: 'tremolo', gain: 0.3, tens: [0.82, 1] }),
         L('heart', 'heartbeat', { pat: BEATS, gain: 0.7 }),
-        L('clock', 'pizz', { pat: vel('X...6...X...6...'), pick: pick('0...0...0...0...'),
-          oct: 3, gain: 0.45 }),
+        L('clock', 'tick', { pat: vel('X.......X.......'), gain: 0.55 }),
+        L('tock', 'tick', { pat: vel('....8.......8...'), tock: true, gain: 0.55 }),
         L('trem', 'strings', { pat: BAR1, pick: 'chord', oct: 2, len: 16, art: 'tremolo', gain: 0.4 }),
         L('sub', 'strings', { pat: BAR1, abs: 0, oct: 1, len: 16, art: 'sustain', gain: 0.5 }),
       ]},
+      /* The name, and the walk to stand where everybody can see: a slow
+         march — two drums a bar, a snare that hardly touches it, the
+         horns swelling on the chord. */
       reveal: { bpm: 60, prog: 'pouch', duckLift: 0.15, layers: [
-        L('trem', 'strings', { pat: BAR1, pick: 'chord', oct: 3, len: 16, art: 'tremolo', gain: 0.55 }),
-        L('choir', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.55 }),
-        L('low', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain', gain: 0.7 }),
-        L('timp', 'timpani', { pat: BAR1, pick: 'root', oct: 1, gain: 0.5, when: b => b % 2 === 1 }),
+        L('march', 'timpani', { pat: vel('X.......8.......'), pick: 'root', oct: 1, gain: 0.45 }),
+        L('snare', 'snare', { pat: vel('............5.55'), gain: 0.14 }),
+        L('low', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain', gain: 0.65 }),
+        L('horn', 'horn', { pat: BAR1, pick: 'chord', oct: 2, len: 16, art: 'swell', gain: 0.4, when: b => b % 2 === 0 }),
+        L('choir', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.35 }),
       ]},
-      /* Before they say what they are: a roll on the timpani that keeps
-         getting louder, the strings shivering, a heart under it. */
-      drumroll: { bpm: 76, prog: 'hold', duckLift: 0, layers: [
-        L('roll', 'timpani', { pat: vel('3344556677889XXX'), pick: 'root', oct: 1, gain: 0.55 }),
-        L('trem', 'strings', { pat: BAR1, pick: 'chord', oct: 3, len: 16, art: 'tremolo', gain: 0.5 }),
+      // their last words: one held string and a heart, and nothing over their voice
+      lastWords: { bpm: 60, prog: 'hold', duckLift: 0, layers: [
         L('low', 'strings', { pat: BAR1, abs: 0, oct: 1, len: 16, art: 'sustain', gain: 0.6, voices: 2 }),
-        L('heart', 'heartbeat', { pat: BEATS, gain: 0.55 }),
+        L('heart', 'heartbeat', { pat: HALF, gain: 0.45 }),
+      ]},
+      /* The bed under "I am…". It used to be the roll itself; the roll is
+         the build's now (`build.js`, shape 'banish'), and this is only
+         what is left underneath when the build is cut: the key, low. */
+      drumroll: { bpm: 76, prog: 'hold', duckLift: 0, layers: [
+        L('low', 'strings', { pat: BAR1, abs: 0, oct: 1, len: 16, art: 'sustain', gain: 0.55, voices: 2 }),
       ]},
       /* And then they walk out. Everything the band has: the theme on
          the horns, the choir, the ostinato, the big drums. */
@@ -607,7 +613,8 @@ const MusicCues = (() => {
         L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'ah', gain: 0.62 }),
         L('ost', 'strings', { pat: OST16_V, pick: OST16_P, oct: 1, art: 'spic', gain: 0.95, fam: 'cello' }),
         L('ost2', 'strings', { pat: OST16_V, pick: OST16_P, oct: 2, art: 'spic', gain: 0.45, fam: 'hiStr' }),
-        L('taiko', 'taiko', { pat: vel('X.7.X.7.X.7.X.8X'), gain: 0.85 }),
+        L('ens', 'taikoEns', { pat: BAR1, gain: 0.9 }),
+        L('taiko', 'taiko', { pat: vel('..7.X.7.X.7.X.8X'), gain: 0.85 }),
         L('timp', 'timpani', { pat: vel('X.......X.......'), pick: 'root', oct: 1, gain: 0.6 }),
         L('crash', 'crash', { pat: BAR1, gain: 0.45, when: b => b % 4 === 0 }),
         L('bells', 'bell', { pat: BAR1, pick: 'top', oct: 4, gain: 0.25 }),
@@ -615,13 +622,12 @@ const MusicCues = (() => {
       /* The Wise One's slate, last, with the room told it outranks
          theirs. The roll and the choir climb for as long as Claudia
          holds it; the riser rides on top. */
+      /* The bed under the overrule's build: a braam every other bar on
+         the abyss chords, which is what tells the room this one is not
+         like the other slates. The build climbs over it. */
       overruleRise: { bpm: 88, prog: 'abyss', duckLift: 0.1, layers: [
-        L('roll', 'timpani', { pat: vel('445566778899XXXX'), pick: 'root', oct: 1, gain: 0.65 }),
-        L('trem', 'strings', { pat: BAR1, pick: 'chord', oct: 3, len: 16, art: 'tremolo', gain: 0.6 }),
-        L('trem2', 'strings', { pat: BAR1, pick: 'top', oct: 4, len: 16, art: 'tremolo', gain: 0.35 }),
-        L('choir', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'ah', gain: 0.6 }),
         L('low', 'braam', { pat: BAR1, pick: 'root', oct: 1, len: 16, gain: 0.45, when: b => b % 2 === 0 }),
-        L('heart', 'heartbeat', { pat: BEATS, gain: 0.6 }),
+        L('air', 'choir', { pat: BAR1, pick: 'chord', oct: 2, len: 16, vowel: 'mm', gain: 0.35 }),
       ]},
       /* The overrule. Everything the band owns at once, faster than
          anything else at the table: the theme on two octaves of horns
@@ -636,7 +642,10 @@ const MusicCues = (() => {
         L('ost2', 'strings', { pat: OST16_V, pick: OST16_P, oct: 2, art: 'spic', gain: 0.5, fam: 'hiStr' }),
         L('pulse', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.5 }),
         L('braam', 'braam', { pat: BAR1, pick: 'root', oct: 1, len: 16, gain: 0.45, when: b => b % 4 === 0 }),
-        L('taiko', 'taiko', { pat: vel('X.7.X.7.X.7.X.8X'), gain: 0.9 }),
+        L('ens', 'taikoEns', { pat: HALF, gain: 0.95 }),
+        L('chant', 'chant', { pat: vel('X.7.X.7.X.7.X.8.'), pick: 'chord', oct: 3, gain: 0.6 }),
+        L('anvil', 'anvil', { pat: vel('X.......7.......'), gain: 0.6, when: b => b % 2 === 1 }),
+        L('taiko', 'taiko', { pat: vel('..7...7...7...8X'), gain: 0.9 }),
         L('tom', 'tom', { pat: vel('....6.......6.7.'), gain: 0.45 }),
         L('timp', 'timpani', { pat: vel('X.......X...X.X.'), pick: 'root', oct: 1, gain: 0.6 }),
         L('crash', 'crash', { pat: BAR1, gain: 0.5, when: b => b % 2 === 0 }),
@@ -656,9 +665,10 @@ const MusicCues = (() => {
   const MURDER = {
     level: 0.8, room: 'cathedral', reverb: 0.42,
     gears: ['nightfall', 'conclave', 'deed', 'breakfast'],
+    trans: { 'dawn>breakfast': 'swell' },
     sections: {
       nightfall: { bpm: 54, prog: 'conclave', form: ['AB', 'AABB'], progs: { B: 'omen' },
-        duckLift: 0.25, layers: [
+        alt: ['nightGlass', 'nightBells'], duckLift: 0.25, layers: [
         L('box', 'celesta', { motif: 'theme', oct: 4, gain: 0.55, parts: 'A' }),
         L('toll', 'bell', { pat: HALF, abs: 0, oct: 3, gain: 0.3, ratio: 1.4, decay: 3.5, parts: 'B' }),
         L('mm', 'choir', { pat: BAR1, pick: 'chord', oct: 2, len: 16, vowel: 'mm', gain: 0.38, parts: 'B' }),
@@ -666,8 +676,35 @@ const MusicCues = (() => {
         L('sub', 'strings', { pat: BAR1, abs: 0, oct: 1, len: 32, art: 'sustain', gain: 0.6,
           when: b => b % 2 === 0, voices: 2 }),
         L('air', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.28 }),
+        L('glass', 'glass', { pat: BAR1, pick: 'top', oct: 4, len: 12, gain: 0.55, bend: true, when: b => b % 2 === 1 }),
       ]},
+      /* The second night, and every third after: glass and nothing
+         else to speak of — a wet finger on a rim, a sagging note high
+         up, one low piano key every other bar. */
+      nightGlass: { bpm: 50, prog: 'omen', duckLift: 0.25, layers: [
+        L('glass', 'glass', { pat: BAR1, pick: 'top', oct: 4, len: 14, gain: 0.55, bend: true }),
+        L('glass2', 'glass', { pat: vel('........X.......'), pick: 'third', oct: 4, len: 10, gain: 0.35, when: b => b % 2 === 1 }),
+        L('low', 'pianoLow', { pat: BAR1, pick: 'root', oct: 2, gain: 0.45, when: b => b % 2 === 0 }),
+        L('sub', 'strings', { pat: BAR1, abs: 0, oct: 1, len: 32, art: 'sustain', gain: 0.5, when: b => b % 2 === 0, voices: 2 }),
+        L('air', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.22 }),
+      ]},
+      /* And the third: a bell a long way off, a harp counting, the
+         strings so low they are mostly felt. */
+      nightBells: { bpm: 56, prog: 'vigil', duckLift: 0.25, layers: [
+        L('toll', 'bell', { pat: BAR1, abs: 0, oct: 3, gain: 0.35, ratio: 1.4, decay: 4, when: b => b % 2 === 0 }),
+        L('harp', 'harp', { pat: vel('X...6...7...6...'), pick: pick('0...1...2...1...'), oct: 3, gain: 0.32 }),
+        L('low', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain', gain: 0.5, fam: 'cello', voices: 2 }),
+        L('mm', 'choir', { pat: BAR1, pick: 'chord', oct: 2, len: 16, vowel: 'mm', gain: 0.3 }),
+        L('trem', 'strings', { pat: BAR1, pick: 'top', oct: 4, len: 16, art: 'tremolo', gain: 0.18, when: b => b % 4 === 3 }),
+      ]},
+      /* The turret. The Traitors' motif on a cello, low; and as the
+         seconds to choose run out (night.js) the tension climbs: a clock,
+         then a pulse under it. */
       conclave: { bpm: 63, prog: 'conclave', form: 'AAB', progs: { B: 'knife' }, talkDuck: 0.3, duckLift: 0, layers: [
+        L('motif', 'strings', { motif: 'traitors', oct: 2, art: 'sustain', fam: 'cello', gain: 0.6, legato: true,
+          parts: 'A', vary: true }),
+        L('tickT', 'tick', { pat: vel('X...6...X...6...'), gain: 0.4, tens: [0.5, 1] }),
+        L('pulseT', 'synthBass', { pat: vel('X.6.X.6.X.6.X.6.'), pick: 'root', oct: 1, len: 1, gain: 0.32, tens: [0.75, 1] }),
         L('mm', 'choir', { pat: BAR1, pick: 'chord', oct: 2, len: 16, vowel: 'mm', gain: 0.55 }),
         L('taiko', 'taiko', { pat: vel('X.......7.......'), gain: 0.55 }),
         L('low', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain',
@@ -682,25 +719,37 @@ const MusicCues = (() => {
       deed: { bpm: 50, prog: 'hold', duckLift: 0, layers: [
         L('heart', 'heartbeat', { pat: BEATS, gain: 0.85 }),
         L('sub', 'strings', { pat: BAR1, abs: 0, oct: 1, len: 16, art: 'sustain', gain: 0.55 }),
+        // something in the house, a long way up: a fifth, then the flat sixth, sagging
+        L('glass', 'glass', { pat: BAR1, pats: [BAR1, vel('........X.......')], abs: 7, oct: 4, len: 10, gain: 0.4,
+          bend: true, when: b => b % 4 === 2 }),
+        L('glass2', 'glass', { pat: BAR1, abs: 8, oct: 4, len: 10, gain: 0.3, bend: true, when: b => b % 8 === 5 }),
       ]},
       dawn: { bpm: 66, prog: 'vigil', duckLift: 0.3, layers: [
         L('harp', 'harp', { pat: vel('X.6.7.6.X.6.7.6.'), pick: ARP8_P, oct: 3, gain: 0.45 }),
         L('pad', 'strings', { pat: BAR1, pick: 'chord', oct: 3, len: 16, art: 'swell', gain: 0.35 }),
         L('air', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.25 }),
       ]},
-      breakfast: { bpm: 84, prog: 'fire', form: ['AABC', 'ABAC'], progs: { B: 'omen', C: 'abyss' },
-        talkDuck: 0.35, duckLift: 0.2, layers: [
-        L('piano', 'piano', { motif: 'theme', oct: 3, gain: 0.7, parts: 'A' }),
-        L('mm', 'choir', { pat: BAR1, pick: 'chord', oct: 2, len: 16, vowel: 'mm', gain: 0.3, parts: 'BC' }),
-        L('heart', 'heartbeat', { pat: HALF, gain: 0.35, parts: 'C' }),
-        L('harp', 'harp', { pat: vel('X.5.6.5.X.5.6.5.'), pick: ARP8_P, oct: 3, gain: 0.3 }),
-        L('pizz', 'pizz', { pat: vel('X...6...X...6...'), pick: pick('0...2...1...2...'), oct: 2, gain: 0.5 }),
-        L('low', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain', gain: 0.4 }),
-        L('tick', 'pizz', { pat: vel('..4...4...4...4.'), pick: pick('..4...4...4...4.'), oct: 3,
-          gain: 0.3, minInt: 0.9 }),
+      /* Breakfast is Claudia's waltz: three-four, a bass on one and the
+         chord on two and three, the tune on a music box and then a piano.
+         The B and C parts turn the harmony dark under the same polite
+         accompaniment, which is worse. */
+      breakfast: { bpm: 112, steps: 12, prog: 'waltz', form: ['AABC', 'ABAC'], phrase: 8,
+        progs: { B: 'omen', C: 'abyss' }, talkDuck: 0.35, duckLift: 0.2, layers: [
+        L('tune', 'celesta', { motif: 'waltz', oct: 4, gain: 0.5, parts: 'A', vary: true,
+          rotate: [{}, { inst: 'piano', oct: 3, gain: 0.65 }] }),
+        L('oom', 'pizz', { pat: vel('X...........'), pick: 'root', oct: 2, gain: 0.6 }),
+        L('pah', 'harp', { pat: vel('....6...6...'), pick: pick('....1...2...'), oct: 3, gain: 0.38 }),
+        L('pah2', 'harp', { pat: vel('....5...5...'), pick: pick('....2...1...'), oct: 3, gain: 0.3 }),
+        L('low', 'strings', { pat: vel('X...........'), pick: 'root', oct: 1, len: 12, art: 'sustain', gain: 0.35 }),
+        L('mm', 'choir', { pat: vel('X...........'), pick: 'chord', oct: 2, len: 12, vowel: 'mm', gain: 0.3, parts: 'BC' }),
+        L('cello', 'strings', { motif: 'waltz', oct: 2, art: 'sustain', fam: 'cello', gain: 0.55, legato: true, parts: 'B' }),
+        L('heart', 'heartbeat', { pat: vel('X.....X.....'), gain: 0.35, parts: 'C' }),
+        L('glass', 'glass', { pat: vel('X...........'), abs: 1, oct: 4, len: 10, gain: 0.3, bend: true, parts: 'C',
+          when: b => b % 2 === 1 }),
+        L('tick', 'tick', { pat: vel('..4...4...4.'), gain: 0.3, minInt: 0.9 }),
       ]},
       absence: { bpm: 58, prog: 'fate', layers: [
-        L('cello', 'strings', { motif: 'fate', oct: 2, gain: 1.0, art: 'sustain', fam: 'cello',
+        L('cello', 'strings', { motif: 'fate', oct: 2, gain: 1.0, art: 'sustain', fam: 'cello', legato: true,
           peak: 0.07, voices: 2 }),
         L('toll', 'bell', { pat: HALF, abs: 0, oct: 3, gain: 0.4, ratio: 1.4, decay: 3.5 }),
         L('air', 'choir', { pat: BAR1, pick: 'chord', oct: 3, len: 16, vowel: 'oo', gain: 0.3 }),
@@ -724,11 +773,14 @@ const MusicCues = (() => {
   const TASKS = {
     level: 0.6, room: 'hall', reverb: 0.24,
     gears: ['work', 'bell'],
+    trans: { '*>bell': 'fill', '*>bellHunt': 'fill', '*>bellReel': 'fill' },
     sections: {
       work: { bpm: 120, steps: 12, prog: 'jig', form: DAY_FORMS, progs: { C: 'omen' },
-        alt: ['workHunt', 'workReel'], talkDuck: 0.42, duckLift: 0.12, layers: [
-        L('fiddle', 'strings', { motif: 'jig', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.62, parts: 'AB' }),
+        alt: ['workHunt', 'workReel', 'workHeist', 'workPipes'], talkDuck: 0.42, duckLift: 0.12, layers: [
+        L('fiddle', 'strings', { motif: 'jig', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.62, parts: 'AB',
+          vary: true, rotate: PASS_TUNE }),
         L('horn', 'brass', { motif: 'jig', oct: 2, gain: 0.42, parts: 'B' }),
+        L('chanter', 'pipes', { motif: 'jig', oct: 3, gain: 0.55, parts: 'B' }),
         L('ost', 'strings', { pat: vel('X.6.7.X.6.7.'), pick: pick('0.2.3.0.2.1.'), oct: 1, art: 'spic',
           fam: 'cello', gain: 0.6 }),
         L('bass', 'synthBass', { pat: vel('X.....X.6...'), pick: 'root', oct: 1, len: 2, gain: 0.7, parts: 'BC' }),
@@ -736,7 +788,7 @@ const MusicCues = (() => {
           gain: 0.3, when: b => b % 2 === 0, voices: 2, parts: 'A' }),
         L('choir', 'choir', { pat: vel('X...........'), pick: 'chord', oct: 3, len: 12, vowel: 'ah', gain: 0.32,
           parts: 'BC' }),
-        L('bodhran', 'tom', { pat: vel('X.4.5.7.4.5.'), gain: 0.34 }),
+        L('bodhran', 'tom', { pat: vel('X.4.5.7.4.5.'), fills: JIG_FILLS, gain: 0.34 }),
         L('taiko', 'taiko', { pat: vel('X.....6.....'), gain: 0.45, parts: 'AB' }),
         L('taikoC', 'taiko', { pat: vel('X..6..X.7.8.'), gain: 0.7, parts: 'C' }),
         L('braam', 'braam', { pat: vel('X...........'), pick: 'root', oct: 1, len: 18, gain: 0.55,
@@ -751,41 +803,80 @@ const MusicCues = (() => {
         L('riff2', 'strings', { pat: HUNT16_V, pick: HUNT16_P, oct: 2, art: 'spic', fam: 'hiStr', gain: 0.35,
           parts: 'BC' }),
         L('bass', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.75 }),
+        L('ticker', 'ostSynth', { pat: vel('X5657565X5657565'), pick: pick('0000000000000001'), oct: 2, gain: 0.3, parts: 'BC' }),
         L('horn', 'brass', { motif: 'hunt', oct: 2, gain: 0.6, parts: 'B' }),
-        L('lead', 'strings', { motif: 'hunt', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.5, parts: 'A' }),
+        L('lead', 'strings', { motif: 'hunt', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.5, parts: 'A',
+          vary: true, rotate: PASS_TUNE }),
         L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'oh', gain: 0.35, parts: 'BC' }),
         L('taiko', 'taiko', { pat: vel('X.....7.X.6...7.'), gain: 0.6 }),
-        L('tom', 'tom', { pat: vel('....6.....6.7.8.'), gain: 0.32, parts: 'BC' }),
+        L('tom', 'tom', { pat: vel('....6.....6.7.8.'), gain: 0.32, parts: 'BC',
+          fills: [vel('....6...6.7.8.9X'), vel('..6...6.7.8.9.XX'), vel('....6.7...789XX.')] }),
         L('braam', 'braam', { pat: BAR1, pick: 'root', oct: 1, len: 24, gain: 0.6,
           parts: 'C', when: b => b % 2 === 0 }),
         L('crash', 'crash', { pat: BAR1, gain: 0.35, when: b => b % 4 === 0, parts: 'B' }),
       ]},
       workReel: { bpm: 132, steps: 12, prog: 'jigDark', form: DAY_FORMS, progs: { C: 'abyss' },
         talkDuck: 0.42, duckLift: 0.12, layers: [
-        L('fiddle', 'strings', { motif: 'reel', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.6, parts: 'AB' }),
+        L('fiddle', 'strings', { motif: 'reel', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.6, parts: 'AB',
+          vary: true, rotate: PASS_TUNE }),
         L('box', 'celesta', { motif: 'reel', oct: 4, gain: 0.16, parts: 'A' }),
         L('horn', 'brass', { motif: 'reel', oct: 2, gain: 0.4, parts: 'B' }),
+        L('drones', 'pipeDrone', { pat: vel('X...........'), abs: 0, oct: 2, len: 24, gain: 0.7,
+          when: b => b % 2 === 0, parts: 'AB' }),
         L('ost', 'strings', { pat: vel('X6X6X6X6X6X6'), pick: pick('0a0a020a0a01'), oct: 1, art: 'spic',
           fam: 'cello', gain: 0.62 }),
         L('bass', 'synthBass', { pat: vel('X..7..X..7..'), pick: 'root', oct: 1, len: 2, gain: 0.65 }),
         L('choir', 'choir', { pat: vel('X...........'), pick: 'chord', oct: 3, len: 12, vowel: 'mm', gain: 0.34,
           parts: 'BC' }),
-        L('bodhran', 'tom', { pat: vel('X.4.6.X.4.7.'), gain: 0.38 }),
+        L('bodhran', 'tom', { pat: vel('X.4.6.X.4.7.'), fills: JIG_FILLS, gain: 0.38 }),
         L('taiko', 'taiko', { pat: vel('X.....7.....'), gain: 0.5 }),
         L('braam', 'braam', { pat: vel('X...........'), pick: 'root', oct: 1, len: 18, gain: 0.55,
           parts: 'C', when: b => b % 2 === 0 }),
         L('toll', 'bell', { pat: vel('X...........'), abs: 0, oct: 3, gain: 0.3, ratio: 1.4, decay: 3,
           parts: 'C', when: b => b % 2 === 1 }),
       ]},
-      bell: { bpm: 136, steps: 12, prog: 'jig', alt: ['bellHunt', 'bellReel'], talkDuck: 0.42, layers: [
-        L('fiddle', 'strings', { motif: 'jig', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.7 }),
+      /* The heist: a ticking synth, plucked strings and the tune on
+         tiptoe, the trombones taking it when the band fills in. */
+      workHeist: { bpm: 124, prog: 'ballot', form: DAY_FORMS, progs: { C: 'knife' },
+        talkDuck: 0.42, duckLift: 0.12, layers: [
+        L('ticker', 'ostSynth', { pat: vel('X5657565X5657565'), pick: 'root', oct: 2, gain: 0.34 }),
+        L('pizz', 'pizz', { pat: OST8_V, pick: OST8_P, pats: TALK_V, picks: TALK_P, oct: 2, gain: 0.55 }),
+        L('lead', 'strings', { motif: 'heist', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.55, parts: 'AB', vary: true,
+          rotate: [{}, { inst: 'pizz', oct: 3, gain: 0.85, art: null, fam: null }, {},
+                   { inst: 'celesta', oct: 4, gain: 0.34, art: null, fam: null }] }),
+        L('low', 'lowBrass', { motif: 'heist', oct: 2, gain: 0.42, parts: 'B' }),
+        L('bass', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.6 }),
+        L('snare', 'snare', { pat: vel('....7.......7..5'), gain: 0.18, parts: 'BC' }),
+        L('taiko', 'taiko', { pat: vel('X.....6.X.......'), gain: 0.5 }),
+        L('braam', 'braam', { pat: BAR1, pick: 'root', oct: 1, len: 24, gain: 0.55, parts: 'C', when: b => b % 2 === 0 }),
+        L('trem', 'strings', { pat: BAR1, pick: 'top', oct: 4, len: 16, art: 'tremolo', gain: 0.22, parts: 'C' }),
+      ]},
+      /* The pipes: the chanter over its drones, a pipe band's snare and
+         bass drum, the celli under it, and a whistle taking the tune. */
+      workPipes: { bpm: 112, prog: 'jig', form: DAY_FORMS, progs: { C: 'omen' },
+        talkDuck: 0.42, duckLift: 0.12, layers: [
+        L('chanter', 'pipes', { motif: 'pipes', oct: 3, gain: 0.55, parts: 'AB', vary: true,
+          rotate: [{}, {}, { inst: 'whistle', oct: 3, gain: 0.7 }, {}] }),
+        L('drones', 'pipeDrone', { pat: BAR1, abs: 0, oct: 2, len: 32, gain: 0.7, when: b => b % 2 === 0, parts: 'AB' }),
+        L('horn', 'brass', { motif: 'pipes', oct: 2, gain: 0.4, parts: 'B' }),
+        L('ost', 'strings', { pat: OST8_V, pick: OST8_P, oct: 1, art: 'spic', fam: 'cello', gain: 0.6 }),
+        L('bass', 'synthBass', { pat: vel('X.......X...6...'), pick: 'root', oct: 1, len: 2, gain: 0.6 }),
+        L('snare', 'snare', { pat: vel('X.5.7.5.X.5.757X'), gain: 0.14,
+          fills: [vel('X.5.7.5.X5X5X5XX'), vel('X.5.X.5.X.X.XXXX')] }),
+        L('taiko', 'taiko', { pat: vel('X.......X.......'), gain: 0.55 }),
+        L('tenor', 'tom', { pat: vel('....6.......6...'), gain: 0.3 }),
+        L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'oh', gain: 0.32, parts: 'BC' }),
+        L('braam', 'braam', { pat: BAR1, pick: 'root', oct: 1, len: 24, gain: 0.55, parts: 'C', when: b => b % 2 === 0 }),
+      ]},
+      bell: { bpm: 136, steps: 12, prog: 'jig', alt: ['bellHunt', 'bellReel', 'bellHeist', 'bellPipes'], talkDuck: 0.42, layers: [
+        L('fiddle', 'strings', { motif: 'jig', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.7, vary: true }),
         L('horn', 'brass', { motif: 'jig', oct: 2, gain: 0.45 }),
         L('ost', 'strings', { pat: vel('X6X6X6X6X6X6'), pick: pick('020302010203'), oct: 1, art: 'spic',
           fam: 'cello', gain: 0.7 }),
         L('bass', 'synthBass', { pat: vel('X.....X.7...'), pick: 'root', oct: 1, len: 2, gain: 0.7 }),
         L('drone', 'strings', { pat: vel('X...........'), abs: 0, oct: 1, len: 12, art: 'sustain', gain: 0.36 }),
         L('choir', 'choir', { pat: vel('X...........'), pick: 'chord', oct: 3, len: 12, vowel: 'ah', gain: 0.42 }),
-        L('bodhran', 'tom', { pat: vel('X.5.6.X.5.7.'), gain: 0.48 }),
+        L('bodhran', 'tom', { pat: vel('X.5.6.X.5.7.'), fills: JIG_FILLS, gain: 0.48 }),
         L('taiko', 'taiko', { pat: vel('X.....7..6..'), gain: 0.6 }),
         L('bell', 'bell', { pat: vel('X.....X.....'), pick: 'top', oct: 3, gain: 0.22 }),
         L('braam', 'braam', { pat: vel('X...........'), pick: 'root', oct: 1, len: 12, gain: 0.45,
@@ -801,498 +892,245 @@ const MusicCues = (() => {
         L('bell', 'bell', { pat: HALF, pick: 'top', oct: 3, gain: 0.2 }),
         L('crash', 'crash', { pat: BAR1, gain: 0.4, when: b => b % 2 === 0 }),
       ]},
+      bellHeist: { bpm: 140, prog: 'ballot', talkDuck: 0.42, layers: [
+        L('ticker', 'ostSynth', { pat: vel('X6X6X6X6X6X6X6X6'), pick: 'root', oct: 2, gain: 0.36 }),
+        L('lead', 'strings', { motif: 'heist', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.6, vary: true }),
+        L('low', 'lowBrass', { motif: 'heist', oct: 2, gain: 0.55 }),
+        L('ost', 'strings', { pat: OST16_V, pick: OST16_P, oct: 1, art: 'spic', fam: 'cello', gain: 0.8 }),
+        L('bass', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.65 }),
+        L('snare', 'snare', { pat: vel('....7..5....7.75'), gain: 0.2 }),
+        L('taiko', 'taiko', { pat: vel('X.7.X.7.X.7.X.8X'), gain: 0.65 }),
+        L('crash', 'crash', { pat: BAR1, gain: 0.35, when: b => b % 2 === 0 }),
+      ]},
+      bellPipes: { bpm: 128, prog: 'jig', talkDuck: 0.42, layers: [
+        L('chanter', 'pipes', { motif: 'pipes', oct: 3, gain: 0.6, vary: true }),
+        L('drones', 'pipeDrone', { pat: BAR1, abs: 0, oct: 2, len: 16, gain: 0.75 }),
+        L('horn', 'brass', { motif: 'pipes', oct: 2, gain: 0.5 }),
+        L('ost', 'strings', { pat: OST16_V, pick: OST16_P, oct: 1, art: 'spic', fam: 'cello', gain: 0.75 }),
+        L('bass', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.6 }),
+        L('snare', 'snare', { pat: vel('X5X57575X5X575XX'), gain: 0.16 }),
+        L('taiko', 'taiko', { pat: vel('X.....7.X.....8.'), gain: 0.65 }),
+        L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'ah', gain: 0.42 }),
+      ]},
       bellReel: { bpm: 148, steps: 12, prog: 'jigDark', talkDuck: 0.42, layers: [
-        L('fiddle', 'strings', { motif: 'reel', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.7 }),
+        L('fiddle', 'strings', { motif: 'reel', oct: 3, art: 'spic', fam: 'hiStr', gain: 0.7, vary: true }),
         L('horn', 'brass', { motif: 'reel', oct: 2, gain: 0.5 }),
         L('ost', 'strings', { pat: vel('X6X6X6X6X6X6'), pick: pick('0a0a020a0a01'), oct: 1, art: 'spic',
           fam: 'cello', gain: 0.7 }),
         L('bass', 'synthBass', { pat: vel('X.7X.7X.7X.7'), pick: 'root', oct: 1, len: 2, gain: 0.65 }),
         L('choir', 'choir', { pat: vel('X...........'), pick: 'chord', oct: 3, len: 12, vowel: 'ah', gain: 0.42 }),
-        L('bodhran', 'tom', { pat: vel('X.5.6.X.5.7.'), gain: 0.5 }),
+        L('bodhran', 'tom', { pat: vel('X.5.6.X.5.7.'), fills: JIG_FILLS, gain: 0.5 }),
         L('taiko', 'taiko', { pat: vel('X..7..X.7.8.'), gain: 0.65 }),
         L('bell', 'bell', { pat: vel('X.....X.....'), pick: 'top', oct: 3, gain: 0.22 }),
       ]},
     },
   };
 
+  /* ---------------- the castle, for practice ----------------
+     Explore: the castle with nobody in it and nothing at stake. It used
+     to borrow the round table's music, which made walking round an
+     empty house sound like an accusation. Now it is light and moving:
+     the theme on a harp and a whistle in the halls, the clock in the
+     turret, the suspicion clock in the round room. */
+  const EXPLORE = {
+    level: 0.5, room: 'hall', reverb: 0.3,
+    gears: ['roam', 'turret', 'round'],
+    sections: {
+      roam: { bpm: 96, prog: 'fire', form: 'AABA', progs: { B: 'vigil' }, duckLift: 0.25, layers: [
+        L('tune', 'harp', { motif: 'theme', oct: 3, gain: 0.55, parts: 'A', vary: true,
+          rotate: [{}, { inst: 'whistle', oct: 3, gain: 0.6 }, {}, { inst: 'dulcimer', oct: 3, gain: 0.6 }] }),
+        L('pizz', 'pizz', { pat: OST8_V, pick: OST8_P, pats: TALK_V, picks: TALK_P, oct: 2, gain: 0.45 }),
+        L('low', 'strings', { pat: BAR1, pick: 'root', oct: 1, len: 16, art: 'sustain', gain: 0.4, voices: 2 }),
+        L('pad', 'strings', { pat: BAR1, pick: 'chord', oct: 3, len: 16, art: 'swell', gain: 0.25, parts: 'B' }),
+        L('bodhran', 'tom', { pat: vel('X...5...X.5.6...'), gain: 0.22 }),
+      ]},
+      turret: { bpm: 60, prog: 'hold', layers: [
+        L('clock', 'tick', { pat: vel('X.......X.......'), gain: 0.45 }),
+        L('tock', 'tick', { pat: vel('....8.......8...'), tock: true, gain: 0.45 }),
+        L('low', 'strings', { pat: BAR1, abs: 0, oct: 1, len: 16, art: 'sustain', gain: 0.4 }),
+        L('glass', 'glass', { pat: BAR1, pick: 'top', oct: 4, len: 12, gain: 0.3, when: b => b % 4 === 2 }),
+      ]},
+      round: ROUNDTABLE.sections.debateClock,
+    },
+  };
+
   const CUES = {
     title: TITLE, finale: FINALE, ceremony: CEREMONY, tasks: TASKS,
-    roundtable: ROUNDTABLE, murder: MURDER,
+    roundtable: ROUNDTABLE, murder: MURDER, explore: EXPLORE,
   };
 
-  /* ---------------- stingers ----------------
-     Played on top of whatever the loop is doing, now or on the next
-     beat. `S.hz(semi)` is key-aware, so a sting after a modulation is
-     still in the key the band is in. `o.n` is a counter where one
-     makes sense (the third vote, the second name). */
-  const I = MusicInst;
-  const oct = (semi, o) => semi + 12 * o;
-  // which voicing of a stinger with several: the day's, moved on by `n`
-  const pickOf = (S, o, k) => (((S.variant | 0) + (o.n | 0)) % k + k) % k;
 
-  const STINGERS = {
+  /* ---------------- variations ----------------
+     Every tune gets its variants, in the scale it is written in. */
+  for (const [name, scale, beat] of [
+    ['theme', 'minor', 4], ['fate', 'minor', 4], ['overture', 'minor', 4], ['hymn', 'major', 4],
+    ['hunt', 'dark', 4], ['jig', 'minor', 6], ['reel', 'dark', 6],
+    ['theme68', 'minor', 6], ['hymn68', 'major', 6],
+    ['traitors', 'dark', 4], ['faithful', 'major', 4],
+    ['heist', 'minor', 4], ['pipes', 'minor', 4],
+    ['suspicion', 'dark', 4], ['waltz', 'minor', 4],
+  ]) MOTIFS[name].vars = variants(MOTIFS[name], SCALES[scale], beat);
 
-    /* ---- the fire ---- */
+  /* ---------------- energy ----------------
+     How much is going on in a section, from 0 to 4. This is the whole
+     difference between a score and a loop with the volume up: a film
+     is quiet most of the time, and the loud parts are loud because of
+     it.
 
-    warn(S, t) {
-      I.timpaniRoll(S, t, S.hz(oct(0, 1)), 1.5, 1);
-      I.timpani(S, t + 1.5, S.hz(oct(0, 1)), 0, 1.1, { pri: 0 });
-      I.braam(S, t + 1.5, S.hz(oct(0, 1)), 1.8, 0.7);
-      I.crash(S, t + 1.5, 0, 0, 0.6);
-    },
+       0  still    a held breath: a heart, a drone, one instrument.
+                   Played exactly as written.
+       1  tense    moving, but nothing on top of it: under an argument,
+                   in the turret, at breakfast. A little quicker.
+       2  moving   a light kit under it: one drum, a bass.
+       3  driving  the full kit, at a run: the day, the ballot, a
+                   walkout, the titles.
+       4  tutti    everything the band owns. Kept for the moments the
+                   night turns on.
 
-    // the banished turn for the door
-    walkout(S, t) {
-      I.crash(S, t, 0, 0, 0.7);
-      I.braam(S, t, S.hz(oct(0, 1)), 1.6, 0.6);
-      I.taiko(S, t, S.hz(oct(0, 1)), 0, 1.0, { pri: 0 });
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 0.9, { pri: 0 });
-    },
-
-    // the house bell: thirty seconds left in the day
-    bell(S, t) {
-      for (let k = 0; k < 3; k++) {
-        I.bell(S, t + k * 0.42, S.hz(oct(k === 1 ? 7 : 0, 3)), 0, 0.55, { ratio: 1.4, decay: 3.2, pri: 0 });
-      }
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 0.6, { pri: 0 });
-    },
-
-    'floor-next'(S, t) {
-      I.bell(S, t, S.hz(oct(0, 3)), 0, 0.35, { ratio: 1.4, decay: 3, pri: 0 });
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 0.5, { pri: 0 });
-    },
-
-    // a string stab per vote, one chord tone higher each time
-    vote(S, t, o = {}) {
-      const ch = S.chordNow();
-      const n = o.n | 0;
-      const semi = ch[n % 3] + 12 * Math.floor(n / 3);
-      I.strings(S, t, S.hz(oct(semi, 3)), 0.1, 1.1, { art: 'spic', fam: 'hiStr', pri: 0, voices: 3 });
-      I.strings(S, t, S.hz(oct(semi, 2)), 0.1, 0.9, { art: 'spic', fam: 'cello', pri: 0, voices: 2 });
-      I.taiko(S, t, 0, 0, 0.55, { pri: 0 });
-    },
-
-    // a name, said aloud: the lower the name, the lower the hit
-    name(S, t, o = {}) {
-      const steps = [0, 3, 5, 7, 8, 10];
-      const semi = steps[(o.n | 0) % steps.length];
-      I.timpani(S, t, S.hz(oct(semi, 1)), 0, 1.1, { pri: 0 });
-      I.brass(S, t, S.hz(oct(semi, 1)), 0.9, 0.9, { pri: 0, peak: 0.07 });
-      I.brass(S, t, S.hz(oct(semi, 2)), 0.9, 0.6, { pri: 0 });
-      I.boom(S, t, 0, 0, 0.45, { len: 1.8 });
-    },
-
-    // a tie: nobody knows, and the harmony does not either
-    tie(S, t) {
-      [0, 1, 6].forEach((s, i) => I.brass(S, t + i * 0.02, S.hz(oct(s, 2)), 1.6, 0.8, { pri: 0, slow: true }));
-      I.choir(S, t, S.hz(oct(0, 3)), 1.8, 0.9, { pri: 0, a: 0.2 });
-      I.choir(S, t, S.hz(oct(1, 3)), 1.8, 0.7, { pri: 0, a: 0.2 });
-      I.taiko(S, t, 0, 0, 1, { pri: 0 });
-      I.taiko(S, t + 0.16, 0, 0, 0.8, { pri: 0 });
-    },
-
-    /* The reveals. Everything at once, on the frame the colour lands:
-       the crash, the floor dropping, three drums, and a chord that is
-       still ringing while she says the name. */
-    'reveal-traitor'(S, t) {
-      I.crash(S, t, 0, 0, 1.2);
-      I.boom(S, t, 0, 0, 1.1, { len: 3.4 });
-      I.taiko(S, t, 0, 0, 1.2, { pri: 0 });
-      I.taiko(S, t + 0.13, 0, 0, 1.0, { pri: 0 });
-      I.taiko(S, t + 0.26, 0, 0, 1.1, { pri: 0 });
-      I.braam(S, t, S.hz(oct(0, 1)), 3.2, 1.2);
-      [0, 1, 7, 12].forEach((s, i) =>
-        I.choir(S, t + i * 0.03, S.hz(oct(s, 3)), 3.4, 1.05, { pri: 0, a: 0.08, vowel: 'ah' }));
-      [0, 3, 7].forEach(s =>
-        I.strings(S, t, S.hz(oct(s, 4)), 2.8, 0.9, { art: 'tremolo', pri: 0, fam: 'hiStr' }));
-    },
-
-    'reveal-faithful'(S, t) {
-      I.crash(S, t, 0, 0, 0.9);
-      I.boom(S, t, 0, 0, 0.75, { len: 2.6 });
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 1.1, { pri: 0 });
-      [0, 4, 7, 12].forEach((s, i) =>
-        I.choir(S, t + i * 0.04, S.hz(oct(s, 3)), 3.6, 0.95, { pri: 0, a: 0.25, vowel: 'ah' }));
-      [0, 4, 7].forEach(s =>
-        I.strings(S, t, S.hz(oct(s, 4)), 3.2, 1.0, { art: 'sustain', a: 0.12, pri: 0, fam: 'hiStr' }));
-      [12, 16, 19, 24].forEach((s, i) =>
-        I.bell(S, t + 0.1 + i * 0.075, S.hz(oct(s, 3)), 0, 0.7, { pri: 0 }));
-      [0, 7, 12].forEach(s => I.brass(S, t, S.hz(oct(s, 2)), 2.2, 0.65, { pri: 0 }));
-    },
-
-    // the old name, still called by anything that does not know a role
-    reveal(S, t) { STINGERS['reveal-traitor'](S, t); },
-
-    win(S, t) {
-      I.crash(S, t, 0, 0, 0.9);
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 1.1, { pri: 0 });
-      I.boom(S, t, 0, 0, 0.6, { len: 2.4 });
-      [0, 4, 7, 12].forEach((s, i) => I.brass(S, t + i * 0.05, S.hz(oct(s, 2)), 2.4, 0.9, { pri: 0 }));
-    },
-
-    lose(S, t) {
-      I.boom(S, t, 0, 0, 0.8, { len: 3 });
-      I.strings(S, t, S.hz(oct(0, 1)), 3.5, 1.0, { art: 'sustain', a: 0.1, pri: 0, fam: 'cello' });
-      [0, 3, 7].forEach(s => I.choir(S, t, S.hz(oct(s, 3)), 3.4, 0.7, { pri: 0, vowel: 'oo' }));
-    },
-
-    'traitor-win'(S, t) {
-      [0, 1.1, 2.2].forEach(at =>
-        I.bell(S, t + at, S.hz(oct(0, 2)), 0, 1, { ratio: 1.4, decay: 4, pri: 0, peak: 0.1 }));
-      I.braam(S, t, S.hz(oct(0, 1)), 3.4, 1.1);
-      I.boom(S, t, 0, 0, 0.9, { len: 3.4 });
-    },
-
-    // the hill: the card that only you see
-    'role-traitor'(S, t) {
-      I.braam(S, t, S.hz(oct(0, 1)), 2.4, 0.6);
-      [0, 1, 7].forEach(s => I.choir(S, t, S.hz(oct(s, 3)), 2.6, 0.55, { pri: 0, vowel: 'oo' }));
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 0.7, { pri: 0 });
-    },
-    'role-faithful'(S, t) {
-      [0, 4, 7, 12].forEach((s, i) => I.bell(S, t + i * 0.09, S.hz(oct(s, 3)), 0, 0.55, { pri: 0 }));
-      [0, 4, 7].forEach(s => I.choir(S, t, S.hz(oct(s, 3)), 2.6, 0.5, { pri: 0, vowel: 'ah' }));
-    },
-
-    // any mission card
-    title(S, t) {
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 0.9, { pri: 0 });
-      [0, 7, 12].forEach(s => I.brass(S, t, S.hz(oct(s, 2)), 1.2, 0.7, { pri: 0 }));
-      I.crash(S, t, 0, 0, 0.5);
-    },
-
-    /* ---- the shootout ---- */
-
-    phase(S, t) {
-      I.braam(S, t, S.hz(oct(0, 1)), 1.4, 1);
-      I.taiko(S, t, 0, 0, 1.1, { pri: 0 });
-      I.taiko(S, t + 0.16, 0, 0, 0.9, { pri: 0 });
-      I.crash(S, t, 0, 0, 0.6);
-    },
-
-    stagger(S, t) {
-      // the fight stops for a beat and so does the score
-      S.duck(0.22, 1.5);
-      I.taiko(S, t, 0, 0, 1.1, { pri: 0 });
-      I.crash(S, t, 0, 0, 0.7);
-      [0, 7].forEach(s => I.choir(S, t + 0.03, S.hz(oct(s, 3)), 1.6, 1.1, { pri: 0, a: 0.1 }));
-    },
-
-    summon(S, t) {
-      // a flat second under the root
-      I.choir(S, t, S.hz(oct(-1, 3)), 1.3, 1.0, { pri: 0, a: 0.1, vowel: 'oo' });
-      I.choir(S, t, S.hz(oct(0, 3)), 1.3, 0.7, { pri: 0, a: 0.1, vowel: 'oo' });
-      I.taiko(S, t, 0, 0, 0.9, { pri: 0 });
-      I.taiko(S, t + 0.12, 0, 0, 0.7, { pri: 0 });
-    },
-
-    boon(S, t) {
-      [0, 7, 12, 16].forEach((s, i) => I.bell(S, t + i * 0.07, S.hz(oct(s, 3)), 0, 0.6, { pri: 0 }));
-      I.choir(S, t, S.hz(oct(12, 3)), 1, 0.5, { pri: 0, a: 0.1 });
-    },
-
-    hurt(S, t) { I.taiko(S, t, 0, 0, 0.9, { pri: 0, f: 80 }); },
-
-    down(S, t) {
-      // the one place the mode turns: D major, everything, long
-      I.crash(S, t, 0, 0, 1.1);
-      I.boom(S, t, 0, 0, 0.9, { len: 3 });
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 1.2, { pri: 0 });
-      [0, 4, 7, 12].forEach((s, i) => {
-        I.brass(S, t + i * 0.09, S.hz(oct(s, 2)), 2.6, 1.05, { pri: 0 });
-        I.choir(S, t + i * 0.09, S.hz(oct(s, 3)), 2.8, 0.95, { pri: 0, a: 0.15 });
-      });
-      I.strings(S, t, S.hz(oct(0, 1)), 2.6, 1, { art: 'sustain', a: 0.1, pri: 0, fam: 'cello' });
-    },
-
-    round(S, t) {
-      I.taiko(S, t, 0, 0, 0.6, { pri: 0 });
-      I.brass(S, t, S.hz(oct(0, 2)), 0.45, 0.6, { pri: 0 });
-      I.brass(S, t + 0.22, S.hz(oct(7, 2)), 0.5, 0.65, { pri: 0 });
-    },
-
-    'bonus-round'(S, t) {
-      [0, 4, 7, 12].forEach((s, i) => I.brass(S, t + i * 0.08, S.hz(oct(s, 2)), 0.55, 0.6, { pri: 0 }));
-      I.taiko(S, t, 0, 0, 0.55, { pri: 0 });
-      I.bell(S, t + 0.3, S.hz(oct(12, 3)), 0, 0.4, { pri: 0 });
-    },
-
-    'riser-end'(S, t) {
-      I.taiko(S, t, 0, 0, 0.9, { pri: 0 });
-      I.crash(S, t, 0, 0, 0.5);
-    },
-
-    /* ---- the dive ---- */
-
-    chain(S, t) {
-      // a rising figure in fifths — not a fanfare: it lands inside a bar
-      // the player is still swimming to, four or five times a run
-      [0, 7, 12, 19].forEach((s, i) => I.celesta(S, t + i * 0.055, S.hz(oct(s, 3)), 0, 0.7, { pri: 0 }));
-      I.hat(S, t, 0, 0, 0.6, { pri: 0 });
-    },
-
-    /* ---- the boat ---- */
-
-    count(S, t) {
-      I.timpani(S, t, S.hz(oct(7, 0)), 0, 0.9, { pri: 0 });
-      I.strings(S, t, S.hz(oct(7, 2)), 0.1, 0.8, { art: 'spic', pri: 0, fam: 'cello' });
-    },
-
-    go(S, t) {
-      I.crash(S, t, 0, 0, 0.8);
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 1.1, { pri: 0 });
-      I.taiko(S, t, 0, 0, 1, { pri: 0 });
-      [0, 7, 12].forEach(s => I.brass(S, t, S.hz(oct(s, 2)), 0.8, 0.9, { pri: 0 }));
-    },
-
-    perfect(S, t) {
-      I.bell(S, t, S.hz(oct(12, 3)), 0, 0.45, { pri: 0, decay: 1.2 });
-      I.bell(S, t + 0.07, S.hz(oct(19, 3)), 0, 0.4, { pri: 0, decay: 1.2 });
-    },
-
-    boost(S, t) {
-      I.taiko(S, t, 0, 0, 0.8, { pri: 0 });
-      I.brass(S, t, S.hz(oct(7, 2)), 0.35, 0.6, { pri: 0 });
-    },
-
-    finish(S, t) {
-      I.crash(S, t, 0, 0, 1);
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 1.1, { pri: 0 });
-      [0, 4, 7, 12].forEach((s, i) => {
-        I.brass(S, t + i * 0.1, S.hz(oct(s, 2)), 1.8 - i * 0.2, 0.95, { pri: 0 });
-        I.choir(S, t + i * 0.1, S.hz(oct(s, 3)), 2, 0.7, { pri: 0, a: 0.1 });
-      });
-    },
-
-    'finish-low'(S, t) {
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 0.8, { pri: 0 });
-      [0, 3, 7].forEach(s => I.brass(S, t, S.hz(oct(s, 2)), 1.4, 0.6, { pri: 0 }));
-    },
-
-    fail(S, t) {
-      I.boom(S, t, 0, 0, 0.8, { len: 2.2 });
-      I.brass(S, t, S.hz(oct(7, 1)), 0.5, 0.8, { pri: 0 });
-      I.brass(S, t + 0.45, S.hz(oct(1, 1)), 1.4, 0.8, { pri: 0 });
-    },
-
-    /* ---- the castle ---- */
-
-    // a slate turned over: a dry knock and a low string stab
-    'slate-turn'(S, t, o = {}) {
-      const steps = [0, 3, 5, 7, 8, 10, 12, 15];
-      const semi = steps[(o.n | 0) % steps.length];
-      I.tom(S, t, 0, 0, 0.7, { pri: 0 });
-      I.strings(S, t, S.hz(oct(semi, 2)), 0.25, 1.0, { art: 'spic', fam: 'cello', pri: 0, voices: 2 });
-      I.timpani(S, t, S.hz(oct(semi, 1)), 0, 0.7, { pri: 0 });
-    },
-
-    /* The name the table has settled on. Three voicings, one a day, so
-       the third banishment of a run is not a recording of the first:
-       the roll into a braam, a double hit on the flat second, and a
-       choir that cuts in with nothing in front of it. */
-    banish(S, t, o = {}) {
-      const v = pickOf(S, o, 3);
-      if (v === 1) {
-        [0, 0.36].forEach((d, i) => {
-          I.taiko(S, t + d, 0, 0, 1, { pri: 0 });
-          I.braam(S, t + d, S.hz(oct(i ? 0 : 1, 1)), i ? 2.8 : 0.3, 1);
-        });
-        I.boom(S, t + 0.36, 0, 0, 0.9, { len: 2.6 });
-        [0, 1, 7].forEach((s, i) => I.choir(S, t + 0.4 + i * 0.04, S.hz(oct(s, 3)), 2.6, 0.7, { pri: 0, vowel: 'oh' }));
-        return;
-      }
-      if (v === 2) {
-        [0, 3, 7, 12, 13].forEach((s, i) => I.choir(S, t + i * 0.03, S.hz(oct(s, 3)), 3.2, 0.8, { pri: 0, vowel: 'ah' }));
-        I.timpani(S, t, S.hz(oct(0, 1)), 0, 1.1, { pri: 0 });
-        I.crash(S, t, 0, 0, 0.7);
-        I.strings(S, t, S.hz(oct(0, 1)), 3, 1, { art: 'sustain', fam: 'cello', pri: 0, voices: 3 });
-        return;
-      }
-      I.timpaniRoll(S, t, S.hz(oct(0, 1)), 1.2, 1);
-      I.braam(S, t + 1.2, S.hz(oct(0, 1)), 2.4, 0.9);
-      I.crash(S, t + 1.2, 0, 0, 0.8);
-      [0, 3, 7, 12].forEach((s, i) => I.choir(S, t + 1.2 + i * 0.05, S.hz(oct(s, 3)), 2.6, 0.75, { pri: 0, vowel: 'ah' }));
-    },
-
-    // the moment the turret agrees, heard only there; and the letter
-    'murder-hit'(S, t, o = {}) {
-      const v = pickOf(S, o, 2);
-      I.boom(S, t, 0, 0, 1, { len: 3 });
-      I.braam(S, t, S.hz(oct(v ? 1 : 0, 1)), 3.2, 1);
-      I.strings(S, t, S.hz(oct(1, 3)), 2.4, 0.7, { art: 'tremolo', fam: 'hiStr', pri: 0, voices: 3 });
-      if (v) {
-        // a heart that stops: two beats, then nothing
-        I.heartbeat(S, t + 0.9, 0, 0, 0.9, { pri: 0 });
-        I.heartbeat(S, t + 1.7, 0, 0, 0.6, { pri: 0 });
-      } else {
-        I.bell(S, t + 0.05, S.hz(oct(1, 3)), 0, 0.5, { ratio: 1.4, decay: 4, pri: 0 });
-      }
-    },
-
-    // the empty chair, found
-    'breakfast-absent'(S, t, o = {}) {
-      const v = pickOf(S, o, 2);
-      I.bell(S, t, S.hz(oct(0, 3)), 0, 0.6, { ratio: 1.4, decay: 5, pri: 0 });
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 1.0, { pri: 0 });
-      I.strings(S, t, S.hz(oct(0, 1)), 3, 0.9, { art: 'sustain', fam: 'cello', pri: 0, voices: 2 });
-      if (v) {
-        I.braam(S, t, S.hz(oct(0, 1)), 2.6, 0.75);
-        [1, 5].forEach((s, i) => I.choir(S, t + 0.15 + i * 0.05, S.hz(oct(s, 3)), 3, 0.5, { pri: 0, vowel: 'oo' }));
-      } else {
-        I.choir(S, t + 0.2, S.hz(oct(3, 3)), 3, 0.5, { pri: 0, vowel: 'oo' });
-      }
-    },
-
-    // the castle opens for the day: one hit, and the band goes
-    'castle-open'(S, t) {
-      I.braam(S, t, S.hz(oct(0, 1)), 1.8, 0.8);
-      I.taiko(S, t, 0, 0, 1, { pri: 0 });
-      I.taiko(S, t + 0.22, 0, 0, 0.7, { pri: 0 });
-      I.crash(S, t, 0, 0, 0.55);
-    },
-
-    // the bedroom door, locked for the night
-    'door-lock'(S, t) {
-      I.tom(S, t, 0, 0, 0.8, { pri: 0 });
-      I.boom(S, t, 0, 0, 0.55, { len: 2 });
-      I.bell(S, t + 0.04, S.hz(oct(1, 2)), 0, 0.4, { ratio: 1.4, decay: 3, pri: 0 });
-      I.strings(S, t, S.hz(oct(0, 1)), 2.2, 0.6, { art: 'sustain', fam: 'cello', pri: 0, voices: 2 });
-    },
-
-    // everybody came down: nobody died
-    'all-here'(S, t) {
-      [0, 4, 7, 12, 16].forEach((s, i) => I.harp(S, t + i * 0.07, S.hz(oct(s, 3)), 1.5, 0.6, { pri: 0 }));
-      I.bell(S, t + 0.3, S.hz(oct(7, 4)), 0, 0.35, { pri: 0 });
-    },
-
-    // the day's hardest worker is named: a bright horn call, and a bell
-    shield(S, t) {
-      I.taiko(S, t, 0, 0, 0.8, { pri: 0 });
-      I.crash(S, t, 0, 0, 0.45);
-      [0, 7, 12].forEach((s, i) => I.brass(S, t + i * 0.09, S.hz(oct(s, 2)), 1.8, 0.75, { pri: 0 }));
-      I.bell(S, t + 0.3, S.hz(oct(12, 3)), 0, 0.45, { ratio: 1.4, decay: 4, pri: 0 });
-    },
-
-    // breakfast: the poison was in them, and the shield held
-    'shield-held'(S, t) {
-      I.boom(S, t, 0, 0, 0.8, { len: 2.4 });
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 1, { pri: 0 });
-      [0, 4, 7, 12].forEach((s, i) => I.brass(S, t + i * 0.05, S.hz(oct(s, 2)), 2.4, 0.85, { pri: 0 }));
-      [12, 16, 19].forEach((s, i) => I.bell(S, t + 0.2 + i * 0.09, S.hz(oct(s, 3)), 0, 0.5, { pri: 0 }));
-    },
-
-    // a Faithful turned, heard only by the turret and the turned
-    recruited(S, t) {
-      I.braam(S, t, S.hz(oct(0, 1)), 2.2, 0.8);
-      [0, 3, 6].forEach((s, i) => I.brass(S, t + i * 0.12, S.hz(oct(s, 2)), 1.6, 0.8, { pri: 0 }));
-    },
-
-    /* ---- the Wise One ---- */
-
-    // the band turns: Claudia has one more thing to say
-    'wise-call'(S, t) {
-      I.crash(S, t, 0, 0, 0.6);
-      I.braam(S, t, S.hz(oct(1, 1)), 2.4, 0.9);
-      I.boom(S, t, 0, 0, 0.8, { len: 2.6 });
-      I.taiko(S, t, 0, 0, 1.0, { pri: 0 });
-      I.taiko(S, t + 0.18, 0, 0, 0.8, { pri: 0 });
-      I.bell(S, t + 0.05, S.hz(oct(0, 3)), 0, 0.5, { ratio: 1.4, decay: 4, pri: 0 });
-    },
-
-    // the ten seconds are up: a roll and a reverse cymbal into the name
-    'wise-rise'(S, t) {
-      I.timpaniRoll(S, t, S.hz(oct(0, 1)), 2.8, 1);
-      I.revCymbal(S, t + 2.8, 2.6, 0.8);
-      [0, 7].forEach(s => I.choir(S, t, S.hz(oct(s, 3)), 2.9, 0.6, { pri: 0, a: 1.6, vowel: 'ah' }));
-    },
-
-    // the name, on the screens allowed to see it
-    'wise-reveal'(S, t) {
-      I.crash(S, t, 0, 0, 1.1);
-      I.boom(S, t, 0, 0, 1, { len: 3.2 });
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 1.2, { pri: 0 });
-      I.taiko(S, t, 0, 0, 1.1, { pri: 0 });
-      I.taiko(S, t + 0.14, 0, 0, 0.9, { pri: 0 });
-      [0, 7, 12, 15, 19].forEach((s, i) => {
-        I.brass(S, t + i * 0.04, S.hz(oct(s, 2)), 2.6, 0.9, { pri: 0 });
-        I.choir(S, t + i * 0.04, S.hz(oct(s, 3)), 3, 0.75, { pri: 0, vowel: 'ah' });
-      });
-      [12, 15, 19, 24].forEach((s, i) => I.bell(S, t + 0.1 + i * 0.08, S.hz(oct(s, 3)), 0, 0.55, { pri: 0 }));
-    },
-
-    // the room is told one slate outranks the rest
-    'overrule-warn'(S, t) {
-      I.boom(S, t, 0, 0, 0.9, { len: 2.8 });
-      [0, 1, 6].forEach((s, i) => I.brass(S, t + i * 0.03, S.hz(oct(s, 1)), 2.2, 0.85, { pri: 0, slow: true }));
-      I.bell(S, t, S.hz(oct(0, 2)), 0, 0.8, { ratio: 1.4, decay: 5, pri: 0, peak: 0.1 });
-      I.taiko(S, t, 0, 0, 1, { pri: 0 });
-    },
-
-    /* The Wise One overrules the table. The biggest hit in the game:
-       three drums, the floor dropping, a crash, a braam, the whole choir
-       and the horns on a chord that opens upward, and the bells. */
-    overrule(S, t) {
-      I.crash(S, t, 0, 0, 1.3);
-      I.boom(S, t, 0, 0, 1.2, { len: 4 });
-      [0, 0.12, 0.24, 0.5].forEach((d, i) => I.taiko(S, t + d, 0, 0, i === 3 ? 1.2 : 1.05, { pri: 0 }));
-      I.timpani(S, t, S.hz(oct(0, 1)), 0, 1.3, { pri: 0 });
-      I.braam(S, t, S.hz(oct(0, 1)), 3.6, 1.2);
-      [0, 7, 12, 15, 19, 24].forEach((s, i) => {
-        I.brass(S, t + i * 0.035, S.hz(oct(s, 2)), 3.2, 0.95, { pri: 0 });
-        I.choir(S, t + i * 0.035, S.hz(oct(s, 3)), 3.6, 0.85, { pri: 0, a: 0.06, vowel: 'ah' });
-      });
-      [0, 3, 7].forEach(s => I.strings(S, t, S.hz(oct(s, 4)), 3, 0.9, { art: 'tremolo', pri: 0, fam: 'hiStr' }));
-      [12, 15, 19, 24, 27].forEach((s, i) => I.bell(S, t + 0.15 + i * 0.07, S.hz(oct(s, 3)), 0, 0.6, { pri: 0 }));
-    },
-
-    // the walk to the fire reaches the fire
-    'prefinale-arrive'(S, t) {
-      I.timpaniRoll(S, t, S.hz(oct(0, 1)), 1.8, 1);
-      I.crash(S, t + 1.8, 0, 0, 1);
-      [0, 7, 12, 15, 19].forEach((s, i) => {
-        I.brass(S, t + 1.8 + i * 0.04, S.hz(oct(s, 2)), 2.6, 0.9, { pri: 0 });
-        I.choir(S, t + 1.8 + i * 0.04, S.hz(oct(s, 3)), 3, 0.7, { pri: 0, vowel: 'ah' });
-      });
-    },
+     The last pass at this made every section a 3. That is why the
+     night sounded like the day. */
+  const ENERGY = {
+    finale: { arrival: 0, warn: 0, floor: 1, ballot: 3, names: 0, pouch: 0, held: 0,
+              afterTraitor: 3, afterFaithful: 0, lastPouches: 1, finalBurn: 4,
+              verdictWin: 3, verdictLoss: 0, verdictTraitor: 2,
+              verdictWin2: 3, verdictLoss2: 0, verdictTraitor2: 2,
+              creditsWin: 2, creditsLoss: 0, creditsTraitor: 1 },
+    ceremony: { title: 3, wiseCall: 2, wiseClock: 1, wiseRise: 0, wiseReveal: 3 },
+    title: { gate: 3, anthem: 3, gate2: 3, gate3: 3, anthem2: 3, anthem3: 3 },
+    explore: { roam: 1, turret: 0, round: 1 },
+    roundtable: { gather: 1, debate: 1, debateClock: 1, slate: 0, reveal: 0, lastWords: 0, drumroll: 0, walkout: 3,
+                  overruleRise: 0, overrule: 4 },
+    murder: { nightfall: 0, nightGlass: 0, nightBells: 0, conclave: 1, deed: 0, dawn: 0, breakfast: 1, absence: 0 },
+    tasks: { work: 3, workHunt: 3, workReel: 3, workHeist: 3, workPipes: 3,
+             bell: 3, bellHunt: 3, bellReel: 3, bellHeist: 3, bellPipes: 3 },
   };
 
-  /* ---------------- epic drive ----------------
-     The whole score, faster and bigger. Every section's tempo goes up
-     (the slow beds most of all), and every section that has no engine
-     of its own gets one: spiccato cellos, taiko, a snare on the back
-     half of the phrase, a tom fill into every eighth bar, a crash on
-     the downbeat, brass stabs as the phrase builds. Each of them comes
-     and goes on its own 8/16/32-bar cycle, so the same four bars never
-     come round twice in the same clothes. A few held breaths — the
-     pause before a pouch burns, a name about to be read — keep their
-     stillness; the music around them is what got faster. */
-  const STILL = new Set(['held', 'names', 'pouch', 'drumroll', 'arrival', 'warn']);
+  /* What each room's kit is made of. The castle at work has a snare in
+     it; the fire and the table are skins and horns; the night has a
+     drum a long way off and nothing else. */
+  const ALL = { riff: 1, taiko: 1, snare: 1, tom: 1, crash: 1, bass: 1, brass: 1 };
+  const PALETTE = {
+    tasks: ALL, title: ALL, ceremony: ALL,
+    finale: { riff: 1, taiko: 1, tom: 1, crash: 1, bass: 1, brass: 1, timp: 1 },
+    roundtable: { riff: 1, taiko: 1, tom: 1, crash: 1, bass: 1, brass: 1, timp: 1 },
+    murder: { taiko: 1, bass: 1 },
+  };
+
   const faster = (bpm) => Math.min(172, Math.round(bpm < 70 ? bpm * 1.7 : bpm < 100 ? bpm * 1.45 : bpm * 1.18));
-  function epicise(sec, name) {
-    if (sec._epic) return;
-    sec._epic = true;
-    sec.bpm = faster(sec.bpm);
-    if (STILL.has(name)) return;
+  const tempoFor = (bpm, e) => e >= 3 ? faster(bpm)
+    : e === 2 ? Math.round(bpm * 1.25)
+    : e === 1 ? Math.round(bpm * (bpm < 70 ? 1.2 : 1.1))
+    : bpm;
+
+  /* Dress a section for its energy: set its tempo, and give a section
+     that is meant to drive the engine it has not got — celli off the
+     string, the big drums, a fill into every eighth bar, a crash on
+     the downbeat, brass as the phrase builds. Each piece comes and
+     goes on its own 8/16/32-bar cycle and most have more than one
+     pattern to choose from (see `pats` and `fills` in music.js), so
+     the same four bars do not come round twice in the same clothes. */
+  function dress(sec, name, cueName) {
+    if (sec._dressed) return;
+    sec._dressed = true;
+    const e = (ENERGY[cueName] || {})[name] || 0;
+    sec.energy = e;
+    sec.bpm = tempoFor(sec.bpm, e);
+    if (e < 2) return;
+    const P = PALETTE[cueName] || ALL;
+    const full = e >= 3;
     const tri = sec.steps === 12;
     const has = (inst) => sec.layers.some(l => l.inst === inst);
     const spic = sec.layers.some(l => l.art === 'spic');
     const add = [];
-    if (!spic) {
-      add.push(L('ep-riff', 'strings', { pat: tri ? vel('X.7X.7X.7X.8') : RAID16_V, pick: tri ? pick('0.0a.00.0a.1') : RAID16_P,
+    if (full && P.riff && !spic) {
+      const pats = tri ? [vel('X.7X.7X.7X.8'), vel('X.7.X7X.7.X8')] : [RAID16_V, HUNT16_V, OST16_V];
+      const picks = tri ? [pick('0.0a.00.0a.1'), pick('0.0.a00.0.a1')] : [RAID16_P, HUNT16_P, OST16_P];
+      add.push(L('ep-riff', 'strings', { pat: pats[0], pick: picks[0], pats, picks,
         oct: 1, art: 'spic', fam: 'cello', gain: 0.4, when: b => b % 16 >= 2 }));
-      add.push(L('ep-riff2', 'strings', { pat: tri ? vel('X.7X.7X.7X.8') : RAID16_V, pick: tri ? pick('0.0a.00.0a.1') : RAID16_P,
+      add.push(L('ep-riff2', 'strings', { pat: pats[0], pick: picks[0], pats, picks,
         oct: 2, art: 'spic', fam: 'hiStr', gain: 0.2, when: b => b % 32 >= 16 }));
     }
-    if (!has('taiko')) add.push(L('ep-taiko', 'taiko', { pat: tri ? vel('X.....6..X..') : vel('X.....6.X.6...7.'), gain: 0.38, when: b => b % 8 !== 7 || b % 16 >= 8 }));
-    if (!has('snare')) add.push(L('ep-snare', 'snare', { pat: tri ? vel('...7.....7.5') : vel('....7.......7..5'), gain: 0.17, when: b => b % 16 >= 8 }));
-    if (!has('tom')) add.push(L('ep-tom', 'tom', { pat: tri ? vel('.......6.789') : vel('............6.78'), gain: 0.3, when: b => b % 8 === 7 }));
-    if (!has('crash')) add.push(L('ep-crash', 'crash', { pat: BAR1, gain: 0.22, when: b => b % 8 === 0 && b > 0 }));
-    if (!has('synthBass')) add.push(L('ep-bass', 'synthBass', { pat: tri ? vel('X.6X.6X.6X.6') : PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.26 }));
-    if (!has('brass')) add.push(L('ep-brass', 'brass', { pat: tri ? vel('X.....7.....') : vel('X.......7.....8.'), pick: 'chord', oct: 2, len: 3, gain: 0.2,
+    if (P.taiko && !has('taiko')) {
+      const pats = tri ? [vel('X.....6..X..'), vel('X..6..X.....'), vel('X.....6.7.8.')]
+                       : [vel('X.....6.X.6...7.'), vel('X...6...X.....7.'), vel('X.6...6.X...7.6.')];
+      add.push(L('ep-taiko', 'taiko', { pat: pats[0], pats, gain: full ? 0.38 : 0.28,
+        when: b => b % 8 !== 7 || b % 16 >= 8 }));
+    }
+    if (full && P.snare && !has('snare')) {
+      const pats = tri ? [vel('...7.....7.5'), vel('...7..5..7..')] : [vel('....7.......7..5'), vel('....7..5....7...')];
+      add.push(L('ep-snare', 'snare', { pat: pats[0], pats, gain: 0.17, when: b => b % 16 >= 8 }));
+    }
+    if (P.tom && !has('tom')) {
+      // silent but for the fill into every eighth bar, and that is never the same one twice
+      const rest = vel(tri ? '............' : '................');
+      const fills = tri ? [vel('.......6.789'), vel('......6.7.89'), vel('...5..6..789')]
+                        : [vel('............6.78'), vel('........5.6.7.89'), vel('..........6789X.')];
+      add.push(L('ep-tom', 'tom', { pat: rest, fills, fillEvery: 8, gain: 0.3 }));
+    }
+    if (full && P.crash && !has('crash')) add.push(L('ep-crash', 'crash', { pat: BAR1, gain: 0.22, when: b => b % 8 === 0 && b > 0 }));
+    if (P.bass && !has('synthBass')) add.push(L('ep-bass', 'synthBass', { pat: tri ? vel('X.6X.6X.6X.6') : PULSE8, pick: 'root', oct: 1, len: 2, gain: full ? 0.26 : 0.2 }));
+    if (full && P.brass && !has('brass')) add.push(L('ep-brass', 'brass', { pat: tri ? vel('X.....7.....') : vel('X.......7.....8.'), pick: 'chord', oct: 2, len: 3, gain: 0.2,
       when: b => b % 16 >= 12 }));
+    if (full && P.timp && !has('timpani')) add.push(L('ep-timp', 'timpani', { pat: tri ? vel('X.....7.....') : vel('X.......7.......'), pick: 'root', oct: 1, gain: 0.35,
+      when: b => b % 16 >= 8 }));
     sec.layers = sec.layers.concat(add);
   }
-  for (const cue of Object.values(CUES)) for (const [n, sec] of Object.entries(cue.sections || {})) epicise(sec, n);
+  for (const [cueName, cue] of Object.entries(CUES)) {
+    for (const [n, sec] of Object.entries(cue.sections || {})) dress(sec, n, cueName);
+  }
 
-  return { PROGRESSIONS, MOTIFS, CUES, STINGERS, vel, pick, faster };
+  /* ---------------- the castle follows the game ----------------
+     What the day's music does with `music/mood.js`. Every arrangement
+     of the day gets the same treatment, in its own metre:
+
+       the clock    the drums, the bass, the choir and the brass come in
+                    in that order as the tension climbs (`tens`), so the
+                    first minute is the tune and not much else
+       sealed       shut in a room with one other person: the drums
+                    drop out (`unless`), and a held low string, a
+                    shiver up top and a heart take their place
+       followed     a ticking pulse and a low drum under everything
+       private      the poison in your own pocket: a low pulse and a
+                    flat second on a music box; quicker when somebody
+                    is in reach; a clock when the bell has gone and it
+                    is still in your pocket; strings shivering on the
+                    flat second while you hold F. Soft and low on
+                    purpose, and off whenever your microphone is open. */
+  const KIT = new Set(['taiko', 'taikoEns', 'tom', 'snare', 'crash', 'hat', 'timpani']);
+  const BANDS = { synthBass: [0.28, 1], taiko: [0.22, 1], choir: [0.45, 1], brass: [0.5, 1], horn: [0.5, 1],
+                  lowBrass: [0.5, 1], snare: [0.6, 1], crash: [0.6, 1] };
+  function mood(sec) {
+    const tri = sec.steps === 12;
+    const bar = (str) => vel(tri ? str.slice(0, 12) : str);
+    for (const l of sec.layers) {
+      if (KIT.has(l.inst) && !l.unless) l.unless = 'sealed';
+      if (!l.tens && !l.parts && BANDS[l.inst] && l.id !== 'ep-riff') l.tens = BANDS[l.inst];
+      if (l.id === 'ep-brass') l.tens = [0.65, 1];
+    }
+    const once = vel(tri ? 'X...........' : 'X...............');
+    const half = vel(tri ? 'X.....X.....' : 'X.......X.......');
+    const beats = vel(tri ? 'X..X..X..X..' : 'X...X...X...X...');
+    const eights = vel(tri ? 'X.6.6.X.6.6.' : 'X.6.6.6.X.6.6.6.');
+    sec.layers = sec.layers.concat([
+      L('md-pedal', 'strings', { pat: once, abs: 0, oct: 1, len: (sec.steps || 16) * 2, art: 'sustain', gain: 0.55,
+        voices: 2, flag: 'sealed', when: b => b % 2 === 0 }),
+      L('md-trem', 'strings', { pat: once, pick: 'top', oct: 4, len: sec.steps || 16, art: 'tremolo', gain: 0.26, flag: 'sealed' }),
+      L('md-heart', 'heartbeat', { pat: half, gain: 0.5, flag: 'sealed' }),
+      L('md-tail', 'ostSynth', { pat: eights, pick: 'root', oct: 2, gain: 0.26, flag: 'followed' }),
+      L('md-tomF', 'tom', { pat: half, gain: 0.3, f: 80, flag: 'followed' }),
+      // private: the poison in your own pocket
+      L('md-sub', 'synthBass', { pat: beats, pick: 'root', oct: 1, len: 2, gain: 0.36, flag: 'poison', private: true }),
+      L('md-subN', 'synthBass', { pat: bar('X.X.X.X.X.X.X.X.'), pick: 'root', oct: 1, len: 1, gain: 0.28,
+        flag: 'poisonNear', private: true }),
+      L('md-box', 'celesta', { pat: bar('......X.........'), abs: 1, oct: 4, gain: 0.32, flag: 'poison', private: true,
+        when: b => b % 2 === 1 }),
+      L('md-box2', 'celesta', { pat: bar('..........X.....'), abs: 6, oct: 4, gain: 0.3, flag: 'poisonNear', private: true }),
+      L('md-late', 'tick', { pat: bar('X.6.X.6.X.6.X.6.'), gain: 0.32, flag: 'poisonLate', private: true }),
+      L('md-hold', 'strings', { pat: once, abs: 1, oct: 3, len: sec.steps || 16, art: 'tremolo', gain: 0.36,
+        voices: 2, flag: 'poisonHold', private: true }),
+    ]);
+  }
+  for (const sec of Object.values(TASKS.sections)) mood(sec);
+
+  return { PROGRESSIONS, MOTIFS, CUES, STINGERS, ENERGY, SCALES, vel, pick, faster, variants };
 })();

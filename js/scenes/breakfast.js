@@ -81,6 +81,11 @@ class BreakfastScene extends CastleScene {
   _arrive(ids) {
     if (!this.stage) return;
     AudioBus.play('estate-door');
+    /* Each group through the door adds a note to a chord that will not
+       resolve — it cannot know yet whether a chair stays empty, so it
+       never says. The reveal is what resolves it, one way or the other. */
+    this._arrivals = (this._arrivals | 0) + 1;
+    if (this.music) this.music.stinger('arrive', { n: this._arrivals - 1 });
     const st = this.stage;
     // everybody at the table looks at the door
     st.setGaze(new THREE.Vector3(6.2, 1.5, 3.5));
@@ -102,7 +107,8 @@ class BreakfastScene extends CastleScene {
 
   async drive() {
     const s = Session.state;
-    this.music = Music.murder('dawn', Music.dayMusic(s.seed, s.day));
+    // back in the day's key, as if nothing had happened
+    this.music = Music.murder('dawn', Music.sceneMusic('breakfast', s.seed, s.day));
     await this._say('breakfastOpen', {}, null);
     if (!this._alive) return;
     if (this.music) this.music.section('breakfast', { at: 'bar', glide: 3 });
@@ -119,10 +125,11 @@ class BreakfastScene extends CastleScene {
       // everybody looks at the empty chair, and so does the camera
       const empty = this.stage && this.stage.seats.find(x => x.id === b.victim);
       if (empty && this.stage) this.stage.setGaze(empty.home.clone().setY(1.0));
-      await Scenes.Drama.hush(this.stage, this.music, 'on:' + b.victim, { hold: 0.7 });
+      // the breath is the band's: cut, held, and the hit with the lament under it on bar one
+      const wait = this.music && this.music.ok ? this.music.strike('breakfast-absent', { then: 'absence', breath: 0.7 }) : 0.7;
+      await Scenes.Drama.hush(this.stage, null, 'on:' + b.victim, { hold: wait, silent: false });
       if (!this._alive) return;
-      Scenes.Drama.hit(this.stage, this.music, 'breakfast-absent', { shake: 0.35, flash: 'rgba(150,10,20,.5)' });
-      if (this.music) this.music.section('absence', { at: 'bar', glide: 1 });
+      Scenes.Drama.hit(this.stage, null, null, { shake: 0.35, flash: 'rgba(150,10,20,.5)' });
       this._react(['handsFace', 'gasp', 'headDown', 'shake'], b.victim);
       await this._sleep(0.5);
       Scenes.Drama.shot(this.stage, 'claudiaTight');

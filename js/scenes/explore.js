@@ -66,7 +66,7 @@ class ExploreScene {
 
   start() {
     Scenes.Cine.on(false);
-    this.music = Music.roundtable();
+    this.music = Music.explore();
     this._key = (e) => {
       if (e.code === 'Escape' && !ChoreGames.active) { e.preventDefault(); this.leave(); }
     };
@@ -298,8 +298,8 @@ class ExploreScene {
         clearTimeout(this._clear);
         this._clear = setTimeout(() => Voice.clear(), 2400);
         if (this.music && this.music.section) {
-          this.music.section(id === 'turret' || id === 'stair' ? 'slate'
-            : id === 'round' ? 'debate' : 'gather', { at: 'bar', glide: 2 });
+          this.music.section(id === 'turret' || id === 'stair' ? 'turret'
+            : id === 'round' ? 'round' : 'roam', { at: 'bar', glide: 2 });
         }
       }
     }

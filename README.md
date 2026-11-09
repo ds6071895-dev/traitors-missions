@@ -295,6 +295,26 @@ smoke test after deployment.
 - **`Voice`** reads Claudia's lines — through the room server's Deepgram voice when there
   is a key, through the browser otherwise — on one text-derived clock, so subtitles,
   cameras and every browser stay together.
+- **`Music`** (`js/core/music.js` and `js/core/music/`) is the score. There are no audio
+  files: every note is synthesised and booked against the Web Audio clock.
+  - **What plays where.** Each scene plays a cue in a key of its own (`Music.sceneMusic`):
+    the night is a third down from the day, the round table a fourth up, and the fire home in D.
+    A section's `energy` (0 still … 4 everything) decides how much is going on in it, so the
+    quiet scenes stay quiet and the big ones sound big.
+  - **Builds and hits.** Reveals go through `score.build()` (`music/build.js`): a crescendo
+    that climbs and holds until it is released. Release cuts everything to a breath of true
+    silence, then the stinger and the next section land on the same instant.
+    `Scenes.Drama.build`/`peak` and `Reveal.strike` stage it.
+  - **The castle.** In the castle, `music/mood.js` turns the clock, a sealed room with one
+    other person, being followed and — on your own screen only — the poison in your pocket
+    into a tension and some flags. Private layers stop whenever your microphone is open.
+  - **Variety.** It is seeded: pattern pools, fills, the tune passing between instruments,
+    variants of every motif (`music/themes.js`), five day arrangements, three night textures,
+    and three title overtures. Two hits of the same kind never play back to back
+    (`music/stingers.js`).
+  - **Listening to it.** `jukebox.html` plays every cue, instrument and stinger with the
+    real engine, plus "Play the whole show", which runs a night from the front door to the
+    credits in about six minutes.
 
 ### Rehearsing a game on your own
 

@@ -187,22 +187,21 @@ class HillScene {
     if (role === 'traitor') this._closeVote();
     if (!alive()) return;
 
-    // the rise: nothing resolves until the name lands
+    /* The rise: three seconds of build, the same three on every screen,
+       and nothing resolves until the name lands. */
     Scenes.Cine.card(null);
-    if (music) {
-      music.section('wiseRise', { at: 'beat', glide: 0.2 });
-      music.stinger('wise-rise');
-      music.riser(3.0);
-    }
-    await Scenes.Drama.hush(this.stage, null, null, { hold: 3.0, silent: false, camera: false });
-    if (!alive()) return;
+    const build = Scenes.Drama.build(this.stage, music, 'wise', { secs: 3.0, bed: 'wiseRise', camera: false });
+    await Scenes.wait(3.0);
+    if (!alive()) { build.cancel(); return; }
 
     /* The private view that follows the closing snapshot has landed by
        now, so this is the moment to read it. */
     const v = Session.myPrivate() || {};
     const chosen = v.wise && v.wise.id ? Session.playerById(v.wise.id) : null;
-    Scenes.Drama.hit(this.stage, music, 'wise-reveal', { shake: 0.45, flash: 'rgba(230,186,80,.55)', haptic: 50 });
-    if (music) music.section('wiseReveal', { at: 'beat', glide: 0.2 });
+    const wait = build.release('wise-reveal', { then: 'wiseReveal' });
+    if (wait) await Scenes.wait(wait);
+    if (!alive()) return;
+    Scenes.Drama.hit(this.stage, null, null, { shake: 0.45, flash: 'rgba(230,186,80,.55)', haptic: 50 });
     if (v.wiseOne) {
       Scenes.Cine.card({ kicker: 'A Traitor has chosen you', title: 'YOU ARE THE WISE ONE', tone: 'wise',
                          sub: 'Once, at a round table, you may overrule the vote: whoever you name is banished. Only the Traitors know.' });

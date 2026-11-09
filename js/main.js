@@ -89,11 +89,13 @@ const Game = (() => {
     overture = null;
   }
 
+  let overtureVisits = 0;
   function startOverture() {
     // `Show.end` stops every live score; if ours went with it, let go
     if (overture && !Music.live.has(overture)) overture = null;
     if (overture || !AudioBus.ready) return;
-    const score = Music.title();
+    // every visit to the front door gets the next of the overture's three arrangements
+    const score = Music.title({ variant: overtureVisits++ });
     if (!score || !score.ok) return;
     overture = score;
     overtureLift = setTimeout(() => {

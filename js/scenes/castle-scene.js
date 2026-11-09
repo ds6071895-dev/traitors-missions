@@ -335,9 +335,19 @@ class CastleScene {
          long: under two seconds of theatre a slate. */
       const heat = Math.min(1, (said + 1) / total), last = f.nameQueue.length === 1;
       Scenes.Cine.card(null);
+      /* The room winds up a notch a slate. The last one gets a build of
+         its own — short, dry, a clock tripping over itself — and the
+         breath it ends on is the beat before the name. */
+      if (this.music && this.music.setTension) this.music.setTension(0.3 + 0.65 * heat, 1.2);
+      const build = last && this.music && this.music.build ? this.music.build({ shape: 'slate' }) : null;
       await Scenes.Drama.hush(this.stage, null, 'on:' + voter.id,
-                              { hold: 0.25 + 0.45 * heat, silent: false, speed: 2.6 + heat });
-      if (!this._alive) return;
+                              { hold: last ? 1.6 : 0.25 + 0.45 * heat, silent: false, speed: 2.6 + heat });
+      if (!this._alive) { if (build) build.cancel(); return; }
+      if (this.music) {
+        const wait = build ? build.release('slate-turn', { n: said }) : (this.music.stinger('slate-turn', { n: said }), 0);
+        if (wait) await Scenes.wait(wait);
+        if (!this._alive) return;
+      }
       Scenes.Drama.hit(this.stage, null, null, {
         shake: 0.12 + 0.55 * heat + (last ? 0.2 : 0),
         flash: 'rgba(' + (150 + Math.round(70 * heat)) + ',12,24,' + (0.18 + 0.42 * heat).toFixed(2) + ')',
@@ -347,10 +357,6 @@ class CastleScene {
                          title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'slate',
                          sub: last ? 'The last slate.' : (said + 1) + ' of ' + total });
       this._accuse(voter.id, target.id);
-      if (this.music) {
-        this.music.stinger('slate-turn', { n: said });
-        if (last && this.music.riser) this.music.riser(1.2);
-      }
       said++;
       Scenes.Drama.shot(this.stage, 'on:' + target.id, { speed: 2.4 });
       // nobody announces their own vote: Claudia reads each slate out
@@ -388,30 +394,32 @@ class CastleScene {
   async _overrule(voter, target, key) {
     const st = this.stage;
     const music = this.music;
-    if (music) {
-      music.section('overruleRise', { at: 'beat', glide: 0.3 });
-      music.riser(4.2);
-    }
     Scenes.Cine.card(null);
-    await Scenes.Drama.hush(st, null, 'on:' + voter.id, { hold: 0.3, silent: false, speed: 1.4 });
-    if (!this._alive) return;
+    // the build climbs under Claudia for as long as she holds it
+    const t0 = Date.now();
+    const build = Scenes.Drama.build(st, music, 'banish', { shot: 'on:' + voter.id, speed: 1.4, bed: 'overruleRise' });
+    await Scenes.wait(0.3);
+    if (!this._alive) { build.cancel(); return; }
     await this._say('overruleTurn', {}, null);
-    if (!this._alive) return;
+    if (!this._alive) { build.cancel(); return; }
     await Scenes.barrier(key);
-    if (!this._alive) return;
+    if (!this._alive) { build.cancel(); return; }
     if (Session.isHost) Net.send({ type: 'speakName', playerId: voter.id });
     await this._waitFor(() => Session.state.finale.stage !== 'names'
       || Session.state.finale.nameQueue[0] !== voter.id, 6000);
-    if (!this._alive) return;
+    if (!this._alive) { build.cancel(); return; }
     const o = Session.state.finale.overrule;
     const real = !!(o && o.by === voter.id);
 
-    // the breath, then the blow
-    await Scenes.Drama.hush(st, music, 'on:' + voter.id, { hold: 0.9, speed: 2.4 });
+    // the camera goes in, the build tops out, the breath — and the blow
+    Scenes.Drama.shot(st, 'on:' + voter.id, { speed: 2.4 });
+    await Scenes.Drama.peak(build, { since: t0, min: 1.2, max: 6 });
+    if (!this._alive) { build.cancel(); return; }
+    const wait = build.release(real ? 'overrule' : 'slate-turn', real ? { then: 'overrule' } : { n: 4 });
+    if (wait) await Scenes.wait(wait);
     if (!this._alive) return;
-    Scenes.Drama.hit(st, music, real ? 'overrule' : 'slate-turn',
+    Scenes.Drama.hit(st, null, null,
                      { shake: real ? 0.8 : 0.3, flash: real ? 'rgba(230,186,80,.7)' : null, haptic: 90 });
-    if (music && real) music.section('overrule', { at: 'now', glide: 0.1 });
     Scenes.Cine.card(real
       ? { kicker: 'The Wise One', title: voter.local ? 'YOU' : voter.name.toUpperCase(), tone: 'wise',
           sub: (voter.local ? 'You overrule' : 'Overrules') + ' the round table.' }
@@ -475,6 +483,15 @@ class CastleScene {
      then Claudia's sentence about it. */
   _flare(role, playerId, after) {
     const out = Reveal.flare({ role, stage: this.stage, music: this.music, after, playerId });
+    this._embers = out.embers;
+    if (out.settle) this._settle = out.settle;
+  }
+
+  // the same, after the breath that ends a build
+  async _strike(role, playerId, after, build) {
+    const out = await Reveal.strike({ role, stage: this.stage, music: this.music, after, playerId, build,
+                                      alive: () => this._alive && !!this.stage });
+    if (!this._alive) return;
     this._embers = out.embers;
     if (out.settle) this._settle = out.settle;
   }
