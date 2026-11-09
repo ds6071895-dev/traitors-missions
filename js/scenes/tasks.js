@@ -149,6 +149,9 @@ class TasksScene {
     // the day's own arrangement and key, and one hit as the doors open
     this.music = Music.tasks(Music.dayMusic(s.seed, s.day));
     if (this.music.stinger) this.music.stinger('castle-open', { at: 'beat' });
+    this._mood = null;
+    this._moodClock = 0;
+    this._micUntil = 0;
     this._hud();
     this._offs.push(Net.on((e) => this._onNet(e)));
     this._intro();
@@ -552,6 +555,7 @@ class TasksScene {
     this._drawOthers(dt);
     this._voices();
     this._interact(dt);
+    this._musicMood(dt);
     this._animateStations(dt);
     this._paintMap();
     this._lastPaint -= dt;
@@ -833,6 +837,54 @@ class TasksScene {
     if (ok) Net.send({ type: 'chore', jobId: job.id });
   }
 
+  /* ---------------- the music follows the game ----------------
+     Four times a second: what the clock says, whether you are shut in
+     with somebody or being followed, and — on your own screen only —
+     the poison in your pocket. `music/mood.js` turns that into a
+     tension and some flags; the score does the rest. */
+  _musicMood(dt) {
+    const m = this.music;
+    if (!m || !m.ok || !m.setFlags) return;
+    this._moodClock -= dt;
+    if (this._moodClock > 0) return;
+    const step = 0.25 - this._moodClock;
+    this._moodClock = 0.25;
+    const s = Session.state, c = s.chores, v = Session.myPrivate() || {};
+    const now = Date.now();
+    const vc = typeof VoiceChat !== 'undefined' ? VoiceChat : null;
+    // your own microphone open, or a whisper: the private layers go quiet for a moment after
+    if (vc && ((vc.selfLevel || 0) > 0.05 || vc.whispering)) this._micUntil = now + 1500;
+    const others = [];
+    for (const p of Session.alive()) {
+      if (p.id === this._meId) continue;
+      const q = CastleNet.now(p.id);
+      if (q) others.push({ id: p.id, x: q.x, z: q.z, room: q.room });
+    }
+    const out = TaskMood.compute({
+      now, endsAt: c && c.endsAt, seconds: c && c.seconds, bellAt: (c && c.bellAt) || Session.BELL_AT,
+      closed: !c || !!c.closed, dead: !!this._dead,
+      me: this._myLocal ? { x: this._myLocal.x, z: this._myLocal.z, h: this._myLocal.h, room: this._myRoom } : null,
+      others, sealed: !!(this._myRoom && CastleLayout.sealed(this._myRoom, s.doors)),
+      poison: v.poison || null, partners: v.partners || [],
+      holding: this._hold ? this._hold.kind : null, micLive: now < this._micUntil, dt: step,
+    }, this._mood);
+    this._mood = out.state;
+    m.setTension(out.tension, 1.5);
+    m.setFlags(out.flags);
+    // out of the game: you hear the castle from under the water
+    if (out.dead && !this._muffled) { this._muffled = true; m.setMuffle(0.55, 2); }
+    // the last ten seconds are one long build, released by the end of the day
+    if (out.countdown && !this._countdown) this._countdown = m.build({ shape: 'countdown', secs: Math.max(1, out.left) });
+    // holding F beside somebody: a riser of your own, while it lasts
+    if (out.flags.poisonHold) { if (!this._holdRiser) this._holdRiser = m.riser(2.6); }
+    else if (this._holdRiser) { this._holdRiser.stop(); this._holdRiser = null; }
+    // and when it is done, a note only you hear
+    if (v.poison && v.poison.mine && v.poison.used && !this._poisonDone) {
+      this._poisonDone = true;
+      if (!out.micLive) m.stinger('poison-done');
+    }
+  }
+
   dispose() {
     this._alive = false;
     this._offs.forEach(off => { try { off(); } catch (e) {} });
@@ -843,7 +895,20 @@ class TasksScene {
     if (typeof VoiceChat !== 'undefined' && VoiceChat.resetVolumes) VoiceChat.resetVolumes();
     if (this._dom) { this._dom.root.remove(); this._dom = null; }
     Scenes.Cine.card(null);
-    if (this.music) { this.music.stop(1.0); this.music = null; }
+    if (this._holdRiser) { this._holdRiser.stop(); this._holdRiser = null; }
+    if (this.music) {
+      /* The day ends on the countdown's hit, and it is left to ring
+         into the night rather than being faded under it. */
+      const c = Session.state && Session.state.chores;
+      let fade = 1.0;
+      if (this._countdown && this._countdown.live) {
+        if (c && c.closed) { this._countdown.release('day-end', { end: true }); fade = 2.8; }
+        else this._countdown.cancel(0.3);
+      }
+      this._countdown = null;
+      this.music.stop(fade);
+      this.music = null;
+    }
     if (this.stage) { this.stage.dispose(); this.stage = null; }
   }
 }

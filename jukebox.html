@@ -9,7 +9,11 @@
     index.html: it loads the audio bus and the music files on their own, so
     every cue, section and stinger can be played, compared and tuned by ear
     without playing a night to reach it. "Play the fire" runs the finale's
-    whole arc, compressed to about two minutes.
+    whole arc, compressed to about two minutes; "Play a banishment" runs
+    the round table's, with the build, the breath and the answer; "Play
+    the whole show" runs a night from the front door to the credits in
+    about six minutes, each scene in its own score and key, calling the
+    engine exactly as the scenes do.
   -->
   <style>
     :root { --bg: #0d0f14; --panel: #161a22; --line: #2a3140; --ink: #e8e3d8; --dim: #8c93a3;
@@ -50,6 +54,7 @@
   <section>
     <div class="row">
       <button id="start" class="big green">Start audio</button>
+      <button id="show" class="big green">Play the whole show</button>
       <button id="fire" class="big">Play the fire</button>
       <button id="stop" class="big red">Stop</button>
     </div>
@@ -77,8 +82,52 @@
   </section>
 
   <section>
+    <h2>Build &amp; reveal</h2>
+    <div class="row">
+      <label>shape <select id="shape"></select></label>
+      <label>length <select id="blen"><option value="0">open (holds at the top)</option>
+        <option value="2">2 s</option><option value="3">3 s</option><option value="5">5 s</option>
+        <option value="10">10 s</option></select></label>
+      <button id="build" class="green">Start build</button>
+      <button id="bcancel">Call it off</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="rel-t" class="red">Release → TRAITOR</button>
+      <button id="rel-f" class="green">Release → FAITHFUL</button>
+      <button id="rel-o">Release → OVERRULE</button>
+      <button id="coda">Coda (end the scene)</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="banish" class="big">Play a banishment</button>
+      <label>change section via <select id="via"><option value="">(the cue's own)</option><option>fill</option>
+        <option>riser</option><option>swell</option><option>cut</option></select></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Orchestra (each player alone: the theme's first bar, or a hit)</h2>
+    <div class="row" id="players"></div>
+    <div class="row" style="margin-top:10px">
+      <label>how <select id="how"><option value="">as written</option>
+        <option value='{"art":"spic"}'>strings: spiccato</option>
+        <option value='{"art":"tremolo"}'>strings: tremolo</option>
+        <option value='{"art":"swell"}'>strings / brass: swell</option>
+        <option value='{"legato":true}'>strings: legato</option>
+        <option value='{"art":"sfz"}'>brass: sfz</option>
+        <option value='{"morph":["oo","ah"]}'>choir: oo → ah</option>
+        <option value='{"vowel":"oo"}'>choir: oo</option>
+        <option value='{"bend":true}'>glass: sagging</option>
+        <option value='{"tock":true}'>clock: tock</option>
+      </select></label>
+      <label>octave <select id="poct"><option>1</option><option>2</option><option selected>3</option><option>4</option></select></label>
+      <label><input id="rich" type="checkbox"> big orchestra (laptop budget)</label>
+    </div>
+  </section>
+
+  <section>
     <h2>Controls</h2>
     <div class="row">
+      <label>tension <input id="tens" type="range" min="0" max="1" step="0.05" value="0.5"><span id="tensv">0.50</span></label>
       <label>intensity <input id="int" type="range" min="0" max="1.5" step="0.05" value="1"><span id="intv">1.00</span></label>
       <label>key <select id="key"></select></label>
       <label>muffle <input id="muf" type="range" min="0" max="1" step="0.05" value="0"></label>
@@ -101,12 +150,17 @@
 
 <script>
   // enough of a VoiceChat for the "player talking" toggle to be heard
-  window.VoiceChat = { talking: false, loudest() { return this.talking ? 'you' : null; } };
+  window.VoiceChat = { talking: false, loudest() { return this.talking ? 'you' : null; },
+                       talkers() { return this.talking ? ['you'] : []; } };
 </script>
 <script src="js/core/util.js"></script>
 <script src="js/core/audio.js"></script>
 <script src="js/core/music/mix.js"></script>
 <script src="js/core/music/instruments.js"></script>
+<script src="js/core/music/build.js"></script>
+<script src="js/core/music/mood.js"></script>
+<script src="js/core/music/themes.js"></script>
+<script src="js/core/music/stingers.js"></script>
 <script src="js/core/music/cues.js"></script>
 <script src="js/core/music.js"></script>
 <script>
@@ -129,7 +183,8 @@
   function play(c, section) {
     if (!ensure()) return;
     if (score && score.cueName === c && section) {
-      score.section(section, { at: 'bar', glide: 2 });
+      const via = $('via').value;
+      score.section(section, via ? { at: 'bar', glide: 2, via } : { at: 'bar', glide: 2 });
       return;
     }
     if (score) score.stop(0.6);
@@ -150,7 +205,7 @@
     const root = $('sections'); root.innerHTML = '';
     for (const s of Object.keys(Music.CUES[cue].sections)) {
       const S = Music.CUES[cue].sections[s];
-      root.appendChild(btn(s + ' · ' + S.bpm, () => play(cue, s),
+      root.appendChild(btn(s + ' · ' + S.bpm + ' · e' + S.energy, () => play(cue, s),
         score && score.sectionName === s ? 'on' : ''));
     }
   }
@@ -175,7 +230,117 @@
   $('start').onclick = () => { ensure(); };
   $('stop').onclick = () => { run++; Music.stopAll(0.5); score = null; $('script').textContent = ''; paintSections(); };
   $('int').oninput = () => { $('intv').textContent = (+$('int').value).toFixed(2); if (score) score.setIntensity(+$('int').value); };
+  $('tens').oninput = () => { $('tensv').textContent = (+$('tens').value).toFixed(2); if (score) score.setTension(+$('tens').value, 1.5); };
   $('key').onchange = () => { if (score) score.setKey(+$('key').value); };
+
+  /* One player at a time. The pitched ones play the first bar of the
+     theme — up a fifth, onto the minor sixth, back — which is enough to
+     hear an attack, a held note and a release; the rest just hit. */
+  const HITS = new Set(['timpani', 'taiko', 'taikoEns', 'granCassa', 'anvil', 'boom', 'subDrop', 'downer', 'whoosh',
+                        'kick', 'snare', 'hat', 'tom', 'tick', 'crash', 'heartbeat', 'pulse']);
+  const ROLLS = new Set(['timpaniRoll', 'snareRoll', 'shepard']);
+  function solo(name) {
+    if (!ensure()) return;
+    if (!score) play(cue);
+    Music.setBudget($('rich').checked ? 160 : 110);
+    const how = $('how').value ? JSON.parse($('how').value) : {};
+    const t = AudioBus.ctx.currentTime + 0.08;
+    const oct = +$('poct').value;
+    const I = MusicInst[name];
+    if (name === 'revCymbal') { I(score, t + 1.4, 1.3, 0.9); return; }
+    if (ROLLS.has(name)) { const h = I(score, t, score.hz(12 * oct), 1.8, 0.9, {}); if (h && h.stop) setTimeout(() => h.stop(0.1), 1900); return; }
+    if (HITS.has(name)) {
+      [0, 0.6, 0.9, 1.2].forEach((d, i) => I(score, t + d, score.hz(12 * oct), 0.4, i ? 0.7 : 1, Object.assign({ pri: 0 }, how)));
+      return;
+    }
+    let last = 0;
+    [[0, 0, 0.55], [0.6, 7, 0.55], [1.2, 8, 0.85], [2.1, 7, 0.9]].forEach(([d, semi, dur]) => {
+      const f = score.hz(12 * oct + semi);
+      const o = Object.assign({ pri: 0 }, how);
+      if (how.legato && last) o.from = last;
+      last = f;
+      I(score, t + d, f, dur, 0.9, o);
+    });
+  }
+  for (const name of Object.keys(MusicInst)) $('players').appendChild(btn(name, () => solo(name)));
+  $('rich').onchange = () => Music.setBudget($('rich').checked ? 160 : 110);
+  $('rich').checked = Music.budget >= 150;
+
+  /* The build before an answer, and the answer. In the game the release
+     comes off the network; here it is a button, so the top can be held
+     for as long as it takes to hear whether it holds. */
+  let building = null;
+  for (const k of Object.keys(MusicBuild.SHAPES)) {
+    const o = document.createElement('option'); o.textContent = k; $('shape').appendChild(o);
+  }
+  // each answer lands in the score that is playing: the table's sections there, the fire's at the fire
+  const answer = (role) => {
+    const S = score && score.sections;
+    if (role === 'overrule') return ['overrule', S && S.overrule ? 'overrule' : null];
+    const t = role === 'traitor';
+    return ['reveal-' + role, S && S[t ? 'banishTraitor' : 'banishFaithful'] ? (t ? 'banishTraitor' : 'banishFaithful')
+                              : S && S[t ? 'afterTraitor' : 'afterFaithful'] ? (t ? 'afterTraitor' : 'afterFaithful') : null];
+  };
+  const release = (role) => {
+    if (!score) return;
+    const [sting, then] = answer(role);
+    const wait = building && building.live ? building.release(sting, { then })
+                                           : score.strike(sting, { then, breath: 0.4 });
+    building = null;
+    $('script').textContent = 'breath ' + wait.toFixed(2) + ' s → ' + role.toUpperCase();
+    setTimeout(paintSections, wait * 1000 + 50);
+  };
+  $('build').onclick = () => {
+    if (!ensure()) return;
+    if (!score) play(cue);
+    const secs = +$('blen').value;
+    building = score.build(secs ? { shape: $('shape').value, secs } : { shape: $('shape').value });
+    $('script').textContent = 'building: ' + $('shape').value;
+  };
+  $('bcancel').onclick = () => { if (building) building.cancel(0.4); building = null; };
+  $('rel-t').onclick = () => release('traitor');
+  $('rel-f').onclick = () => release('faithful');
+  $('rel-o').onclick = () => release('overrule');
+  $('coda').onclick = () => { if (score) { score.coda(); score = null; } };
+
+  /* A banishment at the round table, start to finish, the way the scene
+     will call it: the argument, the slates, the name, the last words,
+     the build under "I am…", the breath, and one of the two answers. */
+  $('banish').onclick = async () => {
+    if (!ensure()) return;
+    const me = ++run;
+    Music.stopAll(0.3);
+    cue = 'roundtable'; paintCues();
+    score = Music.roundtable({ variant: Math.floor(Math.random() * 6), seed: (Math.random() * 1e9) | 0 });
+    const m = score;
+    const traitor = Math.random() < 0.5;
+    const say = (t) => { $('script').textContent = t; paintSections(); };
+    const wait = (s) => new Promise(r => setTimeout(r, s * 1000));
+    const live = () => me === run;
+    const steps = [
+      [() => say('They sit down.'), 6],
+      [() => { say('The argument.'); m.section('debate', { at: 'bar', glide: 3 }); m.setTension(0.3, 0); }, 8],
+      [() => { say('The argument, getting hotter.'); m.setTension(0.9, 6); }, 9],
+      [() => { say('"Slates."  (the band stops dead, then the clock)'); m.section('slate', { at: 'bar', glide: 1.5 }); }, 7],
+      [() => { say('A slate turns.'); m.stinger('slate-turn', { n: 0 }); }, 1.6],
+      [() => m.stinger('slate-turn', { n: 1 }), 1.6],
+      [() => m.stinger('slate-turn', { n: 2 }), 1.6],
+      [() => { say('The last slate.'); m.stinger('slate-turn', { n: 3 }); }, 2],
+      [() => { say('The table has chosen.'); m.stinger('banish', { at: 'beat' }); m.section('reveal', { at: 'bar', glide: 2 }); }, 7],
+      [() => { say('"I am…"'); building = m.build({ shape: 'banish' }); }, 5.6],
+      [() => { say('(the breath)'); return building.release('reveal-' + (traitor ? 'traitor' : 'faithful'),
+                                                             { then: traitor ? 'banishTraitor' : 'banishFaithful' }); }, 0],
+      [() => say(traitor ? '…A TRAITOR.' : '…A FAITHFUL.'), 9],
+      [() => { say('And out they go.'); m.stinger('walkout', { at: 'beat' }); m.section('walkout', { at: 'bar', glide: 0.5 }); }, 10],
+      [() => { say('The door shuts. (coda)'); m.coda(); }, 5],
+    ];
+    for (const [fn, dur] of steps) {
+      if (!live()) return;
+      const extra = fn();
+      await wait(dur + (typeof extra === 'number' ? extra : 0));
+    }
+    if (live()) say('Done. Press it again: the answer, the voicings and the variations are drawn fresh.');
+  };
   $('muf').oninput = () => { if (score) score.setMuffle(+$('muf').value, 0.2); };
   $('vol').oninput = () => { ensure(); AudioBus.setVolume('music', +$('vol').value); };
   $('riser').onclick = () => { if (!score) play(cue); if (riser) riser.stop(); riser = score.riser(3.4); };
@@ -237,6 +402,97 @@
     if (live()) say('Done.');
   };
 
+  /* A whole night, compressed. Each step is [caption, what the scene
+     does, seconds to let it play]; a step may return a breath to wait
+     out before the next. Seed, day, the Traitor and the verdict are
+     drawn fresh each time. */
+  $('show').onclick = async () => {
+    if (!ensure()) return;
+    const me = ++run;
+    const seed = (Math.random() * 1e9) | 0, day = 1 + ((Math.random() * 3) | 0);
+    const traitorFound = Math.random() < 0.5;
+    let m = null;
+    // the next scene's score is already playing by the time it gets here: stop everything else
+    const use = (s) => { Music.live.forEach(x => { if (x !== s) x.stop(0.8); }); m = score = s; cue = s.cueName; paintCues(); paintSections(); };
+    const say = (t) => { $('script').textContent = t; paintSections(); };
+    const wait = (sec) => new Promise(r => setTimeout(r, sec * 1000));
+    const B = (o) => (building = m.build(o));
+    const steps = [
+      ['The front door.', () => use(Music.title({ variant: (Math.random() * 3) | 0 })), 9],
+      ['The hill. Claudia welcomes them.', () => use(Music.ceremony()), 9],
+      ['"And you are…"  (only you hear this)', () => m.stinger(Math.random() < 0.5 ? 'role-traitor' : 'role-faithful', { at: 'beat' }), 5],
+      ['The Wise One: the band turns before she says a word.', () => { m.stinger('wise-call'); m.section('wiseCall', { at: 'beat', glide: 0.4 }); }, 7],
+      ['Ten seconds while the Traitors choose.', () => m.section('wiseClock', { at: 'beat', glide: 0.3 }), 6],
+      ['The rise.', () => B({ shape: 'wise', secs: 3, bed: 'wiseRise' }), 3],
+      ['THE WISE ONE HAS BEEN CHOSEN.', () => building.release('wise-reveal', { then: 'wiseReveal' }), 7],
+      ['Day ' + day + '. The castle opens: the tune, and not much else yet.', () => {
+        use(Music.tasks(Music.dayMusic(seed, day))); m.stinger('castle-open', { at: 'beat' }); m.setTension(0.15, 0); }, 12],
+      ['The day fills in.', () => m.setTension(0.62, 8), 12],
+      ['A door shuts. You are alone in here with somebody.', () => m.setFlags({ sealed: true }), 12],
+      ['The door opens. Somebody keeps behind you, room after room.', () => m.setFlags({ sealed: false, followed: true }), 9],
+      ['(A Traitor\'s ears only) The poison in your pocket — and somebody in reach.', () =>
+        m.setFlags({ followed: false, private: true, poison: true, poisonNear: true }), 9],
+      ['THE BELL. Thirty seconds.', () => {
+        m.setFlags({ private: false, poison: false, poisonNear: false });
+        m.stinger('bell', { at: 'beat' }); m.section('bell', { at: 'bar', glide: 1 }); m.setTension(0.9, 2); }, 9],
+      ['Ten. Nine. Eight…', () => B({ shape: 'countdown', secs: 10 }), 10],
+      ['The day is over.', () => building.release('day-end', { end: true }), 4],
+      ['Night falls, in a key of its own.', () => use(Music.murder('nightfall', Music.sceneMusic('night', seed, day))), 12],
+      ['The turret, choosing, as the seconds go.', () => {
+        m.section('conclave', { at: 'bar', glide: 2 }); m.setTension(0.25, 0); m.setTension(1, 11); }, 12],
+      ['A letter, under a door.', () => B({ shape: 'letter', secs: 1.8 }), 1.8],
+      ['YOU HAVE BEEN POISONED.', () => building.release('murder-hit', { then: 'deed' }), 7],
+      ['Breakfast. Claudia\'s waltz.', () => {
+        use(Music.murder('dawn', Music.sceneMusic('breakfast', seed, day))); m.section('breakfast', { at: 'bar', glide: 3 }); }, 8],
+      ['They come down…', () => m.stinger('arrive', { n: 0 }), 2.6],
+      ['…two more…', () => m.stinger('arrive', { n: 1 }), 2.6],
+      ['…and the last of them.', () => m.stinger('arrive', { n: 2 }), 3],
+      ['An empty chair.', () => m.strike('breakfast-absent', { then: 'absence', breath: 0.7 }), 9],
+      ['The round table, a fourth up.', () => use(Music.roundtable(Music.sceneMusic('table', seed, day))), 7],
+      ['The argument, winding itself up.', () => {
+        m.section('debate', { at: 'bar', glide: 3 }); m.setTension(0.2, 0); m.setTension(0.95, 13); }, 14],
+      ['"Slates."  (the band stops dead)', () => m.section('slate', { at: 'bar', glide: 1.5 }), 5],
+      ['A slate turns.', () => { m.setTension(0.45, 1.2); m.stinger('slate-turn', { n: 0 }); }, 2.2],
+      ['Another.', () => { m.setTension(0.65, 1.2); m.stinger('slate-turn', { n: 1 }); }, 2.2],
+      ['Another.', () => { m.setTension(0.8, 1.2); m.stinger('slate-turn', { n: 2 }); }, 1.6],
+      ['The last slate.', () => { m.setTension(0.95, 1.2); B({ shape: 'slate' }); }, 1.6],
+      ['…', () => building.release('slate-turn', { n: 3 }), 2.5],
+      ['The table has chosen. They stand.', () => { m.stinger('banish', { at: 'beat' }); m.section('reveal', { at: 'bar', glide: 2 }); }, 7],
+      ['Their last words.', () => m.section('lastWords', { at: 'bar', glide: 1 }), 7],
+      ['"I am…"', () => B({ shape: 'banish', bed: 'drumroll', ramp: 3.6 }), 3.8],
+      [traitorFound ? '…a TRAITOR.' : '…a FAITHFUL.', () => building.release(traitorFound ? 'reveal-traitor' : 'reveal-faithful',
+        { then: traitorFound ? 'banishTraitor' : 'banishFaithful' }), 9],
+      ['And out they go.', () => { m.stinger('walkout', { at: 'beat' }); m.section('walkout', { at: 'bar', glide: 0.5 }); }, 9],
+      ['The door shuts behind them.', () => m.coda(), 5],
+      ['The fire. The loch.', () => use(Music.finale(Music.dayMusic(seed, day))), 10],
+      ['The rules, and the warning.', () => { m.section('warn', { glide: 3 }); m.stinger('warn', { at: 'beat' }); }, 7],
+      ['The floor.', () => { m.section('floor', { at: 'bar', glide: 3 }); m.setIntensity(0.7); }, 7],
+      ['A second voice.', () => { m.setIntensity(0.9); m.stinger('floor-next', { at: 'bar' }); }, 6],
+      ['The ballot.', () => { m.section('ballot', { at: 'bar', fill: true }); m.setIntensity(1); }, 5],
+      ['The votes come in.', () => { m.stinger('vote', { at: 'beat', n: 0 }); m.setIntensity(1.07); }, 1.3],
+      ['', () => { m.stinger('vote', { at: 'beat', n: 1 }); m.setIntensity(1.14); }, 1.3],
+      ['', () => { m.stinger('vote', { at: 'beat', n: 2 }); m.setIntensity(1.21); }, 4],
+      ['The last pouches.', () => { m.section('lastPouches', { at: 'bar', glide: 2 }); m.setTension(0.5, 3); }, 7],
+      ['She holds it up.', () => { m.setKey(1); m.section('held', { at: 'now', glide: 0.3 });
+        B({ shape: 'pouch', secs: 3.0, gain: 1.15 }); }, 3.0],
+      ['The throw. Silence.', () => { building.cancel(0.04); m.silence(true); }, 0.85],
+      [traitorFound ? 'FAITHFUL. Nobody got away.' : 'TRAITOR. They got away with it.', () => {
+        m.strike(traitorFound ? 'reveal-faithful' : 'reveal-traitor', { then: traitorFound ? 'afterTraitor' : 'finalBurn', breath: 0 });
+        m.stinger('last-pouch'); }, 10],
+      ['The verdict.', () => {
+        const V = Music.verdictCue(traitorFound ? { won: true, role: 'faithful' } : { won: false, role: 'faithful' });
+        m.setKey(0); m.stinger(V.sting); m.section(V.section, { at: 'bar', glide: 2 }); m._credits = V.credits; }, 24],
+      ['The credits.', () => m.section(m._credits, { at: 'bar', glide: 3 }), 22],
+    ];
+    for (const [text, fn, dur] of steps) {
+      if (me !== run) return;
+      if (text) say(text);
+      const extra = fn();
+      await wait(dur + (typeof extra === 'number' ? extra : 0));
+    }
+    if (me === run) say('Done. Press it again: the day, the Traitor, the verdict and every variation are drawn fresh.');
+  };
+
   setInterval(() => {
     if (!score || !score.ok) { $('status').textContent = AudioBus.ready ? 'nothing playing' : 'audio not started'; return; }
     $('status').textContent = [
@@ -244,8 +500,11 @@
       'section   ' + score.sectionName,
       'bpm       ' + score.bpm.toFixed(1),
       'key       ' + (score.key > 0 ? '+' : '') + score.key,
+      'energy    ' + (score.sec.energy | 0),
+      'tension   ' + score.tension.toFixed(2),
       'intensity ' + score.intensity.toFixed(2),
-      'voices    ' + score.voices,
+      'build     ' + (building && building.live ? building.shape + ' ' + (building.holding ? '(holding at the top)' : Math.round(building.p * 100) + '%') : '—'),
+      'voices    ' + score.voices + ' of ' + Music.budget,
       'silent    ' + score.silent,
     ].join('\n');
   }, 200);

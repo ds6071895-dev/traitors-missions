@@ -83,21 +83,22 @@ const Reveal = (() => {
     const band = o.music && o.music.ok;
     if (!band) AudioBus.play(role === 'traitor' ? 'reveal-traitor' : 'reveal-faithful');
 
-    if (band) {
-      /* The band *is* the reveal. Whatever silenced or ducked it on the
-         way in is lifted by the stinger itself; then the colour's own
-         hit, in the key the band is in. A score that knows what comes
-         after a reveal (the fire does: a triumph, a lament, or back to
-         waiting) is told which, and it goes there with no glide —
-         a crossfade is a thing you notice. Any other score gets the old
-         move: top gear and the colour's chords. */
-      o.music.stinger('reveal-' + role);
-      const next = o.after !== undefined ? o.after : (role === 'traitor' ? 'afterTraitor' : 'afterFaithful');
-      if (!(next && o.music.section && o.music.section(next, { at: 'now', glide: 2.5 }))) {
+    if (band && !o.struck) {
+      /* The band *is* the reveal. Everything sounding is cut, and the
+         colour's own hit and whatever comes after a reveal (the fire
+         knows: a triumph, a lament, or back to waiting) start on the
+         same instant, with bar one on it — a crossfade is a thing you
+         notice. A score with nowhere to go gets the old move: top gear
+         and the colour's chords. */
+      const next = nextFor(o.music, role, o.after);
+      if (next && o.music.strike) o.music.strike('reveal-' + role, { then: next, breath: 0 });
+      else {
+        o.music.stinger('reveal-' + role);
         o.music.duck(0.95, 0.18);
         o.music.setGear(3, 0.15);
         o.music.setProgression(T.progression);
       }
+      if (o.big) o.music.stinger('last-pouch');
     }
 
     let embers = null, settle = null;
@@ -121,6 +122,37 @@ const Reveal = (() => {
       card(o.kicker || nameOf(o.playerId), role, o.title);
     }
     return { embers, settle, tone: T };
+  }
+
+  /* Where a score goes after a reveal: what the caller asked for, if
+     the score has it; otherwise the fire's name for it or the table's. */
+  function nextFor(music, role, after) {
+    const has = (n) => !!(n && music && music.sections && music.sections[n]);
+    if (after !== undefined) return has(after) ? after : null;
+    const R = role === 'traitor' ? 'Traitor' : 'Faithful';
+    return ['after' + R, 'banish' + R].find(has) || null;
+  }
+
+  /* The reveal after a breath. The band — or the build, if one is
+     climbing (see `Scenes.Drama.build`) — is cut to true silence, and
+     after `breath` seconds the hit, the colour, the shake and the card
+     all land on the same instant. Resolves with what `flare` returns,
+     or with nothing if the scene went away during the breath. */
+  async function strike(o = {}) {
+    const role = o.role === 'traitor' ? 'traitor' : 'faithful';
+    const m = o.music;
+    const band = !!(m && m.ok);
+    let wait = 0;
+    if (band) {
+      const then = nextFor(m, role, o.after);
+      wait = o.build && o.build.live
+        ? o.build.release('reveal-' + role, { then })
+        : m.strike('reveal-' + role, { then, breath: o.breath != null ? o.breath : 0.4 });
+    } else if (o.build) o.build.cancel();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait * 1000));
+    if (o.alive && !o.alive()) return { embers: null, settle: null, tone: toneFor(role) };
+    if (band && o.big) m.stinger('last-pouch');
+    return flare(Object.assign({}, o, { struck: band, big: false }));
   }
 
   /* ---------------- embers ----------------
@@ -194,6 +226,6 @@ const Reveal = (() => {
     return null;
   }
 
-  return { flare, card, flash, nameOf, toneFor,
+  return { flare, strike, nextFor, card, flash, nameOf, toneFor,
            burstEmbers, updateEmbers, clearEmbers, TONE };
 })();

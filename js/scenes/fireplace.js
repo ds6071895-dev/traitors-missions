@@ -204,7 +204,8 @@ class FinaleScene {
     /* The fire has its own score, and every stage of the night below
        calls a section of it by name — see `music/cues.js`. It opens on
        the loch: a fifth on the low strings and the theme on a piano. */
-    this.music = Music.finale();
+    // the night's own arrangement of the verdicts, the same on every screen
+    this.music = Music.finale(Music.dayMusic(Session.state.seed, Session.state.day));
     this.wind = AudioBus.wind();
     if (this.wind) this.wind.set(0.32);
 
@@ -214,7 +215,11 @@ class FinaleScene {
         // a vote is a string stab in the key, one chord tone higher
         // each time; the old blip is for a night with no band
         const n = this._tallyCount++;
-        if (this.music && this.music.ok) this.music.stinger('vote', { at: 'beat', n });
+        // every vote in winds the ostinato up another notch
+        if (this.music && this.music.ok) {
+          this.music.stinger('vote', { at: 'beat', n });
+          this.music.setIntensity(Math.min(1.4, 1 + 0.07 * (n + 1)));
+        }
         else AudioBus.play('vote-in', { index: n });
         this._paintTally();
       }
@@ -290,7 +295,8 @@ class FinaleScene {
     this._floorWho = playerId;
     const n = ++this._floorN;
     if (!this.music) return;
-    this.music.setIntensity(0.7 + 0.2 * (n - 1));
+    // each round at the fire starts where the last one left off
+    this.music.setIntensity(Math.min(1.4, 0.7 + 0.2 * (n - 1) + 0.08 * this._round()));
     if (n > 1) this.music.stinger('floor-next', { at: 'bar' });
   }
 
@@ -385,8 +391,12 @@ class FinaleScene {
     RoomUI.hideBoard();
     this._floorWho = null;
     this._floorN = 0;
+    /* A second round at the fire is not the first one again: the floor
+       is a step up in key and starts hotter. The verdict comes home to
+       D, whatever the night climbed to. */
+    if (this.music) this.music.setKey(Math.min(3, f.round));
     this._cue('floor', { at: 'bar', glide: 3 });
-    if (this.music) this.music.setIntensity(0.7);
+    if (this.music) this.music.setIntensity(0.7 + 0.08 * f.round);
     this._courtesy(true);
     await this._say('floorOpen', {}, 'players');
     if (!this._alive) return;
@@ -590,6 +600,8 @@ class FinaleScene {
       const target = Session.playerById(st.pending);
       if (!target) break;
       const last = st.queue.length <= 1;
+      // each pouch opened winds the room tighter
+      if (this.music && this.music.setTension) this.music.setTension(Math.min(1, 0.35 + 0.15 * st.opened.length), 3);
       await this._ceremony(target, {
         intro: target.local ? (last ? 'finalPouchYouLast' : 'finalPouchYou')
                             : (last ? 'finalPouchLast' : 'finalPouchIntro'),
@@ -606,7 +618,9 @@ class FinaleScene {
         section: 'lastPouches',
         key: st.opened.length,
         last,
-        after: () => last ? 'afterTraitor' : 'lastPouches',
+        /* …and a Traitor in the very last pouch got away with it: that is
+           the villain's anthem, everything the band owns. */
+        after: (role) => last ? (role === 'traitor' ? 'finalBurn' : 'afterTraitor') : 'lastPouches',
       });
       if (!this._alive) return;
       await Scenes.wait(0.7);
@@ -660,7 +674,11 @@ class FinaleScene {
     Voice.clear();
     const hold = spec.last ? 2.4 : 1.5;
     this._cue('held', { at: 'now', glide: 0.3 });
-    this._riser = this.music ? this.music.riser(hold + Figure.THROW_AT * 0.95) : null;
+    /* The build is timed to the throw: it reaches the top as the pouch
+       leaves her hand, and the throw is what cuts it. */
+    this._riser = this.music && this.music.build
+      ? this.music.build({ shape: 'pouch', secs: hold + Figure.THROW_AT * 0.95, gain: spec.last ? 1.15 : 1 }) : null;
+    this._big = !!spec.last;
     // bars in, the edges of the frame go dark, the camera creeps in
     Scenes.Drama.hush(this.stage, null, 'fireTight', { hold: 0, silent: false, speed: 0.32 });
     await Scenes.wait(hold);
@@ -708,7 +726,9 @@ class FinaleScene {
      ceremony abandoned part way through — and a riser left climbing
      after a scene has gone is the one that would be noticed. */
   _endHeldBeat() {
-    if (this._riser) { try { this._riser.stop(); } catch (e) {} this._riser = null; }
+    const r = this._riser;
+    this._riser = null;
+    if (r) { try { if (r.cancel) r.cancel(0.04); else r.stop(); } catch (e) {} }
   }
 
   // a ceremony that will not be finishing: stop everything it started
@@ -766,7 +786,10 @@ class FinaleScene {
       music: this.music,
       after: this._after ? this._after(role) : undefined,
       playerId: e && e.playerId,
+      // the last pouch of the night gets the biggest hit there is
+      big: !!this._big,
     });
+    this._big = false;
     this._embers = out.embers;
     if (out.settle) this._settle = out.settle;
   }

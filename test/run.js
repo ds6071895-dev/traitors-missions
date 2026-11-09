@@ -8,7 +8,7 @@ const suites = ['performance.test.js', 'session.test.js', 'rules.test.js', 'priv
                 'turn.test.js', 'party.test.js', 'retry.test.js', 'websocket.test.js', 'voice-socket.test.js',
                 'voice-worker.test.js', 'jitter.test.js', 'netcode.test.js',
                 'ai-bridge.test.js', 'claudia-stream.test.js', 'ai-director.test.js', 'speech.test.js', 'encounters.test.js', 'company.test.js',
-                'bots.test.js', 'tutorial.test.js', 'music.test.js', 'claudia-lines.test.js', 'wise-one.test.js', 'shield.test.js', 'talking.test.js',
+                'bots.test.js', 'tutorial.test.js', 'music.test.js', 'music-direction.test.js', 'claudia-lines.test.js', 'wise-one.test.js', 'shield.test.js', 'talking.test.js',
                 'figure.test.js'];
 
 let bad = 0;

@@ -58,7 +58,8 @@ class NightScene extends CastleScene {
 
   async drive() {
     const s0 = Session.state;
-    this.music = Music.murder('nightfall', Music.dayMusic(s0.seed, s0.day));
+    // the night is in a key of its own, a long way down from the day's
+    this.music = Music.murder('nightfall', Music.sceneMusic('night', s0.seed, s0.day));
     this._quietCues = true;
     this._told = { offer: false, fate: false, recruited: false };
 
@@ -186,10 +187,14 @@ class NightScene extends CastleScene {
     await this._sleep(2);
     if (!this._alive) return;
     AudioBus.play('estate-door');
-    await Scenes.Drama.hush(this.stage, this.music, null, { hold: 0.7 });
+    // something under the door: low, slow, and it never gets loud — until it does
+    const build = Scenes.Drama.build(this.stage, this.music, 'letter', { secs: 1.8 });
+    await this._sleep(1.8);
+    if (!this._alive) { build.cancel(); return; }
+    const wait = build.release('murder-hit', { then: 'deed' });
+    if (wait) await this._sleep(wait);
     if (!this._alive) return;
-    Scenes.Drama.hit(this.stage, this.music, 'murder-hit', { shake: 0.5, flash: 'rgba(170,0,20,.6)', haptic: 60 });
-    if (this.music) this.music.section('deed', { at: 'bar' });
+    Scenes.Drama.hit(this.stage, null, null, { shake: 0.5, flash: 'rgba(170,0,20,.6)', haptic: 60 });
     Scenes.Cine.card({ kicker: 'A letter, under your door', title: 'YOU HAVE BEEN POISONED',
                        sub: 'You can watch the rest. The living cannot hear you.', tone: 'traitor' });
     await this._say('murderedYou', {}, null);
@@ -198,10 +203,29 @@ class NightScene extends CastleScene {
 
   /* ---------------- a Traitor's choice ---------------- */
 
+  /* While the turret is choosing, the band knows how long is left: the
+     tension climbs from nothing to everything as the seconds go, and
+     the clock and the pulse in `conclave` come in on the way. */
+  _turretClock() {
+    let total = 0;
+    const tick = () => {
+      if (!this._alive || !this._panelOpen || !this.music || !this.music.setTension) return;
+      const v = Session.myPrivate() || {};
+      if (v.night && v.night.endsAt) {
+        const left = Math.max(0, (v.night.endsAt - Date.now()) / 1000);
+        total = Math.max(total, left, 1);
+        this.music.setTension(0.25 + 0.75 * (1 - left / total), 0.6);
+      }
+      setTimeout(tick, 500);
+    };
+    tick();
+  }
+
   async _choose() {
     this._panelOpen = true;
-    // the turret: the choir, low, and the drums under it
+    // the turret: the Traitors' motif, low, and the drums under it
     if (this.music) this.music.section('conclave', { at: 'bar', glide: 2 });
+    this._turretClock();
     this._paintChoice(Session.myPrivate() || {});
     await this._waitFor(() => {
       const w = Session.myPrivate() || {};

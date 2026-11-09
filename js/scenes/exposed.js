@@ -50,19 +50,27 @@ const Exposed = (() => {
          words; this is the one beat that is only silence — bars in,
          the camera on them — and it is the one doing the work. */
       { then: () => {
-          if (scene.music && scene.music.section) scene.music.section('held', { at: 'beat', glide: 0.5 });
-          return Scenes.Drama.hush(scene.stage, null, onThem, { hold: 1.2, silent: false });
+          /* and under her naming them, the build: it climbs through the
+             line and is still climbing when she stops */
+          const m = scene.music;
+          const bed = m && m.sections && m.sections.drumroll ? 'drumroll' : 'held';
+          scene._exposeBuild = Scenes.Drama.build(scene.stage, m, 'banish', { shot: onThem, bed });
+          return Scenes.wait(1.2);
         } },
       ...speak('exposeName', { name }, [onThem, onThem]),
 
       {
         shot: onThem,
-        then: () => {
-          const out = Reveal.flare({
+        then: async () => {
+          const build = scene._exposeBuild;
+          scene._exposeBuild = null;
+          const out = await Reveal.strike({
             role: 'traitor',
             stage: scene.stage,
             music: scene.music,
             playerId: e && e.playerId,
+            build,
+            alive: () => !!scene.stage,
           });
           if (scene.takeEmbers) scene.takeEmbers(out.embers, out.settle);
         },
