@@ -182,7 +182,8 @@
         <div class="lr-hub">
           <div class="lr-code-label">Room code</div>
           <div class="lr-code" id="lobby-code">····</div>
-          <div class="lr-code-hint">read it out</div>
+          <div class="lr-code-hint">read it out, or</div>
+          <button type="button" class="lr-copy" id="lobby-copy" data-nav>Copy invite link</button>
         </div>
         <div class="lobby-roster" id="lobby-roster"></div>
       </div>
@@ -283,7 +284,7 @@
   <div class="move-zone"><div class="move-ring"></div><div class="move-knob"></div></div>
 </div>
 
-<div class="stage-hint" id="stage-hint">Click to look <i>·</i> WASD to move <i>·</i> Tab frees the mouse</div>
+<div class="stage-hint" id="stage-hint">Click to look <i>·</i> WASD to move <i>·</i> Tab for a cursor</div>
 
 <!-- ============ VERDICT ============ -->
 <section class="screen verdict" data-screen="verdict">
@@ -467,6 +468,8 @@
 <script src="js/core/bots.js"></script>
 <script src="js/core/roomui.js"></script>
 <script src="js/core/slate.js"></script>
+<script src="js/core/ghost.js"></script>
+<script src="js/core/notebook.js"></script>
 <script src="js/core/moderator.js"></script>
 <script src="js/core/ai.js"></script>
 <script src="js/core/ai-players.js"></script>

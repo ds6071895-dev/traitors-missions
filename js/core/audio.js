@@ -12,14 +12,36 @@ const AudioBus = (() => {
   const recipes = {};
   const VOL = { master: 0.85, sfx: 0.9, music: 0.36, ambience: 0.6 };
 
+  /* A slow phone or tablet, or a player who chose Low scenery: the band
+     gets a smaller orchestra, a shorter room and a bigger audio buffer.
+     A buffer that is too small for the device is what crackles and
+     drags when the game is busy drawing. */
+  function lite() {
+    try {
+      if (typeof GameState !== 'undefined' && GameState.settings && GameState.settings.quality === 'low') return true;
+      const n = typeof navigator !== 'undefined' ? navigator : {};
+      const touch = n.maxTouchPoints > 1;
+      const cores = n.hardwareConcurrency || 4, mem = n.deviceMemory || 8;
+      return mem <= 3 || cores <= 2 || (touch && (cores <= 6 || mem <= 4));
+    } catch (e) { return false; }
+  }
+
   function init() {
     if (ctx) return ctx;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
-    ctx = new AC();
+    try { ctx = new AC(lite() ? { latencyHint: 'balanced' } : undefined); } catch (e) { ctx = new AC(); }
     master = ctx.createGain();
-    master.gain.value = VOL.master;
-    master.connect(ctx.destination);
+    master.gain.value = VOL.master * boost;
+    /* A last safety on the way out: the boost below can lift a busy
+       moment past full scale, and a clipped speaker is worse than a
+       quiet one. It does nothing until it is needed. */
+    const safe = ctx.createDynamicsCompressor();
+    safe.threshold.value = -1.5; safe.knee.value = 0; safe.ratio.value = 20;
+    safe.attack.value = 0.003; safe.release.value = 0.15;
+    master.connect(safe);
+    safe.connect(ctx.destination);
+    session(micLive ? 'play-and-record' : 'playback');
     for (const k of ['sfx', 'music', 'ambience']) {
       const g = ctx.createGain();
       g.gain.value = VOL[k];
@@ -33,6 +55,40 @@ const AudioBus = (() => {
     ready = true;
     keepAlive();
     return ctx;
+  }
+
+  /* iPhone and iPad. Two things go wrong there with a microphone:
+     the page's sound is silenced by the ring/silent switch unless the
+     audio session says it is playback, and the moment the microphone
+     opens the system switches to its call mode, which stops (or
+     "interrupts") every audio context and plays what comes back much
+     quieter. So the session is set to what we are doing — playback,
+     or play-and-record once the mic is asked for, before it opens, so
+     the switch happens once — and while the microphone is live on iOS
+     the output is lifted to make up what the call mode takes off. */
+  const IOS = (() => {
+    try {
+      const n = navigator;
+      return /iPad|iPhone|iPod/.test(n.userAgent || '') || (n.platform === 'MacIntel' && n.maxTouchPoints > 1);
+    } catch (e) { return false; }
+  })();
+  const MIC_BOOST = 1.7;               // about +4.6 dB
+  let micLive = false, boost = 1;
+  function session(type) {
+    try {
+      const s = typeof navigator !== 'undefined' && navigator.audioSession;
+      if (s && s.type !== type) s.type = type;
+    } catch (e) {}
+  }
+  /* VoiceChat says when the microphone is asked for and when it goes. */
+  function setMic(on) {
+    micLive = !!on;
+    session(micLive ? 'play-and-record' : 'playback');
+    boost = micLive && IOS ? MIC_BOOST : 1;
+    if (master && !muted) master.gain.setTargetAtTime(VOL.master * boost, now(), 0.1);
+    // and the system has probably just stopped every context
+    setTimeout(() => { if (stalled()) resume(); }, 250);
+    setTimeout(() => { if (stalled()) resume(); }, 1200);
   }
 
   /* A context can stop under the game: suspended by autoplay rules, or
@@ -49,7 +105,7 @@ const AudioBus = (() => {
     if (watching || typeof document === 'undefined') return;
     watching = true;
     const kick = () => { if (stalled()) resume(); };
-    for (const ev of ['pointerdown', 'touchend', 'keydown']) document.addEventListener(ev, kick, true);
+    for (const ev of ['pointerdown', 'touchend', 'click', 'keydown']) document.addEventListener(ev, kick, true);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
     if (ctx) ctx.addEventListener && ctx.addEventListener('statechange', () => { if (!document.hidden) setTimeout(kick, 300); });
   }
@@ -297,12 +353,12 @@ const AudioBus = (() => {
 
   function setMuted(v) {
     muted = v;
-    if (master) master.gain.setTargetAtTime(v ? 0.0001 : VOL.master, now(), 0.05);
+    if (master) master.gain.setTargetAtTime(v ? 0.0001 : VOL.master * boost, now(), 0.05);
   }
   function toggleMute() { setMuted(!muted); return muted; }
   function setVolume(bus, v) {
     VOL[bus] = v;
-    if (bus === 'master' && master) master.gain.value = muted ? 0.0001 : v;
+    if (bus === 'master' && master) master.gain.value = muted ? 0.0001 : v * boost;
     else if (busses[bus]) busses[bus].gain.value = v;
   }
 
@@ -346,6 +402,7 @@ const AudioBus = (() => {
 
   return { init, resume, define, play, engine, ambience, wind, noiseSource,
            setMuted, toggleMute, bus,
-           setVolume, get ctx() { return ctx; },
+           setVolume, lite, setMic, session, get boost() { return boost; }, get ios() { return IOS; },
+           get ctx() { return ctx; },
            get muted() { return muted; }, get ready() { return ready; } };
 })();

@@ -58,7 +58,10 @@ const Scenes = (() => {
       cache();
       if (!dom.card) return;
       if (!spec) { dom.card.classList.remove('on'); return; }
-      dom.card.className = 'cine-card on' + (spec.tone ? ' t-' + spec.tone : '');
+      dom.card.className = 'cine-card' + (spec.tone ? ' t-' + spec.tone : '') + (spec.cls ? ' ' + spec.cls : '');
+      // restart its entrance even when the last card had the same tone
+      void dom.card.offsetWidth;
+      dom.card.className += ' on';
       if (dom.cardKicker) dom.cardKicker.textContent = spec.kicker || '';
       if (dom.cardTitle) dom.cardTitle.textContent = spec.title || '';
       if (dom.cardSub) dom.cardSub.innerHTML = spec.sub || '';
@@ -308,7 +311,7 @@ const Scenes = (() => {
         if (!drama.has(stage)) {
           drama.set(stage, { was: !!stage.cinematic, controls: !!(stage.rig && stage.rig.controls) });
         }
-        stage.setCinematic(true, shot || null, { speed: o.speed || 2.2, cut: !!o.cut });
+        stage.setCinematic(true, shot || null, { speed: o.speed || 2.2, cut: !!o.cut, push: o.push });
       }
       if (music && music.silence && o.silent !== false) music.silence(true);
       return wait(o.hold != null ? o.hold : 0.6);
@@ -330,7 +333,7 @@ const Scenes = (() => {
       if (typeof Input !== 'undefined' && Input.haptic) Input.haptic(o.haptic || 30);
     },
     shot(stage, shot, o = {}) {
-      if (stage && stage.setShot) stage.setShot(shot, { speed: o.speed || 1.6, cut: !!o.cut });
+      if (stage && stage.setShot) stage.setShot(shot, { speed: o.speed || 1.6, cut: !!o.cut, push: o.push });
     },
     /* The long breath before an answer, which `hush` is the short one
        of: the bars and the dark edges as before, the camera if asked

@@ -55,7 +55,9 @@ const AIDirector = (() => {
   const INTERRUPT_GAP_MS = 1200;    // allow for the recognizer's spacing between interim results
   const CUT_IN_CHECK_MS = 6000;     // one chance per interval, not one roll every clock tick
   const CUT_IN_GAP_MS = 18000;      // leave plenty of human conversation between assertive turns
-  const CUT_IN_CHANCE = 0.25;
+  /* No cutting in. The user's rule: an AI never starts while a person is
+     talking. It waits for the gap, however keen it is. */
+  const CUT_IN_CHANCE = 0;
   const VISIT_GAP = 40000;           // occasional job-time approaches, across the whole cast
   const VISIT_PERSON_GAP = 65000;    // do not keep interrupting the same human
   const ASK_FOR_A_WORD = 0.55;       // of those approaches, how many ask to talk in private
@@ -281,7 +283,7 @@ const AIDirector = (() => {
     } else if (s.wise && s.wise.done) {
       out.push('The Traitors secretly chose a Wise One on the first day. Once, at a round table, the Wise One can overrule the vote and banish whoever they name. Nobody but the Traitors and the Wise One knows who it is.');
     }
-    if (f && f.overrule && f.overrule.armed && !f.overrule.by) out.push('The Wise One has overruled this vote: their slate will be turned last and it decides.');
+    // an overrule waiting to be turned is not said: the room learns of it at the last slate
     if (f && f.namesShown && f.namesShown.length) {
       out.push('Votes said aloud so far: ' + f.namesShown.map(v => nameOf(v.playerId) + ' named ' + nameOf(v.targetId)).join('; ') + '.');
     }
@@ -852,6 +854,13 @@ const AIDirector = (() => {
     if (!active || !Session.state) return null;
     const p = Session.playerById(m.id);
     if (!p || p.bot || !p.alive) return null;
+    /* Talking over an AI: the microphone hears the AI coming out of the
+       speakers *and* you, in one transcript. That used to be thrown away
+       whole as an echo, so whatever you said over them was never heard.
+       Now only the AI's words are taken out, and what is left is yours. */
+    const own = unEcho(m.text);
+    if (own === null) return null;
+    if (own !== m.text) { try { m.text = own; } catch (e) {} }   // the caller reads m.text: give it yours
     const words = String(m.text || '').toLowerCase().match(/[a-z\u00c0-\u024f0-9]+/g) || [];
     if (!words.some(w => !/^(?:u+h+|u+m+|e+r+m*|h+m+|m+h+m+)$/.test(w))) return null;
     if (Session.state.phase === 'night' && (Session.privateView(p.id) || {}).role !== 'traitor') return null;
@@ -909,7 +918,7 @@ const AIDirector = (() => {
     if (!o) return '';
     const t = nameOf(o.target), by = o.by === forBot ? 'You' : 'Your fellow Traitor ' + nameOf(o.by);
     return by + ' wants the Traitors to go after ' + t
-      + (o.how === 'poison' ? ' with the poison' : o.how === 'vote' ? ' at the round table' : o.how === 'recruit' ? ' — by offering them a seat in the turret' : '') + '. '
+      + (o.how === 'poison' ? ' with the poison' : o.how === 'vote' ? ' at the round table' : o.how === 'recruit' ? ' — by offering them a place among the Traitors' : '') + '. '
       + (o.how === 'recruit' ? 'If a seat can be offered tonight, offer it to ' + t + '. '
         : 'Strategy: ' + (o.how !== 'vote' ? 'whoever carries the poison gets ' + t + ' alone and slips it to them; ' : '')
           + (o.how !== 'poison' ? 'at the table, raise one specific, believable doubt about ' + t + ' (where they were, a vote, something they said), get a Faithful ally to repeat it, and vote for ' + t + ' — but do not sound rehearsed, and do not both lead the charge. ' : ''));
@@ -1005,6 +1014,23 @@ const AIDirector = (() => {
   /* Words, for comparing what a microphone heard with what was said
      out loud a moment ago. */
   const wordsOf = (t) => String(t || '').toLowerCase().split(/[^a-z\u00c0-\u024f']+/).filter(w => w.length > 1);
+  /* What a transcript says once the words an AI or Claudia has just said
+     aloud are taken out of it: `null` if it was all echo, the text if
+     none of it was, and the remainder if it was both. */
+  function unEcho(text) {
+    const w = wordsOf(text);
+    if (w.length < 3 || !isEcho(text)) return text;
+    const now = Date.now(), said = new Set();
+    for (let i = lines.length - 1; i >= 0 && now - lines[i].t < ECHO_MS; i--) {
+      const l = lines[i];
+      if (l.who === AI.CLAUDIA || isBot(l.who)) wordsOf(l.text).forEach(x => said.add(x));
+    }
+    const rest = String(text).split(/\s+/).filter(tok => {
+      const k = wordsOf(tok)[0];
+      return k && !said.has(k);
+    });
+    return wordsOf(rest.join(' ')).length >= 3 ? rest.join(' ') : null;
+  }
   function isEcho(text) {
     const w = wordsOf(text);
     if (w.length < 2) return false;
@@ -1194,9 +1220,15 @@ const AIDirector = (() => {
     if (id !== AI.CLAUDIA) lastBotTurn = Date.now();
     freshen(id, false);
     const self = id === AI.CLAUDIA ? null : Session.playerById(id);
+    /* The facts go first, and the dead go last as well: a model reads the
+       end of what it is given hardest, and an AI asking a poisoned man
+       where he was last night is the mistake people notice most. */
+    const gone = Session.state ? goneList(Session.state) : [];
     AI.ask(id, factsNow(Session.state) + '\n'
       + (self ? '[You are ' + self.name + '. Anybody named in quotes below is somebody else talking, not you; never answer as them or speak for them.]\n' : '')
-      + cue);
+      + cue
+      + (gone.length ? '\n[Remember: ' + gone.map(g => g.name).join(', ') + ' ' + (gone.length > 1 ? 'are' : 'is')
+        + ' out of the game and cannot hear or answer. Do not address them, ask them anything, or suggest voting for them.]' : ''));
     return true;
   }
 
@@ -1248,7 +1280,7 @@ const AIDirector = (() => {
     const origin = { id: from.id, name: from.name, text: p.text, named: [to.id] };
     thread = { origin, said: [], left: 0, waiting: to.id, nextAt: 0, used: new Set([to.id, from.id]) };
     const where = s.phase === 'tasks' ? castleWhere(to, from)
-      : s.phase === 'night' ? 'It is night and you are in the turret with your fellow Traitor, where nobody else can hear.'
+      : s.phase === 'night' ? 'It is night. You are in your own bedroom, talking in secret with your fellow Traitor over the Traitors\' line, where nobody else can hear.'
       : 'Right now: ' + phaseWords(s) + '.';
     let deal = '';
     if (p.ally || ALLY.test(p.text)) {
@@ -1588,7 +1620,13 @@ const AIDirector = (() => {
     const quiet = humansQuietFor();
     // nobody talks over Claudia: an AI mid-sentence gives way to her
     if (botSpeechBlocked(s, s.floor && !s.floor.done ? s.floor.playerId : null)) {
-      pauseBots();
+      /* The game wants the room — a card, a camera move, the breath
+         after Claudia. An AI already halfway through a sentence is let
+         finish it; it is only cut off if Claudia herself starts talking
+         (and she waits a few seconds for it first: see Voice.say). A
+         sentence chopped off by a cutscene was the "interrupted by the
+         game" the user kept hearing. */
+      if (!botTalking() || claudiaTalkingNow()) pauseBots();
       return;
     }
     if (whisperTick(s)) return;
@@ -1685,6 +1723,14 @@ const AIDirector = (() => {
       || (typeof Voice !== 'undefined' && Voice.sinceSpoke < FLOOR_AFTER_CLAUDIA_MS);
   }
 
+  // an AI whose voice is coming out of the speakers right now
+  function botTalking() {
+    return !!(active && speaking && speaking.id !== AI.CLAUDIA && speaking.audioAt !== null && AI.speaking(speaking.id));
+  }
+  function claudiaTalkingNow() {
+    return (claudiaLive && AI.speaking(AI.CLAUDIA))
+      || (typeof Voice !== 'undefined' && !!Voice.speaking && !Voice.waitingForAI);
+  }
   function pauseBots() {
     if (!active) return;
     if (speaking && speaking.id !== AI.CLAUDIA) {
@@ -1711,6 +1757,9 @@ const AIDirector = (() => {
     if (speaking) return;
     // Claudia has the room; nobody talks over her
     if (botSpeechBlocked(s) || tableNotOpen(s)) return;
+    /* And nobody starts while a person is talking — by the live meter,
+       not only by the words, which arrive a second late. */
+    if (voiceNow()) { lastHuman = Date.now(); return; }
     if (s.floor && !s.floor.done && s.floor.playerId) return;
     allianceIntent(s, quiet);
     // one AI just spoke to another by name: that one answers before anybody chips in
@@ -1731,8 +1780,11 @@ const AIDirector = (() => {
     heardLast = null;
     const b = replier(h, s);
     if (!b) return;
-    // Direct questions always get an answer; unsolicited comments take alternate opportunities.
-    if (!cutIn && !h.named.length && commentOpportunity++ % 2 === 1) {
+    /* A person who spoke to the room gets an answer. This used to skip
+       every other remark that did not name an AI, which is a room that
+       ignores you half the time. Only two people talking to each other
+       are left to it, now and then. */
+    if (!cutIn && !h.named.length && among) {
       leaveRoomUntil = Date.now() + ROOM_TURN_GAP;
       return;
     }
@@ -1794,7 +1846,7 @@ const AIDirector = (() => {
   function chatCue(b, h, s) {
     const me = Session.playerById(b.id);
     const where = s.phase === 'tasks' ? castleWhere(b, h)
-      : s.phase === 'night' ? 'It is night and you are in the turret with your fellow Traitor, where nobody else can hear.'
+      : s.phase === 'night' ? 'It is night. You are in your own bedroom, talking in secret with your fellow Traitor over the Traitors\' line, where nobody else can hear.'
       : 'Right now: ' + phaseWords(s) + '.';
     const toYou = h.named.indexOf(b.id) >= 0;
     return where + ' ' + h.name + ' just said' + (toYou ? ' to you' : '') + ': "' + h.text + '". '
@@ -2491,7 +2543,7 @@ const AIDirector = (() => {
   }
 
   return {
-    start, stop, pauseBots, startEncounter, claudiaLine, claudiaJudge, discussionStarted, discussionEnded, mentions,
+    start, stop, pauseBots, botTalking, startEncounter, claudiaLine, claudiaJudge, discussionStarted, discussionEnded, mentions,
     distrusts, moved, threats,
     // the Traitors' standing order, for the castle bots' choice of victim
     order: () => (active ? liveOrder() : null),

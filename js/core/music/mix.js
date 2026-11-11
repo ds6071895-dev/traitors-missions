@@ -54,7 +54,11 @@ const MusicMix = (() => {
     if (st.irs[key]) return st.irs[key];
     const R = ROOMS[key];
     const sr = ctx.sampleRate;
-    const n = Math.max(1, Math.floor(R.len * sr));
+    /* On a slow device the tail is cut short: a convolution costs in
+       proportion to its length, and the last second and a half of a
+       cathedral is too quiet to hear under a game anyway. */
+    const lite = typeof AudioBus !== 'undefined' && AudioBus.lite && AudioBus.lite();
+    const n = Math.max(1, Math.floor(Math.min(R.len, lite ? 2.2 : R.len) * sr));
     const pre = Math.floor(R.pre * sr);
     const buf = ctx.createBuffer(2, n, sr);
     let seed = 0x2f6b1a3 ^ key.length * 7919;
@@ -102,7 +106,7 @@ const MusicMix = (() => {
       curve[i] = Math.tanh(k * x) / Math.tanh(k);
     }
     shaper.curve = curve;
-    shaper.oversample = '2x';
+    shaper.oversample = typeof AudioBus !== 'undefined' && AudioBus.lite && AudioBus.lite() ? 'none' : '2x';
 
     /* Weight and air. The orchestra is made of sawtooths, which have
        plenty of middle and not much else: a shelf under it for the

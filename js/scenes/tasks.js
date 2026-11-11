@@ -236,8 +236,6 @@ class TasksScene {
       <div class="tk-role" hidden></div>
       <div class="tk-room"><b></b><small>Door shut — only this room can hear you</small></div>
       <canvas class="tk-map" width="472" height="256"></canvas>
-      <button class="tk-notes-btn" type="button"><b>N</b> Notebook</button>
-      <div class="tk-notes"><h4>WHAT YOU HAVE SEEN</h4><div class="tk-notes-body"></div></div>
       <div class="tk-prompt"><div class="tk-ring"></div><span class="tk-prompt-text"></span></div>
       <div class="tk-touch"><button class="tk-use" type="button">USE</button><button class="poison tk-poison" type="button" hidden>POISON</button></div>`;
     document.body.appendChild(root);
@@ -246,11 +244,10 @@ class TasksScene {
       root, list: q('.tk-list ul'), count: q('.tk-count'), carry: q('.tk-carry'),
       clock: q('.tk-clock span'), clockBox: q('.tk-clock'), clockRing: q('.tk-clock-ring'),
       pot: q('.tk-pot b'), pop: q('.tk-pot-pop'), shield: q('.tk-shield'), shieldWho: q('.tk-shield b'),
-      role: q('.tk-role'), map: q('.tk-map'), notes: q('.tk-notes'), notesBody: q('.tk-notes-body'),
+      role: q('.tk-role'), map: q('.tk-map'),
       prompt: q('.tk-prompt'), promptText: q('.tk-prompt-text'), use: q('.tk-use'), poison: q('.tk-poison'),
       room: q('.tk-room'), roomName: q('.tk-room b'),
     };
-    q('.tk-notes-btn').onclick = () => this._toggleNotes();
     // on a phone the list folds down to the next job, out of the view
     q('.tk-list-head').onclick = () => q('.tk-list').classList.toggle('min');
     const hold = (btn, key) => {
@@ -274,37 +271,12 @@ class TasksScene {
     AudioBus.play('coin');
   }
 
-  _toggleNotes(on) {
-    this._notesOpen = on === undefined ? !this._notesOpen : !!on;
-    this._dom.notes.classList.toggle('on', this._notesOpen);
-    if (this._notesOpen) this._paintNotes();
-  }
+  // the notebook is the whole game's now (js/core/notebook.js)
+  _toggleNotes(on) { if (typeof Notebook !== 'undefined') Notebook.toggle(on); }
 
   _name(id) {
     const p = Session.playerById(id);
     return p ? (p.local ? 'you' : p.name) : 'somebody';
-  }
-
-  _paintNotes() {
-    const v = Session.myPrivate() || {};
-    const notes = (v.notes || []).slice().reverse();
-    const fmt = (t) => Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
-    const day = (n) => (n.day === Session.state.day ? '' : 'Day ' + (n.day + 1) + ' ');
-    this._dom.notesBody.innerHTML = notes.length ? notes.map(n => {
-      const where = castleEsc(Chores.roomName(n.room));
-      if (n.kind === 'handover') {
-        return '<p class="hand"><i>' + day(n) + fmt(n.t) + '</i>You saw <b>' + castleEsc(this._name(n.a))
-          + '</b> hand something to <b>' + castleEsc(this._name(n.b)) + '</b> in ' + where + '.</p>';
-      }
-      if (n.kind === 'door') {
-        return '<p class="door"><i>' + day(n) + fmt(n.t) + '</i>You saw <b>' + castleEsc(this._name(n.who))
-          + '</b> ' + (n.shut ? 'shut' : 'open') + ' the door of ' + where + '.</p>';
-      }
-      const who = (n.ids || []).map(id => castleEsc(this._name(id)));
-      const behind = n.shut ? 'behind a shut door ' : '';
-      return '<p' + (n.shut ? ' class="door"' : '') + '><i>' + day(n) + fmt(n.t) + '</i>'
-        + (who.length ? (n.shut ? 'Behind a shut door in ' : 'In ') + where + ' with ' + joinNames(who) : 'Alone ' + behind + 'in ' + where) + '.</p>';
-    }).join('') : '<p><i></i>Nothing yet. Keep your eyes open.</p>';
   }
 
   _icon(j) {
@@ -381,7 +353,7 @@ class TasksScene {
       u.orb.visible = kind === 'gold';
       u.box.visible = kind === 'blue';
     }
-    if (this._notesOpen) this._paintNotes();
+    if (typeof Notebook !== 'undefined' && Notebook.open) Notebook.paint();
   }
 
   /* The floor plan, you, your jobs, and anybody in the room with you —
@@ -563,7 +535,6 @@ class TasksScene {
       this._lastPaint = 0.2;
       this._paintHud();
     }
-    if (Input.pressed('notes')) this._toggleNotes();
     this._touchPressed = null;
   }
 

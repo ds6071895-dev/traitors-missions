@@ -104,7 +104,7 @@ test('bots stay silent throughout the hill and the first castle introduction', (
   eq(W.asked.length, 1, 'conversation begins after the introduction and a breath');
 });
 
-test('unsolicited replies use alternate opportunities while direct questions always get answers', () => {
+test('a person speaking to the room is answered every time, not every other time', () => {
   const W = world({ random: [0.9] });
   W.say('p1', 'This castle is huge');
   W.step(1.5);
@@ -113,15 +113,11 @@ test('unsolicited replies use alternate opportunities while direct questions alw
   W.step(9);
   W.say('p1', 'The staircase is spooky');
   W.step(2);
-  eq(W.asked.length, 1, 'leave the second remark to the humans');
-  W.step(9);
-  W.say('p1', 'I like the suits of armour');
-  W.step(2);
-  eq(W.asked.length, 2, 'join the third remark');
+  eq(W.asked.length, 2, 'the second remark is answered too');
   W.reply(W.asked[1].id);
   W.say('p1', 'Morag, what do you reckon?');
   W.step(2);
-  eq(W.asked.length, 3, 'a direct question bypasses the alternating rhythm');
+  eq(W.asked.length, 3, 'and a direct question');
 });
 
 test('Claudia blocks assigned turns as well as queued ballot decisions', () => {
@@ -352,27 +348,15 @@ test('assigned AI turns hold their floor against human speech', () => {
   ok(W.speaking.has('m'), 'a dedicated floor lasts until the contestant finishes');
 });
 
-test('an AI occasionally cuts into continuing speech, with space between assertive turns', () => {
+test('an AI never cuts into a person who is still talking', () => {
   const W = world({ random: [0.1] });
-  function talking(seconds) {
-    for (let i = 0; i < seconds * 5; i++) {
-      W.say('p1', 'The timing of that handover does not add up');
-      W.step(0.2);
-    }
+  for (let i = 0; i < 60; i++) {
+    W.say('p1', 'The timing of that handover does not add up');
+    W.step(0.2);
   }
-  talking(5.8);
-  eq(W.asked.length, 0, 'the human gets time to make their point first');
-  talking(2.2);
-  eq(W.asked.length, 1, 'the AI can join without waiting for silence');
-  ok(/Briefly cut in/.test(W.asked[0].text), 'the interjection is prompted as a short relevant point');
-  W.emit('speaking', { id: W.asked[0].id });
-  talking(1);
-  ok(W.speaking.has(W.asked[0].id), 'the interjection is not immediately cancelled by the ongoing voice');
-  W.reply(W.asked[0].id, 'That handover happened before the bell.');
-  talking(11);
-  eq(W.asked.length, 1, 'the AI leaves space before cutting in again');
-  talking(5);
-  eq(W.asked.length, 2, 'another assertive turn can happen later');
+  eq(W.asked.length, 0, 'twelve seconds of talking, and nobody starts over it');
+  W.step(2);
+  eq(W.asked.length, 1, 'answered once they stop');
 });
 
 test('cutting in is occasional and respects Claudia and human-only floors', () => {

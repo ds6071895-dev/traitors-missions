@@ -75,6 +75,7 @@ const Input = (() => {
   const look = { dx: 0, dy: 0 };
   const touchMove = { active: false, x: 0, y: 0 };
   let mouseAim = false, locked = false, mouseBlocked = false, touchMode = 'drive';
+  let pointing = false;           // Tab: the drawn cursor over a world you are otherwise looking round
   // a menu with text boxes and dropdowns on it is up: give the real pointer back
   let menuUp = false, inPlay = false;
   const lockListeners = new Set();
@@ -157,7 +158,20 @@ const Input = (() => {
 
   function onKey(e, isDown) {
     if (!enabled) return;
-    if (isDown && e.code === 'Tab' && locked) { e.preventDefault(); releaseLock(); return; }
+    // a key typed into a box is a letter, not a step or a button
+    const tag = e.target && e.target.tagName;
+    if (isDown && (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable))) return;
+    /* Tab brings the cursor up without letting go of the pointer, so
+       the buttons over the world — the mic, the music, "I've said
+       enough", the notebook — can be clicked mid-look; Tab again, or a
+       click on the world itself, goes back to looking round. It used to
+       let go of the pointer, and every one of those buttons cost a
+       click to take it back. */
+    if (isDown && e.code === 'Tab' && locked) {
+      e.preventDefault();
+      if (!e.repeat && mouseAim && !mouseBlocked) setPointing(!pointing);
+      return;
+    }
     if (actionsFor(e.code).length && e.code === 'Space') e.preventDefault();
     pressCode(e.code, isDown);
   }
@@ -211,7 +225,7 @@ const Input = (() => {
   function initMouse() {
     const canvas = document.getElementById('gl');
     window.addEventListener('mousemove', (e) => {
-      if (!mouseAim || mouseBlocked) return;
+      if (!mouseAim || mouseBlocked || pointing) return;
       if (locked) {
         look.dx += e.movementX || 0;
         look.dy += e.movementY || 0;
@@ -244,6 +258,7 @@ const Input = (() => {
       if (!locked) {
         // dropping the pointer must not leave the string drawn
         pressCode('Mouse0', false); pressCode('Mouse2', false);
+        pointing = false;
       }
       syncCursor();
       // a click that took the pointer for looking round has no spot to keep
@@ -275,6 +290,7 @@ const Input = (() => {
      click on the world to take it back; now the lock is kept and the
      cursor below is drawn inside it instead. */
   function setMouseAim(on) {
+    if (!!on !== mouseAim) pointing = false;
     mouseAim = !!on;
     freeSeen = false;
     if (on) inPlay = true;
@@ -313,7 +329,16 @@ const Input = (() => {
                 buttons: 0, dirty: false, idle: 0, lastClick: 0, lastAt: null, placed: false, sentX: NaN, sentY: NaN };
   const IDLE_MS = 2200;              // a cutscene does not need a dart parked in the middle of it
 
-  const cursorWanted = () => locked && (!mouseAim || mouseBlocked);
+  const cursorWanted = () => locked && (!mouseAim || mouseBlocked || pointing);
+  function setPointing(on) {
+    on = !!on && locked && mouseAim && !mouseBlocked;
+    if (on === pointing) return;
+    pointing = on;
+    look.dx = look.dy = 0;
+    if (on) cur.placed = false;           // up where the crosshair is
+    syncCursor();
+    if (document.body && document.body.classList) document.body.classList.toggle('pointing', on);
+  }
 
   function cursorEl() {
     if (cur.el || !document.body) return cur.el;
@@ -455,6 +480,8 @@ const Input = (() => {
   function press(e) {
     flushCursor();
     const t = targetAt();
+    // pointing, and the press is on the world rather than a button: back to looking
+    if (pointing && t && t.id === 'gl') { setPointing(false); return; }
     // a dropdown opens only for a real pointer, so it is given one
     if (t.closest && t.closest('select')) { releaseLock(); return; }
     cur.buttons |= (1 << e.button);
@@ -668,6 +695,8 @@ const Input = (() => {
       menuUp = !!id && KEEP_LOCK.indexOf(id) < 0;
       if (menuUp) { inPlay = false; releaseLock(); }
       if (mouseBlocked) clearAll();
+      // a panel came or went: whatever it was, you come out of it looking round
+      if (pointing) { pointing = false; if (document.body && document.body.classList) document.body.classList.remove('pointing'); }
       syncCursor();
       /* All three overlays are siblings of the screen stack. Leaving the
          driving pad out of this list made its BOOST button sit above the
@@ -860,7 +889,8 @@ const Input = (() => {
 
   return { init, held, pressed, released, steer, throttle, endFrame,
            aimDelta, aimStick, moveAxes, setMouseAim, setTouchMode, setDrivePad,
-           requestLock, releaseLock, onLockChange,
+           requestLock, releaseLock, onLockChange, setPointing,
+           get pointing() { return pointing; },
            haptic, setEnabled, rebind, BINDINGS,
            get isTouch() { return isTouch; },
            get aimReady() { return aimReady(); },

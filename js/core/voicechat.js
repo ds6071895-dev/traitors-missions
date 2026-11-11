@@ -63,6 +63,8 @@ const VoiceChat = (() => {
       return false;
     }
     requesting = true;
+    // tell iOS first, so its audio switches to call mode once, not under our feet
+    if (typeof AudioBus !== 'undefined' && AudioBus.session) AudioBus.session('play-and-record');
     try {
       const acquired = await md.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true,
@@ -76,11 +78,13 @@ const VoiceChat = (() => {
       denied = e && e.name === 'NotAllowedError'
         ? 'Microphone blocked. The night still works without it.'
         : 'No microphone found. The night still works without it.';
+      micChanged(false);
       emit('state');
       return false;
     } finally { if (requestId === micGeneration) requesting = false; }
     available = true;
     denied = null;
+    micChanged(true);
     selfId = Party.selfId();
     applyGate();
     watchPeers();
@@ -433,7 +437,13 @@ const VoiceChat = (() => {
     const me = s.players.find(p => p.local);
     return !!me && me.alive;
   }
-  const canWhisper = () => available && amTraitor()
+  /* On the hill nobody knows what they are until Claudia says so, and
+     a Traitors' chat button turning up before then gives it away early
+     (or tells you before she does). After the hill it is always there. */
+  let roleTold = false;
+  const toldYet = () => roleTold || !(typeof Session !== 'undefined' && Session.state && Session.state.phase === 'hill');
+  function setRoleTold(v) { roleTold = !!v; emit('state'); }
+  const canWhisper = () => available && amTraitor() && toldYet()
     && typeof Party !== 'undefined' && Party.canWhisper && (floorId === null || floorId === selfId);
   function holdWhisper(on) {
     on = !!on && canWhisper();
@@ -485,11 +495,20 @@ const VoiceChat = (() => {
 
   const openFloor = () => setFloor(null);
 
+  /* The speakers, after the microphone opened or closed: the music's
+     context and the voices' both, restarted and set to the right level. */
+  function micChanged(on) {
+    try { if (typeof AudioBus !== 'undefined' && AudioBus.setMic) AudioBus.setMic(on); } catch (e) {}
+    try { if (typeof ServerAudio !== 'undefined' && ServerAudio.micChanged) ServerAudio.micChanged(); } catch (e) {}
+  }
+
   function stop() {
     ++micGeneration; requesting = false;
     if (typeof ServerAudio !== 'undefined') ServerAudio.stop();
+    const had = !!stream;
     if (stream) stream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
     stream = null;
+    if (had) micChanged(false);
     available = false;
     floorId = null;
     clearTimeout(whisperTimer);
@@ -549,6 +568,7 @@ const VoiceChat = (() => {
     holdWhisper, whisperingFrom: (id) => whisperIn.has(id) && amTraitor(),
     get canWhisper() { return canWhisper(); },
     get whispering() { return whisper === 'on' || whisper === 'opening'; },
+    setRoleTold,
     init, listen, start, stop, on, setMuted, toggleMuted, setFloor, openFloor, setVolume, resetVolumes, refreshSpeechGate,
     level, levels, loudest, talking, talkers, voiced, voicedFor, setCourtesy,
     get holder() { return holder; },

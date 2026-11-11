@@ -38,7 +38,76 @@ const Music = (() => {
      touch screen, or without the cores, gets the smaller one. */
   let BUDGET = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency >= 8
                 && !(navigator.maxTouchPoints > 1)) ? 160 : 110;
+  if (typeof AudioBus !== 'undefined' && AudioBus.lite && AudioBus.lite()) BUDGET = 76;
+  /* How far ahead the band books, learnt from how late its clock has
+     been waking. A device that is busy drawing can miss a third of a
+     second, and then the music stumbles; one that has been late books
+     further ahead (up to a second) and plays a slightly smaller band,
+     until it has been on time for a while. */
+  const Late = { ahead: LOOKAHEAD, last: 0, calm: 0, cut: 0, base: BUDGET };
+  function lateTick(now) {
+    const gap = Late.last ? now - Late.last : 0;
+    Late.last = now;
+    if (!(gap > 0) || gap > 3 || hiddenPage()) return;
+    if (gap > Late.ahead * 0.55) {
+      Late.ahead = Math.min(1.0, Math.max(Late.ahead, gap * 1.6 + 0.08));
+      Late.calm = 0;
+      if (gap > 0.25 && Late.cut < 3) { Late.cut++; BUDGET = Math.max(48, Math.round(Late.base * (1 - 0.15 * Late.cut))); }
+    } else if ((Late.calm += gap) > 20) {
+      Late.calm = 0;
+      Late.ahead = Math.max(LOOKAHEAD, Late.ahead - 0.1);
+      if (Late.cut > 0) { Late.cut--; BUDGET = Math.round(Late.base * (1 - 0.15 * Late.cut)); }
+    }
+  }
   const LIFTS = [0, 2, 0, 3, 0, 2, 5, 0];   // semitones, one per sixteen bars
+
+  /* The conductor's clock. A page timer is throttled to once a second
+     (or worse) as soon as the tab is in the background or the window
+     loses focus on some browsers, and a third of a second booked once a
+     second is a band that keeps stopping. A worker's timer is not held
+     back like that, so every live cue wakes off one worker; a browser
+     without workers (or a test) gets the old interval. And while the
+     page is hidden the band books further ahead, so even a late tick
+     lands on music that is already in the diary. */
+  const Clock = (() => {
+    const subs = new Set();
+    let worker = null, iv = null;
+    const wall = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()) / 1000;
+    const tickAll = () => {
+      lateTick(wall());
+      subs.forEach((fn) => { try { fn(); } catch (e) {} });
+    };
+    function ensure() {
+      if (worker || iv) return;
+      try {
+        if (typeof Worker !== 'undefined' && typeof Blob !== 'undefined'
+            && typeof URL !== 'undefined' && URL.createObjectURL) {
+          const src = 'let t=null;onmessage=function(e){clearInterval(t);t=null;'
+                    + 'if(e.data>0)t=setInterval(function(){postMessage(0)},e.data)};';
+          const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+          worker = new Worker(url);
+          worker.onmessage = tickAll;
+          worker.onerror = () => { try { worker.terminate(); } catch (e) {} worker = null; if (!iv && subs.size) iv = setInterval(tickAll, TICK); };
+          worker.postMessage(TICK);
+          return;
+        }
+      } catch (e) { worker = null; }
+      iv = setInterval(tickAll, TICK);
+    }
+    function idle() {
+      if (subs.size) return;
+      if (worker) { try { worker.postMessage(0); } catch (e) {} }
+      if (iv) { clearInterval(iv); iv = null; }
+    }
+    return {
+      add(fn) {
+        subs.add(fn);
+        if (worker) { try { worker.postMessage(TICK); } catch (e) {} } else ensure();
+        return () => { subs.delete(fn); idle(); };
+      },
+    };
+  })();
+  const hiddenPage = () => typeof document !== 'undefined' && !!document.hidden;
 
   /* A run of the game has a seed, and the variations a score plays are
      drawn from it: which pattern this phrase, which instrument takes
@@ -378,7 +447,7 @@ const Music = (() => {
       this.out.gain.cancelScheduledValues(c.currentTime);
       this.out.gain.setValueAtTime(EPS, c.currentTime);
       this.out.gain.exponentialRampToValueAtTime(this.level, c.currentTime + 1.6);
-      this.timer = setInterval(() => this._pump(), TICK);
+      this.timer = Clock.add(() => this._pump());
       return this;
     }
 
@@ -704,7 +773,7 @@ const Music = (() => {
       if (!this.ok) return;
       LIVE.delete(this);
       if (this._build) this._build.cancel(Math.min(0.3, fade));
-      if (this.timer) { clearInterval(this.timer); this.timer = null; }
+      if (this.timer) { this.timer(); this.timer = null; }
       const t = this.ctx.currentTime;
       this.out.gain.cancelScheduledValues(t);
       this.out.gain.setValueAtTime(Math.max(EPS, this.out.gain.value), t);
@@ -768,7 +837,7 @@ const Music = (() => {
         this.intensity = 0.6 + 0.8 * this.tension;
         if (k >= 1) this._tens = null;
       }
-      if (this._build) this._build.pump(now);
+      if (this._build) { try { this._build.pump(now); } catch (e) { try { this._build.cancel(0.2); } catch (x) {} this._build = null; } }
 
       /* Anybody you can hear — a player, an AI, Claudia — and the band
          steps back for as long as they talk, in every scene: the music
@@ -791,8 +860,14 @@ const Music = (() => {
       // spraying every missed note at once
       if (this.next < now - 0.5) this.next = this._snap(now + 0.05);
       let guard = 0;
-      while (this.next < now + LOOKAHEAD && guard++ < 64) {
-        this._play(this.next);
+      const ahead = hiddenPage() ? 1.6 : Late.ahead;
+      while (this.next < now + ahead && guard++ < 160) {
+        /* One bad step must never stop the band. A throw here used to
+           leave `next` where it was, so every wake-up hit the same note,
+           threw again, and the music was silent for the rest of the
+           scene — "the music randomly stopped". Skip the step instead. */
+        try { this._play(this.next); }
+        catch (e) { if (!this._warned) { this._warned = true; try { console.warn('music step skipped', e); } catch (x) {} } }
         this.next += this._sps();
         this.step++;
         if (this.bpmT < 1) {
@@ -1076,6 +1151,7 @@ const Music = (() => {
            roundtable, murder, dayMusic, sceneMusic, SCENE_KEYS, formAt,
            duckAll, stopAll, pauseAll, sectionAll, stingerAll, verdictCue,
            Score, SILENT, PROGRESSIONS, STINGERS, CUES, hash,
-           get budget() { return BUDGET; }, setBudget(n) { BUDGET = Math.max(40, n | 0); },
+           get budget() { return BUDGET; }, setBudget(n) { BUDGET = Math.max(40, n | 0); Late.base = BUDGET; Late.cut = 0; },
+           get lookahead() { return Late.ahead; },
            get live() { return LIVE; } };
 })();

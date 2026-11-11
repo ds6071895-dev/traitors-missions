@@ -12,6 +12,8 @@
    <audio> element: one buffer, the worklet's, rather than two. */
 const ServerAudio = (() => {
   let current = null;
+  const KICKS = ['pointerdown', 'touchend', 'click', 'keydown'];
+  const level = () => (typeof AudioBus !== 'undefined' && AudioBus.boost) || 1;
   /* A voice that is not a person in the room: Claudia, or an AI seat the
      night has dealt in. Anything else with no seat is dropped. */
   const CLAUDIA = 'c1a0d1a0-0000-4000-8000-00000000c1a0';
@@ -31,9 +33,26 @@ const ServerAudio = (() => {
       const Context = window.AudioContext || window.webkitAudioContext;
       state.ctx = new Context({ latencyHint: 'interactive' });
       if (!state.ctx.audioWorklet) throw new Error('AudioWorklet unavailable');
-      state.resume = () => { if (!state.closed) state.ctx.resume().catch(() => {}); };
-      document.addEventListener('pointerdown', state.resume);
-      document.addEventListener('keydown', state.resume);
+      state.resume = () => { if (!state.closed && state.ctx.state !== 'running') state.ctx.resume().catch(() => {}); };
+      /* iOS only lets a context start from a tap's touchend or click,
+         never a pointerdown, and stops it again whenever the microphone
+         opens or a call comes in: listen for all of them, and for the
+         context saying it has stopped. */
+      for (const ev of KICKS) document.addEventListener(ev, state.resume, true);
+      state.ctx.addEventListener && state.ctx.addEventListener('statechange', () => {
+        if (!state.closed && state.ctx.state !== 'running' && !document.hidden) setTimeout(state.resume, 300);
+      });
+      state.onVisible = () => { if (!document.hidden) state.resume(); };
+      document.addEventListener('visibilitychange', state.onVisible);
+      // every voice goes out through one gain, which iOS's call mode needs lifted
+      if (state.ctx.createGain && state.ctx.createDynamicsCompressor) {
+        state.out = state.ctx.createGain();
+        state.out.gain.value = level();
+        const safe = state.ctx.createDynamicsCompressor();
+        safe.threshold.value = -1.5; safe.knee.value = 0; safe.ratio.value = 20;
+        safe.attack.value = 0.003; safe.release.value = 0.15;
+        state.out.connect(safe); safe.connect(state.ctx.destination);
+      }
       state.resume();
       state.ready = state.ctx.audioWorklet.addModule('js/core/voice-worklet.js');
       state.ready.catch(() => { if (!state.closed) failed('Could not start voice audio. Please reload to retry.'); });
@@ -96,7 +115,7 @@ const ServerAudio = (() => {
     });
     const gain = state.ctx.createGain();
     node.connect(gain);
-    gain.connect(state.ctx.destination);
+    gain.connect(state.out || state.ctx.destination);
     const analyser = state.ctx.createAnalyser();
     analyser.fftSize = 2048;
     node.connect(analyser);
@@ -158,10 +177,8 @@ const ServerAudio = (() => {
     if (state.worker) { state.worker.postMessage({ op: 'close' }); state.worker = null; }
     if (state.capture) { state.capture.port.postMessage('stop'); state.capture.disconnect(); }
     if (state.source) state.source.disconnect();
-    if (state.resume) {
-      document.removeEventListener('pointerdown', state.resume);
-      document.removeEventListener('keydown', state.resume);
-    }
+    if (state.resume) for (const ev of KICKS) document.removeEventListener(ev, state.resume, true);
+    if (state.onVisible) document.removeEventListener('visibilitychange', state.onVisible);
     if (state.ctx) state.ctx.close().catch(() => {});
     current = null;
   }
@@ -174,5 +191,16 @@ const ServerAudio = (() => {
     return { mode: current.worker ? 'worker' : 'main', caps: current.caps, voice: current.voice, peers };
   }
 
-  return { listen, publish, detach, stop, stats, CLAUDIA, CLAUDIA_LINE };
+  /* The microphone has just opened or closed: the system may have
+     stopped this context, and the output level may need to follow. */
+  function micChanged() {
+    const state = current;
+    if (!state || state.closed) return;
+    if (state.out) state.out.gain.setTargetAtTime(level(), state.ctx.currentTime, 0.1);
+    state.resume();
+    setTimeout(() => state.resume(), 250);
+    setTimeout(() => state.resume(), 1200);
+  }
+
+  return { listen, publish, detach, stop, stats, micChanged, CLAUDIA, CLAUDIA_LINE };
 })();

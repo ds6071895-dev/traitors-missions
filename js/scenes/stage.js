@@ -89,7 +89,8 @@ const Stage = (() => {
     }
 
     const summitY = land.heightAt(0, 0);
-    const parkedCar = !indoors && o.dress === 'none' && !o.noCar ? EstateCar.build(o.players) : null;
+    // no car: the show starts with everybody already on the hill (only a scene that asks for one gets it)
+    const parkedCar = !indoors && o.dress === 'none' && o.car ? EstateCar.build(o.players) : null;
     if (parkedCar) { parkedCar.pose(land.road.sample(0)); scene.add(parkedCar.group); }
     const seatedDress = o.dress === 'table' || o.dress === 'breakfast' || o.dress === 'conclave';
 
@@ -107,6 +108,16 @@ const Stage = (() => {
     EstateMaterials.fabric(claudia);
     scene.add(claudia);
 
+    /* Is this one of your fellow Traitors? Only ever true on a Traitor's
+       own screen, and not on the hill before Claudia has said it. */
+    const fellowTraitor = (id) => {
+      try {
+        if (typeof Session === 'undefined' || !Session.state || Session.state.phase === 'hill') return false;
+        if (!Session.myRole || Session.myRole() !== 'traitor') return false;
+        const mine = Session.myPrivate && Session.myPrivate();
+        return !!(mine && (mine.partners || []).indexOf(id) >= 0);
+      } catch (e) { return false; }
+    };
     // the players: in an arc facing her, or round whatever table this is
     const figures = [];
     const seats = [];
@@ -152,7 +163,7 @@ const Stage = (() => {
          metres away and a label at forty would be a label on the loch. */
       const look = p.look ? Look.resolve(p.look) : null;
       const tag = Nametag.make(p.name || 'Player',
-        { accent: look ? look.accent : '#f2c14e', near: 14, far: 40 });
+        { accent: look ? look.accent : '#f2c14e', near: 14, far: 40, traitor: fellowTraitor(p.id) });
       scene.add(tag);
       fig.userData.tag = tag;
       figures.push(fig);
@@ -329,21 +340,52 @@ const Stage = (() => {
       longTable: () => ({ pos: V(3.6, summitY + 2.3, 6.6), look: V(0, summitY + 0.9, 0.2), fov: 50, speed: 1.4 }),
     };
 
-    /* Whoever is speaking gets looked at, which is most of the edit.
-       The camera goes *outside* the circle and looks back in, so the
-       table, the fire and Claudia are all behind the person talking
-       rather than behind the lens. Two metres back: any closer and a
-       40mm-equivalent lens is inside their face. */
+    /* Whoever is speaking gets looked at, which is most of the edit —
+       and looked at in the face. This used to put the camera two metres
+       *behind* their chair, outside the ring, which at a table of
+       high-backed chairs is a shot of a chair back and the back of a
+       head. Now it is the shot the programme uses: from across the
+       table (or from in front, standing), a little off the line so the
+       candles and the fire are not in the way, on a long lens.
+       Your own seat has no face to look at: you get the table instead. */
     function shotOn(playerId) {
       const seat = seats.find(s => s.id === playerId);
       if (!seat) return SHOTS.players();
-      const len = Math.hypot(seat.pos.x, seat.pos.z) || 1;
-      const ox = seat.pos.x / len, oz = seat.pos.z / len;
-      const from = V(seat.pos.x + ox * 2.0 + 0.3,
-                     summitY + 1.58,
-                     seat.pos.z + oz * 2.0);
-      return { pos: from, look: V(seat.pos.x, seat.pos.y + 1.42, seat.pos.z),
-               fov: 40, speed: 1.6 };
+      if (seat.local) return SHOTS.table();
+      const seated = !!(o.seated && seatedDress);
+      const head = V(seat.pos.x, seat.pos.y + (seated ? 1.12 : 1.45), seat.pos.z);
+      const face = seat.face || cPos;
+      let fx = face.x - seat.pos.x, fz = face.z - seat.pos.z;
+      const fl = Math.hypot(fx, fz) || 1;
+      fx /= fl; fz /= fl;
+      const clear = (p) => Math.hypot(p.x, p.z) >= PROP_R + 0.12
+        && seats.every(t => t === seat || Math.hypot(t.pos.x - p.x, t.pos.z - p.z) > 0.7);
+      if (o.dress === 'table') {
+        /* Across the table, from just inside the far rim and swung 0.7
+           rad round, so the sightline passes the candles by most of a
+           metre. The side is the one with the most room. */
+        const a = Math.atan2(seat.pos.z, seat.pos.x);
+        const r = PROP_R + 0.18;
+        const gap = (p) => Math.min(...seats.filter(t => t !== seat).map(t => Math.hypot(t.pos.x - p.x, t.pos.z - p.z)), 9);
+        let best = null, room = -1;
+        for (const side of [1, -1]) {
+          const ca = a + Math.PI + side * 0.7;
+          const p = V(Math.cos(ca) * r, summitY + 1.42, Math.sin(ca) * r);
+          const g = gap(p);
+          if (g > room) { room = g; best = p; }
+        }
+        // whoever sits behind the lens is behind it: only the far side is in the frame
+        return { pos: best, look: head, fov: 30, speed: 1.6 };
+      }
+      // standing, or a long table: in front of them, off to one side
+      for (const [ang, dist] of [[0.55, 2.1], [-0.55, 2.1], [0.9, 1.7], [-0.9, 1.7]]) {
+        const c = Math.cos(ang), sn = Math.sin(ang);
+        const dx = fx * c - fz * sn, dz = fx * sn + fz * c;
+        const p = V(seat.pos.x + dx * dist, head.y + 0.06, seat.pos.z + dz * dist);
+        if (clear(p)) return { pos: p, look: head, fov: 36, speed: 1.6 };
+      }
+      const p = V(seat.pos.x + fx * 2.1, head.y + 0.06, seat.pos.z + fz * 2.1);
+      return { pos: p, look: head, fov: 36, speed: 1.6 };
     }
 
     /* The one rule every framing has to obey. A lens inside `PROP_R` is
@@ -388,6 +430,17 @@ const Stage = (() => {
         scripted.look.copy(scripted.targetLook);
         camera.fov = scripted.targetFov;
         camera.updateProjectionMatrix();
+        /* A cut that then creeps in: start a little further out and a
+           little wider, and drift to the frame slowly. On television a
+           face is cut to and then pushed in on, never whipped round to. */
+        if (opts.push) {
+          const k = typeof opts.push === 'number' ? opts.push : 0.1;
+          scripted.pos.sub(scripted.targetLook).multiplyScalar(1 + k).add(scripted.targetLook);
+          clearOfProps(scripted.pos);
+          camera.fov = scripted.targetFov * (1 + k * 0.6);
+          camera.updateProjectionMatrix();
+          scripted.speed = opts.speed || 0.7;
+        }
       }
     }
 
@@ -495,9 +548,11 @@ const Stage = (() => {
       const previous = firstPerson.pos.clone();
       firstPerson.pos.x += firstPerson.vel.x * dt;
       firstPerson.pos.z += firstPerson.vel.z * dt;
-      land.constrain(firstPerson.pos, previous);
-      // Keep the table/fire and every visible person solid enough that
-      // first person cannot walk through them.
+      /* Keep the table/fire and every visible person solid enough that
+         first person cannot walk through them. People push first and the
+         walls get the last word: a person shoving you after the walls
+         had their say could put you inside one, and from inside a wall
+         every step is refused, which is being stuck in it. */
       const blockers = (o.dress === 'none' || o.dress === 'bedroom' ? []
         : o.dress === 'breakfast' ? [-1.7, -0.6, 0.5, 1.6, 2.7, 3.4].map(z => ({ pos: V(0, 0, z), r: 0.95 }))
         : [{ pos: V(0, 0, 0), r: PROP_R + 0.35 }])
@@ -520,6 +575,7 @@ const Stage = (() => {
           firstPerson.pos.z = b.pos.z + dz / len * b.r;
         }
       });
+      land.constrain(firstPerson.pos, previous);
       if (parkedCar && Math.abs(firstPerson.pos.x-parkedCar.group.position.x)<1.6 && Math.abs(firstPerson.pos.z-parkedCar.group.position.z)<2.8) firstPerson.pos.copy(previous);
       firstPerson.pos.y = land.heightAt(firstPerson.pos.x, firstPerson.pos.z);
       const speed = Math.hypot(firstPerson.vel.x, firstPerson.vel.z);

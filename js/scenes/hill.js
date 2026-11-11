@@ -24,6 +24,8 @@ class HillScene {
 
   build() {
     const s = Session.state;
+    // a new game: not told yet (see VoiceChat.setRoleTold)
+    if (typeof VoiceChat !== 'undefined' && VoiceChat.setRoleTold) VoiceChat.setRoleTold(false);
     this.stage = Stage.build({
       seed: s.seed,
       hour: 'golden',
@@ -117,13 +119,15 @@ class HillScene {
         then: () => { if (this.music) this.music.stinger('role-' + (role === 'traitor' ? 'traitor' : 'faithful'), { at: 'beat' }); },
         wait: 1.5 },
       ...speak(role === 'traitor' ? 'roleTraitor' : 'roleFaithful'),
+      // she has said it: now, and not before, a Traitor gets their chat button
+      { then: () => { if (typeof VoiceChat !== 'undefined' && VoiceChat.setRoleTold) VoiceChat.setRoleTold(true); } },
       { card: null, wait: 0.5 },
       // the other Traitor, if there is one: only the Traitors see this
       ...(partners.length ? [
         { shot: 'claudiaTight',
           card: () => ({ kicker: 'Your fellow Traitor', tone: 'traitor',
                          title: partners.map(p => p.name.toUpperCase()).join(' & '),
-                         sub: 'You will meet in the turret tonight.' }),
+                         sub: 'Tonight you talk in secret from your rooms. Only the two of you can hear.' }),
           wait: 1.2 },
         ...speak('traitorPartner', { name: partners.map(p => p.name).join(' and ') }),
         { card: null, wait: 0.4 },

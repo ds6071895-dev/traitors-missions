@@ -366,6 +366,8 @@ const Lobby = (() => {
     }));
     el('lobby-host').onclick = host;
     el('lobby-join').onclick = join;
+    const copy = el('lobby-copy');
+    if (copy) copy.onclick = copyInvite;
     el('lobby-leave').onclick = leave;
     el('lobby-start').onclick = start;
     el('lobby-mic-btn').onclick = toggleMic;
@@ -431,5 +433,51 @@ const Lobby = (() => {
     });
   }
 
-  return { init, paint, leave, say, get started() { return started; } };
+  /* ---------------- invite links ----------------
+     `?join=ABCD` on the game's own address. The host copies (or, on a
+     phone, shares) it from the room; whoever opens it lands in the
+     lobby with the code filled in and is knocking on the door. */
+  function inviteLink(code) {
+    const u = new URL(location.href);
+    u.search = ''; u.hash = '';
+    u.searchParams.set('join', code);
+    return u.toString();
+  }
+  async function copyInvite() {
+    const code = Party.code;
+    if (!code) return;
+    const link = inviteLink(code);
+    const b = el('lobby-copy');
+    const done = (text) => { if (b) { b.textContent = text; setTimeout(() => { b.textContent = 'Copy invite link'; }, 2200); } };
+    try {
+      if (navigator.share && Input.isTouch) {
+        await navigator.share({ title: 'The Traitors', text: 'Join my room: ' + code, url: link });
+        done('Shared'); return;
+      }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(link); done('Link copied'); say('Invite link copied — send it to them.', 'good'); return; }
+    catch (e) {}
+    // no clipboard: show it, selected, so it can be copied by hand
+    window.prompt('Copy this link and send it:', link);
+  }
+  function joinFromLink() {
+    let code = null;
+    try {
+      const q = new URLSearchParams(location.search);
+      code = Party.normaliseCode(q.get('join') || '');
+      if (q.has('join')) {
+        q.delete('join');
+        const rest = q.toString();
+        history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+      }
+    } catch (e) { return false; }
+    if (!code || !Party.validCode(code)) return false;
+    Screens.show('lobby');
+    const f = el('code-input');
+    if (f) f.value = code;
+    join();
+    return true;
+  }
+
+  return { init, paint, leave, say, joinFromLink, inviteLink, get started() { return started; } };
 })();

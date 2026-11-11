@@ -399,6 +399,8 @@ const Game = (() => {
     /* The door nothing on any screen mentions: `?bots=…` seats you with
        a table of them and plays whichever parts of the night you named. */
     Bots.openFromLink();
+    // an invite link (?join=ABCD) goes straight into that room
+    Lobby.joinFromLink();
     Engine.start();
 
     document.getElementById('boot').classList.add('gone');

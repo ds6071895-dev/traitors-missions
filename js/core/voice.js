@@ -234,8 +234,27 @@ const Voice = (() => {
     Party.claudia({ op: 'prefetch', text: body });
   }
 
-  /* Always resolves, exactly once, whatever the browser does. */
+  /* Claudia does not talk over an AI that is mid-sentence: she waits
+     for it to finish (a few seconds at most), then speaks. Until then
+     the AIs treat her as already speaking, so nobody new starts. */
+  const WAIT_FOR_AI_MS = 5000;
+  let waitingForAI = 0;
   function say(text, opts = {}) {
+    const claudiaLine = opts.speaker === undefined || opts.speaker === 'Claudia';
+    if (claudiaLine && !opts._waited && typeof AIDirector !== 'undefined' && AIDirector.botTalking && AIDirector.botTalking()) {
+      const mine = ++token;
+      waitingForAI++;
+      return new Promise((resolve) => {
+        const t0 = Date.now();
+        const look = () => {
+          if (mine !== token) { waitingForAI--; resolve(); return; }      // something newer took the voice
+          if (Date.now() - t0 < WAIT_FOR_AI_MS && AIDirector.botTalking()) { setTimeout(look, 100); return; }
+          waitingForAI--;
+          say(text, Object.assign({}, opts, { _waited: true })).then(resolve);
+        };
+        setTimeout(look, 100);
+      });
+    }
     const t = ++token;
     if (live) { const l = live; live = null; if (l.timer) clearTimeout(l.timer); l.resolve(); }
     if (remotePlaying) hushRemote();
@@ -426,7 +445,9 @@ const Voice = (() => {
               time, and that is the thing anybody outside here wants to
               know. Used as a liveness signal: a room that is still
               talking is a room whose ceremony has not stalled. */
-           get speaking() { return !!live || hostSpeaking; },
+           get speaking() { return !!live || hostSpeaking || waitingForAI > 0; },
+           // she has a line to say and is letting an AI finish first
+           get waitingForAI() { return waitingForAI > 0; },
            // one of her scripted lines is being read right now (not the live AI Claudia)
            get reading() { return !!(live && live.claudia); },
            /* Milliseconds since a line last finished, for anybody who needs

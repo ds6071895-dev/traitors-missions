@@ -118,7 +118,7 @@ const ClaudiaLines = (() => {
       [ "Lock it. Good.", "It will not help." ]
     ],
     "conclaveOpen": [
-      [ "Traitors.", "Welcome to the turret." ],
+      [ "Traitors.", "Only you can hear me now." ],
       [ "Sit down.", "Somebody downstairs is not waking up." ]
     ],
     "conclaveRecruit": [
@@ -139,7 +139,7 @@ const ClaudiaLines = (() => {
       [ "The Traitors want you.", "Join them, or sleep." ]
     ],
     "recruitedYou": [
-      [ "Welcome to the turret.", "You are a Traitor now." ]
+      [ "Welcome to the Traitors.", "You are one of them now." ]
     ],
     "recruitAccepted": [
       [ "{name} said yes.", "There are more of you now." ],

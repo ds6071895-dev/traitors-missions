@@ -305,16 +305,10 @@ class CastleScene {
   async _slates(roomKey) {
     let guard = 0, said = 0;
     const total = Math.max(1, (Session.state.finale.nameQueue || []).length);
-    /* The Wise One has overruled. The room is told before a slate turns
-       — not whose, only that one of them outranks the rest — and that
-       slate is the last. */
+    // a Wise One's overruling slate is turned last, and only then is it said
     const armed = () => { const o = Session.state.finale.overrule; return !!(o && o.armed && !o.by); };
-    if (armed()) {
-      if (this.music) this.music.stinger('overrule-warn', { at: 'beat' });
-      this._react(['gasp', 'handChest', 'shake'], null, 0.4);
-      await this._say('overruleWarn', {}, 'claudia');
-      if (!this._alive) return;
-    }
+    /* No warning up front any more: the room is not told a Wise One has
+       acted until their slate — the last — is turned (see `_overrule`). */
     while (this._alive && guard++ < 10) {
       const s = Session.state;
       const f = s.finale;
@@ -340,8 +334,13 @@ class CastleScene {
          breath it ends on is the beat before the name. */
       if (this.music && this.music.setTension) this.music.setTension(0.3 + 0.65 * heat, 1.2);
       const build = last && this.music && this.music.build ? this.music.build({ shape: 'slate' }) : null;
+      /* Cut to whoever wrote it and creep in on their face while the
+         room waits. Cuts, not swings: the camera used to whip across
+         the room three times a slate and then snap back to your eyes
+         between them. Now the bars stay up from the first slate to the
+         last and the edit is a cut to a face, a push in, a cut. */
       await Scenes.Drama.hush(this.stage, null, 'on:' + voter.id,
-                              { hold: last ? 1.6 : 0.25 + 0.45 * heat, silent: false, speed: 2.6 + heat });
+                              { hold: last ? 1.6 : 0.35 + 0.45 * heat, silent: false, cut: true, push: 0.14, speed: 0.55 });
       if (!this._alive) { if (build) build.cancel(); return; }
       if (this.music) {
         const wait = build ? build.release('slate-turn', { n: said }) : (this.music.stinger('slate-turn', { n: said }), 0);
@@ -355,10 +354,15 @@ class CastleScene {
       });
       Scenes.Cine.card({ kicker: voter.local ? 'Your slate' : voter.name + '’s slate',
                          title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'slate',
+                         cls: (last ? 'last ' : '') + 'heat-' + Math.min(3, Math.round(heat * 3)),
                          sub: last ? 'The last slate.' : (said + 1) + ' of ' + total });
       this._accuse(voter.id, target.id);
+      if (typeof Notebook !== 'undefined') Notebook.vote(voter.id, target.id, f.nameRound);
       said++;
-      Scenes.Drama.shot(this.stage, 'on:' + target.id, { speed: 2.4 });
+      // the slate turns on the writer's face; then the name's face, as it lands on them
+      await this._sleep(0.9);
+      if (!this._alive) return;
+      if (!target.local) Scenes.Drama.shot(this.stage, 'on:' + target.id, { cut: true, push: 0.08, speed: 0.5 });
       // nobody announces their own vote: Claudia reads each slate out
       await Scenes.run([{
         line: { text: (voter.local ? 'You vote' : voter.name + ' votes') + ' for '
@@ -369,13 +373,12 @@ class CastleScene {
       /* Then Claudia turns to them: why? Up to ten seconds, theirs alone,
          and they can finish early. The AIs are not asked. */
       if (!voter.bot && voter.alive) {
-        Scenes.Drama.shot(this.stage, 'on:' + voter.id, { speed: 2.2 });
+        Scenes.Drama.shot(this.stage, 'on:' + voter.id, { cut: true, push: 0.06, speed: 0.4 });
         await Scenes.run([{ line: { text: 'Why ' + (target.local ? 'me' : target.name) + ', ' + (voter.local ? 'you' : voter.name) + '?' }, hold: 0.1 }], this);
         if (!this._alive) return;
         await this._turnFloor(voter.id, WHY_SECONDS);
         if (!this._alive) return;
       }
-      Scenes.Drama.end(this.stage, null);
       await Scenes.barrier(roomKey + '-slate-' + f.nameRound + '-' + voter.id);
       if (!this._alive) return;
       const before = voter.id;
@@ -385,6 +388,7 @@ class CastleScene {
       await this._sleep(0.3);
     }
     Scenes.Cine.card(null);
+    Scenes.Drama.end(this.stage, null);
   }
 
   /* The last slate, and the one that decides. The roll and the riser

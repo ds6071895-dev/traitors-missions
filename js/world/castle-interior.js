@@ -1870,8 +1870,43 @@ const CastleInterior = (() => {
       const lx = toLocal(pos.x, prev.z), lz = toLocal(prev.x, pos.z);
       if (L.walkable(lx.x, lx.z) && !blocked(lx.x, lx.z, from)) { pos.z = prev.z; return true; }
       if (L.walkable(lz.x, lz.z) && !blocked(lz.x, lz.z, from)) { pos.x = prev.x; return true; }
+      /* Already somewhere you should not be — pushed in, spawned in, a
+         door shut on you — and every step from there is refused, which
+         is being stuck in the wall for good. Slide out instead, towards
+         the nearest clear floor, a little each frame. */
+      if (!L.walkable(from.x, from.z) || blocked(from.x, from.z, null)) {
+        const out = nearestFree(from.x, from.z);
+        if (out) {
+          const dx = out.x - from.x, dz = out.z - from.z, d = Math.hypot(dx, dz);
+          const k = d > 0.12 ? 0.12 / d : 1;
+          const w = toWorld(from.x + dx * k, from.z + dz * k);
+          pos.x = w.x; pos.z = w.z;
+          return true;
+        }
+      }
       pos.x = prev.x; pos.z = prev.z;
       return false;
+    }
+    // the closest clear floor to a point, a ring at a time; remembered while you are on the way out
+    let lastOut = null;
+    function nearestFree(x, z) {
+      if (lastOut && Math.hypot(lastOut.x - x, lastOut.z - z) < 2.6
+          && L.walkable(lastOut.x, lastOut.z) && !blocked(lastOut.x, lastOut.z, null)) return lastOut;
+      for (let r = 0.15; r <= 2.5; r += 0.15) {
+        const n = Math.max(8, Math.round(r * 14));
+        for (let i = 0; i < n; i++) {
+          const a = i / n * Math.PI * 2;
+          const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+          if (L.walkable(px, pz) && !blocked(px, pz, null)) {
+            // a little further in, so the very next step is not on the line again
+            const k = (r + 0.12) / r;
+            const qx = x + (px - x) * k, qz = z + (pz - z) * k;
+            lastOut = L.walkable(qx, qz) && !blocked(qx, qz, null) ? { x: qx, z: qz } : { x: px, z: pz };
+            return lastOut;
+          }
+        }
+      }
+      return null;
     }
 
     function update(dt, camPos, t) {

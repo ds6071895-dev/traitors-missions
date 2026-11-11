@@ -517,7 +517,7 @@ const Session = (() => {
       fate: secret.fate[p.id] || null,
       recruited: secret.recruited === p.id,
       jobs: (secret.lists.get(p.id) || []).map(t => Object.assign({}, t)),
-      notes: (secret.notes.get(p.id) || []).slice(-40),
+      notes: (secret.notes.get(p.id) || []).slice(-80),
       wiseOne: !!secret.wise && secret.wise === p.id,
       wise: null,
       poison: null,

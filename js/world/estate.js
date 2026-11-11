@@ -313,7 +313,10 @@ const Estate = (() => {
     const heightAt=(x,z)=>{const p=toWorld(x,z);return EstateLayout.heightAt(p.x,p.z);};
     return {group,anchors,origin,landmark:anchors.castle.clone().add(V(0,27,0)),heightAt,setNight,
       walkable:(x,z)=>{const p=toWorld(x,z);return EstateLayout.walkable(p.x,p.z);},
-      constrain(pos,prev){const p=toWorld(pos.x,pos.z);if(!EstateLayout.walkable(p.x,p.z) || p.x>-24&&p.x<-16&&p.z<-19.5){pos.x=prev.x;pos.z=prev.z;}},
+      constrain(pos,prev){
+        const bad=(q)=>!EstateLayout.walkable(q.x,q.z) || q.x>-24&&q.x<-16&&q.z<-19.5;
+        // a step from somewhere already out of bounds is let through, or you would be stuck there
+        if(bad(toWorld(pos.x,pos.z)) && !bad(toWorld(prev.x,prev.z))){pos.x=prev.x;pos.z=prev.z;}},
       road:{length:EstateLayout.route.length,sample(distance){const s=EstateLayout.route.sample(distance);s.position=local([s.position.x,s.position.y,s.position.z]);s.tangent=toLocal(V(s.tangent.x,s.tangent.y,s.tangent.z));s.normal=toLocal(V(s.normal.x,s.normal.y,s.normal.z));return s;}},
       colliders:[{minX:-24-origin[0],maxX:-16-origin[0],minZ:-36-origin[2],maxZ:-19.5-origin[2]}],
       setGates(open,dt){gates.forEach(g=>{g.rotation.y=U.damp(g.rotation.y,-g.userData.sign*(open?Math.PI/2:0),2,dt);});},
