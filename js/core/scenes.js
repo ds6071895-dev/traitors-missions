@@ -42,7 +42,12 @@ const Scenes = (() => {
 
   /* ---------------- the overlay ---------------- */
 
+  /* Letterbox up means a ceremony is on: a slate, a body, a name, a
+     colour. The AIs read it as "the room is not yours" (see
+     AIDirector's claudiaBusy), so they never chat across one. */
+  let barsOn = false;
   const Cine = {
+    get barsOn() { return barsOn; },
     on(v = true) {
       cache();
       if (dom.root) dom.root.classList.toggle('on', !!v);
@@ -52,6 +57,7 @@ const Scenes = (() => {
     // while a vote panel is up, and the vote panel is not cinematic
     bars(v = true) {
       cache();
+      barsOn = !!v;
       if (dom.root) dom.root.classList.toggle('bars', !!v);
     },
     card(spec) {

@@ -3376,3 +3376,24 @@ body.touch #nb-btn b{display:none}
 .lr-copy{margin-top:6px; background:rgba(242,193,78,.14); color:var(--gold); border:1px solid rgba(242,193,78,.45);
   border-radius:9px; padding:6px 10px; font:700 11px/1 var(--body); letter-spacing:.06em; cursor:var(--cur-hand, pointer)}
 .lr-copy:hover{background:rgba(242,193,78,.26)}
+
+
+/* Keyboard shortcuts, shown on the button they press — on a PC only
+   (a touch screen has no keys). Any button with `data-kbd` gets a small
+   keycap after its label; the round icon buttons in the corner row wear
+   it on their corner instead. */
+body:not(.touch) [data-kbd]::after{
+  content:attr(data-kbd);
+  display:inline-block; vertical-align:middle; margin-left:.55em;
+  font:700 10px/1 var(--body); letter-spacing:.02em; text-transform:none;
+  padding:3px 5px 2px; border-radius:4px;
+  background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.26); border-bottom-width:2px;
+  color:var(--paper); opacity:.85; pointer-events:none;
+}
+body:not(.touch) #mic-btn[data-kbd]::after, body:not(.touch) #music-btn[data-kbd]::after,
+body:not(.touch) #mute-btn[data-kbd]::after{
+  position:absolute; right:-5px; bottom:-5px; margin:0;
+  font-size:9px; padding:2px 4px 1px; background:rgba(8,18,30,.92);
+}
+body:not(.touch) #whisper-btn[data-kbd]::after{margin-left:2px}
+@media (pointer:coarse) and (hover:none){ [data-kbd]::after{display:none !important} }

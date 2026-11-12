@@ -237,7 +237,7 @@ class TasksScene {
       <div class="tk-room"><b></b><small>Door shut — only this room can hear you</small></div>
       <canvas class="tk-map" width="472" height="256"></canvas>
       <div class="tk-prompt"><div class="tk-ring"></div><span class="tk-prompt-text"></span></div>
-      <div class="tk-touch"><button class="tk-use" type="button">USE</button><button class="poison tk-poison" type="button" hidden>POISON</button></div>`;
+      <div class="tk-touch"><button class="tk-use" type="button" data-kbd="E">USE</button><button class="poison tk-poison" type="button" data-kbd="F" hidden>POISON</button></div>`;
     document.body.appendChild(root);
     const q = (sel) => root.querySelector(sel);
     this._dom = {

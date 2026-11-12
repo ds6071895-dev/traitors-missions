@@ -556,7 +556,7 @@ const Stage = (() => {
       const blockers = (o.dress === 'none' || o.dress === 'bedroom' ? []
         : o.dress === 'breakfast' ? [-1.7, -0.6, 0.5, 1.6, 2.7, 3.4].map(z => ({ pos: V(0, 0, z), r: 0.95 }))
         : [{ pos: V(0, 0, 0), r: PROP_R + 0.35 }])
-        .concat(claudia.visible ? [{ pos: cPos, r: 0.62 }] : [])
+        .concat(claudia.visible ? [{ pos: claudia.position, r: 0.62 }] : [])
         /* In a free scene people move, so it is where they are standing
            that is solid, not the chair they were given. */
         .concat(o.free
@@ -624,6 +624,7 @@ const Stage = (() => {
       }
       const focusId = speakingId || voiceId;
 
+      stepClaudia(dt);
       Figure.update(claudia, dt, t);
       EstateMaterials.figureLOD(claudia,camera);
       Figure.lookAt(claudia, claudiaFocus
@@ -774,6 +775,59 @@ const Stage = (() => {
         if (w.onArrive) w.onArrive(f);
       }
     }
+    /* Claudia on the move, the way the programme does it: once the floor
+       is open she leaves her place at the head and walks slowly round
+       behind the chairs, on the ring she stands on, listening, for as
+       long as the argument lasts; when it ends she walks back the short
+       way to the head of the table and turns to face it. */
+    const C_R = Math.hypot(cPos.x, cPos.z) || 3.4;
+    const C_HOME = Math.atan2(cPos.z, cPos.x);
+    const C_SLOW = 0.42, C_BACK = 1.3;          // metres a second
+    let cWalk = null;                            // { a, dir, mode: 'circle' | 'home', v }
+    function claudiaCircle(on) {
+      if (!claudia.visible) return;
+      if (on) {
+        const a = cWalk ? cWalk.a : C_HOME;
+        cWalk = { a, dir: cWalk ? cWalk.dir : 1, mode: 'circle', v: cWalk ? cWalk.v : 0 };
+        return;
+      }
+      if (!cWalk) return;
+      const TAU = Math.PI * 2;
+      let d = ((C_HOME - cWalk.a) % TAU + TAU) % TAU;       // forward distance home
+      cWalk.dir = d <= Math.PI ? 1 : -1;
+      cWalk.mode = 'home';
+    }
+    function stepClaudia(dt) {
+      const w = cWalk;
+      if (!w) return;
+      const TAU = Math.PI * 2;
+      if (w.mode === 'home') {
+        const left = w.dir > 0 ? ((C_HOME - w.a) % TAU + TAU) % TAU : ((w.a - C_HOME) % TAU + TAU) % TAU;
+        const step = Math.min(left, (C_BACK / C_R) * dt);
+        w.v = U.damp(w.v, C_BACK, 4, dt);
+        w.a += w.dir * step;
+        if (left - step < 1e-3) {
+          // there: back on her mark, turning to the table
+          w.a = C_HOME;
+          claudia.position.set(cPos.x, cPos.y, cPos.z);
+          Figure.setLocomotion(claudia, 0, 0);
+          const want = Math.atan2(-cPos.x, -cPos.z);
+          claudia.rotation.y = U.angLerp(claudia.rotation.y, want, 1 - Math.exp(-6 * dt));
+          const off = Math.atan2(Math.sin(claudia.rotation.y - want), Math.cos(claudia.rotation.y - want));
+          if (Math.abs(off) < 0.02) { claudia.rotation.y = want; cWalk = null; }
+          return;
+        }
+      } else {
+        w.v = U.damp(w.v, C_SLOW, 1.5, dt);           // she sets off gently
+        w.a += w.dir * (w.v / C_R) * dt;
+      }
+      const x = Math.cos(w.a) * C_R, z = Math.sin(w.a) * C_R;
+      claudia.position.set(x, land.heightAt(x, z), z);
+      const vx = -Math.sin(w.a) * w.dir, vz = Math.cos(w.a) * w.dir;
+      claudia.rotation.y = U.angLerp(claudia.rotation.y, Math.atan2(vx, vz), 1 - Math.exp(-6 * dt));
+      Figure.setLocomotion(claudia, w.v, 0);
+    }
+
     function hideFigure(playerId, on) {
       const i = seats.findIndex(s => s.id === playerId);
       if (i >= 0 && figures[i]) figures[i].userData.hidden = !!on;
@@ -793,7 +847,8 @@ const Stage = (() => {
       summitY, claudiaPos: cPos, indoors,
       mySeat,
       setShot, setSpeaking, setControls, setCinematic, shotOn, update, dispose,
-      walkIn, walkPath, hideFigure, setSeated: setSeatedAll, setWalk,
+      walkIn, walkPath, hideFigure, setSeated: setSeatedAll, setWalk, claudiaCircle,
+      get claudiaWalking() { return !!cWalk; },
       // point everybody's eyes at something: a door, a chair, a name
       setGaze(v) { gaze = v || null; },
       // the scripted camera: put it somewhere, and keep it on somebody

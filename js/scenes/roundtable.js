@@ -16,7 +16,8 @@
      slates   everybody writes a name; then one by one, round the
               table, the slates are turned and the names said out loud
      tie      a tie is voted again between the tied; tied twice and
-              Claudia draws
+              the castle draws (tie-draw.js: DEADLOCK, a drumroll, a
+              wheel of faces that runs down, and the name)
      banish   the banished get a few seconds to speak, then say what
               they were — and the room finds out if it was right
 
@@ -88,6 +89,11 @@ class RoundtableScene extends CastleScene {
     // the argument, with the day's jobs on the board
     RoomUI.showBoard(RoomUI.choreBoard());
     if (this.music) this.music.section('debate', { at: 'bar', glide: 3 });
+    /* "The floor is yours" — and she leaves the head of the table and
+       walks slowly round behind the chairs for as long as it lasts. */
+    if (this.stage && this.stage.claudiaCircle) this.stage.claudiaCircle(true);
+    await this._say('tableFloor', {}, null);
+    if (!this._alive) return;
     this._courtesy(true);
     const ai = typeof AIDirector !== 'undefined' && AIDirector.active ? AIDirector : null;
     const talkSecs = Session.tableSeconds(Session.alive().length);
@@ -102,6 +108,12 @@ class RoundtableScene extends CastleScene {
     RoomUI.hideBoard();
     if (!this._alive) return;
     if (ai) ai.discussionEnded('table');
+    // time: back to her place at the head of the table before the slates
+    if (this.stage && this.stage.claudiaCircle) {
+      this.stage.claudiaCircle(false);
+      for (let i = 0; i < 45 && this._alive && this.stage && this.stage.claudiaWalking; i++) await this._sleep(0.2);
+      if (!this._alive) return;
+    }
 
     // the slates
     let guard = 0;
@@ -247,9 +259,8 @@ class RoundtableScene extends CastleScene {
     await this._slates('table-' + Session.state.day);
     if (!this._alive) return;
     const f = Session.state.finale;
-    if (f.stage === 'reveal' && f.lot) {
-      await this._say('tableLot', {}, 'claudia');
-    }
+    // tied twice: the castle draws, and it is the table's biggest moment
+    if (f.stage === 'reveal' && f.lot) await TieDraw.play(this, { key: 'table-tie', claudiaShot: 'claudia' });
   }
 
   /* ---------------- the banishment ---------------- */
@@ -266,12 +277,13 @@ class RoundtableScene extends CastleScene {
     const fig = st && st.figureOf ? st.figureOf(target.id) : null;
     // an overrule keeps its music under the name; any other ballot goes quiet
     const overruled = !!(f.lastTally && f.lastTally.overrule);
+    // a castle's draw has already had its hit: no second stinger on top
     if (this.music) {
-      this.music.stinger('banish', { at: 'beat' });
+      if (!f.lot) this.music.stinger('banish', { at: 'beat' });
       if (!overruled) this.music.section('reveal', { at: 'bar', glide: 2 });
     }
     if (st && st.act) { st.act(target.id, 'gasp'); st.setMood(target.id, 'nervous'); }
-    await this._say(this._setFor('banishName', target), { name: target.name }, 'on:' + target.id);
+    await this._say(this._setFor(f.lot ? 'banishLot' : 'banishName', target), { name: target.name }, 'on:' + target.id);
     if (!this._alive) return;
     // the chair goes back, and they stand
     this._standUp(target, fig);

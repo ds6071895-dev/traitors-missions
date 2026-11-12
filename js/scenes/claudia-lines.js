@@ -187,6 +187,9 @@ const ClaudiaLines = (() => {
       [ "Take your seats.", "Somebody saw something. Speak." ],
       [ "Sit down.", "Who was where? Talk." ]
     ],
+    "tableFloor": [
+      [ "The floor is yours." ]
+    ],
     "tableOpenBody": [
       [ "Sit.", "{name} was poisoned yesterday. Who saw it?" ],
       [ "Take your seats.", "Who stood next to {name} yesterday?" ],
@@ -219,7 +222,25 @@ const ClaudiaLines = (() => {
       [ "A tie.", "Only {names} can go now. Again." ]
     ],
     "tableLot": [
-      [ "Still tied.", "Then the castle decides." ]
+      [ "Tied. Again.", "You have had two chances.", "Now the castle chooses." ],
+      [ "Still tied.", "You could not decide.", "So the castle will decide for you." ],
+      [ "Twice. Twice you could not choose.", "Then it is out of your hands." ]
+    ],
+    "tieDrawRoll": [
+      [ "{names}.", "One of you leaves this table now." ],
+      [ "{names}.", "Only one of you walks back out." ],
+      [ "{names}.", "Look at each other. One of you is going." ]
+    ],
+    "tieDrawPick": [
+      [ "The castle has chosen." ],
+      [ "And the castle chooses…" ]
+    ],
+    "banishLot": [
+      [ "{name}.", "The castle has chosen you." ],
+      [ "{name}.", "Fate has done what the table could not." ]
+    ],
+    "banishLotYou": [
+      [ "The castle has chosen.", "It is you." ]
     ],
     "banishName": [
       [ "{name}.", "You have been banished." ],

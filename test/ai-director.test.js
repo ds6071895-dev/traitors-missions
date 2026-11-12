@@ -525,6 +525,30 @@ test('at the round table nobody starts talking before she has opened the floor',
   ok(W.asked.some(a => /Ana just said/.test(a.text)), 'once she has opened it, they answer');
 });
 
+test('after the debate, the slates and the walk out are not chatted into', () => {
+  const W = world();
+  W.phase = 'table';
+  W.ctx.Session.state.finale = { stage: 'names', round: 0, nameRound: 0, names: {}, votes: {}, nameQueue: [] };
+  // the debate happened: the table was opened, then closed
+  W.ctx.Session.state.floor = { all: true, done: false, ready: [], endsAt: Date.now() + 90000 };
+  W.step(1);
+  W.ctx.Session.state.floor = { all: true, done: true, ready: [], endsAt: Date.now() };
+  W.say('p1', 'Has anybody seen the turret?');
+  W.step(10);
+  ok(!W.asked.some(a => /Ana just said/.test(a.text)), 'nobody answers across the slates');
+});
+
+test('a ceremony with the letterbox up is hers, even in its silent gaps', () => {
+  const W = world({ scenes: true });
+  W.ctx.Scenes = { performing: false, Cine: { barsOn: true } };
+  W.say('p1', 'Has anybody seen the turret?');
+  W.step(6);
+  eq(W.asked.length, 0, 'bars up: nobody chats');
+  W.ctx.Scenes.Cine.barsOn = false;
+  W.step(5);
+  eq(W.asked.length, 1, 'bars down and a breath later, they answer');
+});
+
 test('a refused turn gives the room back instead of holding it for half a minute', () => {
   const W = world({ random: [0.9] });
   W.say('p1', 'Has anybody seen the turret?');

@@ -374,7 +374,16 @@ class FinaleScene {
       else if (stage === 'decisions') await this._decisions();
       else if (stage === 'name') await this._name();
       else if (stage === 'names') await this._names();
-      else if (stage === 'reveal') await this._reveal();
+      else if (stage === 'reveal') {
+        // tied twice at the fire: the castle draws before the pouch
+        const fz = Session.state.finale;
+        if (fz.lot && this._drawn !== fz.pending + ':' + fz.round) {
+          this._drawn = fz.pending + ':' + fz.round;
+          await TieDraw.play(this, { key: 'fire-tie', claudiaShot: 'claudiaSide' });
+          if (!this._alive) return;
+        }
+        await this._reveal();
+      }
       else if (stage === 'pouches') await this._pouches();
       else break;
     }

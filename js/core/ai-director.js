@@ -1666,9 +1666,12 @@ const AIDirector = (() => {
     // a person holding the floor is not to be talked over
     const floored = f && !f.done;
     if (s.phase === 'night') { nightTick(s); if (!floored) chatTick(s, quiet); return; }
+    /* At the table and the fire the room talks only when Claudia has
+       opened it (the debate, above) or handed someone the floor. The
+       slates, the tie, the walk out, the pouches: nobody chats into
+       those, even in the silences between Claudia's lines. */
     if ((s.phase === 'table' || s.phase === 'finale') && s.finale) {
       ballotTick(s);
-      if (!floored) chatTick(s, quiet);
       return;
     }
     // everywhere else — the hill, the castle by day, breakfast — the
@@ -1699,10 +1702,21 @@ const AIDirector = (() => {
     const now = Date.now();
     const talking = (claudiaLive && AI.speaking(AI.CLAUDIA))
       || (typeof Voice !== 'undefined' && !!Voice.speaking)
-      || (typeof Scenes !== 'undefined' && (!!Scenes.performing || !!Scenes.botSpeechBlocked));
+      || (typeof Scenes !== 'undefined' && (!!Scenes.performing || !!Scenes.botSpeechBlocked))
+      || ceremonyOn();
     if (talking) claudiaLastBusy = now;
     return talking || now - claudiaLastBusy < AFTER_CLAUDIA_MS
       || (typeof Voice !== 'undefined' && Voice.sinceSpoke < AFTER_CLAUDIA_MS);
+  }
+
+  /* A ceremony is the letterbox being up (slates, a body, a banishment,
+     a pouch): the gaps between its beats are silent on purpose, and an
+     AI chatting into one of them was the "talking at the wrong time".
+     The open debate is never a ceremony, whatever the bars say. */
+  function ceremonyOn() {
+    const s = Session.state;
+    if (s && s.floor && !s.floor.done && s.floor.all) return false;
+    return typeof Scenes !== 'undefined' && !!(Scenes.Cine && Scenes.Cine.barsOn);
   }
 
   /* An AI Claudia has just handed the floor to is not chatter: it was
