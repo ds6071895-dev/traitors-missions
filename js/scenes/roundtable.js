@@ -27,6 +27,13 @@
 ------------------------------------------------------------------ */
 class RoundtableScene extends CastleScene {
 
+  /* The table's last shot is the chair somebody has just left. */
+  _outroShot() {
+    const f = Session.state.finale;
+    const gone = f && f.burned && f.burned.length ? f.burned[f.burned.length - 1] : null;
+    return gone && this.stage.seats.some(s => s.id === gone.id) ? 'on:' + gone.id : 'table';
+  }
+
   stageOptions() {
     const s = Session.state;
     this._seatedAtStart = false;
@@ -85,6 +92,15 @@ class RoundtableScene extends CastleScene {
     if (saved && saved.alive) await this._say(this._setFor('tableOpenShield', saved), { name: saved.name }, 'claudia');
     else await this._say(body ? 'tableOpenBody' : 'tableOpen', body ? { name: body.name } : {}, 'claudia');
     if (!this._alive) return;
+    // a twist that changes this table is said again before anybody argues
+    const tw = typeof Twists !== 'undefined' ? Twists.today(s) : null;
+    if (tw === 'sealed' || tw === 'veiled') await this._say(tw === 'sealed' ? 'twistTableSealed' : 'twistTableVeiled', {}, 'claudia');
+    else if (tw === 'heavy') {
+      const holder = s.shield && s.shield.day === s.day ? Session.playerById(s.shield.id) : null;
+      if (holder) await this._say('twistTableHeavy', { name: holder.local ? 'You' : holder.name }, 'claudia');
+      else await this._say('twistTableHeavyNone', {}, 'claudia');
+    }
+    if (!this._alive) return;
 
     // the argument, with the day's jobs on the board
     RoomUI.showBoard(RoomUI.choreBoard());
@@ -94,11 +110,15 @@ class RoundtableScene extends CastleScene {
     if (this.stage && this.stage.claudiaCircle) this.stage.claudiaCircle(true);
     await this._say('tableFloor', {}, null);
     if (!this._alive) return;
+    await this._openingQuestion();
+    if (!this._alive) return;
     this._courtesy(true);
     const ai = typeof AIDirector !== 'undefined' && AIDirector.active ? AIDirector : null;
     const talkSecs = Session.tableSeconds(Session.alive().length);
     // the argument winds itself up over exactly the time it has
-    if (this.music && this.music.setTension) { this.music.setTension(0.2, 0); this.music.setTension(0.95, talkSecs); }
+    // the last tables start higher: nobody is settling in any more
+    const from = 0.2 + 0.35 * (Session.stakes ? Session.stakes() : 0);
+    if (this.music && this.music.setTension) { this.music.setTension(from, 0); this.music.setTension(0.95, talkSecs); }
     await this._discussion(talkSecs, {
       judge: ai && ai.claudiaJudge ? ai.claudiaJudge('table') : undefined,
       extraLevels: ai ? () => ai.levels() : undefined,
@@ -180,6 +200,25 @@ class RoundtableScene extends CastleScene {
     });
   }
 
+  /* Some tables she starts herself: one pointed question, to somebody
+     the public record singles out — yesterday's shield holder, or the
+     last one down to breakfast. Every screen picks the same, from the
+     seed and the day; never the first table, and not every one. */
+  async _openingQuestion() {
+    const s = Session.state;
+    if ((s.day | 0) < 1) return;
+    const h = (Math.imul(((s.seed | 0) ^ 0x7ab1e) >>> 0, 0x9e3779b1) ^ Math.imul(s.day + 7, 0x85ebca6b)) >>> 0;
+    if (h % 5 < 2) return;
+    const alive = (id) => { const p = id && Session.playerById(id); return p && p.alive ? p : null; };
+    const shield = s.shield && s.shield.day === s.day ? alive(s.shield.id) : null;
+    const b = s.breakfast && s.breakfast.day === s.day ? s.breakfast : null;
+    const last = b && b.arrived && b.arrived.length ? alive(b.arrived[b.arrived.length - 1]) : null;
+    const pickShield = shield && (!last || (h >>> 4) % 2 === 0);
+    const who = pickShield ? shield : last;
+    if (!who) return;
+    await this._say(pickShield ? 'tableAskShield' : 'tableAskLast', { name: who.local ? 'You' : who.name }, 'on:' + who.id);
+  }
+
   /* ---------------- the ballot ---------------- */
 
   async _ballot() {
@@ -259,6 +298,18 @@ class RoundtableScene extends CastleScene {
     await this._slates('table-' + Session.state.day);
     if (!this._alive) return;
     const f = Session.state.finale;
+    /* Sealed: nothing was turned, so the count is the news. Only the
+       winning name's count is said; a tie goes round again as ever. */
+    if (f.sealed && f.stage === 'reveal' && f.lastTally && !f.lastTally.overrule) {
+      const p = Session.playerById(f.pending);
+      const n = (f.lastTally.counts || {})[f.pending] || 0;
+      if (p) {
+        Scenes.Cine.card({ kicker: 'Sealed slates', title: (p.local ? 'YOU' : p.name.toUpperCase()), sub: n + ' votes', tone: 'slate' });
+        await this._say('sealedResult', { name: p.local ? 'You' : p.name, count: String(n) }, 'on:' + p.id);
+        Scenes.Cine.card(null);
+        if (!this._alive) return;
+      }
+    }
     // tied twice: the castle draws, and it is the table's biggest moment
     if (f.stage === 'reveal' && f.lot) await TieDraw.play(this, { key: 'table-tie', claudiaShot: 'claudia' });
   }
@@ -309,6 +360,22 @@ class RoundtableScene extends CastleScene {
     if (!this._alive) { build.cancel(); return; }
     const role = await this._burn(target.id);
     if (!this._alive || !role) { build.cancel(); return; }
+    /* Veiled: the build is cut off, and they do not finish the sentence. */
+    if (role === 'veiled') {
+      build.cancel();
+      Scenes.Drama.end(this.stage, this.music);
+      Voice.clear();
+      await this._say('banishVeiled', { name: target.name }, 'on:' + target.id);
+      if (!this._alive) return;
+      Scenes.Cine.card({ kicker: target.local ? 'You' : target.name, title: 'VEILED', sub: 'Traitor or Faithful — not until the end.', tone: 'slate' });
+      this._react(['shake', 'headDown', 'nod', 'gasp'], target.id);
+      await this._sleep(1.6);
+      Scenes.Cine.card(null);
+      await this._say('banishedVeiled', { name: target.name }, null);
+      if (this.music) { this.music.stinger('walkout', { at: 'beat' }); this.music.section('walkout', { at: 'bar', glide: 0.5 }); }
+      if (this._alive && this.stage) this.stage.setCinematic(false);
+      return;
+    }
     await this._strike(role, target.id, role === 'traitor' ? 'banishTraitor' : 'banishFaithful', build);
     if (!this._alive) return;
     Voice.show(target.local ? 'You' : target.name, role === 'traitor' ? 'I am a Traitor.' : 'I am a Faithful.');

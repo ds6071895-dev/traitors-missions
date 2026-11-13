@@ -228,12 +228,13 @@ const Lobby = (() => {
     const aiOn = { claudia: !!(typeof AIPlayers !== 'undefined' && AIPlayers.claudia) };
     const taskSeconds = taskTime();
     const cast = castChoice();
+    const twists = twistsOn();
     // the wants stay on this machine: the deal is drawn here and nowhere else
     const said = Object.assign({}, wants, { [Party.selfId()]: myWant() });
     const dealWants = {};
     for (const p of list) if (Object.hasOwn(said, p.id)) dealWants[p.id] = said[p.id];
-    Party.post('go', { seed, players, ai: aiOn, taskSeconds, cast });
-    launch(seed, players, aiOn, taskSeconds, cast, dealWants);
+    Party.post('go', { seed, players, ai: aiOn, taskSeconds, cast, twists });
+    launch(seed, players, aiOn, taskSeconds, cast, dealWants, twists);
   }
 
   /* How long the day in the castle lasts: the host's to set, never under
@@ -242,7 +243,16 @@ const Lobby = (() => {
     const n = Math.round(Number(GameState.settings.taskSeconds));
     return Number.isFinite(n) ? Math.max(Session.TASK_MIN, Math.min(Session.TASK_SECONDS, n)) : Session.TASK_SECONDS;
   }
+  // whether a day may change the rules: on unless the host turned it off
+  const twistsOn = () => GameState.settings.twists !== false;
+  function paintTwists() {
+    const box = el('lobby-twists'), out = el('lobby-twists-out');
+    if (box) box.checked = twistsOn();
+    if (out) out.textContent = twistsOn() ? 'On' : 'Off';
+  }
+
   function paintTask() {
+    paintTwists();
     const r = el('lobby-task'), out = el('lobby-task-out');
     if (!r || !out) return;
     const n = taskTime();
@@ -298,7 +308,7 @@ const Lobby = (() => {
     Party.post('lobby', { want: myWant() }, Party.hostId);
   }
 
-  function launch(seed, players, aiOn, taskSeconds, cast, dealWants) {
+  function launch(seed, players, aiOn, taskSeconds, cast, dealWants, twists) {
     const mine = Party.selfId();
     const seated = players.map(p => Object.assign({}, p, { local: p.id === mine }));
     const launchRoom = Party.room;
@@ -307,7 +317,7 @@ const Lobby = (() => {
     Screens.transition(() => {
       if (Party.room !== launchRoom || !Party.connected) return;
       Game.enterShow();
-      Show.beginParty({ seed, players: seated, host: Party.isHost, ai: aiOn || null, taskSeconds,
+      Show.beginParty({ seed, players: seated, host: Party.isHost, ai: aiOn || null, taskSeconds, twists: twists !== false,
                         cast: cast || null, wants: Party.isHost ? dealWants || null : null });
     }, 420);
   }
@@ -345,6 +355,12 @@ const Lobby = (() => {
       GameState.settings.taskSeconds = Number(task.value);
       GameState.save();
       paintTask();
+    });
+    const tw = el('lobby-twists');
+    if (tw) tw.addEventListener('change', () => {
+      GameState.settings.twists = !!tw.checked;
+      GameState.save();
+      paintTwists();
     });
     const want = el('lobby-want');
     if (want) want.addEventListener('input', () => {
@@ -407,7 +423,7 @@ const Lobby = (() => {
     Party.on('go', (data) => {
       if (Party.isHost || started || !data) return;
       started = true;
-      launch(data.seed, data.players || [], data.ai || null, data.taskSeconds, data.cast || null);
+      launch(data.seed, data.players || [], data.ai || null, data.taskSeconds, data.cast || null, null, data.twists);
     });
     VoiceChat.on('state', paint);
 

@@ -14,7 +14,7 @@ const H = require('./harness');
 const { test, eq, ok, section } = H;
 
 const FILES = ['js/core/util.js', 'js/core/state.js', 'js/world/castle-layout.js', 'js/core/chores.js',
-               'js/core/session.js', 'js/scenes/claudia-lines.js', 'js/core/castle-net.js', 'js/core/ai-director.js'];
+               'js/core/twists.js', 'js/core/session.js', 'js/scenes/claudia-lines.js', 'js/core/castle-net.js', 'js/core/ai-director.js'];
 
 function world(opts = {}) {
   let now = 1.7e12;
@@ -589,6 +589,26 @@ test('every voice is told the whole game, not just the last few lines', () => {
   ok(/YOUR READ ON THE OTHERS/.test(last.text), 'and a read on everybody');
   ok(/Morag \+3/.test(last.text), 'a vote for somebody who was Faithful counts against Morag');
 });
+test('the record keeps every day whole, and a sealed day has no names on it', () => {
+  const W = world();
+  const st = W.ctx.Session.state;
+  W.net({ type: 'nameReveal', playerId: 'm', targetId: 'f' });
+  st.banished.push({ id: 'f', name: 'Fergus', day: 0, role: 'faithful' });
+  st.day = 1;
+  st.twistsUsed = [{ day: 1, id: 'sealed' }];
+  st.twist = { day: 1, id: 'sealed' };
+  st.banished.push({ id: 'p2', name: 'P2', day: 1, role: 'veiled' });
+  st.phase = 'table';
+  for (let k = 0; k < 120; k++) W.say('p1', 'filler talk number ' + k);
+  W.step(25);
+  const p = W.prompts.filter(x => x.id === 'i').slice(-1)[0].text;
+  ok(/THE RECORD, DAY BY DAY/.test(p), 'the record is in the prompt');
+  ok(/Day 1: votes: Morag→Fergus; Fergus banished \(a Faithful\)/.test(p), 'day one, whole');
+  ok(/Day 2: twist: sealed; slates sealed/.test(p), 'day two says its slates were sealed');
+  ok(/veiled: role unknown/.test(p), 'a veiled banishment is not given a role');
+  ok(/TODAY'S TWIST — SEALED SLATES/.test(p), 'and the twist is explained');
+});
+
 test('whoever is named answers', () => {
   const W = world();
   W.say('p1', 'Isla, where were you just now?');

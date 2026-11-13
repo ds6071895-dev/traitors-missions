@@ -190,7 +190,27 @@ const Chores = (() => {
     for (let i = a.length - 1; i > 0; i--) { const j = rng.int(0, i); [a[i], a[j]] = [a[j], a[i]]; }
     return a;
   };
-  const poolFor = (player) => STATIONS.filter(s => s.bed === undefined || s.bed === player.seat % 8);
+  /* The house by wing, for opening it up a day at a time. */
+  const WEST = new Set(['library', 'chapel', 'kitchen', 'scullery', 'west-passage', 'west-link']);
+  const EAST = new Set(['east-link', 'gallery', 'billiard', 'drawing', 'study', 'gun', 'conservatory']);
+  const wingOf = (room) => (WEST.has(room) ? 'west' : EAST.has(room) ? 'east' : 'core');
+  const WING_NAMES = { west: 'the west wing', east: 'the east wing', core: 'the heart of the house' };
+
+  /* Which wings have jobs in them today, and which one is today's.
+     The first day is the old house and the west wing; the east wing
+     opens on the second, and is where half of everybody's jobs are;
+     from the third the whole house is open and the featured wing goes
+     round. Public: the same for everybody, from the seed and the day. */
+  function dayPlan(day, seed) {
+    const d = Math.max(0, day | 0);
+    if (d === 0) return { wings: new Set(['core', 'west']), wing: null };
+    if (d === 1) return { wings: null, wing: 'east' };
+    const order = ['west', 'core', 'east'];
+    return { wings: null, wing: order[(((seed | 0) >>> 3) + d) % 3] };
+  }
+
+  const poolFor = (player, opts = {}) => STATIONS.filter(s => (s.bed === undefined || s.bed === player.seat % 8)
+    && (!opts.wings || opts.wings.has(wingOf(s.room))));
 
   /* `n` stations of as many different kinds as the deck allows, none
      of them in `avoid`. After the first, each is one of the nearest few
@@ -198,8 +218,11 @@ const Chores = (() => {
      can be, so a list is a round of one part of the house rather than a
      march from wing to wing. */
   const NEAREST = 8;
-  function pickStations(rng, player, n, avoid, wantQuiet, from) {
-    const pool = poolFor(player).filter(s => !avoid.has(s.id));
+  function pickStations(rng, player, n, avoid, wantQuiet, from, opts = {}) {
+    let pool = poolFor(player, opts).filter(s => !avoid.has(s.id));
+    if (opts.only) { const only = pool.filter(opts.only); if (only.length >= n) pool = only; }
+    // yesterday's kinds of puzzle, if the house has others to give
+    const stale = opts.avoidTypes || new Set();
     const picked = [];
     const usedTypes = new Set();
     const take = (s) => { picked.push(s); usedTypes.add(s.type); };
@@ -218,7 +241,10 @@ const Chores = (() => {
           .sort((a, b) => a[0] - b[0]).map(e => e[1]).slice(0, NEAREST);
       }
       // next door rather than the same room: a list still moves you about
-      take(left.find(s => !usedTypes.has(s.type) && (!last || s.room !== last.room))
+      const fresh = (s) => !usedTypes.has(s.type) && !stale.has(s.type);
+      take(left.find(s => fresh(s) && (!last || s.room !== last.room))
+        || left.find(fresh)
+        || left.find(s => !usedTypes.has(s.type) && (!last || s.room !== last.room))
         || left.find(s => !usedTypes.has(s.type)) || left[0]);
     }
     return picked;
@@ -227,8 +253,8 @@ const Chores = (() => {
   /* An errand crosses the house, but not the whole of it: the far end
      is another room within a short walk, not the other wing. */
   const ERRAND = 24;
-  function carry(rng, player, id, avoid) {
-    const pool = shuffle(rng, poolFor(player).filter(s => !avoid.has(s.id)));
+  function carry(rng, player, id, avoid, opts = {}) {
+    const pool = shuffle(rng, poolFor(player, opts).filter(s => !avoid.has(s.id)));
     const from = pool[0];
     const to = pool.find(s => s.room !== from.room && Math.hypot(s.x - from.x, s.z - from.z) <= ERRAND)
       || pool.find(s => s.room !== from.room) || pool[1];
@@ -244,10 +270,19 @@ const Chores = (() => {
      because it is drawn exactly like anybody's. */
   function deal(rng, player, others, opts = {}) {
     const n = opts.count || 4;
-    const picked = pickStations(rng, player, n, new Set(), true);
+    let picked;
+    if (opts.wing) {
+      // half of the list in today's wing, and the rest of the round from there
+      const half = Math.ceil(n / 2);
+      const inWing = pickStations(rng, player, half, new Set(), false, null,
+                                  Object.assign({}, opts, { only: (st) => wingOf(st.room) === opts.wing }));
+      const rest = pickStations(rng, player, n - inWing.length, new Set(inWing.map(st => st.id)), true,
+                                inWing[inWing.length - 1] || null, opts);
+      picked = inWing.concat(rest);
+    } else picked = pickStations(rng, player, n, new Set(), true, null, opts);
     const list = picked.map((s, i) => ({ id: 'c' + i, kind: 'station', station: s.id, type: s.type,
                                          seed: rng.int(1, 0x7ffffff), done: false }));
-    list.splice(rng.int(1, list.length), 0, carry(rng, player, 'c' + list.length, new Set(picked.map(s => s.id))));
+    list.splice(rng.int(1, list.length), 0, carry(rng, player, 'c' + list.length, new Set(picked.map(s => s.id)), opts));
     if (others.length && rng() < (opts.letterChance === undefined ? 0.55 : opts.letterChance)) {
       const to = others[rng.int(0, others.length - 1)];
       list.splice(rng.int(1, list.length), 0, { id: 'c' + list.length, kind: 'letter', target: to.id, done: false });
@@ -257,14 +292,15 @@ const Chores = (() => {
 
   /* A finished list gets more. Nobody stands about with nothing to do,
      and nobody can say they had nothing to do. */
-  function more(rng, player, list) {
+  function more(rng, player, list, opts = {}) {
     const recent = new Set(list.slice(-4).map(j => j.station || j.to).filter(Boolean));
     // carry on from wherever the last job left them
     const last = list.slice().reverse().map(placeOf).find(Boolean);
-    const picked = pickStations(rng, player, 2, recent, false, last ? station(last) : null);
+    const o = { wings: opts.wings || null };
+    const picked = pickStations(rng, player, 2, recent, false, last ? station(last) : null, o);
     const out = picked.map((s, i) => ({ id: 'c' + (list.length + i), kind: 'station', station: s.id, type: s.type,
                                          seed: rng.int(1, 0x7ffffff), done: false }));
-    out.push(carry(rng, player, 'c' + (list.length + out.length), new Set(picked.map(s => s.id))));
+    out.push(carry(rng, player, 'c' + (list.length + out.length), new Set(picked.map(s => s.id)), o));
     return out;
   }
 
@@ -284,5 +320,6 @@ const Chores = (() => {
     return (TYPES[task.type] || {}).title + (s ? ' — ' + s.label : '');
   }
 
-  return { VALUE, HOLD, REACH, TYPES, ITEMS, STATIONS, ROOM_NAMES, roomName, station, deal, more, placeOf, describe };
+  return { VALUE, HOLD, REACH, TYPES, ITEMS, STATIONS, ROOM_NAMES, roomName, station, deal, more, placeOf, describe,
+           dayPlan, wingOf, WING_NAMES };
 })();

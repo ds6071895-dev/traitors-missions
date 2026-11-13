@@ -1789,10 +1789,30 @@ const CastleInterior = (() => {
     group.add(outside);
     group.updateMatrixWorld(true);
 
+    /* The day's weather (weather.js) and how late in the game it is
+       (`late`, 0..1) set how bright the house is: a grey day is a darker
+       house, and the last days are lit lower and warmer. The view out
+       of the windows greys with the sky. */
+    const weather = opts.weather || 'clear';
+    const late = U.clamp(+opts.late || 0, 0, 1);
+    const daylight = typeof Weather !== 'undefined' ? Weather.light(weather) : 1;
+    if (daylight < 1) {
+      const grey = new THREE.Color('#8a949e');
+      // only the two painted backdrops: their materials are this build's own
+      outside.traverse(o => {
+        const m = (o.name === 'panorama' || o.name === 'sky') && o.material;
+        if (m && m.color) { m.color.lerp(grey, (1 - daylight) * 1.4); m.color.multiplyScalar(0.55 + 0.45 * daylight); }
+      });
+    }
+    // `level` is the outro's (lights down); `flash` is the storm's
+    let level = 1, flash = 0;
+
     /* ---------------- light ---------------- */
 
-    const hemi = new THREE.HemisphereLight('#fff1de', '#7c5e45', SKY.hemi);
-    const sun = new THREE.DirectionalLight(SKY.light, SKY.lightI);
+    const hemiI = SKY.hemi * daylight * (1 - 0.18 * late);
+    const sunI = SKY.lightI * daylight * daylight * (1 - 0.25 * late);
+    const hemi = new THREE.HemisphereLight('#fff1de', '#7c5e45', hemiI);
+    const sun = new THREE.DirectionalLight(SKY.light, sunI);
     sun.position.copy(outside.userData.sun).multiplyScalar(60);
     scene.add(hemi, sun, sun.target);
     /* The pool follows you round, but never jumps: a light whose place
@@ -1800,7 +1820,8 @@ const CastleInterior = (() => {
        fades in where it lands, so a wall never pops bright or dark. */
     const pool = [];
     const poolSize = low ? 3 : POOL;
-    const poolI = night ? 26 : hour === 'morning' ? 12 : 18;
+    // the candles do not care about the weather; they burn lower late on
+    const poolI = (night ? 26 : hour === 'morning' ? 12 : 18) * (1 - 0.12 * late) * (daylight < 1 ? 1.08 : 1);
     for (let i = 0; i < poolSize; i++) {
       const l = new THREE.PointLight('#ffb877', 0, POOL_RANGE, 2);
       l.userData.at = -1; l.userData.w = 0;
@@ -1823,11 +1844,14 @@ const CastleInterior = (() => {
       }
     }
     function stepLights(dt, t) {
+      if (flash > 0) flash = Math.max(0, flash - dt * 3.2);
+      hemi.intensity = hemiI * level + flash * 1.6;
+      sun.intensity = sunI * level + flash * 2.4;
       pool.forEach((l, k) => {
         const u = l.userData, on = u.at >= 0 && wanted.has(u.at);
         u.w = U.clamp(u.w + (on ? 1 : -1) * dt * 2.5, 0, 1);
         const ease = u.w * u.w * (3 - 2 * u.w);
-        l.intensity = poolI * ease * (0.92 + Math.sin(t * (5.3 + k * 1.9) + k) * 0.05);
+        l.intensity = poolI * level * ease * (0.92 + Math.sin(t * (5.3 + k * 1.9) + k) * 0.05);
       });
     }
     function placeLights(camPos, t) {
@@ -1950,6 +1974,11 @@ const CastleInterior = (() => {
       road: null,
       colliders: [],
       setWind() {}, setGates() {}, setNight() {},
+      // 0..1 of the room's own light: the outro brings it down
+      setLevel(k) { level = U.clamp(+k, 0, 1); },
+      // lightning through the windows, fading in a third of a second
+      flash(k = 1) { flash = Math.max(flash, k); },
+      weather,
     };
   }
 

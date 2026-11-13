@@ -9,7 +9,7 @@ const suites = ['performance.test.js', 'session.test.js', 'rules.test.js', 'priv
                 'voice-worker.test.js', 'jitter.test.js', 'netcode.test.js',
                 'ai-bridge.test.js', 'claudia-stream.test.js', 'ai-director.test.js', 'speech.test.js', 'encounters.test.js', 'company.test.js',
                 'bots.test.js', 'tutorial.test.js', 'music.test.js', 'music-direction.test.js', 'claudia-lines.test.js', 'tie-draw.test.js', 'wise-one.test.js', 'shield.test.js', 'talking.test.js',
-                'figure.test.js'];
+                'figure.test.js', 'interlude.test.js', 'twists.test.js'];
 
 let bad = 0;
 for (const s of suites) {

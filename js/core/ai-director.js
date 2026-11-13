@@ -40,6 +40,9 @@
 ------------------------------------------------------------------ */
 const AIDirector = (() => {
 
+  // how a banished player's role reads in a prompt: a veiled one is unknown
+  const roleWords = (r) => (r === 'traitor' ? 'a TRAITOR' : r === 'veiled' ? 'veiled: role unknown until the end' : 'a Faithful');
+
   const TICK_MS = 200;
   const QUIET_BEFORE_BOT = 0.4;      // a short conversational beat after recognized speech
   const BOT_COOLDOWN = 9;            // an AI does not speak twice in this many seconds
@@ -90,6 +93,7 @@ const AIDirector = (() => {
   const decided = new Map();         // 'bot:human' -> { agree, why, at } — a "follow me" already answered
   const uneasy = new Set();          // 'bot:human' — an AI got away from this person; it remembers
   const queued = new Map();          // botId -> { cue, until } — something to say as soon as it may
+  const callbacks = new Set();       // 'day:botId' — who was asked to bring up an earlier day at this table
   const pacts = [];                  // [{ a, b, by, day, broken: null | { by, why, day } }] — alliances, made out loud
   const allyAsks = new Map();        // otherId -> { bot, at } — an AI proposed working together and waits for a yes
   const plans = new Map();           // personId -> { target, day } — who they said aloud they are voting for
@@ -162,6 +166,7 @@ const AIDirector = (() => {
     uneasy.clear();
     queued.clear();
     pacts.length = 0;
+    callbacks.clear();
     allyAsks.clear();
     plans.clear();
     stances.length = 0;
@@ -260,7 +265,7 @@ const AIDirector = (() => {
     out.push('Day ' + (s.day + 1) + '. Phase: ' + phaseWords(s) + '.');
     out.push('Still in the game: ' + alive.join(', ') + '.');
     if (s.murdered.length) out.push('Murdered (all were Faithful): ' + s.murdered.map(m => m.name).join(', ') + '.');
-    if (s.banished.length) out.push('Banished: ' + s.banished.map(b => b.name + ' (' + (b.role === 'traitor' ? 'a TRAITOR' : 'a Faithful') + ')').join(', ') + '.');
+    if (s.banished.length) out.push('Banished: ' + s.banished.map(b => b.name + ' (' + roleWords(b.role) + ')').join(', ') + '.');
     out.push(dealtWords(s) + ' Prize pot: ' + U.money(s.pot) + '.');
     if (s.chores && s.chores.done) {
       out.push('Jobs done round the castle today: '
@@ -298,7 +303,7 @@ const AIDirector = (() => {
     const out = [];
     for (const m of s.murdered || []) out.push({ id: m.id, name: m.name, how: 'poisoned on day ' + (m.day + 1) + ', a Faithful' });
     for (const b of s.banished || []) {
-      out.push({ id: b.id, name: b.name, how: (b.exposed ? 'exposed' : 'banished') + ' on day ' + (b.day + 1) + ', ' + (b.role === 'traitor' ? 'a TRAITOR' : 'a Faithful') });
+      out.push({ id: b.id, name: b.name, how: (b.exposed ? 'exposed' : 'banished') + ' on day ' + (b.day + 1) + ', ' + roleWords(b.role) });
     }
     for (const p of s.players) if (!p.alive && !out.some(x => x.id === p.id)) out.push({ id: p.id, name: p.name, how: 'left the game' });
     return out;
@@ -430,6 +435,53 @@ const AIDirector = (() => {
     'Sociable sceptic: notice how people react, bring quieter people into the chat, and puncture tension with a brief witty observation.',
   ];
 
+  /* THE RECORD: one line per day, kept whole however long the game runs,
+     so an AI on day four can still say "you named Kirsty on day one".
+     Public only — a sealed day has no names on it, a veiled one no role
+     — plus this voice's own alliances, which it was party to. */
+  function recordText(botId) {
+    const s = Session.state;
+    if (!s) return '';
+    const out = [];
+    const last = s.phase === 'table' || s.phase === 'finale' || s.phase === 'verdict' ? s.day : s.day - 1;
+    for (let d = 0; d <= last && d <= s.day; d++) {
+      const bits = [];
+      const tw = (s.twistsUsed || []).find(t => t.day === d);
+      if (tw) bits.push('twist: ' + tw.id);
+      for (const m of s.murdered || []) if (m.day === d) bits.push(m.name + ' poisoned');
+      const votes = voteLog.filter(v => v.day === d);
+      if (tw && tw.id === 'sealed') bits.push('slates sealed — nobody knows who voted for whom');
+      else if (votes.length) bits.push('votes: ' + votes.map(v => nameOf(v.voter) + '→' + nameOf(v.target)).join(', '));
+      for (const b of s.banished || []) if (b.day === d) bits.push(b.name + (b.exposed ? ' exposed' : ' banished') + ' (' + roleWords(b.role) + ')');
+      for (const p of pacts) {
+        if (p.a !== botId && p.b !== botId) continue;
+        const other = nameOf(p.a === botId ? p.b : p.a);
+        if (p.day === d) bits.push('you allied with ' + other);
+        if (p.broken && p.broken.day === d) bits.push('your alliance with ' + other + ' broke');
+      }
+      if (bits.length) out.push('Day ' + (d + 1) + ': ' + bits.join('; ') + '.');
+    }
+    return out.join('\n');
+  }
+
+  /* At a table after the first, one or two AIs (the seed's choice) are
+     asked once to bring up something concrete from an earlier day. More
+     than that and every voice sounds like a court stenographer. */
+  function callbackCue(b, s) {
+    if (s.phase !== 'table' || (s.day | 0) < 1) return '';
+    const key = s.day + ':' + b.id;
+    if (callbacks.has(key)) return '';
+    const ids = bots.map(x => x.id).filter(id => (Session.playerById(id) || {}).alive).sort();
+    if (!ids.length) return '';
+    const h = Math.imul(((s.seed | 0) ^ 0x5ca11) >>> 0, 0x9e3779b1) ^ Math.imul(s.day + 1, 0x85ebca6b);
+    const n = ids.length > 3 ? 2 : 1;
+    const chosen = new Set();
+    for (let k = 0; chosen.size < n && k < 8; k++) chosen.add(ids[((h >>> (k * 3)) >>> 0) % ids.length]);
+    if (!chosen.has(b.id)) return '';
+    callbacks.add(key);
+    return ' This time, bring up one specific thing from an earlier day, by its day number — a vote, an alliance, who was with the dead — from THE RECORD, and ask somebody to answer for it.';
+  }
+
   function chronicleText(keep) {
     if (!chronicle.length) return '(nothing yet — the game has only just begun)';
     const kept = keep ? chronicle.slice(-keep) : chronicle;
@@ -455,7 +507,7 @@ const AIDirector = (() => {
     const partners = new Set(view.partners || []);
     for (const v of voteLog) {
       const r = roleOf.get(v.target);
-      if (!r) continue;
+      if (!r || r === 'veiled') continue;
       const right = r === 'traitor', d = ' on day ' + (v.day + 1);
       if (traitor) bump(v.voter, right ? 3 : -1, right ? 'voted out ' + nameOf(v.target) + d + ', a Traitor' : null);
       else bump(v.voter, right ? -2.5 : 3, 'voted for ' + nameOf(v.target) + d + ', who turned out ' + (right ? 'a Traitor' : 'Faithful'));
@@ -734,11 +786,15 @@ const AIDirector = (() => {
       traitor && v.wise && v.wise.id && !(Session.state.wise && Session.state.wise.used)
         ? 'SECRET: The Traitors chose ' + nameOf(v.wise.id) + ' as the Wise One. Once, at a round table, their vote can overrule everybody. Keep their suspicion off you and your partner, or poison them first. Never let on that you know.' : '',
       dead ? 'You are OUT of the game now: stay silent unless spoken to.' : '',
+      typeof Twists !== 'undefined' && Twists.aiLine(Session.state) ? Twists.aiLine(Session.state) : '',
+      v.clue && v.clue.safeId ? 'SECRET: Claudia privately told you that ' + nameOf(v.clue.safeId) + ' is NOT a Traitor. It is true. Use it — but saying so out loud tells the Traitors who you are.' : '',
       'Only the people listed as still in the game are here. Anybody poisoned, banished or exposed is gone for good: never speak to them, ask them anything, expect an answer from them, suggest voting for them, or talk as if they are still playing — though you can talk about what they did and how they voted. Your older conversation turns may be out of date; this prompt and the newest message are always right.',
       '',
       'HOW THE GAME WORKS: by day everybody walks the castle for ' + taskTime() + ' doing little jobs that pay into the pot; one Traitor carries poison and must slip it to a Faithful before the bell or be exposed. Whoever has done the most jobs when the bell goes wins the shield: the poison cannot kill them that night, and that night only. The poisoned person dies in the night and is found missing at breakfast, and the round table follows straight after. At the round table everyone discusses who poisoned them then votes to banish one person, who reveals if they were Faithful or Traitor. When four or fewer remain, the Fire of Truth: everyone votes to END the game or BANISH AGAIN; ending must be unanimous. If any Traitor is left at the end, the Traitors take all the money.',
       '',
       'WHAT EVERYBODY KNOWS:', publicPicture(),
+      '',
+      'THE RECORD, DAY BY DAY:', recordText(b.id) || '(the first day)',
       '',
       'EVERYTHING THAT HAS HAPPENED SO FAR, IN ORDER (remember all of it and refer back to it):', chronicleText(cn),
       '',
@@ -2200,7 +2256,7 @@ const AIDirector = (() => {
     return (v && v.role === 'traitor'
       ? ' Secret Traitor goal: dig into this exchange and plant one believable seed of doubt about a Faithful. Use a real remark, vote or observation, ask a leading question, and let the humans draw the conclusion. Stay in character as a Faithful; never expose private knowledge.'
       : ' Test the theory against what was actually said or seen. Invite a human to explain a detail, and be willing to back them when their answer makes sense.')
-      + focusFor(b);
+      + focusFor(b) + callbackCue(b, s);
   }
 
   /* ---------------- ballots ---------------- */
@@ -2540,7 +2596,8 @@ const AIDirector = (() => {
       log(e.name + ' carried the poison and never used it, so Claudia exposed them as a TRAITOR.');
     }
     if (e.type === 'reveal' && e.name) {
-      note('system', 'Claudia', e.name + ' was ' + (e.role === 'traitor' ? 'a TRAITOR.' : 'a Faithful.'), 'room');
+      note('system', 'Claudia', e.role === 'veiled' ? e.name + ' was banished, veiled: nobody was told whether they were a Traitor or a Faithful.'
+                                                    : e.name + ' was ' + (e.role === 'traitor' ? 'a TRAITOR.' : 'a Faithful.'), 'room');
       log(e.name + ' was banished and revealed as ' + (e.role === 'traitor' ? 'a TRAITOR.' : 'a Faithful.'));
     }
     if (e.type === 'nameReveal') {

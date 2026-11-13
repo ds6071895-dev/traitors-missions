@@ -22,6 +22,7 @@
 <div id="world-labels"></div>
 <div id="drama-vignette"></div>
 <div id="screen-flash"></div>
+<div id="interlude" aria-hidden="true"></div>
 <div id="fade"></div>
 
 <!-- ============ CINEMATIC OVERLAY ============
@@ -214,6 +215,11 @@
           <span><b>Jobs time</b><small>how long the day in the castle lasts</small></span>
           <input type="range" id="lobby-task" min="30" max="180" step="15" value="180" data-nav>
           <output id="lobby-task-out">3:00</output>
+        </label>
+        <label class="lr-task" for="lobby-twists">
+          <span><b>Twists</b><small>some days, Claudia changes one rule</small></span>
+          <input type="checkbox" id="lobby-twists" checked data-nav>
+          <output id="lobby-twists-out">On</output>
         </label>
         <div class="lr-ai" id="lobby-ai"></div>
       </div>
@@ -452,6 +458,7 @@
 <script src="js/core/music.js"></script>
 <script src="js/core/state.js"></script>
 <script src="js/core/screens.js"></script>
+<script src="js/core/interlude.js"></script>
 <script src="js/core/tutorial-steps.js"></script>
 <script src="js/core/tutorial.js"></script>
 <script src="js/core/voice.js"></script>
@@ -459,6 +466,7 @@
 <script src="js/core/look.js"></script>
 <script src="js/core/party.js"></script>
 <script src="js/core/chores.js"></script>
+<script src="js/core/twists.js"></script>
 <script src="js/core/session.js"></script>
 <script src="js/core/net.js"></script>
 <script src="js/core/transports.js"></script>
@@ -478,6 +486,7 @@
 <script src="js/world/sky.js"></script>
 <script src="js/world/water.js"></script>
 <script src="js/world/conditions.js"></script>
+<script src="js/world/weather.js"></script>
 <script src="js/world/forest.js"></script>
 <script src="js/world/estate-layout.js"></script>
 <script src="js/world/estate-materials.js"></script>

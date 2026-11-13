@@ -498,7 +498,8 @@ class FinaleScene {
       this._cue('floor', { at: 'bar', glide: 3 });
       if (this.music) this.music.setIntensity(0.7);
       this._courtesy(true);
-      await this._say('floorOpen', {}, 'players');
+      // the second time round, the rules need no repeating
+      await this._say((Session.state.finale.round | 0) > 0 ? 'floorOpenAgain' : 'floorOpen', {}, 'players');
       if (!this._alive) return;
       await this._floorRound();
       this._courtesy(false);

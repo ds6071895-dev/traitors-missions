@@ -281,6 +281,105 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
   opacity:0; transition:opacity .3s ease}
 #fade.on{opacity:1; pointer-events:all}
 
+/* ---------------- the interlude: the castle between rooms ----------------
+   Every moving part is `transform` or `opacity`, so it keeps moving
+   while the next room is built underneath (see interlude.js). */
+#interlude{position:fixed; inset:0; z-index:89; pointer-events:none; opacity:0; overflow:hidden;
+  background:#06101c; transition:opacity .28s ease-in;
+  --land:#0b1420; --land-far:#1b2a3c; --loch:#0d1b2a; --win:#ffcf7a}
+#interlude.on{opacity:1; transition:opacity .25s ease-out}
+#interlude > *{position:absolute; inset:0}
+.il-sky{transition:opacity 1.3s ease-in-out}
+.il-sky-b{opacity:0}
+#interlude.turn .il-sky-b{opacity:1}
+/* the hours */
+.h-dawn .il-sky-a, .to-dawn .il-sky-b{background:linear-gradient(180deg,#26355a 0%,#7d6a8e 42%,#eba27a 74%,#f7d59d 100%)}
+.h-morning .il-sky-a, .to-morning .il-sky-b{background:linear-gradient(180deg,#5f9fd8 0%,#9cc8ea 55%,#e4f1f8 100%)}
+.h-golden .il-sky-a, .to-golden .il-sky-b{background:linear-gradient(180deg,#4f8fd0 0%,#8fbde3 50%,#f4d796 100%)}
+.h-dusk .il-sky-a, .to-dusk .il-sky-b{background:linear-gradient(180deg,#1b2246 0%,#5b3d68 45%,#c8705a 78%,#eea063 100%)}
+.h-night .il-sky-a, .to-night .il-sky-b{background:linear-gradient(180deg,#03070f 0%,#0b1630 60%,#18284a 100%)}
+.to-morning, .to-golden{--land:#1d2f2a; --land-far:#4d6e74; --loch:#3d6f8f}
+.to-dawn{--land:#1a1c2c; --land-far:#4a4566; --loch:#4b4a6a}
+.to-night{--land:#04080f; --land-far:#0e1a2c; --loch:#060d18}
+.il-land{width:100%; height:100%}
+.il-hills-far{fill:var(--land-far); transition:fill 1.3s}
+.il-hills, .il-castle{fill:var(--land); transition:fill 1.3s}
+.il-loch{fill:var(--loch); transition:fill 1.3s}
+.il-reflect{fill:var(--land); opacity:.35}
+.il-win{fill:var(--win); opacity:0; transition:opacity .5s ease calc(var(--i) * 45ms + .4s)}
+.turn.to-night .il-win, .turn.to-dawn .il-win{opacity:1}
+.to-night .il-win:nth-child(3n), .to-dawn .il-win:nth-child(2n){opacity:.18}
+.turn.to-night .il-reflect{opacity:.5}
+/* sun and moon */
+.il-orb{inset:auto; left:62%; top:30%; width:9vmin; height:9vmin; border-radius:50%;
+  background:radial-gradient(circle,#fff6d8 0 45%,rgba(255,226,150,.45) 62%,rgba(255,210,120,0) 72%);
+  transform:translateY(0); opacity:.95; transition:transform 2.2s ease-in-out, opacity 1.2s}
+.h-dusk .il-orb{top:46%}
+.turn.to-night .il-orb{transform:translateY(30vh); opacity:0}
+.to-dawn .il-orb{top:58%; left:30%; opacity:0}
+.turn.to-dawn .il-orb{transform:translateY(-10vh); opacity:.9}
+.il-stars{opacity:0; transition:opacity 1.6s ease .3s;
+  background:radial-gradient(1px 1px at 12% 18%,#fff 50%,transparent),radial-gradient(1px 1px at 28% 9%,#cfe 50%,transparent),
+             radial-gradient(1.5px 1.5px at 44% 22%,#fff 50%,transparent),radial-gradient(1px 1px at 58% 12%,#fff 50%,transparent),
+             radial-gradient(1px 1px at 71% 26%,#dff 50%,transparent),radial-gradient(1.5px 1.5px at 84% 8%,#fff 50%,transparent),
+             radial-gradient(1px 1px at 92% 30%,#fff 50%,transparent),radial-gradient(1px 1px at 6% 34%,#fff 50%,transparent),
+             radial-gradient(1px 1px at 36% 36%,#cff 50%,transparent),radial-gradient(1px 1px at 66% 40%,#fff 50%,transparent)}
+.h-night .il-stars{opacity:.8}
+.turn.to-night .il-stars{opacity:1}
+.turn.to-dawn .il-stars{opacity:0}
+/* the weather */
+.il-veil{background:linear-gradient(180deg,#59636e,#2c3540); opacity:0; transition:opacity 1s}
+.w-overcast .il-veil{opacity:.32}
+.w-rain .il-veil{opacity:.42}
+.w-storm .il-veil{opacity:.55}
+.w-fog .il-veil{opacity:.18}
+.il-mist{opacity:0}
+.w-fog .il-mist{opacity:1}
+.w-rain .il-mist, .w-storm .il-mist{opacity:.35}
+.il-mist i{position:absolute; left:-50%; width:200%; height:22%;
+  background:radial-gradient(ellipse 50% 50% at 50% 50%,rgba(220,230,240,.55),rgba(220,230,240,0) 70%);
+  animation:ilMist 9s linear infinite}
+.il-mist i:nth-child(1){top:52%}
+.il-mist i:nth-child(2){top:64%; animation-duration:13s; animation-direction:reverse; opacity:.8}
+.il-mist i:nth-child(3){top:74%; animation-duration:11s; opacity:.7}
+@keyframes ilMist{from{transform:translateX(-12%)}to{transform:translateX(12%)}}
+.il-rain{opacity:0; inset:-20% -20% 0 -20%;
+  background:repeating-linear-gradient(105deg,rgba(200,215,235,0) 0 9px,rgba(200,215,235,.32) 9px 10px,rgba(200,215,235,0) 10px 23px);
+  animation:ilRain .45s linear infinite}
+.w-rain .il-rain{opacity:.55}
+.w-storm .il-rain{opacity:.8; animation-duration:.32s}
+@keyframes ilRain{from{transform:translate(0,-46px)}to{transform:translate(-12px,0)}}
+.il-bolt{background:#dfe8ff; opacity:0; mix-blend-mode:screen}
+.w-storm.turn .il-bolt{animation:ilBolt 2.4s linear .1s 1 both}
+@keyframes ilBolt{0%,38%{opacity:0}40%{opacity:.75}43%{opacity:.1}46%{opacity:.55}52%,100%{opacity:0}}
+/* the card */
+.il-card{inset:auto 16px 13vh 16px; text-align:center; color:var(--paper);
+  text-shadow:0 2px 0 rgba(3,8,16,.55), 0 0 24px rgba(3,8,16,.6);
+  opacity:0; transform:translateY(10px); transition:opacity .5s ease .25s, transform .7s ease .25s}
+#interlude.on .il-card{opacity:1; transform:none}
+.il-kicker{font-size:12px; letter-spacing:.42em; text-transform:uppercase; color:var(--gold); margin-bottom:6px}
+.il-title{font-family:var(--display); font-size:clamp(30px,6vw,64px); letter-spacing:.08em; line-height:1}
+.il-card.full .il-title{font-size:clamp(40px,9vw,96px)}
+.il-chips{display:flex; flex-wrap:wrap; justify-content:center; gap:6px; margin:14px auto 0; max-width:760px}
+.il-chips:empty{display:none}
+.il-chip{font-size:13px; font-weight:700; padding:4px 11px; border-radius:999px;
+  background:rgba(8,16,28,.62); border:1px solid rgba(242,193,78,.45)}
+.il-chip.you{border-color:var(--gold); color:var(--gold)}
+.il-chip.gone{opacity:.5; border-color:rgba(255,255,255,.18); text-decoration:line-through; text-decoration-color:rgba(255,255,255,.45)}
+.il-chip em{font-style:normal; font-weight:600; font-size:11px; margin-left:6px; color:var(--muted); text-decoration:none; display:inline-block}
+.il-sub{margin-top:12px; font-size:14px; letter-spacing:.04em}
+.il-sub:empty{display:none}
+.il-sub b{color:var(--gold)}
+.il-twist{display:block; margin-top:8px; font-weight:700; color:#ffd9a0; letter-spacing:.06em}
+@media (max-width:560px){
+  .il-card{bottom:9vh}
+  .il-chip{font-size:12px; padding:3px 9px}
+}
+@media (prefers-reduced-motion: reduce){
+  .il-mist i, .il-rain, .w-storm.turn .il-bolt{animation:none}
+  .il-orb{transition:opacity 1.2s}
+}
+
 /* ---------------- screen system ---------------- */
 .screen{
   position:fixed; inset:0; z-index:40; display:none;
@@ -1591,6 +1690,7 @@ select.nav-on{outline-offset:2px}
 .lr-task b{display:block; color:var(--paper, #eef4fb); font-weight:700}
 .lr-task small{display:block; font-size:11px; opacity:.65}
 .lr-task input{accent-color:var(--gold, #f2c14e); width:100%}
+.lr-task input[type="checkbox"]{width:22px; height:22px; justify-self:center}
 .lr-task output{font-variant-numeric:tabular-nums; text-align:right; color:var(--gold, #f2c14e); font-weight:700}
 .lr-opt input{accent-color:var(--gold, #f2c14e)}
 .lr-want{grid-template-columns:1fr minmax(90px,1.2fr) 74px}

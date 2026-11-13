@@ -212,7 +212,12 @@ const Scenes = (() => {
 
   /* ---------------- lifecycle ---------------- */
 
-  function play(instance) {
+  /* `opts.after` is a curtain: a promise the room waits on before it
+     says it is ready, so it is drawn (and warmed) underneath the
+     interlude but does not begin — no line, no clock — until the
+     painting lifts. Every client waits on its own, then the ready gate
+     below lines them up as before. */
+  function play(instance, opts = {}) {
     stop();
     cache();
     token++;
@@ -222,6 +227,13 @@ const Scenes = (() => {
       if (active === instance) instance.update(dt, t);
       Input.endFrame();
     });
+    if (opts.after && typeof opts.after.then === 'function') {
+      opts.after.then(() => { if (active === instance) gate(instance); });
+    } else gate(instance);
+    return instance;
+  }
+
+  function gate(instance) {
     const begin = () => {
       if (active !== instance) return;
       clearInterval(startTimer); startTimer = null;
@@ -242,8 +254,11 @@ const Scenes = (() => {
         ready();
         startTimer = setInterval(ready, 600);
       }
-    } else begin();
-    return instance;
+    } else {
+      // nobody to wait for: the room's clocks start now, as it begins
+      if (s && s.phase && typeof Session.beganAlone === 'function') Session.beganAlone(s.phase);
+      begin();
+    }
   }
 
   function stop() {

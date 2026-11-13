@@ -25,6 +25,11 @@ const ClaudiaLines = (() => {
       [ "The room goes round.", "Thirty seconds. Use them." ],
       [ "One voice at a time.", "Half a minute each. Then a decision." ]
     ],
+    "floorOpenAgain": [
+      [ "Again. One at a time." ],
+      [ "Round once more.", "Make it count." ],
+      [ "Thirty seconds each. Again." ]
+    ],
     "floorTo": [
       [ "{name}. The room is yours." ],
       [ "{name}. Go on." ],
@@ -297,6 +302,90 @@ const ClaudiaLines = (() => {
       [ "Back to work.", "Somebody is carrying it again." ],
       [ "{count} left.", "One of them has poison." ]
     ],
+    "tasksWingOpen": [
+      [ "And today, {name} is open.", "Half your jobs are in it." ],
+      [ "Today I unlock {name}.", "Half of you will work there." ]
+    ],
+    "tasksWing": [
+      [ "Half of today is in {name}." ],
+      [ "Today, mind {name}.", "Half your jobs are there." ],
+      [ "Today belongs to {name}." ]
+    ],
+    "twistOpenSealed": [
+      [ "One more thing today.", "Tonight, the slates stay sealed." ],
+      [ "A change today.", "Nobody will see your vote. Only the count." ]
+    ],
+    "twistOpenVeiled": [
+      [ "Today has a twist.", "Whoever goes tonight goes without a word." ],
+      [ "One change today.", "The banished will not say what they were." ]
+    ],
+    "twistOpenHeavy": [
+      [ "Today, the shield is worth more.", "Its holder's vote counts twice." ],
+      [ "Work hard today.", "The shield brings a double vote." ]
+    ],
+    "twistOpenClue": [
+      [ "I have whispered to one Faithful.", "They know a name that is safe." ],
+      [ "One of you knows something today.", "A safe name. From me." ]
+    ],
+    "twistOpenNoShield": [
+      [ "No shield today.", "Nobody is safe tonight." ],
+      [ "Today the shield stays with me.", "Anyone can die tonight." ]
+    ],
+    "twistOpenBlackout": [
+      [ "Mind the bell today.", "When it rings, the lights go." ],
+      [ "The fuses are old.", "At the bell, you will be in the dark." ]
+    ],
+    "clueYou": [
+      [ "A word in your ear.", "{name} is not a Traitor." ],
+      [ "Only you hear this.", "{name} is Faithful." ]
+    ],
+    "twistTableSealed": [
+      [ "The slates stay sealed tonight.", "I will only tell you the count." ]
+    ],
+    "twistTableVeiled": [
+      [ "Remember. Whoever goes tonight goes in silence." ]
+    ],
+    "twistTableHeavy": [
+      [ "{name} held the shield.", "Their slate counts twice." ]
+    ],
+    "twistTableHeavyNone": [
+      [ "Nobody held the shield.", "Every slate counts once." ]
+    ],
+    "sealedResult": [
+      [ "The slates stay sealed.", "{name}. {count} votes." ],
+      [ "{count} votes for {name}.", "Nobody will know whose." ]
+    ],
+    "banishVeiled": [
+      [ "Not tonight, {name}.", "Leave without a word." ],
+      [ "Say nothing, {name}.", "Just go." ]
+    ],
+    "banishedVeiled": [
+      [ "We will learn what {name} was at the end." ],
+      [ "Traitor or Faithful? Nobody knows." ]
+    ],
+    "rollcallOpen": [
+      [ "No walking in today.", "I will call you down." ],
+      [ "Answer when I call you.", "If you can." ]
+    ],
+    "rollcallName": [
+      [ "{names}." ],
+      [ "{names}. Come down." ],
+      [ "Next. {names}." ]
+    ],
+    "tableAskShield": [
+      [ "{name}. You held the shield.", "Who came close to you yesterday?" ],
+      [ "{name}, the shield was yours.", "Who were you watching?" ]
+    ],
+    "tableAskLast": [
+      [ "{name}. Last down this morning.", "Why so slow?" ],
+      [ "{name}, you came down last.", "Where were you?" ]
+    ],
+    "tasksOpenLate": [
+      [ "{Time}. Go." ],
+      [ "{count} of you. {Time}." ],
+      [ "Back to work.", "Somebody is still carrying it." ],
+      [ "{Time}. Fewer of you. Same poison." ]
+    ],
     "poisonYou": [
       [ "It is in your pocket.", "Stand by a Faithful. Hold still. Before the bell." ],
       [ "The poison is yours today.", "Pick your moment. Before the bell." ]
@@ -542,7 +631,7 @@ const ClaudiaLines = (() => {
      then the room is exactly who hears it. */
   const PRIVATE = new Set(['roleTraitor', 'roleFaithful', 'traitorPartner', 'poisonYou', 'poisonPartner',
     'murderedYou', 'recruitOffer', 'recruitedYou', 'recruitAccepted', 'recruitRefused', 'conclaveOpen', 'conclaveAgree',
-    'conclaveRecruit', 'conclaveDone', 'nightFaithful', 'wiseYou', 'wiseTraitor']);
+    'conclaveRecruit', 'conclaveDone', 'nightFaithful', 'wiseYou', 'wiseTraitor', 'clueYou']);
   /* A "You" twin is the second-person version of a public line: the room
      hears the third-person one, and the person it is about reads theirs. */
   const baseOf = (setName) => (setName && setName.endsWith('You') && SETS[setName.slice(0, -3)]

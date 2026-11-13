@@ -99,7 +99,8 @@ const Notebook = (() => {
     const rows = [];
     (s.murdered || []).forEach(m => rows.push({ day: m.day, html: '<b>' + esc(m.name) + '</b> was murdered' + (m.role ? ' — ' + esc(m.role) : '') }));
     (s.banished || []).forEach(b => rows.push({ day: b.day, html: '<b>' + esc(b.name) + '</b> was ' + (b.exposed ? 'exposed' : 'banished')
-      + (b.role ? ' — <span class="' + (b.role === 'traitor' ? 'nb-t' : 'nb-f') + '">' + (b.role === 'traitor' ? 'a Traitor' : 'a Faithful') + '</span>' : '') }));
+      + (b.role === 'veiled' ? ' — <span class="nb-v">veiled</span>'
+         : b.role ? ' — <span class="' + (b.role === 'traitor' ? 'nb-t' : 'nb-f') + '">' + (b.role === 'traitor' ? 'a Traitor' : 'a Faithful') + '</span>' : '') }));
     if (!rows.length) return '<p class="nb-none">Nobody yet.</p>';
     return rows.sort((a, b) => a.day - b.day).map(r => '<p><i>Day ' + ((r.day | 0) + 1) + '</i>' + r.html + '.</p>').join('');
   }

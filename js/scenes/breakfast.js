@@ -20,6 +20,9 @@
 ------------------------------------------------------------------ */
 class BreakfastScene extends CastleScene {
 
+  // the long table with its empty place, as the room goes down
+  _outroShot() { return 'longTable'; }
+
   stageOptions() {
     const s = Session.state;
     /* Everybody who went to bed alive has a chair. The victim is still
@@ -81,6 +84,15 @@ class BreakfastScene extends CastleScene {
   _arrive(ids) {
     if (!this.stage) return;
     AudioBus.play('estate-door');
+    // the roll call: she says who, and they come
+    const b = Session.state.breakfast;
+    if (b && b.style === 'rollcall') {
+      const names = ids.map(id => Session.playerById(id)).filter(Boolean).map(p => (p.local ? 'you' : p.name));
+      if (names.length) {
+        const text = ClaudiaLines.line('rollcallName', { names: joinNames(names), name: names[0] }, Session.state.seed + (this._arrivals | 0) * 31);
+        if (text) Voice.say(text, { speaker: 'Claudia', public: true });
+      }
+    }
     /* Each group through the door adds a note to a chord that will not
        resolve — it cannot know yet whether a chair stays empty, so it
        never says. The reveal is what resolves it, one way or the other. */
@@ -109,7 +121,7 @@ class BreakfastScene extends CastleScene {
     const s = Session.state;
     // back in the day's key, as if nothing had happened
     this.music = Music.murder('dawn', Music.sceneMusic('breakfast', s.seed, s.day));
-    await this._say('breakfastOpen', {}, null);
+    await this._say(s.breakfast && s.breakfast.style === 'rollcall' ? 'rollcallOpen' : 'breakfastOpen', {}, null);
     if (!this._alive) return;
     if (this.music) this.music.section('breakfast', { at: 'bar', glide: 3 });
 
@@ -171,7 +183,9 @@ class BreakfastScene extends CastleScene {
     while (this._alive && guard++ < 12 && !this._lastIn) {
       const b = Session.state.breakfast;
       if (!b || b.revealed || Session.state.phase !== 'breakfast') return;
-      await this._sleep(guard === 1 ? 0.6 : 2.0);
+      // a roll call leaves room for the name to be said
+      const call = Session.state.breakfast && Session.state.breakfast.style === 'rollcall';
+      await this._sleep(guard === 1 ? 0.6 : call ? 2.8 : 2.0);
       if (!this._alive) return;
       const before = b.groups;
       Net.send({ type: 'breakfastNext' });

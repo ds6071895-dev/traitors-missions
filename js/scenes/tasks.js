@@ -58,10 +58,10 @@ class TasksScene {
     this._dead = !me || !me.alive;
     this._meId = me ? me.id : null;
     const cast = s.players.filter(p => p.alive || p.local).sort((a, b) => a.seat - b.seat);
-    this.stage = Stage.build({
+    this.stage = Stage.build(CastleScene.dressDay({
       seed: s.seed + 131 * (s.day + 1), hour: 'golden', room: 'hall', dress: 'none',
       claudia: false, free: true, furnish: true, players: cast, walkSpeed: 5.0,
-    });
+    }));
     this.stage.setWalk(true);
     this._land = this.stage.land;
     // where everybody starts: the seat the stage gave them, in castle terms
@@ -71,6 +71,7 @@ class TasksScene {
     }));
     this._buildStations();
     this.stage.update(0);
+    this._wx = typeof Weather !== 'undefined' ? Weather.fx(this.stage, this.stage.land && this.stage.land.weather) : null;
     return this.stage.view;
   }
 
@@ -161,12 +162,38 @@ class TasksScene {
     const s = Session.state;
     const say = (set, vars) => this._say(set, vars);
     const secs = (s.chores && s.chores.seconds) || s.taskSeconds || 180;
-    const words = secs % 60 === 0
-      ? ['one', 'two', 'three'][secs / 60 - 1] + (secs === 60 ? ' minute' : ' minutes')
-      : secs === 90 ? 'a minute and a half' : ({ 30: 'thirty seconds', 45: 'forty-five seconds', 120: 'two minutes' }[secs] || secs + ' seconds');
-    await say(s.day === 0 ? 'tasksFirst' : 'tasksOpen',
+    const words = TasksScene.spokenTime(secs);
+    // by the third day the room knows the drill: she keeps it short
+    await say(s.day === 0 ? 'tasksFirst' : s.day >= 2 ? 'tasksOpenLate' : 'tasksOpen',
               { count: Session.alive().length, time: words, Time: words.charAt(0).toUpperCase() + words.slice(1) });
     if (!this._alive) return;
+    // the wing the day's jobs lean into, said aloud so everybody knows it
+    const wing = s.chores && s.chores.wing;
+    if (wing && s.day > 0 && typeof Chores !== 'undefined') {
+      await say(s.day === 1 ? 'tasksWingOpen' : 'tasksWing', { name: Chores.WING_NAMES[wing] });
+      if (!this._alive) return;
+    }
+    // today's twist, said out loud and left on the screen while she says it
+    const twist = typeof Twists !== 'undefined' ? Twists.today(s) : null;
+    if (twist) {
+      Scenes.Cine.card({ kicker: 'Today’s twist', title: Twists.INFO[twist].card.split(':')[0].toUpperCase(),
+                         sub: castleEsc(Twists.INFO[twist].card.split(':').slice(1).join(':').trim()), tone: 'bad' });
+      await say('twistOpen' + twist.charAt(0).toUpperCase() + twist.slice(1), {});
+      Scenes.Cine.card(null);
+      if (!this._alive) return;
+    }
+    // the word in the ear, for the one Faithful it was for
+    const mine = Session.myPrivate() || {};
+    if (mine.clue && mine.clue.day === s.day && !this._dead) {
+      const safe = Session.playerById(mine.clue.safeId);
+      if (safe) {
+        Scenes.Cine.card({ kicker: 'A word in your ear', title: safe.name.toUpperCase(),
+                           sub: 'is not a Traitor. Only you know this.', tone: 'faithful' });
+        await say('clueYou', { name: safe.name });
+        Scenes.Cine.card(null);
+        if (!this._alive) return;
+      }
+    }
     const v = Session.myPrivate() || {};
     if (v.role === 'traitor' && v.poison && !this._dead) {
       if (v.poison.mine) {
@@ -184,6 +211,20 @@ class TasksScene {
     // Private poison instructions can outlast the public welcome on another screen.
     await Scenes.barrier('tasksIntro:' + s.day);
     if (this._alive) this.botIntroPending = false;
+  }
+
+  /* A length of day the way she would say it: "two and a quarter
+     minutes", not "135 seconds". Days come in quarter-minutes. */
+  static spokenTime(secs) {
+    const n = Math.round(secs / 15) * 15;
+    if (n < 60) return ({ 15: 'fifteen seconds', 30: 'thirty seconds', 45: 'forty-five seconds' })[n] || n + ' seconds';
+    const m = Math.floor(n / 60), q = (n % 60) / 15;
+    const W = ['', 'one', 'two', 'three', 'four', 'five'];
+    if (m === 1 && q === 0) return 'one minute';
+    if (m === 1 && q === 2) return 'a minute and a half';
+    if (m === 1) return q === 1 ? 'a minute and a quarter' : 'a minute and three quarters';
+    const tail = ['', ' and a quarter', ' and a half', ' and three quarters'][q];
+    return (W[m] || String(m)) + tail + ' minutes';
   }
 
   _say(set, vars = {}) {
@@ -209,6 +250,12 @@ class TasksScene {
       const bl = Session.state.chores && Session.state.chores.bellAt || Session.BELL_AT;
       Scenes.Cine.card({ kicker: 'The bell', title: (bl === 30 ? 'THIRTY' : String(bl)) + ' SECONDS', tone: 'bad' });
       setTimeout(() => { if (this._alive) Scenes.Cine.card(null); }, 2200);
+      // a blackout day: the lights fail with the bell, and the rest is in the dark
+      if (typeof Twists !== 'undefined' && Twists.has(Session.state, 'blackout')) {
+        AudioBus.play('snuff');
+        setTimeout(() => AudioBus.play('il-thunder', { gain: 0.25 }), 120);
+        this._dim = SceneOutro.dim(this.stage, 1.6, 0.28);
+      }
     }
     if (e.type === 'chore' && e.playerId === this._meId) this._popup('+' + U.money(Chores.VALUE));
     if (e.type === 'private' || e.type === 'state' || e.type === 'chore') this._dirty = true;
@@ -306,8 +353,9 @@ class TasksScene {
     if (!this._dirty) return;
     this._dirty = false;
     // who would hold the shield if the bell went now
-    const lead = Session.shieldLeader();
-    const leadText = lead ? (lead.id === this._meId ? 'You' : lead.name) + ' · ' + lead.n : 'Nobody yet';
+    const noShield = typeof Twists !== 'undefined' && Twists.has(Session.state, 'noShield');
+    const lead = noShield ? null : Session.shieldLeader();
+    const leadText = noShield ? 'None today' : lead ? (lead.id === this._meId ? 'You' : lead.name) + ' · ' + lead.n : 'Nobody yet';
     if (d.shieldWho.textContent !== leadText) d.shieldWho.textContent = leadText;
     d.shield.classList.toggle('mine', !!lead && lead.id === this._meId);
     const jobs = this._dead ? [] : (v.jobs || []);
@@ -511,6 +559,8 @@ class TasksScene {
     if (!this.stage) return;
     this._t += dt;
     this.stage.update(dt);
+    if (this._dim) this._dim.step(dt);
+    if (this._wx) this._wx.step(dt);
     const rig = this.stage.rig;
     const l = this._land.toLocal(rig.pos.x, rig.pos.z);
     const h = rig.yaw + Math.PI;
@@ -856,11 +906,23 @@ class TasksScene {
     }
   }
 
+  /* The day's last shot: whatever was in your hands is put down, and
+     the house's lights go down on you with a candle pinched out. The
+     night's painting then opens dark (see interlude.js). */
+  outro() {
+    if (!this.stage || !this._alive) return Promise.resolve();
+    if (typeof ChoreGames !== 'undefined') ChoreGames.close(false);
+    if (typeof AudioBus !== 'undefined') AudioBus.play('snuff');
+    this._dim = SceneOutro.dim(this.stage, 1.0, 0.12);
+    return this._dim.done;
+  }
+
   dispose() {
     this._alive = false;
     this._offs.forEach(off => { try { off(); } catch (e) {} });
     this._offs = [];
     ChoreGames.close(false);
+    if (this._wx) { this._wx.stop(); this._wx = null; }
     if (Session.isHost) { CastleBots.stop(); Session.setEyes(null); }
     CastleNet.stop();
     if (typeof VoiceChat !== 'undefined' && VoiceChat.resetVolumes) VoiceChat.resetVolumes();

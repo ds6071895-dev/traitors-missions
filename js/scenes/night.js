@@ -26,6 +26,11 @@
 ------------------------------------------------------------------ */
 class NightScene extends CastleScene {
 
+  /* The night ends on the bedroom door going, and the dark; breakfast
+     opens on the great hall's door (see breakfast.js). */
+  get _outroSound() { return 'door-shut'; }
+  get _outroDimTo() { return 0; }
+
   stageOptions() {
     const s = Session.state;
     const me = s.players.find(p => p.local);

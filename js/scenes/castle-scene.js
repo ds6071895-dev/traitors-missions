@@ -28,9 +28,20 @@ class CastleScene {
   }
 
   build() {
-    this.stage = Stage.build(this.stageOptions());
+    this.stage = Stage.build(CastleScene.dressDay(this.stageOptions()));
     this.stage.update(0);
+    this._wx = typeof Weather !== 'undefined' ? Weather.fx(this.stage, this.stage.land && this.stage.land.weather) : null;
     return this.stage.view;
+  }
+
+  /* Today's weather and how late in the game it is, onto a room's stage
+     options (unless the room chose its own). */
+  static dressDay(o) {
+    const s = Session.state;
+    if (!s) return o;
+    if (o.weather === undefined && typeof Weather !== 'undefined') o.weather = Weather.forDay(s.seed, s.day);
+    if (o.late === undefined && Session.stakes) o.late = Session.stakes();
+    return o;
   }
 
   stageOptions() { return { seed: Session.state.seed, hour: 'night', dress: 'none', players: [] }; }
@@ -521,7 +532,21 @@ class CastleScene {
   update(dt) {
     if (!this.stage) return;
     this.stage.update(dt);
+    if (this._dim) this._dim.step(dt);
+    if (this._wx) this._wx.step(dt);
     if (this._embers) this._embers = Reveal.updateEmbers(this.stage, this._embers, dt);
+  }
+
+  /* The room's last shot before the interlude: the lights going down
+     on whatever `_outroShot` frames, and a sound to cut on. A subclass
+     names the shot and the sound; the dimming is the same everywhere. */
+  outro() {
+    if (!this.stage || !this._alive) return Promise.resolve();
+    const shot = this._outroShot ? this._outroShot() : null;
+    if (shot && this.stage.setCinematic) this.stage.setCinematic(true, shot, { speed: 0.7 });
+    if (this._outroSound && typeof AudioBus !== 'undefined') AudioBus.play(this._outroSound);
+    this._dim = SceneOutro.dim(this.stage, 1.1, this._outroDimTo === undefined ? 0.2 : this._outroDimTo);
+    return this._dim.done;
   }
 
   dispose() {
@@ -535,9 +560,55 @@ class CastleScene {
     Scenes.Cine.card(null);
     Scenes.Drama.end(this.stage, null);
     if (this.music) { this.music.stop(1.4); this.music = null; }
+    if (this._wx) { this._wx.stop(); this._wx = null; }
     if (this._embers) { this._embers = Reveal.clearEmbers(this.stage, this._embers); }
     if (this.stage) { this.stage.dispose(); this.stage = null; }
   }
+}
+
+/* Lights down, for the last shot of a room. Every light in the scene
+   eases to `to` of its own brightness over `secs`, stepped from the
+   scene's own update so it keeps time with the frames. `done` resolves
+   at the bottom. Nothing is restored: the room is about to be torn down. */
+const SceneOutro = {
+  /* `stage` is a Stage: inside the castle its land re-lights itself every
+     frame, so it is asked for a level; outside, the lights are eased
+     directly. */
+  dim(stage, secs, to) {
+    const land = stage && stage.land;
+    const lights = [];
+    if (!(land && land.setLevel) && stage && stage.scene) {
+      stage.scene.traverse(o => { if (o.isLight && o.intensity > 0) lights.push([o, o.intensity]); });
+    }
+    let t = 0, finish;
+    const done = new Promise(r => { finish = r; });
+    return {
+      done,
+      step(dt) {
+        if (t >= secs) return;
+        t = Math.min(secs, t + dt);
+        const u = t / secs;
+        const k = 1 - (1 - to) * u * u * (3 - 2 * u);
+        if (land && land.setLevel) land.setLevel(k);
+        for (const [l, i0] of lights) l.intensity = i0 * k;
+        if (t >= secs) finish();
+      },
+    };
+  },
+};
+if (typeof AudioBus !== 'undefined') {
+  // a candle pinched out: a short breath of air
+  AudioBus.define('snuff', (ctx, dest) => {
+    const t = ctx.currentTime;
+    const len = 0.35;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * len), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / d.length);
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1300; bp.Q.value = 0.8;
+    const g = ctx.createGain(); g.gain.value = 0.32;
+    src.connect(bp); bp.connect(g); g.connect(dest); src.start(t);
+  });
 }
 
 /* Names go into innerHTML in exactly one place, and this is it. */

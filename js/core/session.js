@@ -81,6 +81,15 @@ const Session = (() => {
     const n = Math.round(Number(v));
     return Number.isFinite(n) ? Math.max(TASK_MIN, Math.min(TASK_SECONDS, n)) : TASK_SECONDS;
   };
+  /* Later days are shorter. The first day is the host's length; then a
+     tenth off a day, to seven tenths, in quarter-minutes — never under
+     the shortest day the host may set. A table of four does not need
+     the house for as long as a table of eight did. */
+  const PACE = [1, 0.9, 0.8, 0.7];
+  const pacedSeconds = (asked, day) => {
+    const k = PACE[Math.min(PACE.length - 1, Math.max(0, day | 0))];
+    return clampTask(Math.round(clampTask(asked) * k / 15) * 15);
+  };
   const NOTE_EVERY = 4;            // seconds between looks round the room
   const NIGHT_SECONDS = 25;        // every night lasts exactly this, whatever was decided
   const RECRUIT_NIGHT_EXTRA = 15;  // ...and this much more when a seat may be offered
@@ -127,6 +136,12 @@ const Session = (() => {
       wisePick: null,              // { by, targetId } — the Traitors' choice, while the window is open
       overrule: null,              // { by, targetId } — the Wise One's slate, until it is turned
       doorAt: new Map(),           // doorId -> when it last moved, so it cannot be hammered
+      dayPlan: null,               // today's open wings and featured wing (public, but kept with the lists)
+      lastTypes: new Map(),        // playerId -> the kinds of puzzle they were dealt yesterday
+      clue: null,                  // { day, to, safeId } — a twist's word in one Faithful's ear
+      clueKnown: {},               // playerId -> { day, safeId }: what they were told, for good
+      sealed: {},                  // playerId -> targetId, on a day the slates stay sealed
+      veiled: {},                  // playerId -> role, for a banishment the room was not told
     };
   }
 
@@ -179,10 +194,12 @@ const Session = (() => {
     night:    0x27d4eb2f,
     breakfast:0x165667b1,
     wise:     0x3c6ef372,
+    twist:    0x1b873593,
     count:    0x7f4a7c15,
   };
 
   const traitorCount = (n) => (n >= 7 ? 2 : 1);
+  const isTwist = (id) => !!(state && state.twist && state.twist.day === state.day && state.twist.id === id);
 
   /* ---------------- the cast ----------------
      The host chooses how many: `auto` (one, or two from seven up), `1`,
@@ -283,13 +300,21 @@ const Session = (() => {
 
   /* ---------------- the jobs, and the poison ---------------- */
 
+  /* Everybody's list for the day. The house opens a wing at a time
+     (`Chores.dayPlan`, public: which wing is today's is said aloud), and
+     nobody is dealt yesterday's kinds of puzzle if there are others. */
   function dealChores(day) {
     secret.lists = new Map();
     if (typeof Chores === 'undefined') return;
     const r = rngFor(SALT.chores ^ (day * 0x9e37), state.seed);
+    const plan = Chores.dayPlan ? Chores.dayPlan(day, state.seed) : { wings: null, wing: null };
+    secret.dayPlan = plan;
+    const stale = secret.lastTypes || (secret.lastTypes = new Map());
     for (const p of alive()) {
       const others = alive().filter(q => q.id !== p.id);
-      secret.lists.set(p.id, Chores.deal(r, p, others));
+      const list = Chores.deal(r, p, others, { wings: plan.wings, wing: plan.wing, avoidTypes: stale.get(p.id) });
+      secret.lists.set(p.id, list);
+      stale.set(p.id, new Set(list.filter(j => j.type).map(j => j.type)));
     }
   }
 
@@ -329,6 +354,10 @@ const Session = (() => {
       ai: opts && opts.ai ? { claudia: !!opts.ai.claudia } : null,
       taskSeconds: clampTask(opts && opts.taskSeconds === undefined ? TASK_SECONDS : opts && opts.taskSeconds),
       cast: cleanCast(opts && opts.cast),  // what the host chose, which everybody may know
+      twists: !(opts && opts.twists === false),  // the host's switch: may a day change the rules
+      twist: null,              // { day, id } — today's twist, said aloud (twists.js)
+      twistsUsed: [],           // [{ day, id }] — each comes up at most once
+      forceTwist: opts && opts.rehearsal && opts.forceTwist ? String(opts.forceTwist).slice(0, 16) : null,
       dealt: players.length ? Math.min(traitorCount(players.length), players.length - 1) : 0,  // how many were dealt, which the room is told — null when the host hid it
       beat: 0,                  // shared scene beat, for when scenes sync
       day: 0,
@@ -523,6 +552,8 @@ const Session = (() => {
       poison: null,
       night: null,
       offer: null,
+      // a twist's word in the ear: kept for the rest of the game
+      clue: secret.clueKnown && secret.clueKnown[p.id] ? Object.assign({}, secret.clueKnown[p.id]) : null,
     };
     /* Both Traitors know who carries it and whether it has been used —
        and on whom, because the other one has to be ready to lie about it. */
@@ -728,6 +759,7 @@ const Session = (() => {
   function beginDay(d) {
     state.day = d;
     if (d === 0) ensureWise();
+    chooseTwist(d);
     // the shield was for last night only
     state.shield = null;
     secret.shieldHeld = null;
@@ -740,6 +772,38 @@ const Session = (() => {
     return beginTasks();
   }
 
+  /* Today's twist, from the seed and the public record only. The day
+     that will end at the last table gets none: a murder and a
+     banishment from here and it is the fire. */
+  function chooseTwist(d) {
+    state.twist = null;
+    secret.clue = null;
+    secret.sealed = {};
+    if (!state.twists || typeof Twists === 'undefined') return;
+    const used = (state.twistsUsed || []).map(t => t.id);
+    const yesterday = (state.twistsUsed || []).some(t => t.day === d - 1);
+    const last = alive().length - 2 <= FINALE_AT;
+    let id = Twists.pick(state.seed, d, { used, yesterday, last });
+    if (state.forceTwist && d >= 1 && Twists.DECK.indexOf(state.forceTwist) >= 0
+        && used.indexOf(state.forceTwist) < 0) id = state.forceTwist;
+    if (!id) return;
+    state.twist = { day: d, id };
+    (state.twistsUsed || (state.twistsUsed = [])).push({ day: d, id });
+    if (id === 'clue') {
+      // one Faithful, told one other Faithful's name: drawn host-side, kept secret
+      const r = rngFor(SALT.twist ^ (d * 0x6b), state.seed);
+      const faithful = alive().filter(p => !isTraitor(p)).sort((a, b) => a.seat - b.seat);
+      if (faithful.length >= 2) {
+        const to = faithful[r.int(0, faithful.length - 1)];
+        const others = faithful.filter(p => p.id !== to.id);
+        secret.clue = { day: d, to: to.id, safeId: others[r.int(0, others.length - 1)].id };
+        secret.clueKnown[to.id] = { day: d, safeId: secret.clue.safeId };
+        emit('private');
+      }
+    }
+    GameState.logEvent('twist', 'Today: ' + id, { id });
+  }
+
   function beginTasks() {
     secret.poison = null;
     secret.owed = null;
@@ -750,8 +814,9 @@ const Session = (() => {
     const now = Date.now();
     const done = {};
     for (const p of alive()) done[p.id] = 0;
-    const seconds = clampTask(state.taskSeconds);
-    state.chores = { day: state.day, startedAt: now, endsAt: now + seconds * 1000,
+    const seconds = pacedSeconds(state.taskSeconds, state.day);
+    state.chores = { day: state.day, wing: (secret.dayPlan && secret.dayPlan.wing) || null,
+                     startedAt: now, endsAt: now + seconds * 1000,
                      seconds, bellAt: Math.min(BELL_AT, Math.floor(seconds / 3)),
                      bell: false, done, reached: {}, closed: false };
     setPhase('tasks', true);
@@ -903,7 +968,7 @@ const Session = (() => {
     const list = secret.lists.get(p.id) || [];
     if (typeof Chores !== 'undefined' && list.length && list.every(j => j.done)) {
       const r = rngFor(SALT.chores ^ (state.day * 0x9e37) ^ (p.seat * 0x2f1) ^ (list.length * 0x71), state.seed);
-      list.push(...Chores.more(r, p, list));
+      list.push(...Chores.more(r, p, list, { wings: secret.dayPlan ? secret.dayPlan.wings : null }));
     }
     emit('chore', { playerId: p.id, pot: state.pot });
     emit('private');
@@ -988,7 +1053,8 @@ const Session = (() => {
     c.closed = true;
     c.endsAt = Date.now();
     state.doors = {};
-    const sh = shieldLeader();
+    // a no-shield day has nobody to save, however hard they worked
+    const sh = isTwist('noShield') ? null : shieldLeader();
     state.shield = sh ? Object.assign({ day: state.day }, sh) : null;
     secret.victim = secret.poison ? secret.poison.target : null;
     // the shield holds for tonight: the poison is in them, and it does not take
@@ -1020,6 +1086,14 @@ const Session = (() => {
     const next = state.day + 1;
     if (!bigNight() || alive().length <= FINALE_AT || next >= MAX_DAYS) return beginFinale();
     return beginDay(next);
+  }
+
+  /* How close the fire is, 0..1, from how many are left: the house is lit
+     lower and the band leans harder as it rises. Public, like the count. */
+  function stakes() {
+    if (!state) return 0;
+    const left = alive().length - FINALE_AT - 1;
+    return Math.max(0, Math.min(1, 1 - left / 4));
   }
 
   /* Whether this round table is the last: the next thing is the fire, not
@@ -1231,9 +1305,17 @@ const Session = (() => {
       [coming[i], coming[k]] = [coming[k], coming[i]];
     }
     const groups = [];
-    while (coming.length) groups.push(coming.splice(0, Math.min(coming.length, r.int(1, 2))));
+    // later mornings come down in bigger groups: the walk-in is known by now
+    const most = state.day >= 2 ? 3 : 2;
+    while (coming.length) groups.push(coming.splice(0, Math.min(coming.length, r.int(1, most))));
     secret.queue = groups;
-    state.breakfast = { day: state.day, arrived: [], groups: 0, revealed: false,
+    /* How the morning is staged: the walk-in, or Claudia calling them
+       down by name. Never the roll call two mornings running, and never
+       the first: the walk-in is how the show teaches it. Public. */
+    const prev = state.lastBreakfastStyle || 'walk';
+    const style = state.day === 0 || prev === 'rollcall' ? 'walk' : (r() < 0.55 ? 'rollcall' : 'walk');
+    state.lastBreakfastStyle = style;
+    state.breakfast = { day: state.day, arrived: [], groups: 0, revealed: false, style,
                         victim: null, name: null, shielded: null, shieldName: null };
     setPhase('breakfast', true);
     return true;
@@ -1446,6 +1528,45 @@ const Session = (() => {
     emit('phase', next, prev);
   }
 
+  /* The clocks of a room start when the room has begun everywhere —
+     the day's and the night's alike. */
+  function startClocks() {
+    /* The day's clock starts when the last browser has the castle
+       built, not when the host asked for it: loading is not time
+       anybody got to spend. */
+    if (state.phase === 'tasks' && state.chores && !state.chores.closed) {
+      const now = Date.now();
+      state.chores.startedAt = now;
+      state.chores.endsAt = now + state.chores.seconds * 1000;
+      armTasks();
+    }
+    /* The night's clock too, and for the same reason: the walk up to
+       bed is staged, and it must not eat the turret's twelve seconds.
+       Everything moves by the same amount, so the night is still
+       exactly as long as every other night. */
+    if (state.phase === 'night' && state.night && !state.night.done) {
+      const shift = Math.max(0, Date.now() - state.night.startedAt);
+      state.night.startedAt += shift;
+      state.night.endsAt += shift;
+      secret.pickBy += shift;
+      if (secret.offer && secret.offer.answer === null) secret.offer.endsAt += shift;
+      armNight();
+    }
+  }
+
+  /* A game with nobody else's browser in it (a rehearsal, a bot night)
+     has no ready gate: the room says it has begun, and its clocks start
+     then, so a staged walk into it is never time taken off anybody. */
+  function beganAlone(phase) {
+    if (mode !== 'host' || !state || state.phase !== phase) return false;
+    const sc = state.scene || (state.scene = { phase, ready: [], started: false });
+    if (sc.started || sc.phase !== phase) return false;
+    sc.started = true;
+    startClocks();
+    emit('change', state);
+    return true;
+  }
+
   /* A scene begins only after every browser in the room has built it.
      Without this, the fastest GPU can be a line of dialogue ahead before
      the slowest one has even installed its event listeners. The dead
@@ -1459,15 +1580,7 @@ const Session = (() => {
     sc.ready.push(p.id);
     if (!sc.started && present().every(q => sc.ready.indexOf(q.id) >= 0)) {
       sc.started = true;
-      /* The day's clock starts when the last browser has the castle
-         built, not when the host asked for it: loading is not time
-         anybody got to spend. */
-      if (state.phase === 'tasks' && state.chores && !state.chores.closed) {
-        const now = Date.now();
-        state.chores.startedAt = now;
-        state.chores.endsAt = now + state.chores.seconds * 1000;
-        armTasks();
-      }
+      startClocks();
       emit('scene', { phase: state.phase });
     }
     return true;
@@ -1660,8 +1773,13 @@ const Session = (() => {
        until it is turned: the public ballot only ever shows a name. */
     const over = !!a.overrule && canOverrule(p, f);
     const was = !!secret.overrule && secret.overrule.by === p.id;
-    if (f.names[p.id] === t.id && over === was) return false;
-    f.names[p.id] = t.id;
+    /* A sealed day keeps the name itself in here: the public ballot
+       says only that a slate is written. */
+    const sealed = f.kind === 'table' && isTwist('sealed');
+    const had = sealed ? secret.sealed[p.id] : f.names[p.id];
+    if (had === t.id && over === was) return false;
+    if (sealed) { secret.sealed[p.id] = t.id; f.names[p.id] = 'sealed'; }
+    else f.names[p.id] = t.id;
     if (over) secret.overrule = { by: p.id, targetId: t.id };
     else if (was) secret.overrule = null;
     emit('vote', { playerId: p.id, stage: 'name', targetId: t.id });
@@ -1689,6 +1807,14 @@ const Session = (() => {
       .sort((a, b) => (a.id === wise) - (b.id === wise) || a.seat - b.seat).map(p => p.id);
     f.namesShown = [];
     f.overrule = wise ? { armed: true, by: null, targetId: null } : null;
+    /* Sealed: no slate is turned — except an overruling one, which is
+       the Wise One's to show, and is turned alone. */
+    if (f.kind === 'table' && isTwist('sealed')) {
+      f.sealed = true;
+      f.nameQueue = wise ? [wise] : [];
+      if (wise) f.names[wise] = secret.sealed[wise];
+      if (!f.nameQueue.length) resolveName();
+    }
   }
 
   function doSpeakName(a) {
@@ -1722,11 +1848,16 @@ const Session = (() => {
   function resolveName() {
     const f = state.finale;
     const counts = {};
+    // a heavy-slate day: the shield holder's name counts twice
+    const heavy = f.kind === 'table' && isTwist('heavy') && state.shield && state.shield.day === state.day
+      ? state.shield.id : null;
     for (const p of alive()) {
-      const t = f.names[p.id];
+      const t = f.sealed && secret.sealed[p.id] ? secret.sealed[p.id] : f.names[p.id];
       if (!t || !(playerById(t) || {}).alive) continue;
-      counts[t] = (counts[t] || 0) + 1;
+      counts[t] = (counts[t] || 0) + (p.id === heavy ? 2 : 1);
     }
+    if (f.sealed) secret.sealed = {};
+    if (heavy) f.heavy = heavy;
     /* The Wise One has spoken, and the count is only for the record. */
     const o = f.overrule;
     if (o && o.by && (playerById(o.targetId) || {}).alive) {
@@ -1754,6 +1885,7 @@ const Session = (() => {
     emit('tally', f.lastTally);
     if (!pick) {
       f.stage = 'name';
+      f.sealed = false;
       f.names = {};
       f.nameQueue = [];
       f.namesShown = [];
@@ -1820,17 +1952,28 @@ const Session = (() => {
     if ((state.phase !== 'finale' && state.phase !== 'table') || f.stage !== 'reveal' || !f.pending) return false;
     const p = playerById(f.pending);
     if (!p) return false;
-    const role = roleOfSeat(p.seat);
+    const real = roleOfSeat(p.seat);
+    /* Veiled: they leave without saying. The room is told 'veiled', and
+       the role stays in here until the game is over. */
+    const veiled = f.kind === 'table' && isTwist('veiled') && !allFoundWithout(p);
+    if (veiled) secret.veiled[p.id] = real;
+    const role = veiled ? 'veiled' : real;
 
     p.alive = false;
     p.out = 'banished';
     f.burned.push({ id: p.id, name: p.name, role });
     state.banished.push({ id: p.id, name: p.name, day: state.day, role });
     f.pending = null;
-    GameState.logEvent('banish', `${p.name} was a ${role}`, { id: p.id, role });
+    GameState.logEvent('banish', veiled ? `${p.name} left without a word` : `${p.name} was a ${role}`, { id: p.id, role });
     emit('reveal', { playerId: p.id, name: p.name, role, table: f.kind === 'table' });
     afterBanishment();
     return true;
+  }
+
+  /* Whether banishing `p` would end it: the last Traitor out. That one is
+     never veiled — the game is over, and the room is owed the answer. */
+  function allFoundWithout(p) {
+    return isTraitor(p) && traitorsAlive().filter(q => q.id !== p.id).length === 0;
   }
 
   function afterBanishment() {
@@ -1883,6 +2026,8 @@ const Session = (() => {
   function endGame(reason) {
     clearNightTimer();
     clearTaskTimer();
+    // the cards go face up: a veiled banishment says what it was at last
+    for (const b of state.banished) if (b.role === 'veiled' && secret.veiled[b.id]) b.role = secret.veiled[b.id];
     const living = alive();
     const survivingTraitors = living.filter(isTraitor);
     const traitorAlive = survivingTraitors.length > 0;
@@ -1943,7 +2088,7 @@ const Session = (() => {
       if (!state) return null;
       return JSON.parse(JSON.stringify(state));
     },
-    finaleNext,
+    finaleNext, beganAlone, pacedSeconds, stakes,
     SEATS, MIN_PLAYERS, FINALE_AT, NIGHT_SECONDS, RECRUIT_NIGHT_EXTRA, nightSeconds, PICK_SECONDS, TASK_SECONDS, TASK_MIN, BELL_AT,
     RECRUIT_SECONDS, LAST_WORDS_SECONDS, FLOOR_SECONDS, WISE_SECONDS,
     tableSeconds, traitorCount, castChances, cleanCast,

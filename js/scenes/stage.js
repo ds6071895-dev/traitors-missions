@@ -46,7 +46,8 @@ const Stage = (() => {
     if (indoors) {
       /* Inside, there is no sky and no loch to set up: the house brings
          its own light, and its windows say what hour it is. */
-      land = CastleInterior.build(scene, { seed: o.seed, room: o.room, hour: o.hour });
+      land = CastleInterior.build(scene, { seed: o.seed, room: o.room, hour: o.hour,
+                                           weather: o.weather, late: o.late });
       // a house, not a glen: a short far plane keeps the depth buffer
       // fine enough that nothing laid on anything else can shimmer
       camera.near = 0.1; camera.far = 400; camera.updateProjectionMatrix();

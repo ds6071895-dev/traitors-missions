@@ -44,6 +44,8 @@ const Show = (() => {
       traitorSeat: opts.traitorSeat,
       ai: opts.ai || null,
       taskSeconds: opts.taskSeconds,
+      twists: opts.twists !== false,
+      forceTwist: opts.forceTwist || null,
       cast: opts.cast || null,
       wants: opts.wants || null,
     });
@@ -136,20 +138,47 @@ const Show = (() => {
     if (transitionAbort) transitionAbort.abort();
     const controller = new AbortController();
     transitionAbort = controller;
-    const swap = async () => {
+    const swap = async (curtain) => {
       if (controller.signal.aborted || !running) return;
       Scenes.stop();
       Screens.hideAll();
-      if (phase === 'hill') Scenes.play(new HillScene());
-      else if (phase === 'tasks') Scenes.play(new TasksScene());
-      else if (phase === 'finale') Scenes.play(new FinaleScene());
-      else if (phase === 'night') Scenes.play(new NightScene());
-      else if (phase === 'breakfast') Scenes.play(new BreakfastScene());
-      else if (phase === 'table') Scenes.play(new RoundtableScene());
+      const o = { after: curtain || null };
+      if (phase === 'hill') Scenes.play(new HillScene(), o);
+      else if (phase === 'tasks') Scenes.play(new TasksScene(), o);
+      else if (phase === 'finale') Scenes.play(new FinaleScene(), o);
+      else if (phase === 'night') Scenes.play(new NightScene(), o);
+      else if (phase === 'breakfast') Scenes.play(new BreakfastScene(), o);
+      else if (phase === 'table') Scenes.play(new RoundtableScene(), o);
     };
-    /* A cut, not a dissolve: a quarter of a second of black between one
-       room and the next is all the show needs. */
-    Screens.cover(swap, controller.signal, first ? 0 : 260).catch(showBuildError);
+    /* A browser catching up, or the welcome, is a plain cut. Every other
+       change of room is the castle seen from outside while the hour
+       turns (interlude.js), after the room being left has had its last
+       shot (`outro`, a second at most). */
+    const bridged = !first && typeof Interlude !== 'undefined' && Interlude.HOURS[phase];
+    if (!bridged) {
+      Screens.cover(() => swap(null), controller.signal, first ? 0 : 260).catch(showBuildError);
+      return;
+    }
+    (async () => {
+      await outro(controller.signal);
+      if (controller.signal.aborted || !running) return;
+      await Interlude.play({ to: phase, signal: controller.signal,
+                             twist: typeof Twists !== 'undefined' ? Twists.cardLine(Session.state) : null }, swap);
+    })().catch(showBuildError);
+  }
+
+  /* The room being left gets its last shot: the candle snuffed, the
+     door, the empty chair. Capped, and cut short by anything newer. */
+  const OUTRO_CAP = 1400;
+  function outro(signal) {
+    const a = Scenes.active;
+    if (!a || typeof a.outro !== 'function') return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => { clearTimeout(t); signal.removeEventListener('abort', done); resolve(); };
+      const t = setTimeout(done, OUTRO_CAP);
+      signal.addEventListener('abort', done, { once: true });
+      try { Promise.resolve(a.outro()).then(done, done); } catch (e) { done(); }
+    });
   }
 
   function showBuildError(error) {
