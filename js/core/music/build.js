@@ -61,6 +61,10 @@ const MusicBuild = (() => {
     letter: { ramp: 3.0, breath: 0.5, bpm: 66, pulse: 'heartbeat', accent: 'tom',
               ladder: [0, 1, 3, 5, 6, 7, 8], stages: [0.45, 0.75, 0.95], v: [0.35, 0.8],
               choir: 0.5, brass: 0, riser: 0.45, tone: [400, 5000], vowel: 'mm' },
+    // today's twist: timpani climbing into a dark omen roll with choir and brass
+    twist:  { ramp: 1.8, breath: 0.36, bpm: 96, pulse: 'timpani', accent: 'taiko', snare: 0.45,
+              ladder: [0, 2, 3, 5, 7, 8, 10, 11], stages: [0.25, 0.5, 0.78], v: [0.35, 1.05],
+              choir: 0.75, brass: 0.75, brassAt: 0.4, riser: 0.9, tone: [650, 15000] },
   };
 
   const DEAD = {

@@ -1061,4 +1061,28 @@ test('three days and the fire, start to finish, on a phone', () => {
   ok(where.length === 2 + 4 * 3 + 1, 'scenes: ' + where.join(' → '));
 });
 
+test('a twist builds, holds its breath, hits with brass and choir, and returns to the day\'s work', () => {
+  const { Music, ac } = load({ talkers: () => [] });
+  const m = Music.tasks(Music.dayMusic(1234, 2));        // non-default variant
+  const daySec = m.sectionName;
+  run([m], ac, 2);
+  const b = m.build({ shape: 'twist', secs: 1.8 });
+  ok(b.live, 'twist build started');
+  run([m], ac, 1.8);
+  const at = ac.currentTime, from = ac.log.starts.length;
+  const wait = b.release('twist', { then: 'twist' });
+  const T = at + wait;
+  ok(wait > 0.3 && wait < 0.5, 'breath before the twist: ' + wait);
+  eq(m.sectionName, 'twist', 'entered the twist section');
+  run([m], ac, 1.5);
+  const after = ac.log.starts.slice(from);
+  ok(after.length > 20, 'twist stinger and section played');
+  for (const x of after) ok(x.t >= T - 1e-6, 'nothing booked in the breath');
+  ok(after.some(x => near(x.t, T, 1e-6)), 'stinger landed on the instant');
+  m.section('work', { at: 'bar', glide: 1.8, via: 'fill' });
+  run([m], ac, 4);
+  eq(m.sectionName, daySec, 'returned to the day\'s own work arrangement');
+  m.stop(0.1);
+});
+
 H.report();

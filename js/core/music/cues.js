@@ -923,6 +923,20 @@ const MusicCues = (() => {
         L('taiko', 'taiko', { pat: vel('X..7..X.7.8.'), gain: 0.65 }),
         L('bell', 'bell', { pat: vel('X.....X.....'), pick: 'top', oct: 3, gain: 0.22 }),
       ]},
+      /* Today's twist lands: the fate theme on full brass and choir,
+         cellos chopping sixteenths, taikos and tolling bells under
+         Claudia while she tells the room what changed. */
+      twist: { bpm: 84, prog: 'fate', duckLift: 0.3, talkDuck: 0.38, layers: [
+        L('horn', 'brass', { motif: 'fate', oct: 2, gain: 0.9, vary: true, tens: [0, 1] }),
+        L('choir', 'choir', { pat: HALF, pick: 'chord', oct: 3, len: 8, vowel: 'ah', gain: 0.62, tens: [0, 1] }),
+        L('ost', 'strings', { pat: OST16_V, pick: OST16_P, oct: 1, art: 'spic', gain: 0.9, fam: 'cello' }),
+        L('bass', 'synthBass', { pat: PULSE8, pick: 'root', oct: 1, len: 2, gain: 0.55, tens: [0, 1] }),
+        L('ens', 'taikoEns', { pat: vel('X.......X.......'), gain: 0.85, tens: [0, 1] }),
+        L('taiko', 'taiko', { pat: vel('..7.X.7.X.7.X.8X'), gain: 0.8, tens: [0, 1] }),
+        L('timp', 'timpani', { pat: vel('X.......X.......'), pick: 'root', oct: 1, gain: 0.55, tens: [0, 1] }),
+        L('crash', 'crash', { pat: BAR1, gain: 0.45, when: b => b % 4 === 0, tens: [0, 1] }),
+        L('bell', 'bell', { pat: BAR1, abs: 0, oct: 3, gain: 0.35, ratio: 1.4, decay: 3.5, when: b => b % 2 === 0 }),
+      ]},
     },
   };
 
@@ -1002,7 +1016,7 @@ const MusicCues = (() => {
                   overruleRise: 0, overrule: 4 },
     murder: { nightfall: 0, nightGlass: 0, nightBells: 0, conclave: 1, deed: 0, dawn: 0, breakfast: 1, absence: 0 },
     tasks: { work: 3, workHunt: 3, workReel: 3, workHeist: 3, workPipes: 3,
-             bell: 3, bellHunt: 3, bellReel: 3, bellHeist: 3, bellPipes: 3 },
+             bell: 3, bellHunt: 3, bellReel: 3, bellHeist: 3, bellPipes: 3, twist: 3 },
   };
 
   /* What each room's kit is made of. The castle at work has a snare in

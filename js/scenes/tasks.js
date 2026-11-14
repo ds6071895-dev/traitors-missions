@@ -173,14 +173,27 @@ class TasksScene {
       await say(s.day === 1 ? 'tasksWingOpen' : 'tasksWing', { name: Chores.WING_NAMES[wing] });
       if (!this._alive) return;
     }
-    // today's twist, said out loud and left on the screen while she says it
+    // today's twist, built up, hit with full orchestra, and left on the screen while she says it
     const twist = typeof Twists !== 'undefined' ? Twists.today(s) : null;
     if (twist) {
+      const build = Scenes.Drama.build(this.stage, this.music, 'twist', { secs: 1.8, camera: false });
+      this._twistBuild = build;
+      await Scenes.wait(1.8);
+      if (!this._alive) { build.cancel(); this._twistBuild = null; Scenes.Drama.end(this.stage, this.music); return; }
+      this._twistBuild = null;
+      const wait = build.release('twist', { then: 'twist' });
+      if (wait) await Scenes.wait(wait);
+      if (!this._alive) { Scenes.Drama.end(this.stage, this.music); return; }
+      Scenes.Drama.hit(this.stage, null, null, { shake: 0, flash: 'rgba(218,62,48,.48)', haptic: 45 });
       Scenes.Cine.card({ kicker: 'Today’s twist', title: Twists.INFO[twist].card.split(':')[0].toUpperCase(),
                          sub: castleEsc(Twists.INFO[twist].card.split(':').slice(1).join(':').trim()), tone: 'bad' });
+      await Scenes.wait(0.65);
+      if (!this._alive) { Scenes.Drama.end(this.stage, this.music); return; }
       await say('twistOpen' + twist.charAt(0).toUpperCase() + twist.slice(1), {});
       Scenes.Cine.card(null);
+      Scenes.Drama.end(this.stage, this.music);
       if (!this._alive) return;
+      if (this.music) this.music.section('work', { at: 'bar', glide: 1.8, via: 'fill' });
     }
     // the word in the ear, for the one Faithful it was for
     const mine = Session.myPrivate() || {};
@@ -928,6 +941,8 @@ class TasksScene {
     if (typeof VoiceChat !== 'undefined' && VoiceChat.resetVolumes) VoiceChat.resetVolumes();
     if (this._dom) { this._dom.root.remove(); this._dom = null; }
     Scenes.Cine.card(null);
+    if (this._twistBuild) { this._twistBuild.cancel(0.1); this._twistBuild = null; }
+    Scenes.Drama.end(null, null);
     if (this._holdRiser) { this._holdRiser.stop(); this._holdRiser = null; }
     if (this.music) {
       /* The day ends on the countdown's hit, and it is left to ring
