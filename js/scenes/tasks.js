@@ -306,7 +306,7 @@ class TasksScene {
       pot: q('.tk-pot b'), pop: q('.tk-pot-pop'), shield: q('.tk-shield'), shieldWho: q('.tk-shield b'),
       role: q('.tk-role'), map: q('.tk-map'),
       prompt: q('.tk-prompt'), promptText: q('.tk-prompt-text'), use: q('.tk-use'), poison: q('.tk-poison'),
-      room: q('.tk-room'), roomName: q('.tk-room b'),
+      room: q('.tk-room'), roomName: q('.tk-room b'), roomNote: q('.tk-room small'),
     };
     // on a phone the list folds down to the next job, out of the view
     q('.tk-list-head').onclick = () => q('.tk-list').classList.toggle('min');
@@ -358,11 +358,20 @@ class TasksScene {
     d.clockBox.classList.toggle('bell', !!(c && left <= (c.bellAt || Session.BELL_AT)));
     d.clockRing.style.setProperty('--p', c ? U.clamp(left / (c.seconds || 180), 0, 1).toFixed(3) : '0');
     d.pot.textContent = U.money(s.pot || 0);
-    // where you are, and whether the door is shut on it
+    // where you are, and whether the door is shut on it or you are 1-1 with an AI
     const here = this._myRoom ? Chores.roomName(this._myRoom) : '';
     const roomText = here ? here.charAt(0).toUpperCase() + here.slice(1) : '';
     if (d.roomName.textContent !== roomText) d.roomName.textContent = roomText;
-    d.room.classList.toggle('shut', !this._dead && CastleLayout.sealed(this._myRoom, s.doors));
+    const shut = !this._dead && CastleLayout.sealed(this._myRoom, s.doors);
+    const convo = !this._dead && typeof AIDirector !== 'undefined' && AIDirector.convoWith ? AIDirector.convoWith(this._meId) : null;
+    d.room.classList.toggle('shut', shut);
+    d.room.classList.toggle('convo', !!convo);
+    if (d.roomNote) {
+      const note = shut && convo ? 'Door shut · 1-1 with ' + convo.name
+        : shut ? 'Door shut — only this room can hear you'
+        : convo ? '1-1 convo with ' + convo.name : '';
+      if (d.roomNote.textContent !== note) d.roomNote.textContent = note;
+    }
     if (!this._dirty) return;
     this._dirty = false;
     // who would hold the shield if the bell went now

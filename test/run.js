@@ -2,7 +2,7 @@
 const { execFileSync } = require('child_process');
 const path = require('path');
 
-const suites = ['performance.test.js', 'session.test.js', 'rules.test.js', 'privacy.test.js',
+const suites = ['performance.test.js', 'session.test.js', 'turret.test.js', 'rules.test.js', 'privacy.test.js',
                 'exposure.test.js', 'castle.test.js', 'doors.test.js', 'stage.test.js', 'touchguard.test.js',
                 'transport.test.js', 'look.test.js',
                 'turn.test.js', 'party.test.js', 'retry.test.js', 'websocket.test.js', 'voice-socket.test.js',

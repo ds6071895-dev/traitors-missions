@@ -85,13 +85,13 @@ const RoomUI = (() => {
 
     bar.classList.add('on', 'open');
     bar.classList.remove('mine');
-    el('floor-who').textContent = ready.length
+    el('floor-who').textContent = e.label || (ready.length
       ? 'The table · ' + ready.length + ' of ' + alive.length + ' done'
-      : 'The table is open';
+      : 'The table is open');
 
     const done = el('floor-done');
     if (done) {
-      done.hidden = !(me && me.alive);
+      done.hidden = !!(e.hideDone || !(me && me.alive));
       done.disabled = mineReady;
       done.textContent = mineReady ? 'Waiting…' : 'Done talking';
       done.onclick = mineReady ? null : () => {

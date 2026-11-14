@@ -127,7 +127,7 @@ class HillScene {
         { shot: 'claudiaTight',
           card: () => ({ kicker: 'Your fellow Traitor', tone: 'traitor',
                          title: partners.map(p => p.name.toUpperCase()).join(' & '),
-                         sub: 'Tonight you talk in secret from your rooms. Only the two of you can hear.' }),
+                         sub: 'Tonight you meet in the turret. Only you can hear.' }),
           wait: 1.2 },
         ...speak('traitorPartner', { name: partners.map(p => p.name).join(' and ') }),
         { card: null, wait: 0.4 },

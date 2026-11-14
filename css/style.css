@@ -2533,7 +2533,9 @@ body[data-screen="dressing"] #music-btn{display:none}
 .tk-room b{font:400 12.5px/1.25 var(--display); letter-spacing:.12em; color:#e8dcc0; text-transform:uppercase}
 .tk-room small{display:none; font-size:10.5px; color:#ffb3bd; letter-spacing:.03em}
 .tk-room.shut{border-color:var(--crimson); background:linear-gradient(180deg, rgba(56,10,20,.86), rgba(30,6,12,.82))}
-.tk-room.shut small{display:block}
+.tk-room.convo:not(.shut){border-color:rgba(125,252,208,.45); background:linear-gradient(180deg, rgba(8,28,22,.86), rgba(6,18,16,.82))}
+.tk-room.convo:not(.shut) small{color:var(--mint)}
+.tk-room.shut small, .tk-room.convo small{display:block}
 .tk-notes-btn{position:absolute; left:14px; bottom:14px; pointer-events:auto; color:var(--paper);
   border-radius:12px; padding:8px 14px; font:600 12.5px var(--body); cursor:var(--cur-hand, pointer)}
 .tk-notes-btn b{background:rgba(242,193,78,.85); color:#1a1408; border-radius:4px; padding:1px 6px; margin-right:6px; font-size:11px}

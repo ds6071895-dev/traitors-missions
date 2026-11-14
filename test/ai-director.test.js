@@ -1016,4 +1016,193 @@ test('a Traitor carrying the poison looks for the Faithful who is getting it rig
   ok(!t.get(dull), 'voting out a Faithful does not');
 });
 
+test('1-1 convo by day engages CastleBots, coaches the AI 1-on-1, and ends when dismissed', () => {
+  const W = world({ phase: 'tasks' });
+  const engaged = [], ended = [];
+  let activeConvo = null;
+  W.ctx.CastleBots = {
+    running: true,
+    company: (id) => (activeConvo === id ? { kind: 'convo', with: 'p1' } : null),
+    engage(id, target) { activeConvo = id; engaged.push({ id, target }); return true; },
+    endConvo(id) { if (activeConvo === id) { activeConvo = null; ended.push(id); return true; } return false; },
+    unfollow: () => false,
+  };
+  const N = W.ctx.CastleNet;
+  N.start('d0');
+  N.publish('p1', 0, -22, 0);        // Ana in the turret
+  N.publish('f', 1.2, -22, 0);       // Fergus alone with Ana
+  for (const id of ['p2', 'm', 'i', 's']) N.publish(id, -16, 7, 0);
+  W.say('p1', 'Who are you leaning toward?');
+  W.step(1.5);
+  eq(engaged.length, 1, 'engaged Fergus physically into 1-1 convo');
+  eq(engaged[0], { id: 'f', target: 'p1' });
+  ok(/1-on-1 conversation with Ana/.test(W.asked[0].text), 'prompt frames the exchange as 1-on-1');
+  eq(W.ctx.AIDirector.convoWith('p1').id, 'f');
+  W.reply('f', 'Still unsure, Ana.');
+  W.say('p1', 'Alright, you can go now.');
+  W.step(1.5);
+  eq(ended, ['f'], 'dismissal ends the 1-1 convo');
+});
+
+test('1-1 turret at night opens a conversation with a human Traitor partner before forcing a pick', () => {
+  const W = world({ seed: 1 });
+  const now = () => W.ctx.Date.now();
+  const basePrivate = W.ctx.Session.privateView.bind(W.ctx.Session);
+  const endsAt = now() + 25000;
+  W.phase = 'night';
+  W.ctx.Session.state.night = { day: 0, startedAt: now() - 4000, endsAt: now() + 30000, choose: true, canRecruit: false };
+  W.ctx.Session.privateView = (id) => {
+    const v = basePrivate(id);
+    if (id === 'p1' || id === 'm') {
+      return Object.assign({}, v, {
+        role: 'traitor',
+        partners: [id === 'p1' ? 'm' : 'p1'],
+        night: { choose: true, canRecruit: false, picks: {}, locked: false, offer: null, endsAt },
+      });
+    }
+    return Object.assign({}, v, { role: 'faithful', partners: [], night: null });
+  };
+  W.step(2);
+  eq(W.asked.length, 1, 'AI Traitor opens 1-1 turret conversation first');
+  eq(W.asked[0].id, 'm');
+  ok(/1-on-1 conversation in the turret/.test(W.asked[0].text));
+  ok(!/turret_choice/.test(W.asked[0].text), 'does not immediately force turret_choice on opening');
+  eq(W.ctx.AIDirector.convoWith('p1').id, 'm');
+  W.reply('m', 'Should I take the poison tomorrow?');
+  W.say('p1', 'Yeah, you take it tomorrow.');
+  W.step(1.5);
+  ok(/1-on-1 conversation in the turret/.test(W.asked.slice(-1)[0].text), 'subsequent reply stays in 1-1 turret framing');
+});
+
+test('local host Traitor holding VoiceChat.whispering gets answered privately and triggers follow and poison orders', () => {
+  const W = world({ phase: 'tasks' });
+  const basePrivate = W.ctx.Session.privateView.bind(W.ctx.Session);
+  W.ctx.Session.privateView = (id) => {
+    const v = basePrivate(id);
+    if (id === 'p1' || id === 'm') {
+      return Object.assign({}, v, {
+        role: 'traitor',
+        partners: [id === 'p1' ? 'm' : 'p1'],
+        poison: id === 'm' ? { mine: true, used: false } : null,
+      });
+    }
+    return Object.assign({}, v, { role: 'faithful', partners: [], poison: null });
+  };
+  let whisperStateCb = null;
+  const whisperRoutes = [], follows = [], ends = [];
+  let company = null;
+  W.ctx.Party = {
+    selfId: () => 'p1',
+    on: () => () => {},
+    setWhisperFor(id, on) { whisperRoutes.push({ id, on }); },
+  };
+  W.ctx.VoiceChat.whispering = false;
+  W.ctx.VoiceChat.on = (evt, fn) => { if (evt === 'state') whisperStateCb = fn; return () => {}; };
+  W.ctx.CastleBots = {
+    running: true,
+    company: (id) => (id === 'm' ? company : null),
+    follow(id, target) { company = { kind: 'follow', with: target }; follows.push({ id, target }); return true; },
+    endConvo(id) { if (company) { company = null; ends.push(id); return true; } return false; },
+    unfollow: () => false,
+  };
+  W.ctx.AIDirector.stop();
+  W.ctx.AIDirector.start();
+
+  // Host holds whisper key: AI hears privately even though server skips host echo
+  W.ctx.VoiceChat.whispering = true;
+  if (whisperStateCb) whisperStateCb();
+  W.say('p1', 'Morag, follow me');
+  W.step(1.0);
+  eq(W.asked.length, 1, 'whispered follow request gets answered quickly');
+  eq(W.asked[0].id, 'm');
+  eq(follows, [{ id: 'm', target: 'p1' }], 'Traitor AI immediately follows on whispered follow me');
+  eq(whisperRoutes[0], { id: 'm', on: true }, 'routes reply audio to Traitors chat only');
+  W.reply('m', 'Right behind you.');
+
+  // Host releases key before final STT chunk arrives within tail: still treated as whisper & executes poison order
+  W.ctx.VoiceChat.whispering = false;
+  if (whisperStateCb) whisperStateCb();
+  W.step(2.0);
+  W.say('p1', 'Poison Fergus now');
+  W.step(1.0);
+  eq(W.ctx.AIDirector.order().target, 'f', 'poison order stored for Fergus');
+  eq(W.ctx.AIDirector.order().how, 'poison');
+  eq(ends, ['m'], 'releases carrier bot from follow so it can go poison Fergus');
+  eq(W.asked.length, 2, 'Traitor AI answers the tail-arriving whisper too');
+});
+
+test('direct answers echoing words from a finished AI question are not dropped as echo', () => {
+  const W = world({ seed: 1, phase: 'night' });
+  const now = () => W.ctx.Date.now();
+  const basePrivate = W.ctx.Session.privateView.bind(W.ctx.Session);
+  W.ctx.Session.state.night = { day: 0, startedAt: now() - 4000, endsAt: now() + 30000, choose: true, canRecruit: false };
+  W.ctx.Session.privateView = (id) => {
+    const v = basePrivate(id);
+    if (id === 'p1' || id === 'm') {
+      return Object.assign({}, v, {
+        role: 'traitor',
+        partners: [id === 'p1' ? 'm' : 'p1'],
+        night: { choose: true, canRecruit: false, picks: {}, locked: false, offer: null, endsAt: now() + 25000 },
+      });
+    }
+    return Object.assign({}, v, { role: 'faithful', partners: [], night: null });
+  };
+  W.step(2);
+  eq(W.asked.length, 1);
+  W.reply('m', 'Who should carry the poison tomorrow?');
+  W.step(3);
+  W.say('p1', 'You carry the poison');
+  W.step(1.5);
+  eq(W.asked.length, 2, 'short answer sharing question words after turn ends is not swallowed as echo');
+  eq(W.ctx.AIDirector.turretOrder().kind, 'carrier');
+  eq(W.ctx.AIDirector.turretOrder().targetId, 'm');
+});
+
+test('verbal turret orders (you carry, I carry, recruit, no offer) execute turretPick cleanly', () => {
+  const W = world({ seed: 1 });
+  const now = () => W.ctx.Date.now();
+  const sent = [];
+  const basePrivate = W.ctx.Session.privateView.bind(W.ctx.Session);
+  const picks = {};
+  W.ctx.Net.send = (m) => { sent.push(m); if (m.type === 'turretPick') picks[m.playerId] = { kind: m.kind, targetId: m.targetId }; };
+  W.phase = 'night';
+  W.ctx.Session.state.night = { day: 0, startedAt: now() - 4000, endsAt: now() + 25000, choose: true, canRecruit: true };
+  W.ctx.Session.privateView = (id) => {
+    const v = basePrivate(id);
+    if (id === 'p1' || id === 'm') {
+      return Object.assign({}, v, {
+        role: 'traitor',
+        partners: [id === 'p1' ? 'm' : 'p1'],
+        night: { choose: true, canRecruit: true, picks, locked: false, offer: null, endsAt: now() + 25000 },
+      });
+    }
+    return Object.assign({}, v, { role: 'faithful', partners: [], night: null });
+  };
+  // Negated poison line does not trigger a false order
+  W.say('p1', "Don't poison Fergus tonight");
+  eq(W.ctx.AIDirector.order(), null, 'negated target line is ignored');
+
+  // Verbal command: "You carry the poison"
+  W.say('p1', 'You carry the poison');
+  W.step(1.5);
+  const cue = W.asked.slice(-1)[0].text;
+  ok(/call turret_choice right now/i.test(cue) && /YOU \(Morag\)/.test(cue), 'instructs AI to lock turret_choice immediately');
+  W.reply('m', 'Fine, I will take the poison.');
+  // Even without tool invocation from LLM and with >10s left on turret clock, fallback executes ordered pick
+  W.step(12);
+  const pick = sent.find(m => m.type === 'turretPick' && m.playerId === 'm');
+  ok(pick && pick.kind === 'carrier' && pick.targetId === 'm', 'dispatches carrier pick matching verbal order');
+
+  // Changing to recruit and no offer
+  W.say('p1', 'Offer Isla a seat');
+  eq(W.ctx.AIDirector.turretOrder().kind, 'recruit');
+  eq(W.ctx.AIDirector.turretOrder().targetId, 'i');
+  W.say('p1', 'Actually no offer tonight');
+  eq(W.ctx.AIDirector.turretOrder().kind, 'none');
+  eq(W.ctx.AIDirector.turretOrder().targetId, null);
+  W.say('p1', "I'll carry it tomorrow");
+  eq(W.ctx.AIDirector.turretOrder().kind, 'carrier');
+  eq(W.ctx.AIDirector.turretOrder().targetId, 'p1');
+});
+
 H.report();

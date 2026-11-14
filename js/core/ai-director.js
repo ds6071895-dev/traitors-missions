@@ -201,13 +201,22 @@ const AIDirector = (() => {
     AI.listen(s.players.filter(p => !p.bot).map(p => ({ id: p.id, name: p.name })));
     offs.push(AI.on('heard', onHeard));
     whisperUntil.clear();
+    wasLocalWhisper = false;
     if (typeof Party !== 'undefined' && Party.on) offs.push(Party.on('whisper', (m) => {
       if (m && m.id && !isBot(m.id)) whisperUntil.set(m.id, m.on ? Infinity : Date.now() + WHISPER_TAIL);
     }));
+    if (typeof VoiceChat !== 'undefined' && VoiceChat.on) offs.push(VoiceChat.on('state', syncLocalWhisper));
+    syncLocalWhisper();
     whisperAsk = null;
     order = null;
+    turretOrder = null;
     offs.push(AI.on('hearing', (m) => {
-      if (!humanSpeaker(m) || whispered(m.id)) return;
+      if (!humanSpeaker(m)) return;
+      if (whispered(m.id)) {
+        const cur = whisperUntil.get(m.id) || 0;
+        if (cur !== Infinity) whisperUntil.set(m.id, Math.max(cur, Date.now() + WHISPER_TAIL));
+        return;
+      }
       lastHuman = Date.now();
       wordsAt.set(m.id, lastHuman);
       interrupt(m.id, m.text);
@@ -250,6 +259,8 @@ const AIDirector = (() => {
     offs.splice(0).forEach(off => { try { off(); } catch (e) {} });
     endBotWhisper();
     whisperAsk = null;
+    turretOrder = null;
+    wasLocalWhisper = false;
     speaking = null;
     thread = null;
   }
@@ -929,9 +940,29 @@ const AIDirector = (() => {
      AIs keep it, the Faithful ones never had it — and it is not a
      reason for anybody in the room to stop, answer or turn round. The
      words land a beat after the button is let go, hence the tail. */
-  const WHISPER_TAIL = 3000;
+  const WHISPER_TAIL = 5000;
   const whisperUntil = new Map();
-  const whispered = (id) => (whisperUntil.get(id) || 0) > Date.now();
+  let wasLocalWhisper = false;
+  const localHumanId = () => {
+    const id = typeof Party !== 'undefined' && Party.selfId ? Party.selfId() : null;
+    if (id) return id;
+    const hs = Session.state ? Session.state.players.filter(p => !p.bot) : [];
+    return hs.length === 1 ? hs[0].id : null;
+  };
+  const syncLocalWhisper = () => {
+    if (typeof VoiceChat === 'undefined') return;
+    if (VoiceChat.whispering) {
+      wasLocalWhisper = true;
+    } else if (wasLocalWhisper) {
+      wasLocalWhisper = false;
+      const id = localHumanId();
+      if (id && !isBot(id)) whisperUntil.set(id, Date.now() + WHISPER_TAIL);
+    }
+  };
+  const whispered = (id) => {
+    if (typeof VoiceChat !== 'undefined' && VoiceChat.whispering && id === localHumanId()) return true;
+    return (whisperUntil.get(id) || 0) > Date.now();
+  };
 
   /* ---------------- the Traitors' chat ----------------
      A person in the whisper (G held, or R pressed to stay in it) is
@@ -941,28 +972,109 @@ const AIDirector = (() => {
      neither hear them nor start anything with them meanwhile.
 
      "Gun for Isla", "let's get rid of Fergus", "poison Morag",
-     "recruit Struan": an order. The Traitor AIs keep it, make a plan
-     of it out loud, and act on it — their table talk, their vote, the
-     carrier's choice of victim, the turret's offer. */
+     "recruit Struan", "you carry the poison": orders. The Traitor AIs
+     keep them, agree out loud, and act on them immediately. */
   let whisperAsk = null;           // { id, name, text, at, named }
   let order = null;                // { target, by, day, how: 'vote'|'poison'|'recruit'|'both', at }
+  let turretOrder = null;          // { day, by, kind: 'carrier'|'recruit'|'none', targetId, at }
   const traitorBots = () => bots.filter(b => (Session.playerById(b.id) || {}).alive
     && (Session.privateView(b.id) || {}).role === 'traitor');
   // a Faithful AI leaves somebody in the Traitors' chat alone
   const shutOut = (botId, humanId) => whispered(humanId) && (Session.privateView(botId) || {}).role !== 'traitor';
 
-  const ORDER_WORDS = /\b(?:gun(?:ning)?\s+for|go(?:ing)?\s+(?:for|after)|target|get\s+rid\s+of|take\s+(?:out|down)|kill|poison|murder|banish|vote(?:\s+(?:out|for|off))?|frame|pin\s+it\s+on|blame|push|focus\s+on|turn\s+(?:them|everyone|people|the\s+room)\s+(?:on|against)|recruit|offer|bring\s+in|deal\s+with|get)\b/i;
+  const ORDER_WORDS = /\b(?:gun(?:ning)?\s+for|go(?:ing)?\s+(?:for|after)|target|get\s+rid\s+of|take\s+(?:out|down)|kill|poison|murder|eliminate|assassinate|bump\s+off|drop|pick\s+off|banish|vote(?:\s+(?:out|for|off))?|frame|pin\s+it\s+on|blame|sus(?:pect)?|accuse|push(?:\s+for)?|pile\s+on|gang\s+up\s+on|focus\s+on|turn\s+(?:them|everyone|people|the\s+room)\s+(?:on|against)|recruit|offer|bring\s+in|convert|invite|deal\s+with|get)\b/i;
+  const RECRUIT_WORDS = /\b(?:recruit|offer|bring\s+in|convert|invite)\b/i;
+  const CARRY_WORDS = /\b(?:carry|carries|carried|take|takes|hold|holds|deliver|slip|give|handle|do\s+the\s+poison(?:ing)?|poison\s+duty|with\s+the\s+poison)\b/i;
+  const NO_OFFER_WORDS = /\b(?:no\s+(?:offer|recruit(?:ment|ing)?)|don'?t\s+(?:recruit|offer)|do\s+not\s+(?:recruit|offer)|skip\s+(?:recruit|offer)|nobody\s+tonight|not\s+recruit)\b/i;
+  const NEG_BEFORE = /\b(?:don'?t|do\s+not|never|not|stop|skip|spare|avoid)\s+(?:try\s+to\s+|want\s+to\s+|need\s+to\s+)?$/i;
+  const SELF_CARRY = /\b(?:i(?:'ll|\s+will|\s+can|\s+should|\s+could)?\s+(?:carry|take|hold|handle|deliver|do)|let\s+me\s+(?:carry|take|hold|do)|give\s+(?:it|the\s+poison)\s+to\s+me|put\s+it\s+on\s+me)\b/i;
+  const YOU_CARRY = /\b(?:you\s+(?:carry|take|hold|handle|deliver|do)|carry\s+(?:it|the\s+poison)|take\s+(?:it|the\s+poison)|on\s+you|for\s+you\s+to\s+(?:carry|take))\b/i;
+
+  function positiveVerb(text, re) {
+    const m = re.exec(text);
+    if (!m) return false;
+    const before = text.slice(Math.max(0, m.index - 28), m.index);
+    return !NEG_BEFORE.test(before);
+  }
+
+  function setTurretOrder(day, by, kind, targetId) {
+    turretOrder = { day, by, kind, targetId: targetId || null, at: Date.now() };
+    promptDirty = true;
+    for (const b of traitorBots()) freshen(b.id, true);
+    return turretOrder;
+  }
+
+  const liveTurretOrder = () => {
+    const s = Session.state;
+    if (!s || s.phase !== 'night' || !turretOrder || turretOrder.day !== s.day) return null;
+    if (turretOrder.targetId && !(Session.playerById(turretOrder.targetId) || {}).alive) return null;
+    return turretOrder;
+  };
+
+  function turretOrderCue(to, forBot) {
+    if (!to) return '';
+    const v = Session.privateView(forBot) || {};
+    if (v.role !== 'traitor' || !v.night || v.night.locked) return '';
+    if (to.kind === 'carrier' && !v.night.choose) return '';
+    if (to.kind !== 'carrier' && !v.night.canRecruit) return '';
+    const who = to.targetId ? nameOf(to.targetId) : '';
+    const detail = to.kind === 'none'
+      ? 'make NO recruitment offer tonight (kind none)'
+      : to.kind === 'recruit'
+        ? 'offer a seat to ' + who + ' (kind recruit, name "' + who + '")'
+        : (to.targetId === forBot ? 'YOU (' + who + ')' : who) + ' should carry tomorrow’s poison (kind carrier, name "' + who + '")';
+    return ' Turret decision ordered by ' + nameOf(to.by) + ': ' + detail
+      + '. Agree out loud in one short sentence and call turret_choice right now with that choice.';
+  }
+
+  function readTurretOrder(p, text, s, pv, among) {
+    if (s.phase !== 'night' || !pv.night || pv.night.locked) return null;
+    if (pv.night.canRecruit && NO_OFFER_WORDS.test(text)) {
+      return setTurretOrder(s.day, p.id, 'none', null);
+    }
+    if (pv.night.canRecruit && positiveVerb(text, RECRUIT_WORDS)) {
+      const named = among.filter(q => mentions(text, q.name));
+      if (named.length === 1) return setTurretOrder(s.day, p.id, 'recruit', named[0].id);
+    }
+    if (pv.night.choose && (CARRY_WORDS.test(text) || SELF_CARRY.test(text) || YOU_CARRY.test(text))) {
+      const partners = (pv.partners || []).map(id => Session.playerById(id)).filter(q => q && q.alive);
+      const traitors = [p].concat(partners);
+      const named = traitors.filter(q => mentions(text, q.name));
+      let pick = named.length === 1 ? named[0] : null;
+      if (!pick && SELF_CARRY.test(text)) pick = p;
+      if (!pick && YOU_CARRY.test(text)) pick = partners.find(q => q.bot) || partners[0] || null;
+      if (pick) return setTurretOrder(s.day, p.id, 'carrier', pick.id);
+    }
+    return null;
+  }
+
+  function releaseCarrierForOrder(humanId) {
+    if (!order || order.how === 'vote' || order.how === 'recruit') return;
+    if (typeof CastleBots === 'undefined' || !CastleBots.running || !CastleBots.company) return;
+    for (const b of traitorBots()) {
+      const c = CastleBots.company(b.id);
+      const pv = Session.privateView(b.id) || {};
+      if (pv.poison && pv.poison.mine && !pv.poison.used && c && c.with === humanId && c.kind !== 'lead' && CastleBots.endConvo) {
+        CastleBots.endConvo(b.id);
+      }
+    }
+  }
+
   function readOrder(p, text) {
-    if (!ORDER_WORDS.test(text)) return null;
     const s = Session.state;
     const pv = Session.privateView(p.id) || {};
-    if (pv.role !== 'traitor') return null;
+    if (!s || pv.role !== 'traitor') return null;
     const among = Session.alive().filter(q => q.id !== p.id && (pv.partners || []).indexOf(q.id) < 0);
+    const tPicked = readTurretOrder(p, text, s, pv, among);
+    if (!positiveVerb(text, ORDER_WORDS)) return tPicked;
     const named = among.filter(q => mentions(text, q.name));
-    if (named.length !== 1) return null;
-    const how = /\b(?:recruit|offer|bring\s+in)\b/i.test(text) ? 'recruit'
-      : /\b(?:poison|kill|murder)\b/i.test(text) ? 'poison'
-      : /\b(?:vote|banish|frame|blame|pin\s+it|push|turn)\b/i.test(text) ? 'vote' : 'both';
+    if (named.length !== 1) return tPicked;
+    const how = RECRUIT_WORDS.test(text) ? 'recruit'
+      : /\b(?:poison|kill|murder|eliminate|assassinate|bump\s+off|drop)\b/i.test(text) ? 'poison'
+      : /\b(?:vote|banish|frame|blame|pin\s+it|push|pile\s+on|gang\s+up|sus(?:pect)?|accuse|turn)\b/i.test(text) ? 'vote' : 'both';
+    if (how === 'recruit' && s.phase === 'night' && pv.night && pv.night.canRecruit && !pv.night.locked) {
+      setTurretOrder(s.day, p.id, 'recruit', named[0].id);
+    }
     order = { target: named[0].id, by: p.id, day: s.day, how, at: Date.now() };
     promptDirty = true;
     for (const b of traitorBots()) freshen(b.id, true);
@@ -1001,25 +1113,47 @@ const AIDirector = (() => {
   function whisperTick(s) {
     const w = whisperAsk;
     if (!w || speaking) return false;
-    if (Date.now() - w.at > 15000) { whisperAsk = null; return false; }
-    if (Date.now() - w.at < 1100) return false;
+    if (Date.now() - w.at > 30000) { whisperAsk = null; return false; }
+    if (Date.now() - w.at < 750) return false;
     const pool = traitorBots();
-    if (!pool.length || typeof Party === 'undefined' || !Party.setWhisperFor) { whisperAsk = null; return false; }
+    if (!pool.length) { whisperAsk = null; return false; }
+    const canMove = s.phase === 'tasks' && typeof CastleBots !== 'undefined' && CastleBots.running && CastleBots.company;
+    const partnered = canMove ? pool.find(x => { const c = CastleBots.company(x.id); return c && c.with === w.id && c.kind !== 'flee'; }) : null;
     const b = pool.find(x => w.named.indexOf(x.id) >= 0)
+      || partnered
       || pool.slice().sort((a, c) => state.get(a.id).last - state.get(c.id).last)[0];
     whisperAsk = null;
+    let actionNote = '';
+    if (canMove) {
+      if (LET_GO.test(w.text)) {
+        const ended = CastleBots.endConvo ? CastleBots.endConvo(b.id) : CastleBots.unfollow(b.id);
+        if (ended) actionNote = ' They asked you to head off on your own: acknowledge briefly and get back to your plan.';
+      } else if (FOLLOW_ME.test(w.text)) {
+        if (CastleBots.follow(b.id, w.id)) actionNote = ' They asked you to come with them, and you are now following them: say yes briefly and walk with them.';
+      } else {
+        releaseCarrierForOrder(w.id);
+      }
+    }
     const o = liveOrder();
     const fresh = o && o.by === w.id && Date.now() - o.at < 20000;
+    const tCue = s.phase === 'night' ? turretOrderCue(liveTurretOrder(), b.id) : '';
     const cue = '[THE TRAITORS\' CHAT: only the Traitors can hear this — no Faithful, nobody else. ' + phaseWords(s) + '.] '
       + 'Your fellow Traitor ' + w.name + ' just whispered to you: "' + w.text + '". '
       + (fresh
-        ? 'They want the Traitors to go after ' + nameOf(o.target) + '. Agree, and lay out a concrete plan in two short sentences: the specific doubt you will raise about ' + nameOf(o.target)
-          + ' at the round table and who you will bring along' + (o.how !== 'vote' ? ', and how the carrier gets them alone for the poison' : '')
-          + ', and how you two avoid looking like a pair (never vote identically, never defend each other too hard). Speak low and conspiratorial.'
-        : 'Answer them quietly, as their partner in crime, in one or two short sentences — share your read, suggest who to go after and how, and keep it practical.')
+        ? 'They want the Traitors to go after ' + nameOf(o.target) + '. Agree clearly, and lay out a concrete plan in one or two short sentences: '
+          + (o.how === 'recruit' ? 'confirm offering them the seat'
+            : (o.how !== 'vote' ? 'go after ' + nameOf(o.target) + ' with the poison right away' : '')
+              + (o.how !== 'vote' && o.how !== 'poison' ? ', and ' : '')
+              + (o.how !== 'poison' ? 'the doubt to raise about ' + nameOf(o.target) + ' at the round table' : ''))
+          + '. Speak low and conspiratorial.'
+        : 'Answer them quietly, as their partner in crime, in one or two short sentences — agree or share your read directly, and act on what they asked.')
+      + actionNote
+      + tCue
       + (orderText(b.id) && !fresh ? ' ' + orderText(b.id) : '');
-    Party.setWhisperFor(b.id, true);
+    if (typeof Party !== 'undefined' && Party.setWhisperFor) Party.setWhisperFor(b.id, true);
     whisperBot = b.id;
+    const st = state.get(b.id);
+    if (st) st.with = w.id;
     if (!speak(b.id, cue, endBotWhisper, true)) { endBotWhisper(); return false; }
     speaking.whisper = true;
     return true;
@@ -1073,13 +1207,20 @@ const AIDirector = (() => {
   /* What a transcript says once the words an AI or Claudia has just said
      aloud are taken out of it: `null` if it was all echo, the text if
      none of it was, and the remainder if it was both. */
+  const ECHO_RECENT_MS = 1800;
+  function isEchoLine(l, now) {
+    if (l.who !== AI.CLAUDIA && !isBot(l.who)) return false;
+    if (speaking && l.who === speaking.id && l.t >= speaking.since) return true;
+    if (l.who === AI.CLAUDIA && typeof Voice !== 'undefined' && Voice.speaking) return true;
+    return now - l.t < ECHO_RECENT_MS;
+  }
   function unEcho(text) {
     const w = wordsOf(text);
     if (w.length < 3 || !isEcho(text)) return text;
     const now = Date.now(), said = new Set();
     for (let i = lines.length - 1; i >= 0 && now - lines[i].t < ECHO_MS; i--) {
       const l = lines[i];
-      if (l.who === AI.CLAUDIA || isBot(l.who)) wordsOf(l.text).forEach(x => said.add(x));
+      if (isEchoLine(l, now)) wordsOf(l.text).forEach(x => said.add(x));
     }
     const rest = String(text).split(/\s+/).filter(tok => {
       const k = wordsOf(tok)[0];
@@ -1093,7 +1234,7 @@ const AIDirector = (() => {
     const now = Date.now();
     for (let i = lines.length - 1; i >= 0 && now - lines[i].t < ECHO_MS; i--) {
       const l = lines[i];
-      if (l.who !== AI.CLAUDIA && !isBot(l.who)) continue;
+      if (!isEchoLine(l, now)) continue;
       const saidWords = wordsOf(l.text);
       /* Short interim echoes used to slip through until the recognizer
          produced three words. Only match an exact phrase in the current
@@ -1244,6 +1385,11 @@ const AIDirector = (() => {
     if (speaking && speaking.id === m.id) {
       const secs = (Date.now() - speaking.since) / 1000;
       if (typeof Moderator !== 'undefined') Moderator.credit(m.id, Math.min(secs, 30));
+      const c = typeof CastleBots !== 'undefined' && CastleBots.company ? CastleBots.company(m.id) : null;
+      if (c && c.with && c.kind !== 'flee' && Session.state && Session.state.phase === 'tasks'
+          && oneOnOneBot(c.with, Session.state)) {
+        engageIfClose(m.id, c.with, Session.state);
+      }
       finishTurn(m.id);
     }
   }
@@ -1336,7 +1482,7 @@ const AIDirector = (() => {
     const origin = { id: from.id, name: from.name, text: p.text, named: [to.id] };
     thread = { origin, said: [], left: 0, waiting: to.id, nextAt: 0, used: new Set([to.id, from.id]) };
     const where = s.phase === 'tasks' ? castleWhere(to, from)
-      : s.phase === 'night' ? 'It is night. You are in your own bedroom, talking in secret with your fellow Traitor over the Traitors\' line, where nobody else can hear.'
+      : s.phase === 'night' ? 'It is night. You are in the turret, meeting in secret with your fellow Traitor, where nobody else can hear.'
       : 'Right now: ' + phaseWords(s) + '.';
     let deal = '';
     if (p.ally || ALLY.test(p.text)) {
@@ -1842,35 +1988,73 @@ const AIDirector = (() => {
       return roomTurn(s, quiet);
     }
     if (Date.now() - h.at > 20000) { heardLast = null; return; }
+    const soloBot = oneOnOneBot(h.id, s);
     // Usually wait for a gap; occasionally take a short, assertive turn.
-    const among = humansTalkingTogether() && !h.named.length;
+    const among = !soloBot && humansTalkingTogether() && !h.named.length;
     const waiting = quiet < (among ? LULL_AMONG_PEOPLE : QUIET_BEFORE_BOT);
     const cutIn = waiting && canCutIn(quiet);
     if (waiting && !cutIn) return;
     heardLast = null;
-    const b = replier(h, s);
+    const b = soloBot || replier(h, s);
     if (!b) return;
     /* A person who spoke to the room gets an answer. This used to skip
        every other remark that did not name an AI, which is a room that
        ignores you half the time. Only two people talking to each other
        are left to it, now and then. */
-    if (!cutIn && !h.named.length && among) {
+    if (!soloBot && !cutIn && !h.named.length && among) {
       leaveRoomUntil = Date.now() + ROOM_TURN_GAP;
       return;
     }
+    if (soloBot && s.phase === 'tasks') engageIfClose(b.id, h.id, s);
     const st = state.get(b.id);
     st.with = h.id;
     st.addressed = 0;
-    const pool = listeners(h.id, s).filter(x => x.id !== b.id);
+    const pool = soloBot ? [] : listeners(h.id, s).filter(x => x.id !== b.id);
     const n = pool.length;
     // Occasionally one other voice joins; then the humans get the room back.
     let left = 0;
     const intent = h.intent && h.intent.bot === b.id ? h.intent.cue : null;
-    if (!cutIn && !intent && n >= 1 && Math.random() < 0.35) left++;
+    if (!soloBot && !cutIn && !intent && n >= 1 && Math.random() < 0.35) left++;
     thread = { origin: h, said: [], left, waiting: b.id, nextAt: 0, used: new Set([b.id]) };
     if (intent) { speak(b.id, intent); return; }
     if (speak(b.id, chatCue(b, h, s) + (cutIn
       ? ' Briefly cut in with one relevant point, naturally and confidently. One short sentence; do not ask permission to speak.' : ''))) speaking.origin = h;
+  }
+
+  const otherHumansNear = (humanId, s) => s.players.some(p => !p.bot && p.alive && p.id !== humanId && hears(p.id, humanId, s));
+
+  function oneOnOneBot(humanId, s) {
+    if (!s || (s.phase !== 'tasks' && s.phase !== 'night' && s.phase !== 'breakfast')) return null;
+    if (otherHumansNear(humanId, s)) return null;
+    const near = listeners(humanId, s);
+    return near.length === 1 ? near[0] : null;
+  }
+
+  function engageIfClose(botId, humanId, s) {
+    if (!s || s.phase !== 'tasks' || typeof CastleBots === 'undefined' || !CastleBots.engage) return false;
+    const existing = CastleBots.company && CastleBots.company(botId);
+    if (existing && existing.with === humanId && existing.kind !== 'flee') return CastleBots.engage(botId, humanId, 22);
+    if (typeof CastleNet === 'undefined') return false;
+    const pa = CastleNet.get(botId), ph = CastleNet.get(humanId);
+    if (!pa || !ph) return false;
+    const close = (pa.room && pa.room === ph.room) || Math.hypot(pa.x - ph.x, pa.z - ph.z) <= 4.5;
+    return close ? CastleBots.engage(botId, humanId, 22) : false;
+  }
+
+  function convoWith(humanId) {
+    const s = Session.state;
+    if (!active || !s || !humanId) return null;
+    if (s.phase === 'night') {
+      const b = oneOnOneBot(humanId, s);
+      return b ? { id: b.id, name: b.name } : null;
+    }
+    if (s.phase === 'tasks' && typeof CastleBots !== 'undefined' && CastleBots.company) {
+      for (const b of bots) {
+        const c = CastleBots.company(b.id);
+        if (c && c.with === humanId && c.kind !== 'flee') return { id: b.id, name: b.name };
+      }
+    }
+    return null;
   }
 
   function canCutIn(quiet) {
@@ -1916,14 +2100,23 @@ const AIDirector = (() => {
   function chatCue(b, h, s) {
     const me = Session.playerById(b.id);
     const where = s.phase === 'tasks' ? castleWhere(b, h)
-      : s.phase === 'night' ? 'It is night. You are in your own bedroom, talking in secret with your fellow Traitor over the Traitors\' line, where nobody else can hear.'
+      : s.phase === 'night' ? 'It is night. You are in the turret, meeting in secret with your fellow Traitor, where nobody else can hear.'
       : 'Right now: ' + phaseWords(s) + '.';
     const toYou = h.named.indexOf(b.id) >= 0;
-    return where + ' ' + h.name + ' just said' + (toYou ? ' to you' : '') + ': "' + h.text + '". '
-      + (me && !me.alive ? 'You are out of the game, but answer them kindly. ' : '')
+    const solo = oneOnOneBot(h.id, s) === b;
+    const line = where + ' ' + h.name + ' just said' + (toYou || solo ? ' to you' : '') + ': "' + h.text + '". '
+      + (me && !me.alive ? 'You are out of the game, but answer them kindly. ' : '');
+    const tCue = s.phase === 'night' ? turretOrderCue(liveTurretOrder(), b.id) : '';
+    if (solo) {
+      return line + (s.phase === 'night'
+        ? 'You are having a 1-on-1 conversation in the turret. Answer ' + h.name + ' out loud, directly and naturally, in one or two short sentences — react to what they said or ask what they think.'
+        : 'You are in a 1-on-1 conversation with ' + h.name + '. Answer ' + h.name + ' out loud, directly and naturally, in one or two short sentences — react to what they said and ask or share something back.')
+        + tCue + strategyCue(b, s);
+    }
+    return line
       + 'Answer ' + h.name + ' out loud, naturally, as yourself — react like a person would, in one short sentence'
       + (s.phase === 'table' || s.phase === 'finale' ? ', two at most — and use what you remember of the game so far: the votes, who was banished, what you saw. Address their point directly, press for a specific answer, or build on their theory.' : '. Be playful when it fits, and sometimes ask a genuine follow-up question.')
-      + strategyCue(b, s);
+      + tCue + strategyCue(b, s);
   }
 
   /* An occasional second voice hears the answer and adds something new. */
@@ -1985,9 +2178,10 @@ const AIDirector = (() => {
     state.get(botId).with = humanId;
     thread = { origin: { id: h.id, name: h.name, text: '(nothing — you started this)', named: [] },
                said: [], left: 0, waiting: b.id, nextAt: 0, used: new Set([b.id]) };
+    const shut = shutInWith(b, h);
     /* Sometimes it is more than a chat: a Faithful with a suspicion to
        share, or a Traitor with one to plant, asks for a word in private. */
-    if (typeof CastleBots !== 'undefined' && CastleBots.lead && Math.random() < ASK_FOR_A_WORD && !distrusts(botId, humanId)) {
+    if (!shut && typeof CastleBots !== 'undefined' && CastleBots.lead && Math.random() < ASK_FOR_A_WORD && !distrusts(botId, humanId)) {
       asks.set(humanId, { bot: botId, at: Date.now() });
       return speak(b.id, 'You have taken a break between jobs and walked over to ' + h.name + ' in ' + where + '. '
         + 'Ask them, in one short casual sentence, whether you can have a quick word in private — somewhere with a door you can shut — because there is something you want to tell them. '
@@ -1997,7 +2191,9 @@ const AIDirector = (() => {
     // somebody it trusts and is not yet allied with: sometimes, an offer
     const offer = !pactOf(botId, humanId) && alliesOf(botId).length < 2 && willAlly(botId, humanId).agree && Math.random() < 0.3;
     if (offer) allyAsks.set(humanId, { bot: botId, at: Date.now() });
+    const solo = oneOnOneBot(humanId, Session.state) === b;
     return speak(b.id, 'You have taken a short break between jobs and walked over to ' + h.name + ' in ' + where + '. '
+      + (solo ? 'You are entering a 1-on-1 conversation with ' + h.name + '. ' : '')
       + 'Start a friendly, interesting conversation with them. Share one specific thing you actually saw and ask what they make of it. '
       + 'Your real observations:\n' + notesFor(v) + '\n'
       + 'If you have no useful observation, ask about their job or follow up something they said earlier; never invent a sighting. '
@@ -2093,7 +2289,8 @@ const AIDirector = (() => {
 
     if (LET_GO.test(h.text)) {
       const b = named || near.find(b => { const c = CastleBots.company(b.id); return c && c.with === h.id && c.kind !== 'flee'; });
-      if (b && CastleBots.unfollow(b.id)) {
+      const ended = b && (CastleBots.endConvo ? CastleBots.endConvo(b.id) : CastleBots.unfollow(b.id));
+      if (ended) {
         answer(h, b, h.name + ' just said ' + said + ' — they are letting you go. Say a quick, friendly goodbye in a few words and get back to your jobs.');
       }
       return;
@@ -2301,7 +2498,13 @@ const AIDirector = (() => {
       if (key === 'offer:' + day) return !!(Session.privateView(botId) || {}).offer;
       if (key.startsWith('night:')) {
         const n = (Session.privateView(botId) || {}).night;
-        return !!n && !n.locked && (n.choose || n.canRecruit);
+        if (!n || n.locked || !(n.choose || n.canRecruit)) return false;
+        if (key.includes(':order:')) {
+          const to = liveTurretOrder();
+          const m = n.picks && n.picks[botId];
+          if (!to || (m && m.kind === to.kind && (m.targetId || null) === (to.targetId || null))) return false;
+        }
+        return true;
       }
       const f = Session.state.finale;
       return !!f && key === phase + ':' + day + ':' + f.round + ':' + f.nameRound + ':' + f.stage
@@ -2313,10 +2516,11 @@ const AIDirector = (() => {
       speak(botId, cue);
     };
     go();
+    const deadline = key.includes(':order:') ? 5 : VOTE_DEADLINE;
     setTimeout(() => {
       if (!current()) return;
       try { fallback(); } catch (e) { /* the moment passed */ }
-    }, VOTE_DEADLINE * 1000);
+    }, deadline * 1000);
   }
 
   /* The seed's answer: whoever the transcript has most suspicion on, else
@@ -2454,22 +2658,50 @@ const AIDirector = (() => {
       if (!v.night || v.night.locked || v.role !== 'traitor') continue;
       if (!v.night.choose && !v.night.canRecruit) continue;
       const me = Session.playerById(b.id);
-      const partners = (v.partners || []).map(nameOf);
+      const partnerIds = v.partners || [];
+      const partners = partnerIds.map(nameOf);
       const lead = Object.keys(v.night.picks).filter(k => k !== b.id).map(k => v.night.picks[k])[0];
       const mine = v.night.picks[b.id];
-      if (mine && (!lead || (lead.kind === mine.kind && lead.targetId === mine.targetId))) continue;
-      const faithful = Session.alive().filter(p => p.id !== b.id && (v.partners || []).indexOf(p.id) < 0);
-      const cue = 'You are in the turret with ' + (partners.length ? partners.join(' and ') : 'nobody — you are alone') + '. '
-        + (v.night.choose ? 'Decide who carries tomorrow’s poison: you (' + me.name + ') or ' + partners.join(' or ') + ' — call turret_choice with kind carrier and the name. ' : '')
-        + (v.night.canRecruit ? 'You may instead offer one Faithful a seat (kind recruit, one of: ' + faithful.map(p => p.name).join(', ') + '), or nothing (kind none). ' : '')
-        + (liveOrder() && liveOrder().how === 'recruit' && v.night.canRecruit && faithful.some(p => p.id === liveOrder().target)
-          ? 'Your fellow Traitor ' + nameOf(liveOrder().by) + ' wants to offer the seat to ' + nameOf(liveOrder().target) + ': do that unless you have a strong reason. ' : '')
-        + (lead ? 'Your partner has chosen ' + lead.kind + (lead.targetId ? ' ' + nameOf(lead.targetId) : '') + ' — agree unless you have a strong reason. ' : '')
-        + 'Say your reasoning in one sentence, then call turret_choice.';
-      const key = 'night:' + s.day + ':' + (lead ? lead.kind + lead.targetId : 'own');
+      const to = liveTurretOrder();
+      const toApplies = to && ((to.kind === 'carrier' && v.night.choose) || (to.kind !== 'carrier' && v.night.canRecruit));
+      const matchesTo = toApplies && mine && mine.kind === to.kind && (mine.targetId || null) === (to.targetId || null);
+      if (mine && (toApplies ? matchesTo : (!lead || (lead.kind === mine.kind && lead.targetId === mine.targetId)))) continue;
+      const humanPartner = partnerIds.some(id => { const p = Session.playerById(id); return p && p.alive && !p.bot; });
+      const now = Date.now(), left = v.night.endsAt ? v.night.endsAt - now : 0;
+      const elapsed = s.night && s.night.startedAt ? now - s.night.startedAt : 99999;
+      const pendingReply = (heardLast && now - heardLast.at < 5000) || (whisperAsk && now - whisperAsk.at < 5000);
+      if (!toApplies && v.night.choose && humanPartner && !lead && v.night.endsAt && left > 10000) {
+        if (partners.length === 1 && !speaking && !botSpeechBlocked(s) && elapsed >= 3500 && humansQuietFor() >= 1.5
+            && !asked.has('turret-open:' + s.day)) {
+          asked.add('turret-open:' + s.day);
+          speak(b.id, 'You are in a 1-on-1 conversation in the turret with ' + partners[0]
+            + '. Open the conversation naturally in one short sentence — bring up who should carry tomorrow’s poison'
+            + (v.night.canRecruit ? ' or whether to offer a Faithful a seat' : '')
+            + ' and ask what they think, without locking in a choice yet.');
+        }
+        continue;
+      }
+      if (toApplies && (pendingReply || now - to.at < 4000)) continue;
+      const faithful = Session.alive().filter(p => p.id !== b.id && partnerIds.indexOf(p.id) < 0);
+      const cue = (partners.length ? 'You are in the turret with ' + partners.join(' and ') : 'You are alone in your bedroom') + '. '
+        + (toApplies ? turretOrderCue(to, b.id).trim() : (
+          (v.night.choose ? 'Decide who carries tomorrow’s poison: you (' + me.name + ') or ' + partners.join(' or ') + ' — call turret_choice with kind carrier and the name. ' : '')
+          + (v.night.canRecruit ? 'You may instead offer one Faithful a seat (kind recruit, one of: ' + faithful.map(p => p.name).join(', ') + '), or nothing (kind none). ' : '')
+          + (liveOrder() && liveOrder().how === 'recruit' && v.night.canRecruit && faithful.some(p => p.id === liveOrder().target)
+            ? 'Your fellow Traitor ' + nameOf(liveOrder().by) + ' wants to offer the seat to ' + nameOf(liveOrder().target) + ': do that unless you have a strong reason. ' : '')
+          + (lead ? 'Your partner has chosen ' + lead.kind + (lead.targetId ? ' ' + nameOf(lead.targetId) : '') + ' — agree unless you have a strong reason. ' : '')
+          + 'Say your reasoning in one sentence, then call turret_choice.'));
+      const key = toApplies
+        ? 'night:' + s.day + ':order:' + to.kind + ':' + (to.targetId || '') + ':' + to.at
+        : 'night:' + s.day + ':' + (lead ? lead.kind + lead.targetId : 'own');
       askOnce(b.id, key, cue, () => {
         const w = Session.privateView(b.id);
         if (!w || !w.night || w.night.locked) return;
+        const t = liveTurretOrder();
+        if (t && ((t.kind === 'carrier' && w.night.choose) || (t.kind !== 'carrier' && w.night.canRecruit))) {
+          Net.send({ type: 'turretPick', playerId: b.id, kind: t.kind, targetId: t.targetId });
+          return;
+        }
         const l = Object.keys(w.night.picks).filter(k => k !== b.id).map(k => w.night.picks[k])[0];
         if (l) Net.send({ type: 'turretPick', playerId: b.id, kind: l.kind, targetId: l.targetId });
         else if (w.night.choose) Net.send({ type: 'turretPick', playerId: b.id, kind: 'carrier', targetId: b.id });
@@ -2614,10 +2846,11 @@ const AIDirector = (() => {
   }
 
   return {
-    start, stop, pauseBots, botTalking, startEncounter, claudiaLine, claudiaJudge, discussionStarted, discussionEnded, mentions,
+    start, stop, pauseBots, botTalking, startEncounter, convoWith, claudiaLine, claudiaJudge, discussionStarted, discussionEnded, mentions,
     distrusts, moved, threats,
     // the Traitors' standing order, for the castle bots' choice of victim
     order: () => (active ? liveOrder() : null),
+    turretOrder: () => (active ? liveTurretOrder() : null),
     allies: (id) => (active ? alliesOf(id) : []),
     levels: () => new Map(),
     BOT_FUNCTIONS, CLAUDIA_FUNCTIONS,

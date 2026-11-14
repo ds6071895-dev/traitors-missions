@@ -91,10 +91,10 @@ const Session = (() => {
     return clampTask(Math.round(clampTask(asked) * k / 15) * 15);
   };
   const NOTE_EVERY = 4;            // seconds between looks round the room
-  const NIGHT_SECONDS = 25;        // every night lasts exactly this, whatever was decided
+  const NIGHT_SECONDS = 30;        // every night lasts exactly this, whatever was decided
   const RECRUIT_NIGHT_EXTRA = 15;  // ...and this much more when a seat may be offered
-  const PICK_SECONDS = 12;         // the Traitors have this long (from lights out) to agree
-  const RECRUIT_PICK_EXTRA = 8;    // more time to talk it over when a seat is on the table
+  const PICK_SECONDS = 25;         // the Traitors have this long (from lights out) to talk and agree
+  const RECRUIT_PICK_EXTRA = 5;    // more time to talk it over when a seat is on the table
   const RECRUIT_SECONDS = 12;      // an offer is answered or refused (Claudia knocks first)
   const WISE_SECONDS = 10;         // the Traitors' window to choose the Wise One
   const tableSeconds = (n) => Math.min(240, 50 + 22 * n);
@@ -1541,7 +1541,7 @@ const Session = (() => {
       armTasks();
     }
     /* The night's clock too, and for the same reason: the walk up to
-       bed is staged, and it must not eat the turret's twelve seconds.
+       bed or the turret is staged, and it must not eat the Traitors' window.
        Everything moves by the same amount, so the night is still
        exactly as long as every other night. */
     if (state.phase === 'night' && state.night && !state.night.done) {
