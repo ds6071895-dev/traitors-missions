@@ -236,11 +236,25 @@
               <output id="lobby-task-out">3:00</output>
             </span>
           </label>
+          <label class="lr-row" for="lobby-table">
+            <span class="lr-label"><b>Table talk</b><small>How long the round table argues before the vote</small></span>
+            <span class="lr-control">
+              <input type="range" id="lobby-table" min="0" max="300" step="30" value="0" data-nav>
+              <output id="lobby-table-out">Auto</output>
+            </span>
+          </label>
           <label class="lr-row lr-toggle" for="lobby-twists">
             <span class="lr-label"><b>Twists</b><small id="lobby-twists-note">Some days, Claudia changes one rule</small></span>
             <span class="lr-control">
               <input type="checkbox" id="lobby-twists" checked data-nav><i class="lr-switch" aria-hidden="true"></i>
               <output id="lobby-twists-out">On</output>
+            </span>
+          </label>
+          <label class="lr-row lr-toggle" for="lobby-early">
+            <span class="lr-label"><b>Twists from day 1</b><small>A twist may come on the very first day, not only from the second</small></span>
+            <span class="lr-control">
+              <input type="checkbox" id="lobby-early" data-nav><i class="lr-switch" aria-hidden="true"></i>
+              <output id="lobby-early-out">Off</output>
             </span>
           </label>
           <label class="lr-row lr-toggle" for="lobby-hidden">
@@ -361,7 +375,7 @@
   <div class="fb-clock" id="floor-clock">0:30</div>
   <div class="fb-track"><div class="fb-fill" id="floor-fill"></div></div>
   <div class="fb-mic" id="floor-mic" hidden>mic off</div>
-  <button class="fb-done" id="floor-done" data-nav hidden>I've said enough</button>
+  <button class="fb-done" id="floor-done" data-kbd="Enter" title="Done talking (Enter)" data-nav hidden>I've said enough</button>
 </div>
 
 <!-- Whoever you can hear right now, so a voice always has a name. -->
@@ -545,6 +559,7 @@
 <script src="js/scenes/exposed.js"></script>
 <script src="js/scenes/roundtable.js"></script>
 <script src="js/scenes/night.js"></script>
+<script src="js/scenes/drive-back.js"></script>
 <script src="js/scenes/breakfast.js"></script>
 <script src="js/scenes/chore-games.js"></script>
 <script src="js/scenes/tasks.js"></script>

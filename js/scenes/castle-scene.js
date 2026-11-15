@@ -156,7 +156,8 @@ class CastleScene {
           ids: () => Session.alive().map(p => p.id),
           ready: () => (Session.state.floor && Session.state.floor.ready) || [],
           mute: () => Session.alive().filter(p => !p.bot && !this._hasVoice(p.id)).map(p => p.id),
-          minSeconds: opts.minSeconds || Math.min(60, 20 + 6 * Session.alive().length),
+          // never more than the clock the host gave the table
+          minSeconds: Math.min(seconds, opts.minSeconds || Math.min(60, 20 + 6 * Session.alive().length)),
           maxSeconds: seconds,
           judge: opts.judge,
           judgeOnly: opts.judgeOnly !== undefined ? opts.judgeOnly : !!opts.judge,
@@ -385,7 +386,8 @@ class CastleScene {
          and they can finish early. The AIs are not asked. */
       if (!voter.bot && voter.alive) {
         Scenes.Drama.shot(this.stage, 'on:' + voter.id, { cut: true, push: 0.06, speed: 0.4 });
-        await Scenes.run([{ line: { text: 'Why ' + (target.local ? 'me' : target.name) + ', ' + (voter.local ? 'you' : voter.name) + '?' }, hold: 0.1 }], this);
+        // she asks the voter about the name on their slate — by name, even when it is yours
+        await Scenes.run([{ line: { text: (voter.local ? 'You' : voter.name) + '. Why ' + target.name + '?' }, hold: 0.1 }], this);
         if (!this._alive) return;
         await this._turnFloor(voter.id, WHY_SECONDS);
         if (!this._alive) return;

@@ -107,6 +107,20 @@ test('never the first day, never two running, never twice, about every other day
   ok(rate > 0.25 && rate < 0.45, 'roughly every other day that may have one (' + rate.toFixed(2) + ')');
 });
 
+test('with "from day 1" on, the first day may have one too', () => {
+  const ctx = fresh();
+  const T = ctx.Twists;
+  let first = 0;
+  for (let seed = 1; seed < 300; seed++) if (T.pick(seed, 0, { early: true })) first++;
+  ok(first > 90 && first < 210, 'about half of first days (' + first + ')');
+  S(ctx).startParty({ seed: 3, players: EIGHT, mode: 'host', twistsEarly: true, rehearsal: true, forceTwist: 'sealed' });
+  eyes(ctx);
+  S(ctx).dispatch({ type: 'advance', authority: true });
+  const s = S(ctx).state;
+  eq(s.twistsEarly, true);
+  ok(s.twist && s.twist.day === 0 && s.twist.id === 'sealed', 'a twist on day one');
+});
+
 test('the host can switch them off', () => {
   const ctx = fresh();
   for (let seed = 1; seed < 40; seed++) {

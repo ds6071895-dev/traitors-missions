@@ -360,7 +360,7 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .to-morning .il-flock, .to-golden .il-flock, .to-dawn .il-flock{opacity:.55}
 @keyframes ilFly{from{transform:translate(0,0)}to{transform:translate(-190px,-26px)}}
 /* sun and moon, and their road on the water */
-.il-sun, .il-moon, .il-glint{transition:transform 2.6s cubic-bezier(.35,0,.25,1), opacity 1.4s ease}
+.il-sun, .il-moon, .il-glint{transition:transform 1.6s cubic-bezier(.35,0,.25,1), opacity 1.2s ease}
 .il-sun, .il-glint-sun{opacity:0}
 .il-moon, .il-glint-moon{opacity:0}
 .h-morning .il-sun, .h-golden .il-sun, .h-dusk .il-sun{opacity:1}
@@ -373,11 +373,11 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .turn.to-night .il-glint-sun{opacity:0}
 .turn.to-night .il-moon{opacity:1; transform:translateY(-14px)}
 .turn.to-night .il-glint-moon{opacity:.6}
-.h-night.to-dawn .il-sun{transform:translateY(300px)}
+.h-night.to-dawn .il-sun, .h-night.to-morning .il-sun{transform:translateY(300px)}
 .turn.to-dawn .il-sun{transform:translateY(70px); opacity:1}
 .turn.to-dawn .il-glint-sun{opacity:.7}
-.turn.to-dawn .il-moon{opacity:0; transform:translateY(40px)}
-.turn.to-dawn .il-glint-moon{opacity:0}
+.turn.to-dawn .il-moon, .turn.to-morning .il-moon, .turn.to-golden .il-moon{opacity:0; transform:translateY(40px)}
+.turn.to-dawn .il-glint-moon, .turn.to-morning .il-glint-moon, .turn.to-golden .il-glint-moon{opacity:0}
 .h-dawn .il-sun{opacity:1; transform:translateY(70px)}
 .turn.to-morning .il-sun{transform:translateY(-30px); opacity:1}
 .turn.to-golden .il-sun{transform:translateY(40px); opacity:1}
@@ -397,7 +397,7 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
              radial-gradient(1px 1px at 3% 12%,#fff 50%,transparent),radial-gradient(1px 1px at 40% 6%,#fff 50%,transparent)}
 .h-night .il-stars{opacity:.8}
 .turn.to-night .il-stars{opacity:1}
-.turn.to-dawn .il-stars{opacity:0}
+.turn.to-dawn .il-stars, .turn.to-morning .il-stars, .turn.to-golden .il-stars{opacity:0}
 /* the weather */
 .il-veil{background:linear-gradient(180deg,#59636e,#2c3540); opacity:0; transition:opacity 1s}
 .w-overcast .il-veil{opacity:.32}
@@ -441,6 +441,9 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
   background:linear-gradient(180deg,#fff8e6 0%,#f6dc9c 55%,#c99a3e 100%); -webkit-background-clip:text; background-clip:text;
   -webkit-text-fill-color:transparent; filter:drop-shadow(0 2px 0 rgba(3,8,16,.7)) drop-shadow(0 0 18px rgba(3,8,16,.6))}
 .il-card.full .il-title{font-size:clamp(40px,8vw,104px)}
+/* never wider than the screen: about one em a letter with the spacing */
+.il-card .il-title{font-size:min(clamp(30px,5.4vw,62px), calc(88vw / var(--il-n, 8)))}
+.il-card.full .il-title{font-size:min(clamp(40px,8vw,104px), calc(88vw / var(--il-n, 8)))}
 .il-rule{position:static; display:flex; align-items:center; justify-content:center; gap:10px; margin:10px auto 0; width:min(420px,70vw);
   opacity:0; transform:scaleX(.4); transition:opacity .6s ease .55s, transform .9s cubic-bezier(.2,.7,.2,1) .55s}
 #interlude.on .il-rule{opacity:1; transform:none}
@@ -3610,18 +3613,22 @@ body:not(.touch) input[type=text], body:not(.touch) input[type=password], body:n
     linear-gradient(rgba(70,100,140,.16), rgba(70,100,140,.16))}
 #ghost-veil.on{opacity:1; animation:ghost-breathe 5.5s ease-in-out infinite}
 @keyframes ghost-breathe{0%,100%{opacity:1}50%{opacity:.7}}
-#ghost-badge{position:fixed; left:50%; bottom:max(64px, calc(env(safe-area-inset-bottom) + 64px)); z-index:45;
-  transform:translate(-50%,10px); opacity:0; pointer-events:none;
+/* the badge keeps to the middle of the right edge, the one place no
+   caption, board, list or button lives, and steps aside for a ceremony */
+#ghost-badge{position:fixed; right:max(12px, env(safe-area-inset-right)); top:50%; z-index:45;
+  transform:translate(10px,-50%); opacity:0; pointer-events:none;
   display:flex; align-items:center; gap:9px; padding:7px 14px 7px 9px; border-radius:22px;
   background:rgba(14,26,42,.78); border:1px solid rgba(170,210,255,.45); color:#d8ecff;
   box-shadow:0 0 26px rgba(130,180,255,.28); transition:opacity .5s ease, transform .5s ease}
-#ghost-badge.on{opacity:1; transform:translate(-50%,0); animation:ghost-float 3.2s ease-in-out infinite}
+#ghost-badge.on{opacity:1; transform:translate(0,-50%); animation:ghost-float 3.2s ease-in-out infinite}
+#ghost-badge.on.hush{opacity:0}
 #ghost-badge svg{width:24px; height:24px; color:#e8f4ff; filter:drop-shadow(0 0 6px rgba(170,215,255,.8))}
 #ghost-badge span{display:flex; flex-direction:column; line-height:1.15}
 #ghost-badge b{font:400 15px/1 var(--display); letter-spacing:.12em}
 #ghost-badge i{font-style:normal; font-size:10px; letter-spacing:.06em; color:rgba(216,236,255,.75)}
-@keyframes ghost-float{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,-4px)}}
-#ghost-title{position:fixed; left:50%; top:42%; z-index:47; pointer-events:none; opacity:0;
+@keyframes ghost-float{0%,100%{transform:translate(0,-50%)}50%{transform:translate(0,calc(-50% - 4px))}}
+@media (max-width:560px){ #ghost-badge i{display:none} #ghost-badge b{font-size:12px} }
+#ghost-title{position:fixed; left:50%; top:34%; z-index:47; pointer-events:none; opacity:0;
   transform:translate(-50%,-50%) scale(.9); display:flex; flex-direction:column; align-items:center; gap:8px;
   text-align:center; color:#e2f1ff; width:min(520px, calc(100% - 32px))}
 #ghost-title svg{width:72px; height:72px; color:#eef7ff; filter:drop-shadow(0 0 22px rgba(160,210,255,.9))}
@@ -3859,3 +3866,60 @@ body:not(.touch) #mute-btn[data-kbd]::after{
   .cg-ledger{background:repeating-linear-gradient(#f4ecd8 0 21px, #c9d6e8 21px 22px), #f4ecd8}
   .cg-wheel{width:min(130px, 40dvh)} .cg-shaft{min-height:120px}
 }
+
+/* ---------------- the drive back to breakfast (js/scenes/drive-back.js) ----------------
+   The back seat of a car: the glen scrolling past the window in four
+   strips, the weather on the glass, a card on the door panel. Under
+   Claudia's captions (#cine, 46), over the hall it is hiding. */
+#drive-back{position:fixed; inset:0; z-index:45; pointer-events:none; overflow:hidden; background:#0c0a08;
+  opacity:0; transition:opacity .9s ease}
+#drive-back.on{opacity:1}
+#drive-back.off{opacity:0; transition:opacity .8s ease}
+.db-out{position:absolute; inset:0; overflow:hidden}
+.db-sky{position:absolute; inset:0;
+  background:radial-gradient(60% 50% at 70% 18%, rgba(255,246,214,.85), rgba(255,246,214,0) 60%),
+             linear-gradient(180deg,#6f9fd0 0%,#a9c8e2 45%,#e6eef0 70%,#e6eef0 100%)}
+.w-overcast .db-sky, .w-fog .db-sky{background:linear-gradient(180deg,#8e99a5 0%,#b9c1c8 50%,#d9dde0 100%)}
+.w-rain .db-sky{background:linear-gradient(180deg,#5d6875 0%,#8c97a2 50%,#b2bac1 100%)}
+.w-storm .db-sky{background:linear-gradient(180deg,#323a46 0%,#5b6572 50%,#848e98 100%)}
+.db-l{position:absolute; left:0; right:0; background-repeat:repeat-x; will-change:background-position,transform}
+.db-far{top:30%; height:24%; background-size:auto 100%}
+.db-castle{position:absolute; left:0; top:24%; width:min(34vw,420px); color:#5a5650; opacity:0;
+  transform:translateX(120vw); filter:drop-shadow(0 2px 6px rgba(0,0,0,.25)); will-change:transform}
+.db-castle svg{display:block; width:100%; height:auto}
+.w-overcast .db-castle, .w-rain .db-castle{color:#4d4c4b}
+.w-fog .db-castle{color:#7d8186}
+.db-loch{top:52%; height:7%; background-size:auto 100%}
+.db-mid{top:47%; height:22%; background-size:auto 100%}
+.db-near{top:62%; height:20%; background-size:auto 100%; filter:blur(2.2px)}
+.db-haze{position:absolute; inset:0; pointer-events:none; opacity:0;
+  background:linear-gradient(180deg,rgba(228,233,238,0) 20%,rgba(228,233,238,.75) 48%,rgba(228,233,238,.4) 70%)}
+.w-fog .db-haze{opacity:1}
+.w-rain .db-haze, .w-storm .db-haze{opacity:.45}
+/* rain on a side window runs backwards along the glass, not down it */
+.db-drops{position:absolute; inset:0; opacity:.55;
+  background-image:radial-gradient(circle at 50% 50%,rgba(235,242,250,.55) 0 1.4px,rgba(235,242,250,0) 2.2px),
+                   radial-gradient(circle at 50% 50%,rgba(235,242,250,.4) 0 1px,rgba(235,242,250,0) 1.8px);
+  background-size:37px 29px, 23px 41px; background-position:0 0, 11px 7px}
+.db-streaks{position:absolute; inset:-10%; opacity:.5;
+  background:repeating-linear-gradient(172deg,rgba(220,232,245,0) 0 22px,rgba(220,232,245,.35) 22px 23px,rgba(220,232,245,0) 23px 47px);
+  animation:dbStreak .5s linear infinite}
+.w-storm .db-streaks{opacity:.7; animation-duration:.35s}
+#drive-back.arriving .db-streaks{animation-duration:1.6s}
+@keyframes dbStreak{from{transform:translate(0,0)}to{transform:translate(-46px,6px)}}
+.db-frame{position:absolute; inset:0; width:100%; height:100%}
+.db-card{position:absolute; left:50%; bottom:max(22px,4.5vh); transform:translateX(-50%); width:min(560px,calc(100% - 32px));
+  text-align:center; color:var(--paper); text-shadow:0 2px 10px rgba(0,0,0,.8)}
+.db-kicker{font:600 11px/1.2 var(--body); letter-spacing:.45em; text-transform:uppercase; color:var(--gold); margin-bottom:6px}
+.db-title{font-family:'Cinzel', Georgia, serif; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+  font-size:clamp(24px,4.6vw,44px); line-height:1.05;
+  background:linear-gradient(180deg,#fff8e6 0%,#f6dc9c 55%,#c99a3e 100%); -webkit-background-clip:text; background-clip:text;
+  -webkit-text-fill-color:transparent; filter:drop-shadow(0 2px 0 rgba(3,8,16,.7))}
+.db-sub{margin-top:8px; font:500 13.5px/1.35 var(--body); color:rgba(244,236,220,.85)}
+.db-note{margin-top:6px; font:700 11px/1.2 var(--body); letter-spacing:.14em; text-transform:uppercase; color:rgba(244,236,220,.6)}
+.db-note:empty{display:none}
+@media (max-aspect-ratio:3/4){
+  .db-far{top:34%} .db-mid{top:46%} .db-near{top:58%}
+  .db-castle{width:56vw; top:26%}
+}
+@media (prefers-reduced-motion:reduce){ .db-streaks{animation:none} }

@@ -27,13 +27,14 @@ const Interlude = (() => {
   const HOURS = {
     tasks:     ['morning', 'golden'],
     night:     ['dusk', 'night'],
-    breakfast: ['night', 'dawn'],
+    breakfast: ['night', 'morning'],   // all the way up: the hall it opens on is a morning
     table:     ['dawn', 'morning'],
     finale:    ['dusk', 'night'],
   };
   const MIN = 1.6;          // seconds, a plain cut
   const MIN_CARD = 2.8;     // seconds, with the day's card on it
   const SWAP_AT = 0.4;      // the room is built underneath at this share of the minimum
+  const TURN_MS = 1700;     // the hour finishes turning (sky 1.3 s, sun 1.6 s) before it lifts
   const DRAWN_CAP = 4000;   // never hold for a lost GPU longer than this
 
   let el = null;
@@ -154,9 +155,9 @@ const Interlude = (() => {
     // the curtain wall round the terrace (the rock under it is drawn on its own)
     walls.push(rect(540, 1110, 528, 566) + merlons(540, 1110, 528, 10, 8, 8));
     for (const x of [560, 700, 900, 1040, 1090]) walls.push(`M${x} 566 V532 H${x + 12} V566 Z`);
-    // the far west tower, small, with its cap
+    // the far west tower, small, with its cap — standing on the rock itself, beyond the curtain wall
     back.push(cone(512, 17, 432, 384));
-    walls.push(rect(492, 532, 436, 540) + parapet(492, 532, 436, 3, 8));
+    walls.push(`M492 588 V436 H532 V572 Z` + parapet(492, 532, 436, 3, 8));
     // the west wing: two crow-stepped gables to the front, a ridge behind, a chimney on each
     back.push(roof(530, 646, 452, 410));
     walls.push(rect(528, 648, 452, 540) + crowGable(528, 588, 452, 398, 4) + crowGable(588, 648, 452, 404, 4));
@@ -169,7 +170,7 @@ const Interlude = (() => {
       walls.push(rect(x + 4, x + 20, 326, 344));
       roofs.push(`M${x + 1} 327 L${x + 12} 311 L${x + 23} 327 Z`);
     }
-    for (const cx of [648]) {                                // a corner turret (the other corner is the stair)
+    for (const cx of [662]) {                                // a corner turret, on the keep's face (the other corner is the stair)
       walls.push(rect(cx - 13, cx + 13, 342, 404) + `M${cx - 13} 404 L${cx} 425 L${cx + 13} 404 Z`);
       roofs.push(cone(cx, 13, 342, 296));
     }
@@ -203,7 +204,7 @@ const Interlude = (() => {
     L.push([563, 432, 6, 10, true], [623, 438, 6, 10, true], [509, 470, 6, 14, true], [509, 506, 6, 14, true]);
     L.push([1004, 436, 6, 8, false], [1036, 436, 6, 8, false], [1077, 440, 6, 9, true]);
     L.push([733, 330, 6, 9, true], [769, 330, 6, 9, true], [805, 330, 6, 9, true]);
-    L.push([645, 362, 4, 10, true]);
+    L.push([660, 362, 4, 10, true]);
     return L;
   })();
   const winPath = (x, y, w, h, arch) => arch
@@ -370,7 +371,10 @@ const Interlude = (() => {
     if (!c) return;
     c.classList.toggle('full', !!(card && card.full));
     c.querySelector('.il-kicker').textContent = (card && card.kicker) || '';
-    c.querySelector('.il-title').textContent = (card && card.title) || '';
+    const title = (card && card.title) || '';
+    c.querySelector('.il-title').textContent = title;
+    // long titles ("THE FIRE OF TRUTH") are sized down to stay on one line
+    if (c.style && c.style.setProperty) c.style.setProperty('--il-n', String(Math.max(8, title.length)));
     c.querySelector('.il-chips').innerHTML = card && card.chips
       ? card.chips.map(p => `<span class="il-chip${p.gone ? ' gone' : ''}${p.you ? ' you' : ''}">${esc(p.name)}`
           + (p.gone ? `<em>${esc(p.gone)}</em>` : '') + '</span>').join('')
@@ -379,6 +383,19 @@ const Interlude = (() => {
     if (card && card.full && card.pot !== undefined) sub.push('<b>' + money(card.pot) + '</b> in the pot');
     if (card && card.twist) sub.push('<span class="il-twist">' + esc(card.twist) + '</span>');
     c.querySelector('.il-sub').innerHTML = sub.join('');
+  }
+
+  /* The shade under the card grows to hold it: a card with a long
+     title and two rows of names must never stand above its own shade. */
+  function fitScrim(root) {
+    const scrim = root.querySelector && root.querySelector('.il-scrim');
+    const c = root.querySelector && root.querySelector('.il-card');
+    if (!scrim || !c || !c.getBoundingClientRect || !root.getBoundingClientRect) return;
+    scrim.style.height = '';
+    const box = root.getBoundingClientRect(), r = c.getBoundingClientRect();
+    if (!box.height) return;
+    const need = box.bottom - r.top + 0.12 * box.height;
+    if (need > scrim.getBoundingClientRect().height) scrim.style.height = Math.min(box.height, need) + 'px';
   }
 
   /* ---------------- sound ---------------- */
@@ -487,17 +504,30 @@ const Interlude = (() => {
         c.connect(hp); hp.connect(cg); cg.connect(dest); c.start(t + 0.2 + Math.random() * 1.8);
       }
     });
-    // a swell of rain against the windows
+    /* Rain against the windows: a soft, dark wash with a scatter of
+       drops on the glass. Kept low and under 2 kHz — a bright hiss
+       across the whole band is what made it grate. */
     AudioBus.define('il-rain', (ctx, dest, o = {}) => {
-      const t = ctx.currentTime;
-      const src = noiseBurst(ctx, 2.6, 4);
-      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = o.storm ? 5200 : 4200;
+      const t = ctx.currentTime, len = 2.8;
+      const peak = o.storm ? 0.05 : 0.035;
+      const src = noiseBurst(ctx, len, 6);
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 220;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = o.storm ? 1700 : 1300; lp.Q.value = 0.4;
       const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(o.storm ? 0.22 : 0.15, t + 0.6);
-      g.gain.setValueAtTime(o.storm ? 0.22 : 0.15, t + 1.8);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 2.6);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + 0.9);
+      g.gain.setValueAtTime(peak, t + 1.6);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + len);
       src.connect(hp); hp.connect(lp); lp.connect(g); g.connect(dest); src.start(t);
+      // drops: short, soft, mid-pitched taps, thinning as the wash fades
+      const drops = o.storm ? 22 : 14;
+      for (let k = 0; k < drops; k++) {
+        const at = 0.25 + Math.pow(Math.random(), 1.4) * 2.1;
+        const d = noiseBurst(ctx, 0.02, 0.004);
+        const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 2.5;
+        bp.frequency.value = 900 + Math.random() * 1300;
+        const dg = gainAt(ctx, 0.012 + Math.random() * 0.018);
+        d.connect(bp); bp.connect(dg); dg.connect(dest); d.start(t + at);
+      }
     });
     // thunder rolling round the glen
     AudioBus.define('il-thunder', (ctx, dest, o = {}) => {
@@ -557,6 +587,7 @@ const Interlude = (() => {
     root.classList.remove('il-reset');
     void root.offsetWidth;
     root.classList.add('on');
+    fitScrim(root);
     /* The band needs no help here: the old room's cue fades out over a
        second and a half as it is torn down underneath, and the new one
        fades in over as long when the room begins — a crossfade across
@@ -566,11 +597,12 @@ const Interlude = (() => {
     try {
       if (!await sleep(min * SWAP_AT, signal)) return false;
       root.classList.add('turn');     // the hour starts to change
+      const turned = Date.now();
       await work(lifted);
       if (signal && signal.aborted) return false;
       const drawn = typeof Engine !== 'undefined' && Engine.drawn ? Engine.drawn() : Promise.resolve();
       await Promise.race([drawn, sleep(DRAWN_CAP)]);
-      if (!await sleep(Math.max(0, min - (Date.now() - t0)), signal)) return false;
+      if (!await sleep(Math.max(0, min - (Date.now() - t0), TURN_MS - (Date.now() - turned)), signal)) return false;
       return true;
     } finally {
       lift();

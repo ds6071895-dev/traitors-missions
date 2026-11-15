@@ -5,8 +5,9 @@
    run seed and the day alone, so every browser in the room has the same
    weather without a byte of it on the wire, and so it says nothing about
    anybody. The first day is never a storm; the later the game, the more
-   likely one is. The fire is outside and burns only under a clear sky
-   or a fog.
+   likely one is. The fire is outside: it keeps the last day's rain
+   (a storm has blown through to plain rain by then), and otherwise
+   burns under a clear sky or a fog.
 
    It is dressing, never a rule: the interlude paints it, the windows
    tint by it, and a storm puts thunder under the castle. None of the
@@ -48,8 +49,13 @@ const Weather = (() => {
     return k;
   }
 
-  /* The night of the fire: clear or a fog off the loch. */
-  function forFinale(seed, day) { return hash(seed, day, 0xf1) < 0.3 ? 'fog' : 'clear'; }
+  /* The night of the fire: the day's rain carries on into it, or else
+     clear or a fog off the loch. */
+  function forFinale(seed, day) {
+    const d = forDay(seed, day);
+    if (d === 'rain' || d === 'storm') return 'rain';
+    return hash(seed, day, 0xf1) < 0.3 ? 'fog' : 'clear';
+  }
 
   const WORDS = { clear: 'Clear skies', overcast: 'Grey skies', rain: 'Rain', fog: 'Fog on the loch', storm: 'A storm coming' };
   const word = (k) => WORDS[k] || '';
@@ -72,10 +78,11 @@ const Weather = (() => {
       try {
         const c = AudioBus.ctx, t = c.currentTime;
         const n = AudioBus.noiseSource();
-        const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1100;
-        const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = kind === 'storm' ? 5000 : 3800;
+        // dark and low: a bright band of hiss under a whole room grates
+        const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 250;
+        const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = kind === 'storm' ? 1600 : 1200; lp.Q.value = 0.4;
         const g = c.createGain(); g.gain.value = 0.0001;
-        g.gain.setTargetAtTime(kind === 'storm' ? 0.07 : 0.045, t, 1.5);
+        g.gain.setTargetAtTime(kind === 'storm' ? 0.03 : 0.02, t, 2.5);
         n.connect(hp); hp.connect(lp); lp.connect(g); g.connect(AudioBus.bus('ambience'));
         n.start(t);
         bed = { n, g, c };
@@ -120,5 +127,50 @@ const Weather = (() => {
     };
   }
 
-  return { KINDS, forDay, forFinale, word, light, weights, fx };
+  /* Rain outdoors: streaks in a box round the camera that follows it,
+     each one wrapped back to the top when it falls out of the bottom,
+     so it rains for ever wherever you look. `update(dt, camPos)`. */
+  function rain(o = {}) {
+    if (typeof THREE === 'undefined') return null;
+    const N = o.count || 2400, R = o.radius || 22, H = o.height || 18;
+    const len = o.len || 0.7, fall = o.speed || 10;
+    const wx = o.windX === undefined ? 1.2 : o.windX, wz = o.windZ === undefined ? 0.4 : o.windZ;
+    const sp = Math.hypot(wx, fall, wz);
+    const tx = wx / sp * len, ty = -fall / sp * len, tz = wz / sp * len;
+    const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N), vk = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      px[i] = (Math.random() * 2 - 1) * R; pz[i] = (Math.random() * 2 - 1) * R;
+      py[i] = Math.random() * H; vk[i] = 0.8 + Math.random() * 0.4;
+    }
+    const pos = new Float32Array(N * 6);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const mat = new THREE.LineBasicMaterial({ color: o.color || '#aebccf', transparent: true,
+      opacity: o.opacity === undefined ? 0.32 : o.opacity, depthWrite: false, fog: false });
+    const lines = new THREE.LineSegments(geo, mat);
+    lines.frustumCulled = false;
+    lines.name = 'rain';
+    const wrap = (v, c, r) => { const d = v - c + r, w = 2 * r; return c - r + (((d % w) + w) % w); };
+    let first = true;
+    function update(dt, cam) {
+      const cx = cam ? cam.x : 0, cy = cam ? cam.y : 0, cz = cam ? cam.z : 0;
+      const bot = cy - H * 0.35;
+      for (let i = 0; i < N; i++) {
+        if (first) py[i] += bot;
+        const k = vk[i];
+        px[i] = wrap(px[i] + wx * k * dt + (first ? cx : 0), cx, R);
+        pz[i] = wrap(pz[i] + wz * k * dt + (first ? cz : 0), cz, R);
+        py[i] -= fall * k * dt;
+        if (py[i] < bot) py[i] += H; else if (py[i] > bot + H) py[i] -= H;
+        const j = i * 6;
+        pos[j] = px[i]; pos[j + 1] = py[i]; pos[j + 2] = pz[i];
+        pos[j + 3] = px[i] - tx; pos[j + 4] = py[i] - ty; pos[j + 5] = pz[i] - tz;
+      }
+      first = false;
+      geo.attributes.position.needsUpdate = true;
+    }
+    return { object: lines, update };
+  }
+
+  return { KINDS, forDay, forFinale, word, light, weights, fx, rain };
 })();

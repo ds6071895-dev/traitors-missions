@@ -238,7 +238,7 @@ const ClaudiaLines = (() => {
     "tableClose": [
       [ "Enough talking.", "Pick up your slates." ],
       [ "I have heard enough.", "Slates." ],
-      [ "Time.", "Write a name." ],
+      [ "Time.", "The talking is over." ],
       [ "It is time to vote.", "Pick up your slates." ]
     ],
     "slateIntro": [

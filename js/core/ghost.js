@@ -13,7 +13,11 @@
 
    The veil is two gradients and an opacity animation, and no CSS
    filter on the canvas, so it costs nothing on a low-end phone.
-   It watches the state on a slow poll: nothing has to call it.
+   It watches the state on a slow poll: nothing has to call it. It
+   waits for a quiet moment first — no letterbox, card, transition,
+   vote or Claudia mid-line for a couple of seconds — so it never lands
+   on top of the reveal that put you out (the letter under the door,
+   the slate, the colour).
 ------------------------------------------------------------------ */
 const Ghost = (() => {
   let on = false, veil = null, badge = null, title = null, timer = null, titleT = null;
@@ -72,11 +76,45 @@ const Ghost = (() => {
     } else title.classList.remove('on');
   }
 
-  function check() { try { set(out()); } catch (e) { /* never let the poll throw */ } }
+  const POLL = 400, QUIET_MS = 2400;
+  let quietMs = 0;
+  // `talk` counts Claudia mid-line too: the title waits for her, the badge does not
+  function busy(talk = true) {
+    if (typeof Scenes !== 'undefined') {
+      if (talk && Scenes.performing) return true;
+    }
+    if (talk && typeof Voice !== 'undefined' && Voice.speaking) return true;
+    if (typeof Scenes !== 'undefined') {
+      if (Scenes.Cine && Scenes.Cine.barsOn) return true;
+    }
+    if (typeof Screens !== 'undefined' && Screens.current === 'vote') return true;
+    if (typeof document !== 'undefined' && document.getElementById) {
+      const lit = (id) => { const e = document.getElementById(id); return !!(e && e.classList && e.classList.contains('on')); };
+      if (lit('interlude') || lit('cine-card')) return true;
+      // a caption on screen is somebody's words: the title waits for it to go
+      if (talk && (lit('cine-caption') || lit('drive-back'))) return true;
+    }
+    return false;
+  }
+
+  function check() {
+    try {
+      const want = out();
+      if (!want || on) {
+        quietMs = 0; set(want);
+        if (on && badge && badge.classList) badge.classList.toggle('hush', busy(false));
+        // a line that starts while the title is up: the title gives way at once
+        if (on && title && title.classList && title.classList.contains('on') && busy()) title.classList.remove('on');
+        return;
+      }
+      quietMs = busy() ? 0 : quietMs + POLL;
+      if (quietMs >= QUIET_MS) set(true);
+    } catch (e) { /* never let the poll throw */ }
+  }
 
   function start() {
     if (timer || typeof setInterval === 'undefined') return;
-    timer = setInterval(check, 400);
+    timer = setInterval(check, POLL);
   }
 
   if (typeof window !== 'undefined' && typeof document !== 'undefined' && document.body) start();

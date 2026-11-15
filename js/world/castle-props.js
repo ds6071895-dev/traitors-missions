@@ -895,9 +895,135 @@ const CastleProps = (() => {
     };
   }
 
+  /* ---------------- the weather outside ----------------
+     Layers between the house (never more than ~52 m from the middle)
+     and the painted view at RADIUS, so the windows show the day: a low
+     grey cloud deck over the hills on a grey or wet day, mist lying on
+     the loch in fog (and a little in rain), and rain in two rings that
+     slide down for ever. `step(dt)` from the room's update. */
+  function rainTexture() {
+    return canvasTexture('rain-streaks', 256, 256, (g, W, H) => {
+      const rng = U.makeRng(71);
+      g.clearRect(0, 0, W, H);
+      g.lineCap = 'round';
+      for (let i = 0; i < 140; i++) {
+        const x = rng() * W, y = rng() * H, l = 14 + rng() * 28;
+        g.strokeStyle = 'rgba(225,235,248,' + (0.22 + rng() * 0.45).toFixed(2) + ')';
+        g.lineWidth = 0.9 + rng() * 1.1;
+        // drawn once each side of both seams, so it tiles
+        for (const ox of [-W, 0, W]) for (const oy of [-H, 0, H]) {
+          g.beginPath(); g.moveTo(x + ox, y + oy); g.lineTo(x + ox - l * 0.1, y + oy + l); g.stroke();
+        }
+      }
+    });
+  }
+  /* A copy of the streaks with its own repeat and its own slide, on the
+     same picture. Not marked shared, so the room's dispose frees it. */
+  function rainMap(tileU, tileV) {
+    const t = rainTexture().clone();
+    t.userData = {};
+    t.repeat.set(tileU, tileV);
+    t.needsUpdate = true;
+    return t;
+  }
+  function weatherSky(kind, hour) {
+    const key = (hour === 'night' ? 'night' : hour === 'morning' ? 'morning' : 'golden') + '-' + kind;
+    const W = low() ? 1024 : 2048, H = low() ? 128 : 256;
+    return canvasTexture('wx-' + key, W, H, (g) => {
+      const rng = U.makeRng(kind.length * 131 + hour.length * 7);
+      const Y = (y) => (Y_TOP - y) / (Y_TOP - Y_BOT) * H;
+      const night = hour === 'night';
+      const deck = kind === 'storm' ? (night ? '20,24,32' : '74,80,90') : (night ? '30,36,48' : '128,134,142');
+      const mist = night ? '120,132,150' : '214,220,226';
+      g.clearRect(0, 0, W, H);
+      if (kind !== 'clear' && kind !== 'fog') {
+        // the cloud deck: thick at the top, its ragged base over the far hills
+        const base = kind === 'overcast' ? 20 : 14;
+        const top = kind === 'storm' ? 0.92 : kind === 'rain' ? 0.82 : 0.66;
+        const gr = g.createLinearGradient(0, 0, 0, Y(base));
+        gr.addColorStop(0, 'rgba(' + deck + ',' + top + ')');
+        gr.addColorStop(0.7, 'rgba(' + deck + ',' + (top * 0.8).toFixed(2) + ')');
+        gr.addColorStop(1, 'rgba(' + deck + ',0)');
+        g.fillStyle = gr; g.fillRect(0, 0, W, Y(base));
+        for (let i = 0; i < 70; i++) {
+          const cx = rng() * W, cy = Y(base + 2 + rng() * 26), rx = W * (0.02 + rng() * 0.05), ry = H * (0.03 + rng() * 0.05);
+          for (const o of [-W, 0, W]) {
+            const gg = g.createRadialGradient(cx + o, cy, 0, cx + o, cy, rx);
+            gg.addColorStop(0, 'rgba(' + deck + ',' + (0.35 + rng() * 0.3).toFixed(2) + ')');
+            gg.addColorStop(1, 'rgba(' + deck + ',0)');
+            g.fillStyle = gg;
+            g.save(); g.translate(cx + o, cy); g.scale(1, ry / rx); g.translate(-(cx + o), -cy);
+            g.beginPath(); g.arc(cx + o, cy, rx, 0, TAU); g.fill(); g.restore();
+          }
+        }
+      }
+      if (kind === 'fog' || kind === 'rain' || kind === 'storm') {
+        // mist on the water, thinning up the hills; fog all but hides them
+        const thick = kind === 'fog' ? 0.9 : 0.4;
+        const hi = kind === 'fog' ? 30 : 12;
+        const gr = g.createLinearGradient(0, Y(hi), 0, Y(-2));
+        gr.addColorStop(0, 'rgba(' + mist + ',0)');
+        gr.addColorStop(0.55, 'rgba(' + mist + ',' + (thick * 0.75).toFixed(2) + ')');
+        gr.addColorStop(1, 'rgba(' + mist + ',' + thick + ')');
+        g.fillStyle = gr; g.fillRect(0, Y(hi), W, Y(-14) - Y(hi));
+        if (kind === 'fog') {
+          g.fillStyle = 'rgba(' + mist + ',0.28)';
+          g.fillRect(0, 0, W, Y(hi));
+        }
+      }
+    }, { repeatT: false });
+  }
+  function weatherView(kind, hour, cx, cz) {
+    const group = new THREE.Group();
+    group.name = 'castle-weather';
+    const wet = kind === 'rain' || kind === 'storm';
+    const slides = [];
+    const H = Y_TOP - Y_BOT;
+    // drawn far to near, and all before the window glass (2) and the rain on it (1)
+    const ring = (r, map, opacity, order, y0 = Y_BOT, y1 = Y_TOP) => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, y1 - y0, low() ? 40 : 96, 1, true),
+        new THREE.MeshBasicMaterial({ map, transparent: true, opacity, depthWrite: false, side: THREE.BackSide, fog: false }));
+      m.position.set(cx, y0 + (y1 - y0) / 2, cz);
+      m.renderOrder = order;
+      group.add(m);
+      return m;
+    };
+    if (kind !== 'clear') {
+      const sky = weatherSky(kind, hour);
+      const m = ring(RADIUS - 4, sky, 1, -4);
+      m.name = 'weather-sky';
+      // the deck drifts, slowly
+      slides.push({ t: m.material.map, u: 0.0012 * (kind === 'storm' ? 2.5 : 1), v: 0 });
+      if (kind === 'fog') {
+        // a second, nearer bank, so the lawn's edge goes soft too
+        ring(78, sky, 0.55, -1);
+      }
+    }
+    if (wet) {
+      const fast = kind === 'storm' ? 1.35 : 1;
+      const night = hour === 'night';
+      const tone = night ? 0.45 : 0.8;
+      const near = rainMap(Math.round(TAU * 74 / 5), Math.round(60 / 5));
+      const far = rainMap(Math.round(TAU * 98 / 8), Math.round(60 / 8));
+      ring(98, far, tone * 0.8, -3, -6, 54).name = 'rain-far';
+      ring(74, near, tone, -2, -6, 54).name = 'rain-near';
+      slides.push({ t: near, u: kind === 'storm' ? 0.08 : 0.02, v: 7 / 5 * fast });
+      slides.push({ t: far, u: kind === 'storm' ? 0.05 : 0.012, v: 7 / 8 * fast });
+    }
+    return {
+      group,
+      step(dt) {
+        for (const s of slides) {
+          s.t.offset.x = (s.t.offset.x + s.u * dt) % 1;
+          s.t.offset.y = (s.t.offset.y + s.v * dt) % 1;
+        }
+      },
+    };
+  }
+
   return {
     tartan, damask, marquetry, panorama, view, portraits, portraitUV,
     lathe, turnedLeg, stick, merged, chair, chairMeshes, pillar,
-    skyFor, SKIES, RADIUS,
+    skyFor, SKIES, RADIUS, weatherView, rainMap,
   };
 })();

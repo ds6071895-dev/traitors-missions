@@ -189,13 +189,17 @@ class FinaleScene {
 
   build() {
     const s = Session.state;
+    // the same weather the card on the way in showed (interlude.js)
+    this.weather = typeof Weather !== 'undefined' ? Weather.forFinale(s.seed, s.day) : 'clear';
     this.stage = Stage.build({
       seed: s.seed + 404,
       hour: 'night',
       dress: 'fire',
       players: s.players,
+      weather: this.weather,
     });
     this.stage.setShot('wide', { cut: true });
+    this._wx = typeof Weather !== 'undefined' ? Weather.fx(this.stage, this.weather) : null;
     return this.stage.view;
   }
 
@@ -930,23 +934,103 @@ class FinaleScene {
     const fig = this.stage.figureOf(target.id);
     const seat = this.stage.seats.find(s => s.id === target.id);
     const from = fig ? fig.position.clone() : seat ? seat.pos.clone() : this.stage.claudiaPos.clone();
-    const mesh = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(0.10, 0),
-      EstateMaterials.material('upholstery', { color: '#b52d4b', roughness: .9 }));
-    EstateMaterials.uv(mesh.geometry,.12);
-    mesh.material.bumpScale=.002;
-    const tie = new THREE.Mesh(
-      new THREE.TorusGeometry(0.062, 0.016, 3, 7),
-      new THREE.MeshLambertMaterial({ color: '#d8b24a', flatShading: true }));
-    tie.rotation.x = Math.PI / 2;
-    tie.position.y = 0.085;
-    mesh.add(tie);
-    mesh.scale.set(1, 1.25, 1);
+    const mesh = FinaleScene.pouchModel();
     mesh.position.copy(from).setY(from.y + 1.05);
     this.stage.scene.add(mesh);
     // `holder` is whoever has it: a figure, 'me' (the camera), or Claudia
     this._pouch = { mesh, t: 0, state: 'carry', from: mesh.position.clone(), holder: fig || (target.local ? 'me' : null) };
     if (fig) Figure.setHolding(fig, true);
+  }
+
+  /* The pouch itself: a velvet drawstring bag, gathered into folds at a
+     cinched neck with a ruffle above it, a gold cord tied round the neck
+     with its two ends hanging down the front to little tassels, a band
+     of gold thread round the belly and a red wax seal on the front with
+     the dagger pressed into it. About the size of two fists. */
+  static pouchModel() {
+    const g = new THREE.Group();
+    g.name = 'pouch';
+    const prof = [[0.001, -0.112], [0.045, -0.109], [0.078, -0.096], [0.098, -0.066], [0.104, -0.03], [0.1, 0.006],
+                  [0.088, 0.036], [0.066, 0.06], [0.04, 0.078], [0.027, 0.086], [0.03, 0.093], [0.046, 0.104],
+                  [0.064, 0.121], [0.07, 0.132], [0.058, 0.136], [0.044, 0.13]].map(([r, y]) => new THREE.Vector2(r, y));
+    const body = new THREE.LatheGeometry(prof, 36);
+    // gathered folds: deepest at the neck and in the ruffle, gone at the bottom
+    const pos = body.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const a = Math.atan2(v.z, v.x), r = Math.hypot(v.x, v.z);
+      if (r < 1e-4) continue;
+      const gather = THREE.MathUtils.smoothstep(v.y, -0.07, 0.08) * (v.y > 0.09 ? 1.6 : 1);
+      const k = 1 + gather * (0.09 * Math.sin(a * 11 + v.y * 18) + 0.04 * Math.sin(a * 5 - v.y * 30))
+              + 0.025 * Math.sin(a * 3 + 1.7) * (1 - gather);
+      pos.setXYZ(i, v.x * k, v.y + gather * 0.004 * Math.sin(a * 11), v.z * k);
+    }
+    body.computeVertexNormals();
+    const velvet = EstateMaterials.material('upholstery', { color: '#8f1d35', roughness: .88 });
+    EstateMaterials.uv(body, .12);
+    if (velvet.bumpScale !== undefined) velvet.bumpScale = .002;
+    const bag = new THREE.Mesh(body, velvet);
+    g.add(bag);
+    const gold = new THREE.MeshStandardMaterial({ color: '#d4ab4c', roughness: .45, metalness: .55 });
+    const cordMat = new THREE.MeshStandardMaterial({ color: '#cfa64a', roughness: .7, metalness: .25 });
+    // the cord round the neck, pulled tight, and the knot at the front
+    const neck = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.0065, 6, 28), cordMat);
+    neck.rotation.x = Math.PI / 2; neck.position.y = 0.086;
+    g.add(neck);
+    const knot = new THREE.Mesh(new THREE.SphereGeometry(0.011, 10, 8), cordMat);
+    knot.position.set(0, 0.084, 0.033);
+    g.add(knot);
+    // its two ends, hanging down the front and swinging out a little
+    for (const side of [-1, 1]) {
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, 0.084, 0.034),
+        new THREE.Vector3(side * 0.014, 0.06, 0.06),
+        new THREE.Vector3(side * 0.024, 0.02, 0.09),
+        new THREE.Vector3(side * 0.03, -0.022, 0.104),
+      ]);
+      g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 16, 0.0045, 6, false), cordMat));
+      const end = curve.getPoint(1);
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.0075, 0.012, 8), gold);
+      cap.position.copy(end).add(new THREE.Vector3(0, -0.006, 0));
+      g.add(cap);
+      const tassel = new THREE.Mesh(new THREE.ConeGeometry(0.011, 0.03, 10, 1, true), cordMat);
+      tassel.position.copy(end).add(new THREE.Vector3(0, -0.026, 0.001));
+      tassel.rotation.x = Math.PI;
+      g.add(tassel);
+    }
+    // a band of gold thread round the belly
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.0028, 4, 48), gold);
+    band.rotation.x = Math.PI / 2; band.position.y = -0.045;
+    band.scale.set(1.03, 1.03, 1);
+    g.add(band);
+    // the seal: an uneven puddle of red wax with a rim, and a dagger in it
+    const wax = new THREE.MeshStandardMaterial({ color: '#74101c', roughness: .38, metalness: .05 });
+    const sealG = new THREE.CylinderGeometry(0.026, 0.028, 0.008, 18);
+    const sp = sealG.attributes.position;
+    for (let i = 0; i < sp.count; i++) {
+      v.fromBufferAttribute(sp, i);
+      const a = Math.atan2(v.z, v.x), r = Math.hypot(v.x, v.z);
+      if (r > 0.02) { const k = 1 + 0.08 * Math.sin(a * 5 + 0.6) + 0.05 * Math.sin(a * 9); sp.setX(i, v.x * k); sp.setZ(i, v.z * k); }
+    }
+    sealG.computeVertexNormals();
+    const seal = new THREE.Group();
+    seal.add(new THREE.Mesh(sealG, wax));
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.019, 0.0018, 4, 24), wax);
+    rim.rotation.x = Math.PI / 2; rim.position.y = 0.0045;
+    seal.add(rim);
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.0035, 0.002, 0.026), wax);
+    blade.position.set(0, 0.0048, 0.002);
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.002, 0.003), wax);
+    guard.position.set(0, 0.0048, -0.008);
+    const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.0028, 6, 4), wax);
+    pommel.position.set(0, 0.0045, -0.013);
+    seal.add(blade, guard, pommel);
+    // stood on the front of the bag, tipped to its curve, the dagger point down
+    seal.rotation.set(Math.PI / 2 - 0.12, 0, Math.PI);
+    seal.position.set(0, -0.012, 0.1);
+    g.add(seal);
+    g.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+    return g;
   }
 
   /* The way round to her. Out behind the circle, round its back on
@@ -1141,6 +1225,7 @@ class FinaleScene {
   update(dt, t) {
     if (!this.stage) return;
     this.stage.update(dt);
+    if (this._wx) this._wx.step(dt);
     this._stepMe(dt);
     this._updatePouch(dt);
     this._updateEmbers(dt);
@@ -1171,6 +1256,7 @@ class FinaleScene {
     Scenes.Drama.end(this.stage, null);
     if (this.music) { this.music.stop(1.2); this.music = null; }
     if (this.wind) { this.wind.stop(); this.wind = null; }
+    if (this._wx) { this._wx.stop(); this._wx = null; }
     this._endHeldBeat();
     this._clearEmbers();
     if (this._pouch) { Engine.disposeObject(this._pouch.mesh); this._pouch = null; }

@@ -1,7 +1,8 @@
 /* ------------------------------------------------------------------
    twists.js — the day the rules change.
 
-   From the second day on, about every other day, Claudia opens the day
+   From the second day on (or the first, if the host allows it —
+   `ctx.early`), about every other day, Claudia opens the day
    with a twist: one rule that holds until tomorrow. Each is drawn from
    the run seed, so a shared seed is a shared game, and each comes up at
    most once a game, never two days running, and never on the day of the
@@ -52,10 +53,10 @@ const Twists = (() => {
 
   /* Today's twist, or null. `ctx`: { used: [ids], yesterday: id|null,
      last: bool (this day ends at the last table), exclude: [ids] the
-     host's settings rule out }. Only public things
+     host's settings rule out, early: bool the first day may have one }. Only public things
      go in, so the choice can tell nobody anything. */
   function pick(seed, day, ctx = {}) {
-    if ((day | 0) < 1 || ctx.last || ctx.yesterday) return null;
+    if ((day | 0) < (ctx.early ? 0 : 1) || ctx.last || ctx.yesterday) return null;
     if (hash(seed, day, 0x1) >= CHANCE) return null;
     const used = new Set((ctx.used || []).concat(ctx.exclude || []));
     const open = DECK.filter(id => !used.has(id));

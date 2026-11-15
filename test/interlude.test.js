@@ -94,7 +94,9 @@ test('the same seed and day is the same sky, and the first day is never a storm'
       seen.add(k);
       ok(!(k === 'storm' && W.forDay(seed, d - 1) === 'storm'), 'never two storms running');
     }
-    ok(['clear', 'fog'].includes(W.forFinale(seed, 3)), 'the fire burns clear or in fog');
+    const day = W.forDay(seed, 3), fire = W.forFinale(seed, 3);
+    if (day === 'rain' || day === 'storm') eq(fire, 'rain', 'the day\'s rain carries on at the fire');
+    else ok(['clear', 'fog'].includes(fire), 'a dry day: the fire burns clear or in fog');
   }
   eq(seen.size, 5, 'every kind of weather turns up');
 });

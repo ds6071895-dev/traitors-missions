@@ -890,8 +890,15 @@ const AIDirector = (() => {
     const n = (Session.state && Session.state.taskSeconds) || 180;
     return n % 60 === 0 ? (n / 60) + (n === 60 ? ' minute' : ' minutes') : n + ' seconds';
   }
+  /* At breakfast, the hall hears only who has come in: somebody still
+     in the car is heard by nobody there, and hears none of it. */
+  function inHall(id) {
+    const b = Session.state && Session.state.breakfast;
+    return !b || b.revealed || b.arrived.indexOf(id) >= 0 || !(Session.playerById(id) || {}).alive;
+  }
   function inEarshot(aId, bId) {
     const s = Session.state;
+    if (s && s.phase === 'breakfast') return inHall(aId) && inHall(bId);
     if (!s || s.phase !== 'tasks' || typeof CastleNet === 'undefined') return true;
     const a = CastleNet.get(aId), b = CastleNet.get(bId);
     if (!a || !b) return true;
@@ -901,6 +908,9 @@ const AIDirector = (() => {
   }
   function earsOf(id) {
     const s = Session.state;
+    if (s && s.phase === 'breakfast' && s.breakfast && !s.breakfast.revealed) {
+      return Session.alive().filter(p => p.id !== id && inEarshot(id, p.id)).map(p => p.id);
+    }
     if (!s || s.phase !== 'tasks') return null;
     return Session.alive().filter(p => p.id !== id && inEarshot(id, p.id)).map(p => p.id);
   }

@@ -97,7 +97,14 @@ const Session = (() => {
   const RECRUIT_PICK_EXTRA = 5;    // more time to talk it over when a seat is on the table
   const RECRUIT_SECONDS = 12;      // an offer is answered or refused (Claudia knocks first)
   const WISE_SECONDS = 10;         // the Traitors' window to choose the Wise One
-  const tableSeconds = (n) => Math.min(240, 50 + 22 * n);
+  /* How long the round table talks: the host's own number if they set
+     one (lobby "Table talk"), else it grows with the people at it. */
+  const TABLE_MIN = 30, TABLE_MAX = 300;
+  const clampTable = (v) => {
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) && n > 0 ? Math.max(TABLE_MIN, Math.min(TABLE_MAX, n)) : null;
+  };
+  const tableSeconds = (n) => (state && state.tableTalk) || Math.min(240, 50 + 22 * n);
 
   let state = null;
   let mode = 'host';               // 'host' owns the reducer, 'guest' mirrors it
@@ -353,8 +360,10 @@ const Session = (() => {
       parts: parts && parts.length ? parts.slice() : PARTS.slice(),
       ai: opts && opts.ai ? { claudia: !!opts.ai.claudia } : null,
       taskSeconds: clampTask(opts && opts.taskSeconds === undefined ? TASK_SECONDS : opts && opts.taskSeconds),
+      tableTalk: clampTable(opts && opts.tableTalk),  // null: Auto, by how many are at the table
       cast: cleanCast(opts && opts.cast),  // what the host chose, which everybody may know
       twists: !(opts && opts.twists === false),  // the host's switch: may a day change the rules
+      twistsEarly: !!(opts && opts.twistsEarly),  // ...and may the very first day have one
       hideRoles: !!(opts && opts.hideRoles),     // the host's switch: the banished never say what they were
       twist: null,              // { day, id } — today's twist, said aloud (twists.js)
       twistsUsed: [],           // [{ day, id }] — each comes up at most once
@@ -610,7 +619,12 @@ const Session = (() => {
   /* Every Traitor dealt has been found. A night dealt none has nobody
      to find, so it plays on to the fire: the Faithfuls end it there, or
      banish each other down to two. */
-  const allFound = () => secret.traitors.size > 0 && traitorsAlive().length === 0;
+  /* Every Traitor found ends the game — unless the room was never told
+     how many there were ("1 or 2", or a chance of none). Then stopping
+     the moment the last one burned would tell everybody it was the
+     last, so the castle plays on to the fire, as a game with none does. */
+  const countHidden = () => !!state && state.dealt === null;
+  const allFound = () => secret.traitors.size > 0 && traitorsAlive().length === 0 && !countHidden();
 
   /* ---------------- the reducer ----------------
      The only mutator. Everything a scene wants to do arrives here as an
@@ -786,8 +800,9 @@ const Session = (() => {
     const last = alive().length - 2 <= FINALE_AT;
     // with every role kept back already, a veiled day would change nothing
     const exclude = state.hideRoles ? ['veiled'] : [];
-    let id = Twists.pick(state.seed, d, { used, yesterday, last, exclude });
-    if (state.forceTwist && d >= 1 && Twists.DECK.indexOf(state.forceTwist) >= 0
+    const early = !!state.twistsEarly;
+    let id = Twists.pick(state.seed, d, { used, yesterday, last, exclude, early });
+    if (state.forceTwist && d >= (early ? 0 : 1) && Twists.DECK.indexOf(state.forceTwist) >= 0
         && used.indexOf(state.forceTwist) < 0 && exclude.indexOf(state.forceTwist) < 0) id = state.forceTwist;
     if (!id) return;
     state.twist = { day: d, id };
@@ -1295,10 +1310,12 @@ const Session = (() => {
   }
 
   /* ---------------- breakfast ----------------
-     The survivors come down in small groups, and nobody is told who is
-     missing until the last group is through the door. The groups are
-     dealt from the seed on the host and released one at a time, so the
-     victim's absence is not in anybody's state until it is announced. */
+     The survivors are driven back to the castle in small groups — the
+     cars — and come in one at a time: a knock, the door, the walk to
+     their chair. Nobody is told who is missing until the last of them
+     is through the door. The cars are dealt from the seed on the host
+     and each person released on their own, so the victim's absence is
+     not in anybody's state until it is announced. */
 
   function toBreakfast() {
     const r = rngFor(SALT.breakfast ^ (state.day * 0x3b), state.seed);
@@ -1318,7 +1335,7 @@ const Session = (() => {
     const prev = state.lastBreakfastStyle || 'walk';
     const style = state.day === 0 || prev === 'rollcall' ? 'walk' : (r() < 0.55 ? 'rollcall' : 'walk');
     state.lastBreakfastStyle = style;
-    state.breakfast = { day: state.day, arrived: [], groups: 0, revealed: false, style,
+    state.breakfast = { day: state.day, arrived: [], groups: 0, cars: 0, revealed: false, style,
                         victim: null, name: null, shielded: null, shieldName: null };
     setPhase('breakfast', true);
     return true;
@@ -1327,11 +1344,17 @@ const Session = (() => {
   function doBreakfastNext() {
     const b = state.breakfast;
     if (state.phase !== 'breakfast' || !b || b.revealed) return false;
+    while (secret.queue.length && !secret.queue[0].length) secret.queue.shift();
     if (secret.queue.length) {
-      const ids = secret.queue.shift();
-      b.arrived.push(...ids);
+      const car = secret.queue[0];
+      const carFirst = !b.inCar;
+      if (carFirst) { b.cars = (b.cars | 0) + 1; b.inCar = true; }
+      const id = car.shift();
+      const carDone = !car.length;
+      if (carDone) { secret.queue.shift(); b.inCar = false; }
+      b.arrived.push(id);
       b.groups++;
-      emit('arrive', { ids: ids.slice(), last: !secret.queue.length });
+      emit('arrive', { ids: [id], car: b.cars, carFirst, carDone, last: !secret.queue.length });
       return true;
     }
     b.revealed = true;
@@ -1688,7 +1711,7 @@ const Session = (() => {
   function doExposeDone() {
     if (mode !== 'host' || !secret.exposedShown) return false;
     secret.exposedShown = null;
-    if (traitorsAlive().length === 0) { endGame('exposed'); return true; }
+    if (traitorsAlive().length === 0 && !countHidden()) { endGame('exposed'); return true; }
     if (alive().length < 2) { endGame('final-two'); return true; }
     if (state.phase === 'table' && state.finale) state.finale.stage = 'done';
     return true;
@@ -2096,7 +2119,7 @@ const Session = (() => {
     finaleNext, beganAlone, pacedSeconds, stakes,
     SEATS, MIN_PLAYERS, FINALE_AT, NIGHT_SECONDS, RECRUIT_NIGHT_EXTRA, nightSeconds, PICK_SECONDS, TASK_SECONDS, TASK_MIN, BELL_AT,
     RECRUIT_SECONDS, LAST_WORDS_SECONDS, FLOOR_SECONDS, WISE_SECONDS,
-    tableSeconds, traitorCount, castChances, cleanCast,
+    tableSeconds, TABLE_MIN, TABLE_MAX, traitorCount, castChances, cleanCast,
     CAST_MODES, NONE_MAX, WANT_MIN, WANT_MAX,
 
     /* Host-only: who is standing next to whom, and who can see it. The

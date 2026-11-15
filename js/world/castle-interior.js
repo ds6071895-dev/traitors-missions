@@ -174,6 +174,8 @@ const CastleInterior = (() => {
     portrait:    { tex: () => CastleProps.portraits(), keepUV: true, rough: 0.55 },
   };
 
+  const RAIN_SPEC = { keepUV: true };
+
   function build(scene, opts = {}) {
     const L = CastleLayout;
     const focus = L.FOCUS[opts.room] || L.FOCUS.hall;
@@ -181,6 +183,8 @@ const CastleInterior = (() => {
     const night = hour === 'night';
     const low = GameState.data.settings.quality === 'low';
     const SKY = CastleProps.skyFor(hour);
+    // rain falls just outside every window on a wet day
+    const wetOut = opts.weather === 'rain' || opts.weather === 'storm';
 
     /* The castle is built in its own coordinates and moved so the room
        being used is centred on the world origin. */
@@ -207,6 +211,12 @@ const CastleInterior = (() => {
     const mat = (id) => mats[id] || (mats[id] = makeMaterial(id));
     function makeMaterial(id) {
       const m = MATS[id];
+      if (id === 'rain') {
+        // streaks 1.6 m to a tile; the UVs below are in metres over that
+        const map = CastleProps.rainMap(1, 1);
+        return new THREE.MeshBasicMaterial({ map, color: night ? '#7d8aa0' : '#ffffff', transparent: true,
+          opacity: night ? 0.5 : 0.75, depthWrite: false, side: THREE.DoubleSide, fog: false });
+      }
       if (id === 'glass') {
         return new THREE.MeshBasicMaterial({ color: night ? '#9fb0d0' : '#f4f1e8', transparent: true,
           opacity: night ? 0.07 : 0.1, depthWrite: false, side: THREE.DoubleSide, fog: false });
@@ -230,7 +240,7 @@ const CastleInterior = (() => {
     function add(g, id, x = 0, y = 0, z = 0, ry = 0) {
       if (ry) g.rotateY(ry);
       g.translate(x, y, z);
-      const spec = MATS[id] || {};
+      const spec = MATS[id] || (id === 'rain' ? RAIN_SPEC : {});
       if (!spec.keepUV) EstateMaterials.uv(g, spec.uv || 2);
       else if (!g.attributes.uv) EstateMaterials.uv(g, 1);
       const key = id + '@' + wingOf(g);
@@ -480,6 +490,19 @@ const CastleInterior = (() => {
       const rise = spec.arch ? Math.min(hw + 0.12, h * 0.45) : 0;
       // glass, in the middle of the wall
       onWall(W, c, new THREE.PlaneGeometry(wo, h).translate(0, y0 + h / 2, -T / 2), 'glass');
+      /* and on a wet day the rain, a hand's breadth outside it — unless
+         that would be inside some other room */
+      if (wetOut) {
+        const out = -T - 0.4;
+        const p = wallPoint(W, c, 0, out);
+        if (!L.roomAt(p.x, p.z)) {
+          const rw = wo + 0.8, rh = h + 0.8;
+          const rg = new THREE.PlaneGeometry(rw, rh).translate(0, y0 + h / 2 + 0.2, out);
+          const uv = rg.attributes.uv;
+          for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * rw / 1.6, uv.getY(i) * rh / 1.6);
+          onWall(W, c, rg, 'rain');
+        }
+      }
       if (spec.arch) {
         const s = new THREE.Shape();
         const ar = Math.min(hw, rise - 0.04);
@@ -1856,6 +1879,7 @@ const CastleInterior = (() => {
       m.name = key;
       m.matrixAutoUpdate = false;
       if (id === 'glass') m.renderOrder = 2;
+      if (id === 'rain') m.renderOrder = 1;
       group.add(m); meshes.push(m);
     }
     for (const [colour, geos] of glowBatches) {
@@ -1869,6 +1893,10 @@ const CastleInterior = (() => {
     /* The view out: the loch and the hills, round the whole house. */
     const outside = CastleProps.view(hour, 2, -3.5);
     group.add(outside);
+    // the day's weather on the view: cloud, mist, rain (castle-props.js)
+    const wxView = opts.weather && opts.weather !== 'clear' && CastleProps.weatherView
+      ? CastleProps.weatherView(opts.weather, hour, 2, -3.5) : null;
+    if (wxView) outside.add(wxView.group);
     group.updateMatrixWorld(true);
 
     /* The day's weather (weather.js) and how late in the game it is
@@ -2015,8 +2043,15 @@ const CastleInterior = (() => {
       return null;
     }
 
+    const rainFall = (kind) => (kind === 'storm' ? 1.35 : 1) * 7 / 1.6;
     function update(dt, camPos, t) {
       stepDoors(dt);
+      if (wxView) wxView.step(dt);
+      if (mats.rain && mats.rain.map) {
+        const o = mats.rain.map.offset;
+        o.y = (o.y + rainFall(opts.weather) * dt) % 1;
+        if (opts.weather === 'storm') o.x = (o.x + 0.12 * dt) % 1;
+      }
       lightClock -= dt;
       if (lightClock <= 0) { pickLights(camPos); lightClock = 0.12; }
       stepLights(Math.min(dt, 0.1), t);

@@ -62,6 +62,9 @@ const Stage = (() => {
       Estate.atmosphere(o.hour === 'night');
       const fog = applied.time.fog;
       scene.fog = new THREE.Fog(Sky.PALETTE.fog, fog.near * 1.4, fog.far * 1.5);
+      // the night's weather outside: rain closes the glen in, fog more so
+      if (o.weather === 'fog') { scene.fog.near *= 0.25; scene.fog.far *= 0.3; }
+      else if (o.weather === 'rain' || o.weather === 'storm') { scene.fog.near *= 0.6; scene.fog.far *= 0.65; }
       scene.add(Conditions.lights(cond));
       const castFill=new THREE.DirectionalLight(o.hour==='night'?'#c6d4ff':'#fff4e0',o.hour==='night'?.62:1.0);castFill.position.set(8,16,20);scene.add(castFill);
       /* By day, a sky-blue from above and a grass-green bounce from
@@ -88,6 +91,11 @@ const Stage = (() => {
       const wFog = applied.time.waterFog;
       Water.setFog(wFog.near * 1.3, wFog.far * 1.6, Sky.PALETTE.fog);
     }
+
+    const wetOut = !indoors && (o.weather === 'rain' || o.weather === 'storm') && typeof Weather !== 'undefined' && Weather.rain;
+    const rainFx = wetOut ? Weather.rain(o.hour === 'night'
+      ? { color: '#8e9cb4', opacity: 0.3 } : { color: '#c4cfdc', opacity: 0.34 }) : null;
+    if (rainFx) scene.add(rainFx.object);
 
     const summitY = land.heightAt(0, 0);
     // no car: the show starts with everybody already on the hill (only a scene that asks for one gets it)
@@ -609,6 +617,7 @@ const Stage = (() => {
       if (parkedCar && !o.vehicleDirected) parkedCar.update(dt,t,[],false,null,camera);
       land.update(dt, camera.position, t);
       if (!indoors) Sky.update(dt, camera.position, t);
+      if (rainFx) rainFx.update(Math.min(dt, 0.1), camera.position);
 
       /* Who you can hear, whether or not anybody gave them the floor.
          At the open table, on the hill and round the castle the AIs

@@ -214,7 +214,7 @@ const TraitorChat = (() => {
       + 'aria-label="Message the Traitors"><button type="submit" class="tch-send" aria-label="Send">'
       + '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 12l16-8-6 16-2.5-6.5z" fill="currentColor"/></svg>'
       + '</button></form>'
-      + '<div class="tch-hint"><span class="tch-k">Enter</span> send <span class="tch-k">Esc</span> close</div>';
+      + '<div class="tch-hint"><span class="tch-k">Enter</span> send · empty <span class="tch-k">Enter</span> closes</div>';
     list = root.querySelector('.tch-log');
     input = root.querySelector('input');
     who = root.querySelector('.tch-who');
@@ -334,6 +334,14 @@ const TraitorChat = (() => {
     window.addEventListener('mousedown', (e) => {
       if (open && e.target && e.target.id === 'gl') close();
     }, true);
+    /* With the pointer held, the browser keeps Esc for itself: it lets go
+       of the pointer and the page never sees the key. So losing the lock
+       while the box is up is read as that Esc, and shuts the chat; the
+       next click takes the pointer back. Enter on an empty box shuts it
+       without letting go. */
+    if (typeof Input !== 'undefined' && Input.onLockChange) {
+      Input.onLockChange((locked) => { if (!locked && open) close(); });
+    }
     if (typeof Session !== 'undefined' && Session.on) {
       Session.on('private', () => paint());
       Session.on('phase', () => paint());

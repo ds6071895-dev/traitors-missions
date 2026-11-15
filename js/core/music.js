@@ -32,6 +32,7 @@ const Music = (() => {
   const TICK = 40;            // ms between wakeups
   const EPS = 0.0001;
   const SILENCE_MAX = 9;      // seconds a dramatic silence may hold before the band comes back on its own
+  const CODA_MAX = 12;        // seconds after a closing chord before a scene that never ended gets its band back
   const TALK_DUCK = 0.28;     // the most the band may sit at while somebody talks
   /* Live oscillators before optional notes are skipped. A laptop has
      room for a bigger orchestra than a phone does; anything with a
@@ -460,6 +461,8 @@ const Music = (() => {
     section(name, o = {}) {
       if (!this.ok || !this.sections[name]) return false;
       name = this._resolve(name);
+      // asking for a section after the closing chord means the scene is not over: play again
+      if (this._ended) this._ended = 0;
       if (name === this.secName && !this._switch && !o.force) return true;
       const at = o.at || 'bar';
       this._switch = { name, at, glide: o.glide != null ? o.glide : 1.5 };
@@ -829,6 +832,14 @@ const Music = (() => {
          answer never came (a reveal recovered from state, a ceremony cut
          short) must not leave the band off for the rest of the night. */
       if (this.silent && now - (this._silentAt || now) > SILENCE_MAX) this.silence(false);
+      /* Likewise a closing chord whose scene then waited — on a slow
+         machine at a barrier, on a cut-short ceremony — instead of
+         ending: after a while the band picks up again rather than
+         leaving the room in silence ("the music randomly stopped"). */
+      if (this._ended && now > this._ended + CODA_MAX) {
+        this._ended = 0;
+        this.next = this._snap(Math.max(this.next, now + 0.05));
+      }
 
       // the tension walks to where it was sent
       if (this._tens) {

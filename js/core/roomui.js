@@ -28,7 +28,31 @@ const RoomUI = (() => {
 
   /* ---------------- the floor ---------------- */
 
+  /* Enter presses whichever "done" the bar is showing — "I've said
+     enough" on your turn, "Done talking" at the open table. Not while
+     typing, and not when a focused button would take the Enter itself. */
+  let doneKeyWired = false;
+  function wireDoneKey() {
+    if (doneKeyWired || typeof window === 'undefined' || !window.addEventListener) return;
+    doneKeyWired = true;
+    window.addEventListener('keydown', (ev) => {
+      if ((ev.code !== 'Enter' && ev.code !== 'NumpadEnter') || ev.repeat || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      const done = el('floor-done');
+      if (!done || done.hidden || done.disabled || !done.onclick) return;
+      const a = document.activeElement;
+      if (a && a !== document.body && /INPUT|TEXTAREA|SELECT|BUTTON|A/.test(a.tagName || '')) return;
+      if (a && a.isContentEditable) return;
+      ev.preventDefault();
+      done.onclick();
+    });
+  }
+  const setDoneKey = (done, on) => {
+    if (!done.setAttribute) return;
+    if (on) done.setAttribute('data-kbd', 'Enter'); else done.removeAttribute('data-kbd');
+  };
+
   function showFloor(e) {
+    wireDoneKey();
     const bar = el('floor-bar');
     if (!bar) return;
     if (!e || e.done || (!e.playerId && !e.all)) { hideFloor(); return; }
@@ -55,6 +79,7 @@ const RoomUI = (() => {
       done.hidden = !mine;
       done.disabled = false;
       done.textContent = "I've said enough";
+      setDoneKey(done, !!mine);
       done.onclick = mine ? () => {
         AudioBus.play('ui-click');
         Net.send({ type: 'yieldFloor', playerId: e.playerId });
@@ -94,6 +119,7 @@ const RoomUI = (() => {
       done.hidden = !!(e.hideDone || !(me && me.alive));
       done.disabled = mineReady;
       done.textContent = mineReady ? 'Waiting…' : 'Done talking';
+      setDoneKey(done, !mineReady);
       done.onclick = mineReady ? null : () => {
         AudioBus.play('ui-click');
         Net.send({ type: 'yieldFloor', playerId: me ? me.id : null });
