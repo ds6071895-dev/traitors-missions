@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a1119'/%3E%3Cpath d='M5 21h22l-3 5H8z' fill='%23d81e40'/%3E%3Cpath d='M11 20V9l11 11z' fill='%23f2c14e'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Caveat:wght@700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Caveat:wght@700&family=Cinzel:wght@700;800&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/boat.css">
 </head>
@@ -191,37 +191,69 @@
       <div class="lr-status" id="lobby-status">Waiting for players… 1/8</div>
       <!-- Everybody's own, and only the host hears it: it leans the deal,
            never decides it. -->
-      <label class="lr-task lr-want" for="lobby-want">
-        <span><b>Want to be a Traitor?</b><small>leans the draw, never decides it</small></span>
-        <input type="range" id="lobby-want" min="-2" max="2" step="1" value="0" data-nav>
-        <output id="lobby-want-out">Don't mind</output>
+      <label class="lr-row lr-want" for="lobby-want">
+        <span class="lr-label"><b>Want to be a Traitor?</b><small>Leans the draw, never decides it. Only the host's machine hears it.</small></span>
+        <span class="lr-control">
+          <input type="range" id="lobby-want" min="-2" max="2" step="1" value="0" data-nav>
+          <output id="lobby-want-out">Don't mind</output>
+        </span>
       </label>
+      <!-- The night's rules, as everybody will play them. The host's
+           copy is the one that counts; guests see a read-only summary. -->
+      <div class="lr-rules" id="lobby-rules" aria-live="polite"></div>
       <div class="lr-opts" id="lobby-opts" hidden>
-        <div class="lr-task lr-cast">
-          <span><b>Traitors</b><small>how many are dealt</small></span>
-          <div class="lr-cast-chips" id="lobby-cast" role="group" aria-label="Traitors dealt">
-            <button class="chip" data-cast="auto" data-nav>Auto</button>
-            <button class="chip" data-cast="1" data-nav>1</button>
-            <button class="chip" data-cast="2" data-nav>2</button>
-            <button class="chip" data-cast="random" data-nav>1 or 2</button>
+        <div class="lr-opts-head">
+          <b>House rules</b>
+          <div class="lr-tabs" id="lobby-tabs" role="tablist" aria-label="Settings">
+            <button type="button" class="lr-tab on" role="tab" data-tab="cast" aria-selected="true" data-nav>Cast</button>
+            <button type="button" class="lr-tab" role="tab" data-tab="rules" aria-selected="false" data-nav>Rules</button>
+            <button type="button" class="lr-tab" role="tab" data-tab="ai" aria-selected="false" data-nav>AI players</button>
           </div>
         </div>
-        <label class="lr-task lr-want" for="lobby-none">
-          <span><b>Chance of none</b><small>a night with no Traitor at all</small></span>
-          <input type="range" id="lobby-none" min="0" max="50" step="5" value="0" data-nav>
-          <output id="lobby-none-out">Off</output>
-        </label>
-        <label class="lr-task" for="lobby-task">
-          <span><b>Jobs time</b><small>how long the day in the castle lasts</small></span>
-          <input type="range" id="lobby-task" min="30" max="180" step="15" value="180" data-nav>
-          <output id="lobby-task-out">3:00</output>
-        </label>
-        <label class="lr-task" for="lobby-twists">
-          <span><b>Twists</b><small>some days, Claudia changes one rule</small></span>
-          <input type="checkbox" id="lobby-twists" checked data-nav>
-          <output id="lobby-twists-out">On</output>
-        </label>
-        <div class="lr-ai" id="lobby-ai"></div>
+        <section class="lr-pane" data-pane="cast" role="tabpanel">
+          <div class="lr-row">
+            <span class="lr-label"><b>Traitors</b><small>How many are dealt</small></span>
+            <div class="lr-control lr-cast-chips" id="lobby-cast" role="group" aria-label="Traitors dealt">
+              <button type="button" class="chip" data-cast="auto" data-nav>Auto</button>
+              <button type="button" class="chip" data-cast="1" data-nav>1</button>
+              <button type="button" class="chip" data-cast="2" data-nav>2</button>
+              <button type="button" class="chip" data-cast="random" data-nav>1 or 2</button>
+            </div>
+          </div>
+          <label class="lr-row" for="lobby-none">
+            <span class="lr-label"><b>Chance of none</b><small>A night with no Traitor at all</small></span>
+            <span class="lr-control">
+              <input type="range" id="lobby-none" min="0" max="50" step="5" value="0" data-nav>
+              <output id="lobby-none-out">Off</output>
+            </span>
+          </label>
+        </section>
+        <section class="lr-pane" data-pane="rules" role="tabpanel" hidden>
+          <label class="lr-row" for="lobby-task">
+            <span class="lr-label"><b>Jobs time</b><small>How long the day in the castle lasts</small></span>
+            <span class="lr-control">
+              <input type="range" id="lobby-task" min="30" max="180" step="15" value="180" data-nav>
+              <output id="lobby-task-out">3:00</output>
+            </span>
+          </label>
+          <label class="lr-row lr-toggle" for="lobby-twists">
+            <span class="lr-label"><b>Twists</b><small id="lobby-twists-note">Some days, Claudia changes one rule</small></span>
+            <span class="lr-control">
+              <input type="checkbox" id="lobby-twists" checked data-nav><i class="lr-switch" aria-hidden="true"></i>
+              <output id="lobby-twists-out">On</output>
+            </span>
+          </label>
+          <label class="lr-row lr-toggle" for="lobby-hidden">
+            <span class="lr-label"><b>Hidden roles</b><small>The banished leave without saying Traitor or Faithful. All is told at the end.</small></span>
+            <span class="lr-control">
+              <input type="checkbox" id="lobby-hidden" data-nav><i class="lr-switch" aria-hidden="true"></i>
+              <output id="lobby-hidden-out">Off</output>
+            </span>
+          </label>
+        </section>
+        <section class="lr-pane" data-pane="ai" role="tabpanel" hidden>
+          <div class="lr-ai" id="lobby-ai"></div>
+        </section>
       </div>
       <div class="lr-actions">
         <button class="btn ghost" id="lobby-leave" data-nav>Leave</button>
@@ -348,15 +380,9 @@
   </svg>
 </button>
 
-<!-- The Traitors' whisper: hold it and only the other Traitors hear you,
-     wherever they are. Shown to a living Traitor alone; G on a keyboard. -->
-<button id="whisper-btn" data-kbd="R" title="Hold to whisper to the Traitors (G)" aria-label="Hold to whisper to the Traitors" hidden>
-  <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-    <path d="M4 5h16v10H9l-5 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-    <path d="M8.5 10h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-  </svg>
-  <span>Traitors</span>
-</button>
+<!-- The Traitors' chat: written, and read by the living Traitors alone.
+     Shown to a living Traitor; R on a keyboard (see traitor-chat.js). -->
+<button id="tchat-btn" type="button" hidden></button>
 
 <!-- The band, separately from the voices: normal, quiet, off. M on a
      keyboard. -->
@@ -478,6 +504,7 @@
 <script src="js/core/slate.js"></script>
 <script src="js/core/ghost.js"></script>
 <script src="js/core/notebook.js"></script>
+<script src="js/core/traitor-chat.js"></script>
 <script src="js/core/moderator.js"></script>
 <script src="js/core/ai.js"></script>
 <script src="js/core/ai-players.js"></script>

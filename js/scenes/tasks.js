@@ -895,8 +895,8 @@ class TasksScene {
     const s = Session.state, c = s.chores, v = Session.myPrivate() || {};
     const now = Date.now();
     const vc = typeof VoiceChat !== 'undefined' ? VoiceChat : null;
-    // your own microphone open, or a whisper: the private layers go quiet for a moment after
-    if (vc && ((vc.selfLevel || 0) > 0.05 || vc.whispering)) this._micUntil = now + 1500;
+    // your own microphone open: the private layers go quiet for a moment after
+    if (vc && (vc.selfLevel || 0) > 0.05) this._micUntil = now + 1500;
     const others = [];
     for (const p of Session.alive()) {
       if (p.id === this._meId) continue;

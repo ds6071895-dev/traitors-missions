@@ -355,6 +355,7 @@ const Session = (() => {
       taskSeconds: clampTask(opts && opts.taskSeconds === undefined ? TASK_SECONDS : opts && opts.taskSeconds),
       cast: cleanCast(opts && opts.cast),  // what the host chose, which everybody may know
       twists: !(opts && opts.twists === false),  // the host's switch: may a day change the rules
+      hideRoles: !!(opts && opts.hideRoles),     // the host's switch: the banished never say what they were
       twist: null,              // { day, id } — today's twist, said aloud (twists.js)
       twistsUsed: [],           // [{ day, id }] — each comes up at most once
       forceTwist: opts && opts.rehearsal && opts.forceTwist ? String(opts.forceTwist).slice(0, 16) : null,
@@ -783,9 +784,11 @@ const Session = (() => {
     const used = (state.twistsUsed || []).map(t => t.id);
     const yesterday = (state.twistsUsed || []).some(t => t.day === d - 1);
     const last = alive().length - 2 <= FINALE_AT;
-    let id = Twists.pick(state.seed, d, { used, yesterday, last });
+    // with every role kept back already, a veiled day would change nothing
+    const exclude = state.hideRoles ? ['veiled'] : [];
+    let id = Twists.pick(state.seed, d, { used, yesterday, last, exclude });
     if (state.forceTwist && d >= 1 && Twists.DECK.indexOf(state.forceTwist) >= 0
-        && used.indexOf(state.forceTwist) < 0) id = state.forceTwist;
+        && used.indexOf(state.forceTwist) < 0 && exclude.indexOf(state.forceTwist) < 0) id = state.forceTwist;
     if (!id) return;
     state.twist = { day: d, id };
     (state.twistsUsed || (state.twistsUsed = [])).push({ day: d, id });
@@ -1954,8 +1957,10 @@ const Session = (() => {
     if (!p) return false;
     const real = roleOfSeat(p.seat);
     /* Veiled: they leave without saying. The room is told 'veiled', and
-       the role stays in here until the game is over. */
-    const veiled = f.kind === 'table' && isTwist('veiled') && !allFoundWithout(p);
+       the role stays in here until the game is over. A veiled day does
+       it at one table; the host's hidden-roles switch does it at every
+       table and at the fire. */
+    const veiled = (state.hideRoles || (f.kind === 'table' && isTwist('veiled'))) && !allFoundWithout(p);
     if (veiled) secret.veiled[p.id] = real;
     const role = veiled ? 'veiled' : real;
 

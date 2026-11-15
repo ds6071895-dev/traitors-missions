@@ -51,8 +51,8 @@ function sleepAndWake(ctx) {
 }
 /* Start, and play the first day out with nobody poisoned and the table
    skipped, into the second day's castle — with `twist` forced. */
-function toDayTwo(ctx, twist, players = EIGHT, seed = 41) {
-  S(ctx).startParty({ seed, players, mode: 'host', rehearsal: true, forceTwist: twist });
+function toDayTwo(ctx, twist, players = EIGHT, seed = 41, extra = {}) {
+  S(ctx).startParty(Object.assign({ seed, players, mode: 'host', rehearsal: true, forceTwist: twist }, extra));
   eyes(ctx);
   S(ctx).dispatch({ type: 'advance', authority: true });
   // a job for one Faithful, so day one has a shield
@@ -168,6 +168,40 @@ test('veiled: the banished leave without a word, until the verdict', () => {
 test('veiled never hides the banishment that ends the game', () => {
   const ctx = fresh();
   toDayTwo(ctx, 'veiled', SEVEN.slice(0, 6), 44);   // six: one Traitor
+  toTable(ctx);
+  const traitor = S(ctx).alive().find(p => isTraitor(ctx, p.id));
+  if (!traitor) { ok(true, 'the traitor was exposed on day one'); return; }
+  const reveals = [];
+  S(ctx).on('reveal', (e) => reveals.push(e));
+  voteFor(ctx, traitor.id);
+  S(ctx).dispatch({ type: 'reveal' });
+  eq(reveals[0].role, 'traitor', 'the last Traitor out says so');
+});
+
+test('hidden roles (the host\'s switch): every banishment is veiled, and the veiled twist never comes', () => {
+  const ctx = fresh();
+  for (let seed = 1; seed < 300; seed++) {
+    for (let d = 1; d < 6; d++) ok(ctx.Twists.pick(seed, d, { exclude: ['veiled'] }) !== 'veiled', 'veiled is out of the deck');
+  }
+  toDayTwo(ctx, 'veiled', EIGHT, 41, { hideRoles: true });
+  eq(S(ctx).state.hideRoles, true, 'the room knows the rule');
+  ok(!S(ctx).state.twist || S(ctx).state.twist.id !== 'veiled', 'not even when forced');
+  toTable(ctx);
+  const faithful = S(ctx).alive().find(p => !isTraitor(ctx, p.id));
+  const reveals = [];
+  S(ctx).on('reveal', (e) => reveals.push(e));
+  voteFor(ctx, faithful.id);
+  S(ctx).dispatch({ type: 'reveal' });
+  eq(reveals[0].role, 'veiled', 'a plain day says nothing either');
+  eq(S(ctx).state.banished.find(x => x.id === faithful.id).role, 'veiled', 'nor the record');
+  ok(!/faithful/i.test(JSON.stringify(S(ctx).state.finale.burned)), 'nor the burned list');
+});
+
+test('hidden roles still say the banishment that ends the game, and off is the default', () => {
+  const ctx = fresh();
+  S(ctx).startParty({ seed: 5, players: EIGHT, mode: 'host' });
+  eq(S(ctx).state.hideRoles, false, 'off unless the host turns it on');
+  toDayTwo(ctx, null, SEVEN.slice(0, 6), 44, { hideRoles: true });   // six: one Traitor
   toTable(ctx);
   const traitor = S(ctx).alive().find(p => isTraitor(ctx, p.id));
   if (!traitor) { ok(true, 'the traitor was exposed on day one'); return; }

@@ -157,6 +157,8 @@ const Bots = (() => {
       // `twist=sealed` forces that twist on the first day it may come; `twists=off` has none
       twist: q.has('twist') ? String(q.get('twist')).slice(0, 16) : null,
       twists: q.get('twists') !== 'off',
+      // `roles=hidden`: nobody banished says what they were until the end
+      hideRoles: q.get('roles') === 'hidden',
     };
   }
 
@@ -464,6 +466,7 @@ const Bots = (() => {
       parts: cfg.parts,
       traitorSeat: cfg.traitorSeat,
       twists: cfg.twists !== false,
+      hideRoles: !!cfg.hideRoles,
       forceTwist: cfg.twist || null,
     });
     think();

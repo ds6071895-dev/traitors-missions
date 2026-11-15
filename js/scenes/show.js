@@ -45,6 +45,7 @@ const Show = (() => {
       ai: opts.ai || null,
       taskSeconds: opts.taskSeconds,
       twists: opts.twists !== false,
+      hideRoles: !!opts.hideRoles,
       forceTwist: opts.forceTwist || null,
       cast: opts.cast || null,
       wants: opts.wants || null,

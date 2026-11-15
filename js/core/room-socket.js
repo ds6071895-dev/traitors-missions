@@ -49,7 +49,8 @@ const RoomSocket = (() => {
       updateProfile(profile) { reliable({ type: 'profile', profile }); },
       setLobby() { reliable({ type: 'lobby' }); },
       setRoutes(routes) { reliable({ type: 'routes', routes }); },
-      setWhisper(on, id) { reliable(id ? { type: 'whisper', on: !!on, id } : { type: 'whisper', on: !!on }); },
+      // the Traitors' chat: as yourself, or (the host) for a seat it runs
+      traitorChat(text, id) { reliable(id ? { type: 'tchat', text: String(text), id } : { type: 'tchat', text: String(text) }); },
       sendAI(message) { reliable(Object.assign({}, message, { type: 'ai' })); },
       sendClaudia(message) { reliable(Object.assign({}, message, { type: 'claudia' })); },
       sendAudio(data) {
@@ -109,7 +110,7 @@ const RoomSocket = (() => {
       } else if (msg.type === 'post' && room.onMessage) room.onMessage(msg.channel, msg.data, msg.from);
       else if (msg.type === 'ai' && room.onAI) room.onAI(msg);
       else if (msg.type === 'claudia' && room.onClaudia) room.onClaudia(msg);
-      else if (msg.type === 'whisper' && room.onWhisper) room.onWhisper(msg);
+      else if (msg.type === 'tchat' && room.onTraitorChat) room.onTraitorChat(msg);
     }
     function connect() {
       if (stopped) return;

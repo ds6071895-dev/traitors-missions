@@ -1134,59 +1134,89 @@ const Stage = (() => {
     return g;
   }
 
-  /* The turret: a small round table under a red cloth, a map of the
-     house on it, a candelabrum, a goblet at each place, and the tall
-     chairs of the people who decide. */
+  /* The turret: a round oak table under red velvet, and on it what the
+     Traitors decide with — the map of the house with its pieces, a
+     dagger, a green poison bottle, a letter under black wax, a goblet of
+     wine at each place, and a low tray of candles in the middle.
+     Everything on the table stays under a hand's height: across it is
+     the face of the other Traitor, and nothing stands in the way of it
+     (the old five-armed candelabrum stood exactly at eye level). The
+     light is low and warm, from the tray, so faces are lit from below. */
   function buildConclave(land, props, seats) {
     const g = new THREE.Group();
     const y = land.heightAt(0, 0);
     g.position.set(0, y, 0);
     const m = furnitureMats('velvet');
     const dark = EstateMaterials.material('timber', { color: '#5a3c2a', roughness: 0.45 });
-    const TOP = 0.8;
-    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.74, 0.74, 0.06, 48), dark);
-    top.position.y = TOP - 0.03; g.add(top);
-    const cloth = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.006, 48),
-      CastleSurfaces.material('velvet', { color: '#661220', roughness: 0.85 }));
-    cloth.position.y = TOP + 0.003; g.add(cloth);
-    const ped = new THREE.Mesh(CastleProps.lathe([[0.32, 0], [0.33, 0.04], [0.16, 0.1], [0.11, 0.3], [0.15, 0.45],
-                                                  [0.1, 0.62], [0.26, 0.7], [0, 0.74]], 24), dark);
-    g.add(ped);
-    const map = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.4),
-      CastleSurfaces.material('parchment', { roughness: 1, side: THREE.DoubleSide }));
-    map.rotation.x = -Math.PI / 2; map.rotation.z = 0.3; map.position.set(0.12, TOP + 0.0075, 0.1); g.add(map);
-    // rolled ends, in the map's own frame so they sit on it
+    const darker = EstateMaterials.material('timber', { color: '#3c271b', roughness: 0.5 });
+    const gold = CastleSurfaces.material('metal', { color: '#c9a24c', metalness: 0.5, roughness: 0.32 });
+    const iron = CastleSurfaces.material('iron', { color: '#2d2b2a', metalness: 0.4, roughness: 0.55 });
+    const pewter = CastleSurfaces.material('metal', { color: '#8d8f8e', metalness: 0.55, roughness: 0.38 });
+    const parchment = CastleSurfaces.material('parchment', { roughness: 1 });
+    const add = (geo, mat, x = 0, yy = 0, z = 0, ry = 0) => {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x, yy, z); mesh.rotation.y = ry; g.add(mesh); return mesh;
+    };
+    const TOP = 0.8, R = 0.82;
+    // the table: a thick top with a moulded edge, an apron, one carved pedestal on four feet
+    add(new THREE.CylinderGeometry(R, R, 0.06, 64), dark, 0, TOP - 0.03, 0);
+    const edge = add(new THREE.TorusGeometry(R, 0.03, 8, 64), darker, 0, TOP - 0.035, 0); edge.rotation.x = Math.PI / 2;
+    add(new THREE.CylinderGeometry(R - 0.08, R - 0.08, 0.12, 48, 1, true), darker, 0, TOP - 0.12, 0);
+    add(CastleProps.lathe([[0.2, 0], [0.18, 0.06], [0.1, 0.12], [0.08, 0.3], [0.12, 0.42], [0.075, 0.6],
+                           [0.2, 0.7], [0.24, 0.74], [0, 0.74]], 24), dark);
+    for (let i = 0; i < 4; i++) {
+      const a = i / 4 * Math.PI * 2 + Math.PI / 4;
+      add(new THREE.BoxGeometry(0.5, 0.07, 0.09), darker, Math.cos(a) * 0.22, 0.035, Math.sin(a) * 0.22, -a);
+    }
+    // the cloth, with a gold braid round it
+    add(new THREE.CylinderGeometry(R - 0.1, R - 0.1, 0.006, 64), CastleSurfaces.material('velvet', { color: '#661220', roughness: 0.85 }), 0, TOP + 0.003, 0);
+    const braid = add(new THREE.TorusGeometry(R - 0.1, 0.008, 6, 64), gold, 0, TOP + 0.006, 0); braid.rotation.x = Math.PI / 2;
+
+    // the map of the house, its corners held flat by rolled ends, and the pieces on it
+    const map = add(new THREE.PlaneGeometry(0.5, 0.36), parchment, -0.2, TOP + 0.008, 0.18);
+    map.rotation.x = -Math.PI / 2; map.rotation.z = 0.35;
     for (const e of [-1, 1]) {
-      const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.42, 10),
-        CastleSurfaces.material('parchment', { roughness: 1 }));
-      roll.position.set(e * 0.28, 0, 0.022);
+      const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.38, 10), parchment);
+      roll.position.set(e * 0.25, 0, 0.018);
       map.add(roll);
     }
-    const iron = CastleSurfaces.material('iron', { color: '#2d2b2a', metalness: 0.4, roughness: 0.55 });
-    const stem = new THREE.Mesh(CastleProps.lathe([[0.12, 0], [0.1, 0.03], [0.03, 0.06], [0.025, 0.32], [0.05, 0.34], [0, 0.35]], 14), iron);
-    stem.position.set(-0.22, TOP, -0.12); g.add(stem);
+    const pawn = CastleProps.lathe([[0.014, 0], [0.012, 0.006], [0.006, 0.012], [0.005, 0.026], [0.009, 0.032], [0, 0.04]], 10);
+    const red = new THREE.MeshStandardMaterial({ color: '#8a1426', roughness: 0.4 });
+    const ebony = new THREE.MeshStandardMaterial({ color: '#141010', roughness: 0.35 });
+    [[-0.3, 0.12, red], [-0.16, 0.26, ebony], [-0.1, 0.1, ebony], [-0.26, 0.24, ebony], [-0.06, 0.2, red]].forEach(([x, z, mat]) =>
+      add(pawn, mat, x, TOP + 0.009, z));
+    // a dagger laid across the cloth
+    const blade = add(new THREE.BoxGeometry(0.2, 0.004, 0.022), CastleSurfaces.material('metal', { color: '#c9ccd0', metalness: 0.7, roughness: 0.22 }),
+      0.22, TOP + 0.01, 0.2, 0.6);
+    blade.geometry.translate(0.1, 0, 0);
+    add(new THREE.BoxGeometry(0.012, 0.012, 0.08), gold, 0.22, TOP + 0.012, 0.2, 0.6);
+    const hilt = add(new THREE.CylinderGeometry(0.009, 0.01, 0.09, 8), ebony, 0.22, TOP + 0.012, 0.2, 0.6);
+    hilt.rotation.z = Math.PI / 2; hilt.geometry.translate(0, 0.045, 0);
+    // the poison: a small green bottle with a cork, and its stopper beside it
+    const glass = new THREE.MeshStandardMaterial({ color: '#1f5a2a', roughness: 0.12, metalness: 0.1, transparent: true, opacity: 0.85 });
+    add(CastleProps.lathe([[0.032, 0], [0.034, 0.01], [0.034, 0.06], [0.014, 0.085], [0.011, 0.105], [0.014, 0.11], [0, 0.11]], 14), glass, 0.3, TOP + 0.006, -0.18);
+    add(new THREE.CylinderGeometry(0.009, 0.008, 0.02, 8), CastleSurfaces.material('leather', { color: '#8a6338' }), 0.36, TOP + 0.016, -0.14);
+    // a letter, sealed in black wax
+    add(new THREE.BoxGeometry(0.16, 0.003, 0.11), parchment, -0.12, TOP + 0.008, -0.3, 0.25);
+    add(new THREE.CylinderGeometry(0.018, 0.018, 0.006, 14), ebony, -0.12, TOP + 0.012, -0.3);
+    // the middle: a pewter tray of low candles, the only light in the room that matters
+    add(new THREE.CylinderGeometry(0.2, 0.18, 0.018, 32), pewter, 0, TOP + 0.009, 0);
+    const rim = add(new THREE.TorusGeometry(0.2, 0.008, 6, 32), pewter, 0, TOP + 0.018, 0); rim.rotation.x = Math.PI / 2;
     const [wax, flame, core] = flameMats();
-    const pts = [];
-    for (let i = 0; i < 5; i++) {
-      const a = i / 5 * Math.PI * 2;
-      const x = -0.22 + Math.cos(a) * 0.16, z = -0.12 + Math.sin(a) * 0.16;
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.016, 0.016), iron);
-      arm.position.set(-0.22 + Math.cos(a) * 0.08, TOP + 0.3, -0.12 + Math.sin(a) * 0.08); arm.rotation.y = -a; g.add(arm);
-      const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.02, 0.035, 10), iron);
-      cup.position.set(x, TOP + 0.325, z); g.add(cup);
-      pts.push([x, TOP + 0.342, z, 0.14 + (i % 3) * 0.05, 0.022]);
-    }
+    const pts = [[0, 0, 0.13, 0.034], [0.1, 0.05, 0.08, 0.028], [-0.09, 0.07, 0.1, 0.03], [-0.06, -0.1, 0.07, 0.026], [0.08, -0.08, 0.11, 0.03]]
+      .map(([x, z, h, r]) => [x, TOP + 0.018, z, h, r]);
     pillarCandles(g, pts, wax, flame, core);
-    const silver = CastleSurfaces.material('metal', { color: '#c9a24c', metalness: 0.45, roughness: 0.35 });
+    // a goblet of wine at every place
     const gobletG = CastleProps.lathe([[0.04, 0], [0.035, 0.008], [0.008, 0.02], [0.008, 0.09], [0.035, 0.11], [0.045, 0.17], [0.041, 0.17], [0.03, 0.115], [0, 0.11]], 14);
+    const wine = new THREE.MeshStandardMaterial({ color: '#3d0610', roughness: 0.1, metalness: 0.2 });
     for (const s of seats) {
       seatChair(g, m, s, y, { back: 1.55, arms: true });
       const d = Math.hypot(s.pos.x, s.pos.z) || 1;
-      const goblet = new THREE.Mesh(gobletG, silver);
-      goblet.position.set(s.pos.x / d * 0.55, TOP + 0.006, s.pos.z / d * 0.55);
-      g.add(goblet);
+      const gx = s.pos.x / d * 0.58 + (-s.pos.z / d) * 0.16, gz = s.pos.z / d * 0.58 + (s.pos.x / d) * 0.16;
+      add(gobletG, gold, gx, TOP + 0.006, gz);
+      add(new THREE.CylinderGeometry(0.037, 0.037, 0.003, 14), wine, gx, TOP + 0.006 + 0.155, gz);
     }
-    g.userData.candles = [candleLight(g, -0.22, TOP + 0.75, -0.12, 4.5, 6)];
+    g.userData.candles = [candleLight(g, 0, TOP + 0.42, 0, 5.2, 7)];
     props.add(g);
     return g;
   }

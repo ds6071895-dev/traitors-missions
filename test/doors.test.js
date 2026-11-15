@@ -62,20 +62,20 @@ test('every door hangs in a doorway the two rooms share, and fits it', () => {
 
 test('which rooms can be shut up: the ones with a door in every doorway', () => {
   const L = fresh().CastleLayout;
-  for (const id of ['chapel', 'study', 'billiard', 'drawing', 'scullery', 'turret', 'bed0', 'gun', 'conservatory', 'kitchen']) {
+  for (const id of ['whisky', 'study', 'billiard', 'drawing', 'scullery', 'turret', 'bed0', 'gun', 'conservatory', 'kitchen']) {
     ok(L.SEALABLE.has(id), id + ' can be shut up');
   }
   for (const id of ['hall', 'round', 'corridor', 'gallery', 'library', 'west-passage', 'stair']) {
     ok(!L.SEALABLE.has(id), id + ' is a way through, with an archway in it');
   }
-  eq(L.sealed('chapel', {}), false, 'not with its door open');
-  eq(L.sealed('chapel', { chapel: 1 }), true, 'shut');
+  eq(L.sealed('whisky', {}), false, 'not with its door open');
+  eq(L.sealed('whisky', { whisky: 1 }), true, 'shut');
   eq(L.sealed('gun', { 'gun-n': 1 }), false, 'a room with two doors needs both shut');
   eq(L.sealed('gun', { 'gun-n': 1, 'gun-s': 1 }), true);
-  eq(L.apart('chapel', 'library', { chapel: 1 }), true, 'the shut door is between them');
-  eq(L.apart('chapel', 'chapel', { chapel: 1 }), false, 'the same side of it');
-  eq(L.apart('library', 'hall', { chapel: 1 }), false, 'nothing to do with them');
-  eq(L.apart(null, 'chapel', { chapel: 1 }), true, 'a doorway is outside');
+  eq(L.apart('whisky', 'library', { whisky: 1 }), true, 'the shut door is between them');
+  eq(L.apart('whisky', 'whisky', { whisky: 1 }), false, 'the same side of it');
+  eq(L.apart('library', 'hall', { whisky: 1 }), false, 'nothing to do with them');
+  eq(L.apart(null, 'whisky', { whisky: 1 }), true, 'a doorway is outside');
 });
 
 test('every room is a walk from the hall', () => {
@@ -104,7 +104,7 @@ test('the house is much bigger, and the jobs are the same jobs', () => {
   ok(area > 2000, 'over two thousand square metres: ' + Math.round(area));
   eq(ctx.Chores.STATIONS.length, 88, 'twice the old forty-four stations');
   const rooms = new Set(ctx.Chores.STATIONS.map(s => s.room));
-  for (const id of ['library', 'chapel', 'kitchen', 'scullery', 'gallery', 'billiard', 'drawing', 'study', 'gun', 'conservatory']) {
+  for (const id of ['library', 'whisky', 'kitchen', 'scullery', 'gallery', 'billiard', 'drawing', 'study', 'gun', 'conservatory']) {
     ok(rooms.has(id), 'a job in the ' + id);
   }
 });
@@ -114,20 +114,20 @@ section('doors — the session');
 test('a door is shut by somebody standing at it, and opened again by anybody', () => {
   const ctx = fresh();
   const put = day(ctx);
-  const d = ctx.CastleLayout.doorById('chapel');
-  door(ctx, 'chapel', true, 'b');
+  const d = ctx.CastleLayout.doorById('whisky');
+  door(ctx, 'whisky', true, 'b');
   eq(ctx.Session.state.doors, {}, 'not from the hall');
-  put('b', d.x, d.z - 1.2);                         // just inside the chapel
+  put('b', d.x, d.z - 1.2);                         // just inside the whisky room
   const heard = [];
   ctx.Session.on('door', (e) => heard.push(e));
-  door(ctx, 'chapel', true, 'b');
-  eq(ctx.Session.state.doors, { chapel: 1 }, 'shut');
-  eq(heard, [{ doorId: 'chapel', shut: true }], 'every screen is told which door, never who');
+  door(ctx, 'whisky', true, 'b');
+  eq(ctx.Session.state.doors, { whisky: 1 }, 'shut');
+  eq(heard, [{ doorId: 'whisky', shut: true }], 'every screen is told which door, never who');
   put('c', d.x, d.z + 1.2);                         // in the library, at the other side of it
-  door(ctx, 'chapel', false, 'c');
-  eq(ctx.Session.state.doors, { chapel: 1 }, 'not twice in half a second');
+  door(ctx, 'whisky', false, 'c');
+  eq(ctx.Session.state.doors, { whisky: 1 }, 'not twice in half a second');
   clock += 600;
-  door(ctx, 'chapel', false, 'c');
+  door(ctx, 'whisky', false, 'c');
   eq(ctx.Session.state.doors, {}, 'anybody can open it');
 });
 
@@ -188,13 +188,13 @@ test('somebody who sees a door shut writes down who shut it', () => {
 test('behind a shut door is a note of its own', () => {
   const ctx = fresh();
   const put = day(ctx);
-  const d = ctx.CastleLayout.doorById('chapel');
+  const d = ctx.CastleLayout.doorById('whisky');
   put('a', d.x - 0.5, d.z - 2); put('b', d.x + 0.5, d.z - 2);
-  door(ctx, 'chapel', true, 'a');
+  door(ctx, 'whisky', true, 'a');
   clock += 4000;
   ctx.Session.dispatch({ type: 'tasksTick', authority: true });
   const last = ctx.Session.privateView('a').notes.slice(-1)[0];
-  eq([last.room, last.ids, last.shut], ['chapel', ['b'], true], 'shut in the chapel with B');
+  eq([last.room, last.ids, last.shut], ['whisky', ['b'], true], 'shut in the whisky room with B');
 });
 
 section('doors — who hears whom');
@@ -232,24 +232,31 @@ test('the server keeps a shut room\'s voices in it, both ways', async () => {
   }
 });
 
-section('the Traitors\' whisper — the server');
+section('the Traitors\' chat — the server');
 
-test('a living Traitor holding the whisper is heard by the Traitors alone, anywhere', async () => {
+test('a living Traitor\'s message reaches the other living Traitors and the host, and nobody else', async () => {
   const { createServer } = require('../server');
   const app = createServer({});
   try {
-    const room = { routes: { open: ['a', 'b', 'c', 'd'], night: null, rooms: [['a', 'b']], traitors: ['a', 'c'] },
-      whisper: new Set(['a']) };
-    eq(app.hears(room, 'c', 'a'), true, 'the other Traitor hears through a shut door');
-    eq(app.hears(room, 'b', 'a'), false, 'a Faithful shut in beside them hears nothing');
-    eq(app.hears(room, 'd', 'a'), false, 'nor does anybody else');
-    room.whisper = new Set(['b']);
-    eq(app.hears(room, 'a', 'b'), true, 'a Faithful cannot whisper: their voice goes the usual way');
-    eq(app.hears(room, 'c', 'b'), false, 'and the shut door still holds it in');
-    room.whisper = new Set(['a']);
-    room.routes.open = ['b', 'c', 'd'];
-    room.routes.traitors = ['c'];
-    eq(app.hears(room, 'c', 'a'), false, 'a Traitor who is out cannot whisper to the living');
+    const got = {};
+    const member = (id) => ({ id, queue: [], bytes: 0, outSeq: 0, ws: null });
+    const room = { hostId: 'h', members: new Map(['h', 'a', 'b', 'c', 'd'].map(id => [id, member(id)])),
+      routes: { open: ['h', 'a', 'b', 'c', 'x'], night: null, rooms: null, traitors: ['a', 'c', 'x', 'd'] } };
+    for (const p of room.members.values()) {
+      Object.defineProperty(p, 'ws', { get: () => ({ readyState: 1, bufferedAmount: 0,
+        send: (data) => { const m = JSON.parse(data); if (m.type === 'tchat') (got[p.id] = got[p.id] || []).push(m); } }) });
+    }
+    app.traitorChat(room, room.members.get('a'), 'a', '  poison   Bo tonight ');
+    eq(Object.keys(got).sort(), ['c', 'h'], 'the other living Traitor and the host');
+    eq(got.c[0].text, 'poison Bo tonight', 'tidied');
+    eq(got.c[0].id, 'a');
+    for (const k in got) delete got[k];
+    app.traitorChat(room, room.members.get('b'), 'b', 'let me in');
+    eq(Object.keys(got), [], 'a Faithful cannot write in it');
+    app.traitorChat(room, room.members.get('d'), 'd', 'I am still here');
+    eq(Object.keys(got), [], 'nor a Traitor who is out of the game');
+    app.traitorChat(room, room.members.get('h'), 'x', 'Agreed.');
+    eq(Object.keys(got).sort(), ['a', 'c', 'h'], 'the host writes for an AI Traitor it runs, and hears it back');
   } finally {
     await app.close();
   }

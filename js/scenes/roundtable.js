@@ -94,6 +94,8 @@ class RoundtableScene extends CastleScene {
     if (!this._alive) return;
     // a twist that changes this table is said again before anybody argues
     const tw = typeof Twists !== 'undefined' ? Twists.today(s) : null;
+    // the host hid every role: said once, at the first table, before anybody argues
+    if (s.hideRoles && !(s.banished || []).some(b => !b.exposed)) await this._say('hiddenRolesTable', {}, 'claudia');
     if (tw === 'sealed' || tw === 'veiled') await this._say(tw === 'sealed' ? 'twistTableSealed' : 'twistTableVeiled', {}, 'claudia');
     else if (tw === 'heavy') {
       const holder = s.shield && s.shield.day === s.day ? Session.playerById(s.shield.id) : null;

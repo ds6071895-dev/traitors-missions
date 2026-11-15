@@ -36,10 +36,13 @@ function world(opts = {}) {
   const AI = {
     CLAUDIA: 'claudia-id', available: true, ready: true,
     agent: () => ({}), spawn() {}, prompt(id, text) { prompts.push({ id, text }); }, listen() {}, say() {}, tool() {},
-    ask(id, text) { asked.push({ id, text, at: now }); speaking.add(id); },
+    ask(id, text, o) { asked.push({ id, text, at: now, muted: !!(o && o.muted) }); speaking.add(id); },
     hush(id) { speaking.delete(id); },
     speaking: (id) => speaking.has(id),
-    on(evt, fn) { (listeners[evt] = listeners[evt] || []).push(fn); return () => {}; },
+    on(evt, fn) {
+      (listeners[evt] = listeners[evt] || []).push(fn);
+      return () => { const a = listeners[evt], i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); };
+    },
   };
   const ctx = H.load(FILES, {
     Date: FakeDate, Math: math,
@@ -728,13 +731,13 @@ test('in the castle, an AI the other side of a shut door hears nothing — until
   W.phase = 'tasks';
   W.ctx.Session.state.phase = 'tasks';
   const N = W.ctx.CastleNet;
-  const d = W.ctx.CastleLayout.doorById('chapel');
+  const d = W.ctx.CastleLayout.doorById('whisky');
   N.start('d0');
-  N.publish('p1', d.x, d.z - 1.2, 0);         // Ana, just inside the chapel
+  N.publish('p1', d.x, d.z - 1.2, 0);         // Ana, just inside the whisky room
   N.publish('p2', 16, 13.5, 0);
   N.publish('f', d.x, d.z + 1.2, 0);          // Fergus in the library, two metres away
   for (const id of ['m', 'i', 's']) N.publish(id, -16, 7, 0);
-  W.ctx.Session.state.doors = { chapel: 1 };
+  W.ctx.Session.state.doors = { whisky: 1 };
   W.say('p1', 'Is anybody out there?');
   W.step(3);
   eq(W.asked.length, 0, 'not a word through the door');
@@ -1074,7 +1077,7 @@ test('1-1 turret at night opens a conversation with a human Traitor partner befo
   ok(/1-on-1 conversation in the turret/.test(W.asked.slice(-1)[0].text), 'subsequent reply stays in 1-1 turret framing');
 });
 
-test('local host Traitor holding VoiceChat.whispering gets answered privately and triggers follow and poison orders', () => {
+test('a Traitor writing in the Traitors\' chat is answered there, in writing, and the orders still work', () => {
   const W = world({ phase: 'tasks' });
   const basePrivate = W.ctx.Session.privateView.bind(W.ctx.Session);
   W.ctx.Session.privateView = (id) => {
@@ -1088,47 +1091,63 @@ test('local host Traitor holding VoiceChat.whispering gets answered privately an
     }
     return Object.assign({}, v, { role: 'faithful', partners: [], poison: null });
   };
-  let whisperStateCb = null;
-  const whisperRoutes = [], follows = [], ends = [];
+  let chat = null;
+  const posts = [], follows = [], ends = [], cues = [];
   let company = null;
-  W.ctx.Party = {
-    selfId: () => 'p1',
-    on: () => () => {},
-    setWhisperFor(id, on) { whisperRoutes.push({ id, on }); },
-  };
-  W.ctx.VoiceChat.whispering = false;
-  W.ctx.VoiceChat.on = (evt, fn) => { if (evt === 'state') whisperStateCb = fn; return () => {}; };
+  W.ctx.TraitorChat = { on(fn) { chat = fn; return () => {}; }, postFor(id, text) { posts.push({ id, text }); return true; } };
+  W.ctx.Net.send = (e) => { if (e && e.type === 'cue') cues.push(e); };
   W.ctx.CastleBots = {
     running: true,
     company: (id) => (id === 'm' ? company : null),
     follow(id, target) { company = { kind: 'follow', with: target }; follows.push({ id, target }); return true; },
     endConvo(id) { if (company) { company = null; ends.push(id); return true; } return false; },
     unfollow: () => false,
+    canApproach: () => false, approach: () => false,
   };
   W.ctx.AIDirector.stop();
   W.ctx.AIDirector.start();
+  ok(typeof chat === 'function', 'the director reads the chat');
 
-  // Host holds whisper key: AI hears privately even though server skips host echo
-  W.ctx.VoiceChat.whispering = true;
-  if (whisperStateCb) whisperStateCb();
-  W.say('p1', 'Morag, follow me');
-  W.step(1.0);
-  eq(W.asked.length, 1, 'whispered follow request gets answered quickly');
+  chat({ id: 'p1', text: 'Morag, follow me' });
+  W.step(1.5);
+  eq(W.asked.length, 1, 'answered quickly');
   eq(W.asked[0].id, 'm');
-  eq(follows, [{ id: 'm', target: 'p1' }], 'Traitor AI immediately follows on whispered follow me');
-  eq(whisperRoutes[0], { id: 'm', on: true }, 'routes reply audio to Traitors chat only');
-  W.reply('m', 'Right behind you.');
+  ok(W.asked[0].muted, 'asked for words, not a voice');
+  ok(/TRAITORS' CHAT/.test(W.asked[0].text) && /TYPING/.test(W.asked[0].text), 'told it is writing in the chat');
+  eq(follows, [{ id: 'm', target: 'p1' }], 'and it follows on "follow me"');
+  W.reply('m', '*leans in* Right behind you.');
+  eq(posts, [{ id: 'm', text: 'Right behind you.' }], 'the reply goes into the chat, without stage directions');
+  eq(cues.filter(c => c.id === 'm').length, 0, 'and never onto anybody\'s captions');
 
-  // Host releases key before final STT chunk arrives within tail: still treated as whisper & executes poison order
-  W.ctx.VoiceChat.whispering = false;
-  if (whisperStateCb) whisperStateCb();
-  W.step(2.0);
-  W.say('p1', 'Poison Fergus now');
-  W.step(1.0);
+  W.step(2);
+  chat({ id: 'p1', text: 'Poison Fergus now' });
+  W.step(1.5);
   eq(W.ctx.AIDirector.order().target, 'f', 'poison order stored for Fergus');
   eq(W.ctx.AIDirector.order().how, 'poison');
-  eq(ends, ['m'], 'releases carrier bot from follow so it can go poison Fergus');
-  eq(W.asked.length, 2, 'Traitor AI answers the tail-arriving whisper too');
+  eq(ends, ['m'], 'releases the carrier from following so it can go and poison Fergus');
+  eq(W.asked.length, 2, 'answered again');
+
+  // a reply that comes back after its turn was given up is still the chat's
+  W.step(14);
+  W.reply('m', 'On my way to him.');
+  eq(posts.slice(-1)[0], { id: 'm', text: 'On my way to him.' }, 'late words land in the chat');
+  eq(cues.filter(c => c.id === 'm').length, 0, 'not in the room');
+});
+
+test('the Traitors\' chat ignores Faithfuls and the AIs\' own echoes', () => {
+  const W = world({ phase: 'tasks' });
+  const basePrivate = W.ctx.Session.privateView.bind(W.ctx.Session);
+  W.ctx.Session.privateView = (id) => Object.assign({}, basePrivate(id),
+    id === 'p1' || id === 'm' ? { role: 'traitor', partners: [id === 'p1' ? 'm' : 'p1'] } : { role: 'faithful', partners: [] });
+  let chat = null;
+  W.ctx.TraitorChat = { on(fn) { chat = fn; return () => {}; }, postFor() { return true; } };
+  W.ctx.AIDirector.stop();
+  W.ctx.AIDirector.start();
+  chat({ id: 'p2', text: 'Morag, poison Fergus' });
+  chat({ id: 'm', text: 'Agreed.' });
+  W.step(3);
+  eq(W.asked.length, 0, 'a Faithful cannot write in it, and an AI does not answer itself');
+  eq(W.ctx.AIDirector.order(), null, 'and no order was taken');
 });
 
 test('direct answers echoing words from a finished AI question are not dropped as echo', () => {

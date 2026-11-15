@@ -14,7 +14,8 @@
    the rules' names and words; `session.js` enforces them.
 
      sealed    the slates are never read out: only the count is told
-     veiled    the banished leave without saying what they were
+     veiled    the banished leave without saying what they were (left
+               out of the deck when the host hides every role anyway)
      heavy     the day's shield holder's slate counts twice
      clue      one Faithful is told one name that is not a Traitor
      noShield  nobody wins the shield today
@@ -50,12 +51,13 @@ const Twists = (() => {
   }
 
   /* Today's twist, or null. `ctx`: { used: [ids], yesterday: id|null,
-     last: bool (this day ends at the last table) }. Only public things
+     last: bool (this day ends at the last table), exclude: [ids] the
+     host's settings rule out }. Only public things
      go in, so the choice can tell nobody anything. */
   function pick(seed, day, ctx = {}) {
     if ((day | 0) < 1 || ctx.last || ctx.yesterday) return null;
     if (hash(seed, day, 0x1) >= CHANCE) return null;
-    const used = new Set(ctx.used || []);
+    const used = new Set((ctx.used || []).concat(ctx.exclude || []));
     const open = DECK.filter(id => !used.has(id));
     if (!open.length) return null;
     return open[Math.floor(hash(seed, day, 0x2) * open.length) % open.length];

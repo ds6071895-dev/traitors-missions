@@ -23,6 +23,8 @@ const Lobby = (() => {
   let publishedAI = null;          // last room/roster/AI snapshot sent
   let wants = {};                  // host only: each guest's want, by player id
   let sentWant = null;             // guest only: the last want told to the host
+  let sharedRules = null;          // guest only: the host's house rules, as words
+  let tab = 'cast';                // host only: which settings pane is open
 
   /* ---------------- the code control ----------------
      `Party.normaliseCode` is the whole of it: it upper-cases, drops
@@ -56,7 +58,7 @@ const Lobby = (() => {
 
   function paint() {
     const inRoom = Party.connected;
-    if (!inRoom) { sharedAI = []; publishedAI = null; wants = {}; sentWant = null; }
+    if (!inRoom) { sharedAI = []; publishedAI = null; wants = {}; sentWant = null; sharedRules = null; }
     for (const id of ['lobby-host', 'lobby-join']) {
       const button = el(id);
       if (button) button.disabled = !!Party.connecting;
@@ -113,6 +115,8 @@ const Lobby = (() => {
       paintTask();
       paintCast();
       paintWant();
+      paintTabs(ai.length);
+      paintRules();
       tellWant();
     }
 
@@ -137,10 +141,11 @@ const Lobby = (() => {
   function publishAI(humans, ai) {
     // Share display data only, never the host's key or agent configuration.
     const seats = ai.map(b => ({ id: b.id, name: b.name, ready: !!b.ready, status: b.status }));
-    const snapshot = JSON.stringify([Party.code, humans.map(p => p.id), seats]);
+    const rules = rulesList();
+    const snapshot = JSON.stringify([Party.code, humans.map(p => p.id), seats, rules]);
     if (snapshot === publishedAI) return;
     publishedAI = snapshot;
-    Party.post('lobby', { seats });
+    Party.post('lobby', { seats, rules });
   }
 
   function emptySeats(n) {
@@ -229,12 +234,13 @@ const Lobby = (() => {
     const taskSeconds = taskTime();
     const cast = castChoice();
     const twists = twistsOn();
+    const hideRoles = hiddenOn();
     // the wants stay on this machine: the deal is drawn here and nowhere else
     const said = Object.assign({}, wants, { [Party.selfId()]: myWant() });
     const dealWants = {};
     for (const p of list) if (Object.hasOwn(said, p.id)) dealWants[p.id] = said[p.id];
-    Party.post('go', { seed, players, ai: aiOn, taskSeconds, cast, twists });
-    launch(seed, players, aiOn, taskSeconds, cast, dealWants, twists);
+    Party.post('go', { seed, players, ai: aiOn, taskSeconds, cast, twists, hideRoles });
+    launch(seed, players, aiOn, taskSeconds, cast, dealWants, twists, hideRoles);
   }
 
   /* How long the day in the castle lasts: the host's to set, never under
@@ -245,10 +251,59 @@ const Lobby = (() => {
   }
   // whether a day may change the rules: on unless the host turned it off
   const twistsOn = () => GameState.settings.twists !== false;
+  // whether the banished keep their role to themselves: off unless the host turned it on
+  const hiddenOn = () => GameState.settings.hideRoles === true;
   function paintTwists() {
     const box = el('lobby-twists'), out = el('lobby-twists-out');
     if (box) box.checked = twistsOn();
     if (out) out.textContent = twistsOn() ? 'On' : 'Off';
+    const hid = el('lobby-hidden'), hout = el('lobby-hidden-out');
+    if (hid) hid.checked = hiddenOn();
+    if (hout) hout.textContent = hiddenOn() ? 'On' : 'Off';
+    /* Hidden roles already does what the veiled twist does, every day:
+       the deck leaves that one out, and the line under Twists says so. */
+    const note = el('lobby-twists-note');
+    if (note) note.textContent = !twistsOn() ? 'Every day plays by the same rules'
+      : hiddenOn() ? 'Some days, Claudia changes one rule (not Veiled: roles are hidden already)'
+      : 'Some days, Claudia changes one rule';
+  }
+
+  /* The settings, in three panes: who is dealt, how the night plays,
+     and the AI seats. Only one is open at a time, so the room stays a
+     room and not a form. */
+  function paintTabs(aiCount) {
+    document.querySelectorAll('#lobby-tabs [data-tab]').forEach(b => {
+      const on = b.dataset.tab === tab;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      if (b.dataset.tab === 'ai') b.dataset.count = aiCount ? String(aiCount) : '';
+    });
+    document.querySelectorAll('#lobby-opts [data-pane]').forEach(p => { p.hidden = p.dataset.pane !== tab; });
+  }
+
+  /* The night's rules in a few words each, for the line everybody can
+     read: the host builds it from its settings and sends it with the
+     seats; a guest shows what it was sent. */
+  function rulesList() {
+    const c = castChoice();
+    const t = taskTime();
+    const count = { auto: 'Auto', 1: '1', 2: '2', random: '1 or 2' }[c.count] || 'Auto';
+    return [
+      { k: 'Traitors', v: count + (c.none ? ' · ' + Math.round(c.none * 100) + '% none' : '') },
+      { k: 'Jobs', v: Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0') },
+      { k: 'Twists', v: twistsOn() ? 'On' : 'Off' },
+      { k: 'Roles', v: hiddenOn() ? 'Hidden' : 'Revealed', hot: hiddenOn() },
+    ];
+  }
+  function paintRules() {
+    const box = el('lobby-rules');
+    if (!box) return;
+    const list = Party.isHost ? rulesList() : sharedRules;
+    box.hidden = !list || !list.length;
+    if (box.hidden) return;
+    box.innerHTML = '<span class="lr-rules-k">' + (Party.isHost ? 'Tonight' : 'Host\u2019s rules') + '</span>'
+      + list.map(r => '<span class="lr-rule' + (r.hot ? ' hot' : '') + '"><small>' + escape(r.k) + '</small>'
+        + escape(r.v) + '</span>').join('');
   }
 
   function paintTask() {
@@ -308,7 +363,7 @@ const Lobby = (() => {
     Party.post('lobby', { want: myWant() }, Party.hostId);
   }
 
-  function launch(seed, players, aiOn, taskSeconds, cast, dealWants, twists) {
+  function launch(seed, players, aiOn, taskSeconds, cast, dealWants, twists, hideRoles) {
     const mine = Party.selfId();
     const seated = players.map(p => Object.assign({}, p, { local: p.id === mine }));
     const launchRoom = Party.room;
@@ -318,7 +373,7 @@ const Lobby = (() => {
       if (Party.room !== launchRoom || !Party.connected) return;
       Game.enterShow();
       Show.beginParty({ seed, players: seated, host: Party.isHost, ai: aiOn || null, taskSeconds, twists: twists !== false,
-                        cast: cast || null, wants: Party.isHost ? dealWants || null : null });
+                        hideRoles: !!hideRoles, cast: cast || null, wants: Party.isHost ? dealWants || null : null });
     }, 420);
   }
 
@@ -354,14 +409,26 @@ const Lobby = (() => {
     if (task) task.addEventListener('input', () => {
       GameState.settings.taskSeconds = Number(task.value);
       GameState.save();
-      paintTask();
+      paint();
     });
     const tw = el('lobby-twists');
     if (tw) tw.addEventListener('change', () => {
       GameState.settings.twists = !!tw.checked;
       GameState.save();
-      paintTwists();
+      paint();
     });
+    const hid = el('lobby-hidden');
+    if (hid) hid.addEventListener('change', () => {
+      GameState.settings.hideRoles = !!hid.checked;
+      GameState.save();
+      paint();
+    });
+    document.querySelectorAll('#lobby-tabs [data-tab]').forEach(b => b.addEventListener('click', () => {
+      if (tab === b.dataset.tab) return;
+      tab = b.dataset.tab;
+      if (typeof AudioBus !== 'undefined') AudioBus.play('ui-click');
+      paint();
+    }));
     const want = el('lobby-want');
     if (want) want.addEventListener('input', () => {
       GameState.settings.traitorWant = Number(want.value);
@@ -373,12 +440,12 @@ const Lobby = (() => {
     if (none) none.addEventListener('input', () => {
       GameState.settings.castNone = Number(none.value);
       GameState.save();
-      paintCast();
+      paint();
     });
     document.querySelectorAll('#lobby-cast [data-cast]').forEach(b => b.addEventListener('click', () => {
       GameState.settings.castTraitors = b.dataset.cast;
       GameState.save();
-      paintCast();
+      paint();
     }));
     el('lobby-host').onclick = host;
     el('lobby-join').onclick = join;
@@ -410,6 +477,8 @@ const Lobby = (() => {
       if (from !== Party.hostId || !Array.isArray(data && data.seats)) return;
       sharedAI = data.seats.slice(0, Party.MAX).filter(b => b && typeof b.name === 'string')
         .map(b => ({ id: b.id, name: b.name, ready: !!b.ready, status: String(b.status || 'waking') }));
+      sharedRules = Array.isArray(data.rules) ? data.rules.slice(0, 8).filter(r => r && r.k && r.v)
+        .map(r => ({ k: String(r.k).slice(0, 16), v: String(r.v).slice(0, 24), hot: !!r.hot })) : null;
       paint();
     });
     Party.on('error', (m) => {
@@ -423,7 +492,8 @@ const Lobby = (() => {
     Party.on('go', (data) => {
       if (Party.isHost || started || !data) return;
       started = true;
-      launch(data.seed, data.players || [], data.ai || null, data.taskSeconds, data.cast || null, null, data.twists);
+      launch(data.seed, data.players || [], data.ai || null, data.taskSeconds, data.cast || null, null, data.twists,
+             !!data.hideRoles);
     });
     VoiceChat.on('state', paint);
 

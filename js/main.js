@@ -280,6 +280,7 @@ const Game = (() => {
     Lobby.init();
     Dressing.init();
     RoomUI.init();
+    TraitorChat.init();
 
     /* Above every screen, because a room can be lost from any of
        them — the lobby, the castle, the middle of a vote.

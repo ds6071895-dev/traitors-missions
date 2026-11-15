@@ -50,7 +50,7 @@ const CastleInterior = (() => {
     turret:          { wains: 0, upper: 'masonry', ceil: 'cone' },
     bed:             { wains: 0.9, upper: 'damaskGreen', ceil: 'plain' },
     library:         { wains: 1.0, upper: 'damaskGreen', ceil: 'coffered' },
-    chapel:          { wains: 1.2, upper: 'masonry', ceil: 'beams' },
+    whisky:          { wains: 0.9, upper: 'masonry', ceil: 'beams' },
     kitchen:         { wains: 0, upper: 'masonry', ceil: 'beams' },
     scullery:        { wains: 0, upper: 'masonry', ceil: 'beams' },
     'west-link':     { wains: 1.0, upper: 'masonry', ceil: 'beams' },
@@ -86,8 +86,8 @@ const CastleInterior = (() => {
     const run = (side, spans, y, more) => spans.map(span => Object.assign({ side, span, y, arch: true }, more || {}));
     if (r.id === 'library') return run('n', [[-17.5, -16], [-13.5, -12]], [1.1, 4.3])
       .concat(run('s', [[-28, -26.5], [-25, -23.5]], [1.1, 4.3]));
-    if (r.id === 'chapel') return run('n', [[-26, -24]], [2.4, 7.2])
-      .concat(run('e', [[-19, -18], [-16, -15], [-13, -12]], [2.2, 6.4]), run('w', [[-19.5, -18.5], [-16.5, -15.5]], [2.2, 6.4]));
+    // the whisky room: casks down one side, shelves down the other, so the light is from the north
+    if (r.id === 'whisky') return run('n', [[-28.9, -27.7], [-23.8, -22.6]], [1.5, 3.9]);
     if (r.id === 'kitchen') return run('w', [[-10, -8.5], [-3, -1.5]], [1.2, 3.8])
       .concat(run('s', [[-39, -37.5], [-34.5, -33]], [1.2, 3.8]));
     if (r.id === 'scullery') return run('w', [[-19, -17.5]], [1.3, 3.1]);
@@ -145,6 +145,10 @@ const CastleInterior = (() => {
     baize:    { surf: 'baize', flat: '#21733e', rough: 0.95, uv: 0.6 },
     lacquer:  { surf: 'lacquer', flat: '#16110f', rough: 0.2, metal: 0.1, uv: 1.0 },
     copper:   { surf: 'copper', rough: 0.35, metal: 0.55, uv: 0.5 },
+    // the whisky room: oak casks, amber and green bottle glass
+    cask:     { fam: 'timber', uv: 0.9, opts: { color: '#c48c5c', roughness: 0.62 } },
+    amber:    { surf: 'lacquer', flat: '#8a4610', rough: 0.12, metal: 0.15, uv: 0.4 },
+    glassGreen: { surf: 'lacquer', flat: '#24512c', rough: 0.12, metal: 0.15, uv: 0.4 },
     leaf:     { surf: 'leafy', flat: '#3d6a35', rough: 0.8, side: true, uv: 0.4 },
     terracotta: { surf: 'terracotta', flat: '#b5654a', rough: 0.85, uv: 0.5 },
     water:    { surf: 'water', flat: '#4f6f7c', rough: 0.06, metal: 0.25, uv: 0.8 },
@@ -192,7 +196,7 @@ const CastleInterior = (() => {
     /* Which part of the house a piece is in, by the room its middle is
        in: the west wing, the east wing, or the core. */
     const WING = {};
-    for (const id of ['library', 'chapel', 'kitchen', 'scullery', 'west-link']) WING[id] = 'w';
+    for (const id of ['library', 'whisky', 'kitchen', 'scullery', 'west-link']) WING[id] = 'w';
     for (const id of ['east-link', 'gallery', 'billiard', 'drawing', 'study', 'gun', 'conservatory']) WING[id] = 'e';
     function wingOf(g) {
       g.computeBoundingBox();
@@ -1065,13 +1069,37 @@ const CastleInterior = (() => {
         }
       }
       for (const a of [-P / 2 - 0.55, -P / 2 + 0.55]) banner(W, at(a), 5.4, 0.75, 2.2, 'velvet');
-      for (const a of [-P / 2 - 0.55, -P / 2 + 0.55, 3.27, -0.1]) {
+      /* The stands keep to the walls and off every line across the table:
+         never straight behind a seat, for two Traitors or for four (the
+         conclave's seats are at 0 and π, ±π/6 and π/2, or the diagonals). */
+      for (const a of [-P / 2 - 0.55, -P / 2 + 0.55, 1.15, 1.99]) {
         const rr = turret.r - 0.95;
         const x = turret.cx + Math.cos(a) * rr, z = turret.cz + Math.sin(a) * rr;
         candleStand(x, z, ty, 1.3);
         solid.push({ x0: x - 0.3, x1: x + 0.3, z0: z - 0.3, z1: z + 0.3 });
       }
-      add(new THREE.CylinderGeometry(2.2, 2.2, 0.02, 48), 'velvet', turret.cx, ty + 0.01, turret.cz);
+      // sconces either side of the door, and a pair over the cloaks
+      for (const a of [-P / 2 - 0.55, -P / 2 + 0.55, 0.84, 2.3]) sconce(W, at(a), a > 0 ? 3.1 : 2.5, sag(W, 0.5));
+      // crossed claymores behind a targe, over each run of cloaks
+      for (const a of [0.84, 2.3]) {
+        const d = sag(W, 0.9);
+        for (const k of [-1, 1]) {
+          onWall(W, at(a), lbox(0.035, 1.25, 0.012, 0, 0, d + 0.03).rotateZ(k * 0.72).translate(0, 2.55, 0), 'steel');
+          onWall(W, at(a), lbox(0.24, 0.035, 0.03, 0, 0.42, d + 0.035).rotateZ(k * 0.72).translate(0, 2.55, 0), 'gold');
+          onWall(W, at(a), lbox(0.04, 0.2, 0.04, 0, 0.53, d + 0.035).rotateZ(k * 0.72).translate(0, 2.55, 0), 'leather');
+        }
+        onWall(W, at(a), new THREE.CylinderGeometry(0.3, 0.3, 0.04, 28).rotateX(Math.PI / 2).translate(0, 2.55, d + 0.07), 'leather');
+        onWall(W, at(a), new THREE.TorusGeometry(0.29, 0.015, 6, 28).translate(0, 2.55, d + 0.09), 'gold');
+        onWall(W, at(a), new THREE.SphereGeometry(0.07, 12, 8).scale(1, 1, 0.6).translate(0, 2.55, d + 0.1), 'gold');
+        for (let k = 0; k < 8; k++) {
+          const t = k / 8 * TAU;
+          onWall(W, at(a), new THREE.SphereGeometry(0.018, 6, 5).translate(Math.cos(t) * 0.19, 2.55 + Math.sin(t) * 0.19, d + 0.09), 'gold');
+        }
+      }
+      // a red rug under the table, with a gold border
+      add(new THREE.CylinderGeometry(2.3, 2.3, 0.02, 64), 'velvet', turret.cx, ty + 0.01, turret.cz);
+      add(new THREE.TorusGeometry(2.18, 0.035, 6, 64).rotateX(Math.PI / 2).scale(1, 0.3, 1), 'gold', turret.cx, ty + 0.021, turret.cz);
+      add(new THREE.TorusGeometry(1.95, 0.015, 6, 64).rotateX(Math.PI / 2).scale(1, 0.3, 1), 'gold', turret.cx, ty + 0.021, turret.cz);
       chandelier(turret.cx, ty + 4.4, turret.cz, 0.8, 8, turret._crown);
     }
 
@@ -1225,14 +1253,6 @@ const CastleInterior = (() => {
       solid.push({ x0: x - 0.35, x1: x + 0.35, z0: z - 0.35, z1: z + 0.35 });
     }
 
-    function pew(x, z, len) {
-      box('oak', len, 0.06, 0.44, x, 0.45, z);
-      box('darkoak', len, 0.62, 0.05, x, 0.82, z + 0.22);
-      box('darkoak', len, 0.05, 0.08, x, 1.15, z + 0.23);
-      box('darkoak', len, 0.05, 0.05, x, 0.12, z - 0.12);
-      for (const sx of [-1, 1]) box('darkoak', 0.07, 1.0, 0.52, x + sx * (len / 2 + 0.035), 0.5, z + 0.03);
-    }
-
     // built facing -z, its back to +z
     function sofa(x, z, len, ry, cloth = 'velvet') {
       piece([
@@ -1354,33 +1374,95 @@ const CastleInterior = (() => {
       chandelier(-15.5, 4.2, -5.75, 0.8, 8, lib.h);
     }
 
-    /* ---- the chapel: pews either side of an aisle, an altar under the
-       east-facing lancet, candles ---- */
+    /* ---- the whisky room: casks racked three high down the west wall,
+       the laird's bottles on shelves down the east, a copper pot still
+       and its worm tub under the north windows, and a tasting table in
+       the middle with a decanter and the glasses out ---- */
     {
-      const ch = L.byId('chapel'), w = walls.chapel;
-      box('dressed', 4.0, 0.18, 1.65, -25, 0.09, -20.42);
-      box('dressed', 2.0, 0.95, 0.9, -25, 0.18 + 0.475, -20.6);
-      box('linen', 2.1, 0.02, 1.0, -25, 1.14, -20.6);
-      box('velvet', 0.7, 0.6, 0.012, -25, 0.8, -20.149);
-      box('gold', 0.06, 0.62, 0.06, -25, 1.46, -20.7);
-      box('gold', 0.34, 0.06, 0.06, -25, 1.6, -20.7);
-      for (const dx of [-0.7, 0.7]) {
-        add(CastleProps.lathe([[0.07, 0], [0.03, 0.04], [0.02, 0.32], [0.05, 0.34], [0, 0.35]], 12), 'gold', -25 + dx, 1.15, -20.75);
-        candle(-25 + dx, 1.5, -20.75, 0.32, 0.035);
+      const wr = L.byId('whisky'), w = walls.whisky;
+      // the casks, on their sides on timber rails, ends out to the room
+      const cask = CastleProps.lathe([[0, -0.46], [0.29, -0.46], [0.31, -0.42], [0.345, -0.22], [0.36, 0], [0.345, 0.22],
+                                      [0.31, 0.42], [0.29, 0.46], [0, 0.46]], 18);
+      const hoop = (r) => new THREE.TorusGeometry(r, 0.012, 5, 22);
+      for (let tier = 0; tier < 3; tier++) {
+        const y = 0.42 + tier * 0.74, cx = -29.18;
+        for (const dx of [-0.32, 0.32]) box('darkoak', 0.1, 0.08, 8.6, cx + dx, y - 0.37, -15.0);
+        for (let i = 0; i < 10; i++) {
+          const z = -18.95 + i * 0.77 + (tier % 2) * 0.12;
+          add(cask.clone().rotateZ(Math.PI / 2), 'cask', cx, y, z);
+          for (const hx of [-0.4, -0.2, 0.2, 0.4]) {
+            const r = hx * hx > 0.1 ? 0.3 : 0.352;
+            add(hoop(r).rotateY(Math.PI / 2), 'iron', cx + hx, y, z);
+          }
+          // a chalked number on some ends
+          if ((i + tier) % 3 === 0) box('linen', 0.004, 0.08, 0.16, cx + 0.462, y + 0.08, z);
+        }
       }
-      for (const x of [-27.6, -22.4]) candleStand(x, -20.1, 0, 1.6);
-      solid.push({ x0: -27.9, x1: -22.1, z0: ch.z0, z1: -19.55 });
-      for (const z of [-18.2, -16.9, -15.6, -14.3, -13.0, -11.7]) {
-        pew(-27.8, z, 3.2); pew(-22.2, z, 3.2);
+      for (const z of [-19.3, -10.7]) box('darkoak', 0.9, 2.2, 0.1, -29.18, 1.1, z);
+      solid.push({ x0: -30, x1: -28.6, z0: -19.5, z1: -10.5 });
+
+      // the shelves of bottles, floor to head height
+      const SH = 7.0, SD = 0.38, sAt = -15.0, levels = 5;
+      onWall(w.e, sAt, lbox(SH, 2.3, 0.03, 0, 1.15, OFF + 0.015), 'darkoak');
+      for (const sx of [-1, 0, 1]) onWall(w.e, sAt, lbox(0.06, 2.3, SD, sx * (SH / 2 - 0.03), 1.15, OFF + SD / 2), 'darkoak');
+      onWall(w.e, sAt, lbox(SH + 0.12, 0.1, SD + 0.06, 0, 2.35, OFF + (SD + 0.06) / 2), 'darkoak');
+      const bottle = CastleProps.lathe([[0.034, 0], [0.036, 0.02], [0.036, 0.18], [0.03, 0.215], [0.013, 0.25],
+                                        [0.012, 0.31], [0.015, 0.315], [0, 0.32]], 10);
+      const rb = U.makeRng(4242);
+      for (let lv = 0; lv < levels; lv++) {
+        const y = 0.12 + lv * 0.44;
+        onWall(w.e, sAt, lbox(SH - 0.1, 0.03, SD - 0.02, 0, y, OFF + 0.03 + (SD - 0.02) / 2), 'oak');
+        if (lv === levels - 1) continue;
+        for (let x = -SH / 2 + 0.12; x < SH / 2 - 0.1; x += 0.105) {
+          if (Math.abs(x) < 0.06 || rb() < 0.1) continue;
+          const kind = rb() < 0.22 ? 'glassGreen' : 'amber';
+          onWall(w.e, sAt, bottle.clone().translate(x, y + 0.015, OFF + 0.2), kind);
+          onWall(w.e, sAt, lbox(0.05, 0.06, 0.004, x, y + 0.1, OFF + 0.2 + 0.036), 'parchment');
+        }
       }
-      solid.push({ x0: -29.5, x1: -26.1, z0: -18.5, z1: -11.4 }, { x0: -23.9, x1: -20.5, z0: -18.5, z1: -11.4 });
-      box('velvet', 1.3, 0.02, 9.0, -25, 0.01, -15.05);
-      // the bell rope, out of the roof by the door
-      add(CastleProps.stick(V(-29, 1.0, -10.4), V(-29, ch.h, -10.4), 0.02), 'linen');
-      add(CastleProps.stick(V(-29, 1.3, -10.4), V(-29, 1.7, -10.4), 0.045), 'velvet');
-      for (const s of [-17.5, -14.5]) sconce(w.e, s, 2.4, 0);
-      sconce(w.w, -17.5, 2.4, 0);
-      chandelier(-25, 5.6, -15.5, 1.0, 10, ch.h);
+      wallSolid(w.e, sAt, SH + 0.12, OFF + SD + 0.06);
+
+      // the still: a copper pot on a stone plinth, its lyne arm into the worm tub
+      const sx0 = -25.9, sz0 = -19.0;
+      box('dressed', 1.5, 0.36, 1.5, sx0, 0.18, sz0);
+      add(CastleProps.lathe([[0.52, 0], [0.64, 0.3], [0.68, 0.6], [0.58, 0.95], [0.34, 1.16], [0.2, 1.34], [0.14, 1.62],
+                             [0.11, 1.86], [0.13, 1.9], [0, 1.92]], 28), 'copper', sx0, 0.36, sz0);
+      add(new THREE.TorusGeometry(0.665, 0.02, 6, 32).rotateX(Math.PI / 2), 'copper', sx0, 0.36 + 0.55, sz0);
+      add(CastleProps.stick(V(sx0, 2.22, sz0), V(-24.0, 2.55, -19.15), 0.06, 0.04), 'copper');
+      add(CastleProps.stick(V(-24.0, 2.55, -19.15), V(-23.75, 1.36, -19.15), 0.04, 0.035), 'copper');
+      cyl('cask', 0.46, 0.5, 1.3, 20, -23.75, 0.65, -19.15);
+      for (const hy of [0.15, 0.65, 1.15]) add(new THREE.TorusGeometry(0.49 - hy * 0.03, 0.014, 5, 24).rotateX(Math.PI / 2), 'iron', -23.75, hy, -19.15);
+      // the spirit safe: brass and glass, locked, where the new make runs
+      box('darkoak', 0.5, 0.9, 0.4, -27.6, 0.45, -19.3);
+      box('gold', 0.46, 0.3, 0.34, -27.6, 1.05, -19.3);
+      box('glassGreen', 0.36, 0.2, 0.012, -27.6, 1.05, -19.124);
+      solid.push({ x0: -27.9, x1: -23.2, z0: -20, z1: -18.2 });
+
+      // the tasting table, a decanter and the glasses set out, stools round it
+      table(-25.6, -14.0, 1.1, 2.4, 0.9, 'oak');
+      add(CastleProps.lathe([[0.07, 0], [0.09, 0.05], [0.09, 0.14], [0.05, 0.2], [0.025, 0.25], [0.025, 0.29],
+                             [0.04, 0.3], [0, 0.31]], 16), 'amber', -25.6, 0.9, -14.5);
+      sph('silver', 0.04, -25.6, 1.25, -14.5);
+      for (const [dx, dz] of [[-0.3, -0.9], [0.3, -0.6], [-0.32, -0.1], [0.28, 0.3], [-0.25, 0.75], [0.3, 0.95]]) {
+        cyl('silver', 0.036, 0.03, 0.085, 12, -25.6 + dx, 0.9 + 0.0425, -14.0 + dz);
+        cyl('amber', 0.03, 0.026, 0.02, 12, -25.6 + dx, 0.9 + 0.012, -14.0 + dz);
+      }
+      box('parchment', 0.3, 0.004, 0.42, -25.75, 0.902, -13.3);
+      for (const [x, z] of [[-26.45, -14.6], [-26.45, -13.4], [-24.75, -14.6], [-24.75, -13.4]]) {
+        cyl('darkoak', 0.19, 0.19, 0.05, 14, x, 0.66, z);
+        for (let k = 0; k < 3; k++) {
+          const t = k / 3 * TAU;
+          add(CastleProps.stick(V(x + Math.cos(t) * 0.13, 0, z + Math.sin(t) * 0.13), V(x + Math.cos(t) * 0.08, 0.64, z + Math.sin(t) * 0.08), 0.018), 'darkoak');
+        }
+      }
+      solid.push({ x0: -26.75, x1: -24.45, z0: -15.3, z1: -12.7 });
+      rug('tartanHunt', -25.6, -14.0, 2.6, 3.8);
+
+      // light: a wheel of candles over the table, sconces by the door, a stag over it
+      for (const x of [-27.9, -22.9]) sconce(w.s, x, 2.3, 0);
+      sconce(w.n, -25.9 + 1.7, 3.2, 0);
+      stagHead(w.s, -25.0, 3.4, 0, 0.85);
+      chandelier(-25.6, 4.0, -14.0, 0.7, 8, wr.h);
     }
 
     /* ---- the kitchen: a roasting hearth, a long scrubbed table, copper

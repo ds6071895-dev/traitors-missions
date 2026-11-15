@@ -28,9 +28,6 @@ const VoiceChat = (() => {
   let floorId = null;            // who holds the floor, or null for open mic
   let selfId = null;
   let denied = null;             // why it is not available, for the UI
-  let whisper = 'off';           // our Traitor whisper: off | opening | on | closing
-  let whisperTimer = null;
-  const whisperIn = new Set();   // fellow Traitors whispering to us now
 
   const peers = new Map();       // peerId -> { stream, el, analyser, data }
   let meterCtx = null;
@@ -152,9 +149,7 @@ const VoiceChat = (() => {
       Party.on('left', peerId => {
         if (typeof ServerAudio !== 'undefined') ServerAudio.detach(peerId);
         detach(peerId);
-        whisperIn.delete(peerId);
       });
-      Party.on('whisper', onWhisper);
     }
   }
 
@@ -268,7 +263,6 @@ const VoiceChat = (() => {
   function pump() {
     const now = Date.now();
     refreshSpeechGate();
-    if ((whisper === 'on' || whisper === 'opening') && !canWhisper()) holdWhisper(false);
     meterSelf();
     if (selfMeter && stream) {
       selfLevel = isGagged() ? 0 : readLevel(selfMeter.an, selfMeter.data);
@@ -356,11 +350,6 @@ const VoiceChat = (() => {
   }
   function applyVolume(id, e) {
     if (!e || !e.el) return;
-    // a fellow Traitor's whisper is close in your ear, wherever they are
-    if (whisperIn.has(id) && amTraitor()) { if (Math.abs(e.el.volume - 1) > 0.02) e.el.volume = 1; return; }
-    /* In the Traitors' chat the Faithful AIs are shut out both ways:
-       they never hear you, and you do not hear them. */
-    if (whisperOpen() && outsiderAI(id)) { if (e.el.volume > 0.001) e.el.volume = 0; return; }
     const base = volumes.has(id) ? volumes.get(id) : 1;
     const vol = holder && id !== holder && isPlayer(id) ? base * COURTESY : base;
     if (Math.abs(e.el.volume - vol) > 0.02) e.el.volume = vol;
@@ -403,15 +392,11 @@ const VoiceChat = (() => {
      One function decides whether our microphone is live, and it is the
      only thing that ever touches `track.enabled`. */
 
-  /* Muted, or somebody else has the floor. Holding the whisper speaks
-     through a mute (it is a push-to-talk), never through the floor; and
-     the microphone is shut for a moment either side of a whisper, so
-     the server has the switch before the first word of it and after the
-     last — nothing said to the Traitors arrives as a public frame. */
+  /* Muted, or somebody else has the floor. (The Traitors talk to each
+     other in writing now — see traitor-chat.js — so nothing said aloud
+     is ever private to them, and the gate has only these two to ask.) */
   function isGagged() {
     if (floorId !== null && floorId !== selfId) return true;
-    if (whisper === 'opening' || whisper === 'closing') return true;
-    if (whisper === 'on') return false;
     return muted;
   }
   function applyGate() {
@@ -420,17 +405,6 @@ const VoiceChat = (() => {
     stream.getAudioTracks().forEach(t => { t.enabled = !gagged; });
   }
 
-  const whisperOpen = () => whisper === 'on' || whisper === 'opening';
-  function outsiderAI(id) {
-    const s = typeof Session !== 'undefined' && Session.state;
-    const p = s && s.players.find(q => q.id === id);
-    if (!p || !p.bot) return false;
-    const mine = (Session.myPrivate && Session.myPrivate()) || {};
-    return (mine.partners || []).indexOf(id) < 0;
-  }
-  const revolume = () => { for (const [id, e] of peers) applyVolume(id, e); };
-
-  const WHISPER_EDGE = 220;      // ms the mic is shut while the switch reaches the server
   function amTraitor() {
     const s = typeof Session !== 'undefined' && Session.state;
     if (!s || !Session.myRole || Session.myRole() !== 'traitor') return false;
@@ -443,38 +417,6 @@ const VoiceChat = (() => {
   let roleTold = false;
   const toldYet = () => roleTold || !(typeof Session !== 'undefined' && Session.state && Session.state.phase === 'hill');
   function setRoleTold(v) { roleTold = !!v; emit('state'); }
-  const canWhisper = () => available && amTraitor() && toldYet()
-    && typeof Party !== 'undefined' && Party.canWhisper && (floorId === null || floorId === selfId);
-  function holdWhisper(on) {
-    on = !!on && canWhisper();
-    if (on ? (whisper === 'on' || whisper === 'opening') : (whisper === 'off' || whisper === 'closing')) return;
-    clearTimeout(whisperTimer);
-    const was = whisper;
-    if (on) {
-      whisper = 'opening';
-      Party.setWhisper(true);
-      whisperTimer = setTimeout(() => { whisper = 'on'; applyGate(); revolume(); emit('state'); }, WHISPER_EDGE);
-    } else if (was === 'opening') {
-      // let go before it opened: nothing was said, so nothing to wait for
-      whisper = 'off';
-      Party.setWhisper(false);
-    } else {
-      whisper = 'closing';
-      whisperTimer = setTimeout(() => {
-        whisper = 'off';
-        if (typeof Party !== 'undefined' && Party.setWhisper) Party.setWhisper(false);
-        applyGate(); revolume(); emit('state');
-      }, WHISPER_EDGE);
-    }
-    applyGate();
-    revolume();
-    emit('state');
-  }
-  function onWhisper(m) {
-    if (!m || !m.id) return;
-    if (m.on) whisperIn.add(m.id); else whisperIn.delete(m.id);
-    applyVolume(m.id, peers.get(m.id));
-  }
 
   function setMuted(v) {
     muted = !!v;
@@ -511,10 +453,6 @@ const VoiceChat = (() => {
     if (had) micChanged(false);
     available = false;
     floorId = null;
-    clearTimeout(whisperTimer);
-    if (whisper !== 'off' && typeof Party !== 'undefined' && Party.setWhisper) Party.setWhisper(false);
-    whisper = 'off';
-    whisperIn.clear();
     for (const id of [...peers.keys()]) detach(id);
     /* Forget which room we were listening to as well. The next one is a
        different object and has to be hooked again, and leaving this set
@@ -565,10 +503,9 @@ const VoiceChat = (() => {
   }
 
   return {
-    holdWhisper, whisperingFrom: (id) => whisperIn.has(id) && amTraitor(),
-    get canWhisper() { return canWhisper(); },
-    get whispering() { return whisper === 'on' || whisper === 'opening'; },
-    setRoleTold,
+    setRoleTold, amTraitor,
+    // has Claudia told you what you are yet (the hill), or are we past it
+    get toldYet() { return toldYet(); },
     init, listen, start, stop, on, setMuted, toggleMuted, setFloor, openFloor, setVolume, resetVolumes, refreshSpeechGate,
     level, levels, loudest, talking, talkers, voiced, voicedFor, setCourtesy,
     get holder() { return holder; },

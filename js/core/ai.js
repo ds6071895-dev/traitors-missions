@@ -85,7 +85,12 @@ const AI = (() => {
   /* Word for word, queued behind anything already being said. */
   const say = (id, text) => { const a = agents.get(id); if (a) a.speaking = true; send({ op: 'say', id, text }); };
   /* A turn: something the voice should answer, in its own words. */
-  const ask = (id, text) => { const a = agents.get(id); if (a) a.speaking = true; send({ op: 'ask', id, text }); };
+  /* `muted`: the words without the voice — a reply written in the
+     Traitors' chat. The bridge drops that turn's audio. */
+  const ask = (id, text, o) => {
+    const a = agents.get(id); if (a) a.speaking = true;
+    send(o && o.muted ? { op: 'ask', id, text, muted: true } : { op: 'ask', id, text });
+  };
   const tool = (id, callId, name, content) => send({ op: 'tool', id, callId, name, content: String(content) });
   const hush = (id, on) => { const a = agents.get(id); if (a && on) a.speaking = false; send({ op: 'hush', id, on: !!on }); };
   const close = (id) => { agents.delete(id); send({ op: 'close', id }); };
