@@ -92,7 +92,7 @@ const Ghost = (() => {
       const lit = (id) => { const e = document.getElementById(id); return !!(e && e.classList && e.classList.contains('on')); };
       if (lit('interlude') || lit('cine-card')) return true;
       // a caption on screen is somebody's words: the title waits for it to go
-      if (talk && (lit('cine-caption') || lit('drive-back'))) return true;
+      if (talk && lit('cine-caption')) return true;
     }
     return false;
   }

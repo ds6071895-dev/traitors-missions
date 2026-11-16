@@ -426,11 +426,11 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 @keyframes ilBolt{0%,38%{opacity:0}40%{opacity:.75}43%{opacity:.1}46%{opacity:.55}52%,100%{opacity:0}}
 .il-vignette{background:radial-gradient(120% 90% at 50% 45%,rgba(0,0,0,0) 55%,rgba(2,5,10,.55) 100%)}
 /* the card sits low, on the water, under its own shade — never over the house */
-.il-scrim{top:auto; height:46%; opacity:0; transition:opacity .6s ease .2s;
+#interlude .il-scrim{top:auto; height:46%; opacity:0; transition:opacity .6s ease .2s;
   background:linear-gradient(180deg,rgba(3,7,13,0) 0%,rgba(3,7,13,.5) 45%,rgba(3,7,13,.82) 100%)}
 #interlude.on .il-scrim{opacity:1}
 #interlude:not(.full) .il-scrim{height:34%}
-.il-card{inset:auto 16px max(26px, 5.5vh) 16px; text-align:center; color:var(--paper);
+#interlude .il-card{inset:auto 16px max(26px, 5.5vh) 16px; text-align:center; color:var(--paper);
   text-shadow:0 2px 0 rgba(3,8,16,.6), 0 0 26px rgba(3,8,16,.75);
   opacity:0; transform:translateY(14px); transition:opacity .55s ease .3s, transform .9s cubic-bezier(.2,.7,.2,1) .3s}
 #interlude.on .il-card{opacity:1; transform:none}
@@ -470,7 +470,7 @@ body[data-screen="mparty"] #menu-bg{opacity:1}
 .il-sub b{color:var(--gold); font-size:16px}
 .il-twist{display:block; margin-top:8px; font-weight:700; color:#ffd9a0; letter-spacing:.08em; text-transform:uppercase; font-size:12px}
 @media (max-width:560px){
-  .il-card{bottom:max(18px, 4vh)}
+  #interlude .il-card{bottom:max(18px, 4vh)}
   .il-kicker{letter-spacing:.36em; font-size:10px}
   .il-title{letter-spacing:.08em}
   .il-chip{font-size:12px; padding:5px 10px}
@@ -3866,60 +3866,3 @@ body:not(.touch) #mute-btn[data-kbd]::after{
   .cg-ledger{background:repeating-linear-gradient(#f4ecd8 0 21px, #c9d6e8 21px 22px), #f4ecd8}
   .cg-wheel{width:min(130px, 40dvh)} .cg-shaft{min-height:120px}
 }
-
-/* ---------------- the drive back to breakfast (js/scenes/drive-back.js) ----------------
-   The back seat of a car: the glen scrolling past the window in four
-   strips, the weather on the glass, a card on the door panel. Under
-   Claudia's captions (#cine, 46), over the hall it is hiding. */
-#drive-back{position:fixed; inset:0; z-index:45; pointer-events:none; overflow:hidden; background:#0c0a08;
-  opacity:0; transition:opacity .9s ease}
-#drive-back.on{opacity:1}
-#drive-back.off{opacity:0; transition:opacity .8s ease}
-.db-out{position:absolute; inset:0; overflow:hidden}
-.db-sky{position:absolute; inset:0;
-  background:radial-gradient(60% 50% at 70% 18%, rgba(255,246,214,.85), rgba(255,246,214,0) 60%),
-             linear-gradient(180deg,#6f9fd0 0%,#a9c8e2 45%,#e6eef0 70%,#e6eef0 100%)}
-.w-overcast .db-sky, .w-fog .db-sky{background:linear-gradient(180deg,#8e99a5 0%,#b9c1c8 50%,#d9dde0 100%)}
-.w-rain .db-sky{background:linear-gradient(180deg,#5d6875 0%,#8c97a2 50%,#b2bac1 100%)}
-.w-storm .db-sky{background:linear-gradient(180deg,#323a46 0%,#5b6572 50%,#848e98 100%)}
-.db-l{position:absolute; left:0; right:0; background-repeat:repeat-x; will-change:background-position,transform}
-.db-far{top:30%; height:24%; background-size:auto 100%}
-.db-castle{position:absolute; left:0; top:24%; width:min(34vw,420px); color:#5a5650; opacity:0;
-  transform:translateX(120vw); filter:drop-shadow(0 2px 6px rgba(0,0,0,.25)); will-change:transform}
-.db-castle svg{display:block; width:100%; height:auto}
-.w-overcast .db-castle, .w-rain .db-castle{color:#4d4c4b}
-.w-fog .db-castle{color:#7d8186}
-.db-loch{top:52%; height:7%; background-size:auto 100%}
-.db-mid{top:47%; height:22%; background-size:auto 100%}
-.db-near{top:62%; height:20%; background-size:auto 100%; filter:blur(2.2px)}
-.db-haze{position:absolute; inset:0; pointer-events:none; opacity:0;
-  background:linear-gradient(180deg,rgba(228,233,238,0) 20%,rgba(228,233,238,.75) 48%,rgba(228,233,238,.4) 70%)}
-.w-fog .db-haze{opacity:1}
-.w-rain .db-haze, .w-storm .db-haze{opacity:.45}
-/* rain on a side window runs backwards along the glass, not down it */
-.db-drops{position:absolute; inset:0; opacity:.55;
-  background-image:radial-gradient(circle at 50% 50%,rgba(235,242,250,.55) 0 1.4px,rgba(235,242,250,0) 2.2px),
-                   radial-gradient(circle at 50% 50%,rgba(235,242,250,.4) 0 1px,rgba(235,242,250,0) 1.8px);
-  background-size:37px 29px, 23px 41px; background-position:0 0, 11px 7px}
-.db-streaks{position:absolute; inset:-10%; opacity:.5;
-  background:repeating-linear-gradient(172deg,rgba(220,232,245,0) 0 22px,rgba(220,232,245,.35) 22px 23px,rgba(220,232,245,0) 23px 47px);
-  animation:dbStreak .5s linear infinite}
-.w-storm .db-streaks{opacity:.7; animation-duration:.35s}
-#drive-back.arriving .db-streaks{animation-duration:1.6s}
-@keyframes dbStreak{from{transform:translate(0,0)}to{transform:translate(-46px,6px)}}
-.db-frame{position:absolute; inset:0; width:100%; height:100%}
-.db-card{position:absolute; left:50%; bottom:max(22px,4.5vh); transform:translateX(-50%); width:min(560px,calc(100% - 32px));
-  text-align:center; color:var(--paper); text-shadow:0 2px 10px rgba(0,0,0,.8)}
-.db-kicker{font:600 11px/1.2 var(--body); letter-spacing:.45em; text-transform:uppercase; color:var(--gold); margin-bottom:6px}
-.db-title{font-family:'Cinzel', Georgia, serif; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
-  font-size:clamp(24px,4.6vw,44px); line-height:1.05;
-  background:linear-gradient(180deg,#fff8e6 0%,#f6dc9c 55%,#c99a3e 100%); -webkit-background-clip:text; background-clip:text;
-  -webkit-text-fill-color:transparent; filter:drop-shadow(0 2px 0 rgba(3,8,16,.7))}
-.db-sub{margin-top:8px; font:500 13.5px/1.35 var(--body); color:rgba(244,236,220,.85)}
-.db-note{margin-top:6px; font:700 11px/1.2 var(--body); letter-spacing:.14em; text-transform:uppercase; color:rgba(244,236,220,.6)}
-.db-note:empty{display:none}
-@media (max-aspect-ratio:3/4){
-  .db-far{top:34%} .db-mid{top:46%} .db-near{top:58%}
-  .db-castle{width:56vw; top:26%}
-}
-@media (prefers-reduced-motion:reduce){ .db-streaks{animation:none} }

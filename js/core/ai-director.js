@@ -890,11 +890,13 @@ const AIDirector = (() => {
     const n = (Session.state && Session.state.taskSeconds) || 180;
     return n % 60 === 0 ? (n / 60) + (n === 60 ? ' minute' : ' minutes') : n + ' seconds';
   }
-  /* At breakfast, the hall hears only who has come in: somebody still
-     in the car is heard by nobody there, and hears none of it. */
+  /* At breakfast the people are at the table from the first moment
+     (each on their own screen) and can always talk; an AI is only in
+     the room once the host has walked it in. */
   function inHall(id) {
     const b = Session.state && Session.state.breakfast;
-    return !b || b.revealed || b.arrived.indexOf(id) >= 0 || !(Session.playerById(id) || {}).alive;
+    const p = Session.playerById(id) || {};
+    return !b || b.revealed || !p.bot || b.arrived.indexOf(id) >= 0 || !p.alive;
   }
   function inEarshot(aId, bId) {
     const s = Session.state;
