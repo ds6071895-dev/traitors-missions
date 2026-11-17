@@ -583,6 +583,65 @@ test('the host can shorten the day, but never below thirty seconds', () => {
   ok(ctx.Session.state.chores.bellAt < 30, 'the bell does not ring the moment a short day starts');
 });
 
+test('the night clock starts when every browser has the bedroom built, and is still the same length', () => {
+  const ctx = fresh();
+  start(ctx, FIVE, 10);
+  toTasks(ctx);
+  endDay(ctx);
+  eq(ctx.Session.state.phase, 'night', 'to bed');
+  const n = ctx.Session.state.night;
+  const len = n.endsAt - n.startedAt;
+  const pickLead = ctx.Session._peek().pickBy - n.startedAt;
+  clock += 2400;   // the walk upstairs
+  for (const p of FIVE) ctx.Session.dispatch({ type: 'sceneReady', playerId: p.id, phase: 'night' });
+  eq(n.startedAt, clock, 'the night starts when the rooms are built everywhere');
+  eq(n.endsAt - n.startedAt, len, 'and lasts exactly as long as any other');
+  eq(ctx.Session._peek().pickBy - n.startedAt, pickLead, 'the turret keeps all its seconds');
+  ctx.Session.abandon();
+});
+
+test('later days are shorter, in quarter-minutes, and never under the shortest day', () => {
+  const ctx = fresh();
+  const P = ctx.Session.pacedSeconds;
+  eq([0, 1, 2, 3, 6].map(d => P(180, d)), [180, 165, 150, 120, 120], 'three minutes shrinks to two');
+  eq([0, 1, 2, 3].map(d => P(30, d)), [30, 30, 30, 30], 'the shortest day stays the shortest');
+  for (let d = 0; d < 6; d++) for (const a of [30, 45, 60, 90, 120, 180]) ok(P(a, d) % 15 === 0 && P(a, d) >= 30, a + ' on day ' + d);
+});
+
+test('the house opens a wing at a time, and nobody gets yesterday\'s puzzles twice', () => {
+  const ctx = fresh();
+  const C = ctx.Chores;
+  const wingOf = (job) => C.wingOf(C.station(job.station).room);
+  start(ctx, SEVEN, 31);
+  toTasks(ctx);
+  const day0 = new Map();
+  for (const p of ctx.Session.alive()) {
+    const list = ctx.Session._peek().lists[p.id];
+    ok(list.filter(j => j.kind === 'station').every(j => wingOf(j) !== 'east'), p.name + ': no east wing on day one');
+    day0.set(p.id, new Set(list.filter(j => j.type).map(j => j.type)));
+  }
+  eq(ctx.Session.state.chores.wing, null, 'no featured wing on day one');
+  endDay(ctx);
+  sleepAndWake(ctx);
+  ctx.Session.dispatch({ type: 'advance', authority: true });
+  // past the table, into the second day
+  const s = ctx.Session.state;
+  s.phase = 'table'; s.finale.stage = 'done';
+  ctx.Session.dispatch({ type: 'advance', authority: true });
+  if (s.phase === 'tasks') {
+    eq(s.chores.wing, 'east', 'the east wing is day two\'s');
+    let repeats = 0, total = 0;
+    for (const p of ctx.Session.alive()) {
+      const list = ctx.Session._peek().lists[p.id];
+      const st = list.filter(j => j.kind === 'station');
+      ok(st.filter(j => wingOf(j) === 'east').length >= 2, p.name + ': half the jobs in the east wing');
+      for (const j of st) { total++; if (day0.has(p.id) && day0.get(p.id).has(j.type)) repeats++; }
+    }
+    ok(repeats <= total / 4, 'yesterday\'s puzzle kinds mostly avoided (' + repeats + '/' + total + ')');
+  } else ok(false, 'expected a second day, got ' + s.phase);
+  ctx.Session.abandon();
+});
+
 test('the round table knows when the next thing is the fire', () => {
   const ctx = fresh();
   start(ctx, SEVEN, 7);

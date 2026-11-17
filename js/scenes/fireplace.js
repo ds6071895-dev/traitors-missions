@@ -37,6 +37,10 @@
 
 /* ---------------- the sounds of the fire ---------------- */
 
+/* Bringing her the pouch: a walking pace, a beat before they set off
+   (she is still asking), and the half second it takes hand to hand. */
+const POUCH_WALK_SPEED = 2.0, POUCH_WALK_PAUSE = 0.7, POUCH_PASS_SECS = 0.55;
+
 AudioBus.define('pouch-toss', (ctx, dest) => {
   const t = ctx.currentTime;
   const n = AudioBus.noiseSource();
@@ -185,13 +189,17 @@ class FinaleScene {
 
   build() {
     const s = Session.state;
+    // the same weather the card on the way in showed (interlude.js)
+    this.weather = typeof Weather !== 'undefined' ? Weather.forFinale(s.seed, s.day) : 'clear';
     this.stage = Stage.build({
       seed: s.seed + 404,
       hour: 'night',
       dress: 'fire',
       players: s.players,
+      weather: this.weather,
     });
     this.stage.setShot('wide', { cut: true });
+    this._wx = typeof Weather !== 'undefined' ? Weather.fx(this.stage, this.weather) : null;
     return this.stage.view;
   }
 
@@ -374,7 +382,16 @@ class FinaleScene {
       else if (stage === 'decisions') await this._decisions();
       else if (stage === 'name') await this._name();
       else if (stage === 'names') await this._names();
-      else if (stage === 'reveal') await this._reveal();
+      else if (stage === 'reveal') {
+        // tied twice at the fire: the castle draws before the pouch
+        const fz = Session.state.finale;
+        if (fz.lot && this._drawn !== fz.pending + ':' + fz.round) {
+          this._drawn = fz.pending + ':' + fz.round;
+          await TieDraw.play(this, { key: 'fire-tie', claudiaShot: 'claudiaSide' });
+          if (!this._alive) return;
+        }
+        await this._reveal();
+      }
       else if (stage === 'pouches') await this._pouches();
       else break;
     }
@@ -489,7 +506,8 @@ class FinaleScene {
       this._cue('floor', { at: 'bar', glide: 3 });
       if (this.music) this.music.setIntensity(0.7);
       this._courtesy(true);
-      await this._say('floorOpen', {}, 'players');
+      // the second time round, the rules need no repeating
+      await this._say((Session.state.finale.round | 0) > 0 ? 'floorOpenAgain' : 'floorOpen', {}, 'players');
       if (!this._alive) return;
       await this._floorRound();
       this._courtesy(false);
@@ -573,7 +591,7 @@ class FinaleScene {
     await this._ceremony(target, {
       intro: this._setFor('pouchIntro', target),
       reveal: (role) => this._setFor(
-        role === 'traitor' ? 'revealTraitor' : 'revealFaithful', target),
+        role === 'veiled' ? 'revealVeiled' : role === 'traitor' ? 'revealTraitor' : 'revealFaithful', target),
       action: { type: 'reveal' },
       // a Traitor caught is a triumph; a Faithful burned is a lament
       after: (role) => role === 'traitor' ? 'afterTraitor' : 'afterFaithful',
@@ -641,17 +659,23 @@ class FinaleScene {
     if (this.music && spec.key != null) this.music.setKey(spec.key);
     this._cue(spec.section || 'pouch', { at: 'bar', glide: 2 });
 
-    // she asks for it, and it comes to her
-    await this._say(spec.intro, { name: target.name }, 'on:' + target.id, salt);
-    if (!this._alive) return;
-
+    /* She asks for it, and they bring it to her: up from their place,
+       round the back of the circle and in at her elbow — a pouch is
+       carried, by hand, never thrown across the fire to her. They set
+       off a beat into her asking, so the walk overlaps the line. */
     this._spawnPouch(target);
-    this.stage.setShot('claudiaSide');
-    // she watches whoever is handing it over, right up until she has it
-    const seat = this.stage.seats.find(st => st.id === target.id);
-    this.stage.lookAt(seat ? seat.pos : null);
-    await Scenes.wait(1.5);
+    const walk = this._bringPouch(target);
+    await this._say(spec.intro, { name: target.name }, 'on:' + target.id, salt);
     if (!this._alive) return this._abort();
+    this.stage.setShot('claudiaSide');
+    await Scenes.wait(Math.max(0.2, walk - (this._pouch ? this._pouch.t : walk)));
+    if (!this._alive) return this._abort();
+
+    // hand to hand, and they go back to their place
+    this._passPouch();
+    await Scenes.wait(POUCH_PASS_SECS);
+    if (!this._alive) return this._abort();
+    this._walkBack(target);
 
     // and she holds it up, where everybody has to look at it
     Figure.setHolding(claudia, true);
@@ -717,6 +741,7 @@ class FinaleScene {
 
     Scenes.Drama.end(this.stage, null);
     await this._say(spec.reveal(role), { name: target.name }, 'claudia', salt);
+    if (role === 'veiled' && this.stage) this.stage.flare(1);
     await Scenes.barrier(ceremonyKey + '-complete');
     this.stage.lookAt(null);
   }
@@ -734,6 +759,7 @@ class FinaleScene {
   // a ceremony that will not be finishing: stop everything it started
   _abort() {
     this._endHeldBeat();
+    this._meWalk = null;
     if (this.music) this.music.silence(false);
     this._clearPouch();
     Scenes.Drama.end(this.stage, null);
@@ -780,6 +806,19 @@ class FinaleScene {
   _flare(role, e) {
     this._endHeldBeat();
     this._clearEmbers();
+    /* Hidden roles: the pouch goes in and the fire gives nothing back —
+       it sinks, smokes grey, and the room is left with its guess. */
+    if (role === 'veiled') {
+      this._big = false;
+      if (this.music) { this.music.silence(false); this._cue('afterFaithful', { at: 'bar', glide: 1.2 }); }
+      AudioBus.play('ui-click');
+      if (this.stage) { this.stage.flare(0.45); this.stage.shake(0.35); }
+      this._burstEmbers('#9aa0aa', 0.5);
+      const p = e && e.playerId ? Session.playerById(e.playerId) : null;
+      Scenes.Cine.card({ kicker: p ? (p.local ? 'You' : p.name) : '', title: 'VEILED',
+                         sub: 'Traitor or Faithful — not until the end.', tone: 'slate' });
+      return;
+    }
     const out = Reveal.flare({
       role,
       stage: this.stage,
@@ -892,23 +931,228 @@ class FinaleScene {
   /* ---------------- the pouch ---------------- */
 
   _spawnPouch(target) {
+    const fig = this.stage.figureOf(target.id);
     const seat = this.stage.seats.find(s => s.id === target.id);
-    const from = seat ? seat.pos.clone() : this.stage.claudiaPos.clone();
-    const mesh = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(0.10, 0),
-      EstateMaterials.material('upholstery', { color: '#b52d4b', roughness: .9 }));
-    EstateMaterials.uv(mesh.geometry,.12);
-    mesh.material.bumpScale=.002;
-    const tie = new THREE.Mesh(
-      new THREE.TorusGeometry(0.062, 0.016, 3, 7),
-      new THREE.MeshLambertMaterial({ color: '#d8b24a', flatShading: true }));
-    tie.rotation.x = Math.PI / 2;
-    tie.position.y = 0.085;
-    mesh.add(tie);
-    mesh.scale.set(1, 1.25, 1);
+    const from = fig ? fig.position.clone() : seat ? seat.pos.clone() : this.stage.claudiaPos.clone();
+    const mesh = FinaleScene.pouchModel();
     mesh.position.copy(from).setY(from.y + 1.05);
     this.stage.scene.add(mesh);
-    this._pouch = { mesh, t: 0, state: 'carry', from: mesh.position.clone() };
+    // `holder` is whoever has it: a figure, 'me' (the camera), or Claudia
+    this._pouch = { mesh, t: 0, state: 'carry', from: mesh.position.clone(), holder: fig || (target.local ? 'me' : null) };
+    if (fig) Figure.setHolding(fig, true);
+  }
+
+  /* The pouch itself: a velvet drawstring bag, gathered into folds at a
+     cinched neck with a ruffle above it, a gold cord tied round the neck
+     with its two ends hanging down the front to little tassels, a band
+     of gold thread round the belly and a red wax seal on the front with
+     the dagger pressed into it. About the size of two fists. */
+  static pouchModel() {
+    const g = new THREE.Group();
+    g.name = 'pouch';
+    const prof = [[0.001, -0.112], [0.045, -0.109], [0.078, -0.096], [0.098, -0.066], [0.104, -0.03], [0.1, 0.006],
+                  [0.088, 0.036], [0.066, 0.06], [0.04, 0.078], [0.027, 0.086], [0.03, 0.093], [0.046, 0.104],
+                  [0.064, 0.121], [0.07, 0.132], [0.058, 0.136], [0.044, 0.13]].map(([r, y]) => new THREE.Vector2(r, y));
+    const body = new THREE.LatheGeometry(prof, 36);
+    // gathered folds: deepest at the neck and in the ruffle, gone at the bottom
+    const pos = body.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const a = Math.atan2(v.z, v.x), r = Math.hypot(v.x, v.z);
+      if (r < 1e-4) continue;
+      const gather = THREE.MathUtils.smoothstep(v.y, -0.07, 0.08) * (v.y > 0.09 ? 1.6 : 1);
+      const k = 1 + gather * (0.09 * Math.sin(a * 11 + v.y * 18) + 0.04 * Math.sin(a * 5 - v.y * 30))
+              + 0.025 * Math.sin(a * 3 + 1.7) * (1 - gather);
+      pos.setXYZ(i, v.x * k, v.y + gather * 0.004 * Math.sin(a * 11), v.z * k);
+    }
+    body.computeVertexNormals();
+    const velvet = EstateMaterials.material('upholstery', { color: '#8f1d35', roughness: .88 });
+    EstateMaterials.uv(body, .12);
+    if (velvet.bumpScale !== undefined) velvet.bumpScale = .002;
+    const bag = new THREE.Mesh(body, velvet);
+    g.add(bag);
+    const gold = new THREE.MeshStandardMaterial({ color: '#d4ab4c', roughness: .45, metalness: .55 });
+    const cordMat = new THREE.MeshStandardMaterial({ color: '#cfa64a', roughness: .7, metalness: .25 });
+    // the cord round the neck, pulled tight, and the knot at the front
+    const neck = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.0065, 6, 28), cordMat);
+    neck.rotation.x = Math.PI / 2; neck.position.y = 0.086;
+    g.add(neck);
+    const knot = new THREE.Mesh(new THREE.SphereGeometry(0.011, 10, 8), cordMat);
+    knot.position.set(0, 0.084, 0.033);
+    g.add(knot);
+    // its two ends, hanging down the front and swinging out a little
+    for (const side of [-1, 1]) {
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, 0.084, 0.034),
+        new THREE.Vector3(side * 0.014, 0.06, 0.06),
+        new THREE.Vector3(side * 0.024, 0.02, 0.09),
+        new THREE.Vector3(side * 0.03, -0.022, 0.104),
+      ]);
+      g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 16, 0.0045, 6, false), cordMat));
+      const end = curve.getPoint(1);
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.0075, 0.012, 8), gold);
+      cap.position.copy(end).add(new THREE.Vector3(0, -0.006, 0));
+      g.add(cap);
+      const tassel = new THREE.Mesh(new THREE.ConeGeometry(0.011, 0.03, 10, 1, true), cordMat);
+      tassel.position.copy(end).add(new THREE.Vector3(0, -0.026, 0.001));
+      tassel.rotation.x = Math.PI;
+      g.add(tassel);
+    }
+    // a band of gold thread round the belly
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.0028, 4, 48), gold);
+    band.rotation.x = Math.PI / 2; band.position.y = -0.045;
+    band.scale.set(1.03, 1.03, 1);
+    g.add(band);
+    // the seal: an uneven puddle of red wax with a rim, and a dagger in it
+    const wax = new THREE.MeshStandardMaterial({ color: '#74101c', roughness: .38, metalness: .05 });
+    const sealG = new THREE.CylinderGeometry(0.026, 0.028, 0.008, 18);
+    const sp = sealG.attributes.position;
+    for (let i = 0; i < sp.count; i++) {
+      v.fromBufferAttribute(sp, i);
+      const a = Math.atan2(v.z, v.x), r = Math.hypot(v.x, v.z);
+      if (r > 0.02) { const k = 1 + 0.08 * Math.sin(a * 5 + 0.6) + 0.05 * Math.sin(a * 9); sp.setX(i, v.x * k); sp.setZ(i, v.z * k); }
+    }
+    sealG.computeVertexNormals();
+    const seal = new THREE.Group();
+    seal.add(new THREE.Mesh(sealG, wax));
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.019, 0.0018, 4, 24), wax);
+    rim.rotation.x = Math.PI / 2; rim.position.y = 0.0045;
+    seal.add(rim);
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.0035, 0.002, 0.026), wax);
+    blade.position.set(0, 0.0048, 0.002);
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.002, 0.003), wax);
+    guard.position.set(0, 0.0048, -0.008);
+    const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.0028, 6, 4), wax);
+    pommel.position.set(0, 0.0045, -0.013);
+    seal.add(blade, guard, pommel);
+    // stood on the front of the bag, tipped to its curve, the dagger point down
+    seal.rotation.set(Math.PI / 2 - 0.12, 0, Math.PI);
+    seal.position.set(0, -0.012, 0.1);
+    g.add(seal);
+    g.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+    return g;
+  }
+
+  /* The way round to her. Out behind the circle, round its back on
+     whichever side they stand, and in at her elbow on that side: the
+     fire, the stones round it and everybody else in the circle stay
+     inside the path. The same on every screen, from the seating alone. */
+  _routeTo(from, side) {
+    const st = this.stage, c = st.claudiaPos;
+    const out = Math.max(3.4, ...st.seats.map(s => Math.hypot(s.home.x, s.home.z))) + 0.6;
+    const spot = new THREE.Vector3(c.x + side * 0.82, c.y, c.z + 0.22);
+    const a0 = Math.atan2(from.z, from.x), a1 = Math.atan2(spot.z, spot.x);
+    const TAU = Math.PI * 2;
+    // +1 goes round through +x (the angle falling), -1 through -x (rising)
+    let d = a1 - a0;
+    if (side > 0) { while (d > 0) d -= TAU; while (d <= -TAU) d += TAU; }
+    else { while (d < 0) d += TAU; while (d >= TAU) d -= TAU; }
+    const pts = [from.clone()];
+    const steps = Math.max(2, Math.ceil(Math.abs(d) / 0.28));
+    for (let k = 0; k <= steps; k++) {
+      const a = a0 + d * k / steps;
+      pts.push(new THREE.Vector3(Math.cos(a) * out, 0, Math.sin(a) * out));
+    }
+    pts.push(spot);
+    return pts;
+  }
+
+  /* Off they go, with it in their hand. Returns how long until they are
+     at her elbow. Somebody else walks as a figure; you walk as the
+     camera, still free to look about. */
+  _bringPouch(target) {
+    const st = this.stage;
+    const seat = st.seats.find(s => s.id === target.id);
+    if (!seat) return 1.5;
+    const fig = st.figureOf(target.id);
+    const from = fig ? fig.position.clone() : seat.home.clone();
+    const side = from.x >= 0 ? 1 : -1;
+    const pts = this._routeTo(from, side);
+    this._handSide = side;
+    const c = st.claudiaPos;
+    if (fig) {
+      st.lookAt(fig.position);                 // she watches them come, all the way
+      return st.walkPath(target.id, pts, { speed: POUCH_WALK_SPEED, pause: POUCH_WALK_PAUSE, sit: false, face: c });
+    }
+    if (target.local && st.rig) {
+      st.lookAt(st.rig.pos);
+      return this._walkMe(pts);
+    }
+    return 1.5;
+  }
+
+  _walkBack(target) {
+    const st = this.stage;
+    const seat = st.seats.find(s => s.id === target.id);
+    if (!seat) return;
+    const fig = st.figureOf(target.id);
+    const here = fig ? fig.position.clone() : st.rig ? st.rig.pos.clone() : null;
+    if (!here) return;
+    const pts = this._routeTo(seat.home.clone(), this._handSide || 1).reverse();
+    pts[0] = here;
+    pts[pts.length - 1] = seat.home.clone();
+    if (fig) {
+      Figure.setHolding(fig, false);
+      Figure.reachTo(fig, null);
+      st.walkPath(target.id, pts, { speed: POUCH_WALK_SPEED, pause: 0.35, sit: false, face: st.claudiaPos });
+    } else if (target.local) this._walkMe(pts, 0.35);
+    st.lookAt(null);
+  }
+
+  /* You, walked: the first-person rig carried along the path at a
+     walking pace, the view turning gently toward her as you go. */
+  _walkMe(pts, pause = POUCH_WALK_PAUSE) {
+    let dist = 0;
+    for (let k = 1; k < pts.length; k++) dist += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z);
+    this._meWalk = { pts: pts.map(q => q.clone()), k: 1, pause };
+    return dist / POUCH_WALK_SPEED + pause + 0.2;
+  }
+
+  _stepMe(dt) {
+    const w = this._meWalk, st = this.stage;
+    if (!w || !st || !st.rig) return;
+    const rig = st.rig;
+    if (w.pause > 0) { w.pause -= dt; return; }
+    let mv = POUCH_WALK_SPEED * dt;
+    while (mv > 0 && w.k < w.pts.length) {
+      const to = w.pts[w.k];
+      const dx = to.x - rig.pos.x, dz = to.z - rig.pos.z, d = Math.hypot(dx, dz);
+      if (d <= mv) { rig.pos.x = to.x; rig.pos.z = to.z; w.k++; mv -= d; }
+      else { rig.pos.x += dx / d * mv; rig.pos.z += dz / d * mv; mv = 0; }
+    }
+    rig.pos.y = st.land.heightAt(rig.pos.x, rig.pos.z);
+    rig.vel.set(0, 0, 0);
+    const c = st.claudiaPos;
+    const want = Math.atan2(-(c.x - rig.pos.x), -(c.z - rig.pos.z));
+    rig.yaw = U.angLerp(rig.yaw, want, 1 - Math.exp(-1.6 * dt));
+    if (w.k >= w.pts.length) this._meWalk = null;
+  }
+
+  // from their hand into hers, over half a second
+  _passPouch() {
+    const p = this._pouch;
+    if (!p) return;
+    p.state = 'pass';
+    p.t = 0;
+    p.from = p.mesh.position.clone();
+    if (p.holder && p.holder !== 'me') Figure.reachTo(p.holder, this._claudiaHand().clone());
+    Figure.reachTo(this.stage.claudia, p.from.clone());
+  }
+
+  // where the pouch is in your hand, held out a little in front of your eyes
+  _myHand(out) {
+    const st = this.stage;
+    // over a scripted shot the camera is not you: hold it where your hand would be
+    if (st.cinematic && st.rig) {
+      const c = st.claudiaPos, r = st.rig.pos;
+      const dx = c.x - r.x, dz = c.z - r.z, d = Math.hypot(dx, dz) || 1;
+      return out.set(r.x + dx / d * 0.32, r.y + 1.05, r.z + dz / d * 0.32);
+    }
+    const cam = st.camera;
+    cam.getWorldDirection(this._dir || (this._dir = new THREE.Vector3()));
+    const dir = this._dir;
+    const right = (this._right || (this._right = new THREE.Vector3())).set(-dir.z, 0, dir.x).normalize();
+    return out.copy(cam.position).addScaledVector(dir, 0.55).addScaledVector(right, 0.16).add(new THREE.Vector3(0, -0.3, 0));
   }
 
   // where the thing in her hand is this frame, whatever she is doing
@@ -934,6 +1178,8 @@ class FinaleScene {
     if (this.stage) {
       this.stage.scene.remove(p.mesh);
       Figure.setHolding(this.stage.claudia, false);
+      Figure.reachTo(this.stage.claudia, null);
+      if (p.holder && p.holder !== 'me') { Figure.setHolding(p.holder, false); Figure.reachTo(p.holder, null); }
     }
     Engine.disposeObject(p.mesh);
   }
@@ -948,12 +1194,21 @@ class FinaleScene {
     p.t += dt;
 
     if (p.state === 'carry') {
-      // out of their hands and into hers, over a second and a half
-      const k = U.clamp(p.t / 1.5, 0, 1);
+      // in the hand of whoever is bringing it, wherever they have got to
+      if (p.holder === 'me') this._myHand(p.mesh.position);
+      else if (p.holder) Figure.handAt(p.holder, p.mesh.position);
+      p.mesh.rotation.y += dt * 0.8;
+    } else if (p.state === 'pass') {
+      // hand to hand: a short reach, never a throw
+      const k = U.clamp(p.t / POUCH_PASS_SECS, 0, 1);
       const e = k * k * (3 - 2 * k);
       p.mesh.position.lerpVectors(p.from, this._claudiaHand(), e);
-      p.mesh.position.y += Math.sin(e * Math.PI) * 0.16;
-      p.mesh.rotation.y += dt * 1.1;
+      p.mesh.position.y += Math.sin(e * Math.PI) * 0.05;
+      if (k >= 1) {
+        p.state = 'held';
+        if (p.holder && p.holder !== 'me') Figure.reachTo(p.holder, null);
+        Figure.reachTo(this.stage.claudia, null);
+      }
     } else if (p.state === 'held' || p.state === 'wind') {
       p.mesh.position.copy(this._claudiaHand());
       p.mesh.rotation.y += dt * 0.55;
@@ -970,6 +1225,8 @@ class FinaleScene {
   update(dt, t) {
     if (!this.stage) return;
     this.stage.update(dt);
+    if (this._wx) this._wx.step(dt);
+    this._stepMe(dt);
     this._updatePouch(dt);
     this._updateEmbers(dt);
 
@@ -999,6 +1256,7 @@ class FinaleScene {
     Scenes.Drama.end(this.stage, null);
     if (this.music) { this.music.stop(1.2); this.music = null; }
     if (this.wind) { this.wind.stop(); this.wind = null; }
+    if (this._wx) { this._wx.stop(); this._wx = null; }
     this._endHeldBeat();
     this._clearEmbers();
     if (this._pouch) { Engine.disposeObject(this._pouch.mesh); this._pouch = null; }

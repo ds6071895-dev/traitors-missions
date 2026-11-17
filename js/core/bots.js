@@ -154,6 +154,13 @@ const Bots = (() => {
       // whom the bot Traitors make the Wise One: you, a seat, or the seed's pick
       wise: q.has('wise') ? parseTraitor(q.get('wise')) : undefined,
       overrule: ['yes', 'no'].indexOf(String(q.get('overrule') || '')) >= 0 ? String(q.get('overrule')) : null,
+      // `twist=sealed` forces that twist on the first day it may come; `twists=off` has none
+      twist: q.has('twist') ? String(q.get('twist')).slice(0, 16) : null,
+      twists: q.get('twists') !== 'off',
+      // `twists=early`: a twist may come on the first day too
+      twistsEarly: q.get('twists') === 'early',
+      // `roles=hidden`: nobody banished says what they were until the end
+      hideRoles: q.get('roles') === 'hidden',
     };
   }
 
@@ -460,6 +467,10 @@ const Bots = (() => {
       players: roster(cfg),
       parts: cfg.parts,
       traitorSeat: cfg.traitorSeat,
+      twists: cfg.twists !== false,
+      twistsEarly: !!cfg.twistsEarly,
+      hideRoles: !!cfg.hideRoles,
+      forceTwist: cfg.twist || null,
     });
     think();
     banner();

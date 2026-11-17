@@ -181,7 +181,8 @@ const CastleBots = (() => {
     bots = ids.map((id, n) => {
       const at = (opts.spawn && opts.spawn(id)) || { x: (n - ids.length / 2) * 1.2, z: 12 };
       return { id, x: at.x, z: at.z, h: Math.PI, route: [], plan: null, wait: rng.range(0.4, 2.2),
-               g: null, hold: 0, social: null, stalkAfter: rng.range(28, 55), rethink: 0, repick: 0, speed: SPEED * rng.range(0.9, 1.1),
+               g: null, hold: 0, social: null, convo: null, convoCool: new Map(), aloneWith: null, aloneFor: 0,
+               stalkAfter: rng.range(28, 55), rethink: 0, repick: 0, speed: SPEED * rng.range(0.9, 1.1),
                follow: null, lead: null, flee: null, wary: new Map() };
     });
     running = true;
@@ -297,11 +298,29 @@ const CastleBots = (() => {
     return true;
   }
 
+  function resumePlan(b) {
+    if (b.plan && b.plan.kind === 'station' && !b.plan.arrived) goTo(b, b.plan.sx, b.plan.sz);
+  }
+
   function endVisit(b) {
     b.social = null;
     b.route = [];
     b.rethink = 0;
-    if (b.plan && b.plan.kind === 'station' && !b.plan.arrived) goTo(b, b.plan.sx, b.plan.sz);
+    resumePlan(b);
+  }
+
+  function maybeSocialPoison(b, dt, v, t, holder, targetId, ready) {
+    const carrier = v.poison && v.poison.mine && !v.poison.used;
+    const faithful = (v.partners || []).indexOf(targetId) < 0;
+    if (ready && carrier && faithful && !holder.poisonDone && !shielded(targetId)
+        && (elapsed() > b.stalkAfter || t < 75)) {
+      if (!b.plan || b.plan.kind !== 'poison' || b.plan.target !== targetId) {
+        b.plan = { kind: 'poison', target: targetId, wait: 0 };
+      }
+      chase(b, dt, t);
+      return true;
+    }
+    return false;
   }
 
   function visit(b, dt, v, t) {
@@ -336,20 +355,16 @@ const CastleBots = (() => {
     if (!social.arrived) { social.arrived = true; social.expires = Date.now() + 16000; }
     if (!social.talkingAt && typeof AIDirector !== 'undefined'
         && AIDirector.startEncounter(b.id, social.target, () => {
-          if (b.social === social) social.spokeAt = Date.now();
+          if (b.social === social) {
+            social.spokeAt = Date.now();
+            social.expires = Math.max(social.expires, social.spokeAt + 18000);
+          }
         })) social.talkingAt = Date.now();
 
     // A chat is cover, not a free kill: the carrier must still get close,
     // reach for the full hold time, and respect the usual witnesses.
-    const carrier = v.poison && v.poison.mine && !v.poison.used;
-    const faithful = (v.partners || []).indexOf(social.target) < 0;
-    if (social.spokeAt && Date.now() - social.spokeAt > 1500 && carrier && faithful
-        && !social.poisonDone && !shielded(social.target) && (elapsed() > b.stalkAfter || t < 75)) {
-      if (!b.plan || b.plan.kind !== 'poison' || b.plan.target !== social.target) {
-        b.plan = { kind: 'poison', target: social.target, wait: 0 };
-      }
-      chase(b, dt, t);
-    }
+    maybeSocialPoison(b, dt, v, t, social, social.target,
+      !!(social.spokeAt && Date.now() - social.spokeAt > 1500));
   }
 
   /* ---------------- company ----------------
@@ -377,7 +392,7 @@ const CastleBots = (() => {
   }
   // whatever it was doing, it is doing this instead: the job is picked again after
   function dropEverything(b) {
-    b.social = null; b.follow = null; b.lead = null;
+    b.social = null; b.convo = null; b.follow = null; b.lead = null;
     b.hold = 0; b.g = null; b.plan = null;
     b.route = []; b.wait = 0; b.rethink = 0;
   }
@@ -386,6 +401,93 @@ const CastleBots = (() => {
     return running && !!b && alive(b.id) && !!p && p.alive && p.id !== b.id && !!poseOf(otherId)
       && Session.state.phase === 'tasks' && !b.flee;
   };
+
+  /* Keep a 1-1 conversation active while you and this AI are talking
+     alone together, refreshing its hold so it never turns its back and
+     walks away mid-sentence. */
+  function engage(id, targetId, secs = 20) {
+    const b = botById(id);
+    if (!canKeepCompany(b, targetId)) return false;
+    const until = Date.now() + secs * 1000;
+    if (b.social && b.social.target === targetId) { b.social.expires = Math.max(b.social.expires, until); return true; }
+    if (b.follow && b.follow.leader === targetId) { b.follow.until = Math.max(b.follow.until, until); return true; }
+    if (b.lead && b.lead.target === targetId) { b.lead.until = Math.max(b.lead.until, until); return true; }
+    if (b.follow || b.lead || b.hold || distrusts(b, targetId)) return false;
+    const to = poseOf(targetId);
+    if (b.convo && b.convo.target === targetId) { b.convo.until = Math.max(b.convo.until, until); return true; }
+    b.convo = { target: targetId, startedAt: Date.now(), until, room: roomOfBot(b) || (to && to.room) || null,
+                rethink: 0, poisonDone: false };
+    b.route = [];
+    b.rethink = 0;
+    return true;
+  }
+
+  function endConvo(id) {
+    const b = botById(id);
+    if (!b) return false;
+    if (b.convo) {
+      b.convoCool.set(b.convo.target, Date.now() + 20000);
+      b.convo = null; b.route = []; b.rethink = 0;
+      resumePlan(b);
+      return true;
+    }
+    if (b.social) {
+      b.convoCool.set(b.social.target, Date.now() + 20000);
+      endVisit(b);
+      return true;
+    }
+    return unfollow(id);
+  }
+
+  function talkConvo(b, dt, v, t) {
+    const C = b.convo, to = poseOf(C.target);
+    const stop = (cool = 20000) => {
+      b.convoCool.set(C.target, Date.now() + cool);
+      b.convo = null; b.route = []; b.rethink = 0;
+      resumePlan(b);
+    };
+    if (!to || !alive(C.target) || Date.now() >= C.until
+        || (v.role !== 'traitor' && distrusts(b, C.target))
+        || (typeof Scenes !== 'undefined' && Scenes.botSpeechBlocked)) return stop();
+    const d = Math.hypot(to.x - b.x, to.z - b.z);
+    if (d > 4.5 || (to.room && C.room && to.room !== C.room && d > 3.0)) return stop(15000);
+    if (maybeSocialPoison(b, dt, v, t, C, C.target, Date.now() - C.startedAt > 2500)) return;
+    if (d > 2.0) {
+      if ((C.rethink -= dt) <= 0 || !b.route.length) { goTo(b, to.x, to.z); C.rethink = 0.8; }
+      step(b, dt);
+      return;
+    }
+    b.route = [];
+    face(b, to.x, to.z);
+  }
+
+  function maybeSoloConvo(b, dt) {
+    if (b.plan && b.plan.kind === 'station' && b.plan.arrived) { b.aloneFor = 0; b.aloneWith = null; return false; }
+    if (typeof Scenes !== 'undefined' && Scenes.botSpeechBlocked) { b.aloneFor = 0; return false; }
+    const here = roomOfBot(b);
+    if (!here) { b.aloneFor = 0; b.aloneWith = null; return false; }
+    const others = Session.alive().filter(p => p.id !== b.id && (poseOf(p.id) || {}).room === here);
+    const h = others.length === 1 && !others[0].bot ? others[0] : null;
+    const to = h ? poseOf(h.id) : null;
+    if (!h || !to || Math.hypot(to.x - b.x, to.z - b.z) > 2.6 || distrusts(b, h.id)
+        || Date.now() < (b.convoCool.get(h.id) || 0)
+        || bots.some(o => (o.social && o.social.target === h.id) || (o.convo && o.convo.target === h.id)
+          || (o.follow && o.follow.leader === h.id) || (o.lead && o.lead.target === h.id))) {
+      b.aloneWith = null; b.aloneFor = 0;
+      return false;
+    }
+    if (b.aloneWith !== h.id) { b.aloneWith = h.id; b.aloneFor = 0; return false; }
+    if ((b.aloneFor += dt) < 0.8) return false;
+    b.aloneWith = null; b.aloneFor = 0;
+    if (typeof AIDirector !== 'undefined' && AIDirector.startEncounter
+        && AIDirector.startEncounter(b.id, h.id, () => {
+          if (b.convo && b.convo.target === h.id) b.convo.until = Math.max(b.convo.until, Date.now() + 20000);
+        })) {
+      engage(b.id, h.id, 20);
+      return true;
+    }
+    return false;
+  }
 
   function follow(id, leaderId, secs) {
     const b = botById(id);
@@ -398,8 +500,8 @@ const CastleBots = (() => {
 
   function unfollow(id) {
     const b = botById(id);
-    if (!b || (!b.follow && !b.lead)) return false;
-    b.follow = null; b.lead = null; b.route = []; b.rethink = 0;
+    if (!b || (!b.follow && !b.lead && !b.convo)) return false;
+    b.follow = null; b.lead = null; b.convo = null; b.route = []; b.rethink = 0;
     return true;
   }
 
@@ -646,6 +748,7 @@ const CastleBots = (() => {
       if (b.hold >= Chores.HOLD) {
         const target = b.plan.target;
         if (b.social && b.plan.kind === 'poison') b.social.poisonDone = true;
+        if (b.convo && b.plan.kind === 'poison') b.convo.poisonDone = true;
         Net.send({ type: b.plan.kind === 'poison' ? 'poison' : 'handover', playerId: b.id, targetId: target });
         b.hold = 0; b.g = null; b.plan = null;
         b.wait = rng.range(0.8, 2.0);
@@ -659,13 +762,22 @@ const CastleBots = (() => {
     if (b.lead) { guide(b, dt, v, t); return; }
     if (b.follow) { tail(b, dt, v, t); return; }
     if (b.social) { visit(b, dt, v, t); return; }
+    if (b.convo) { talkConvo(b, dt, v, t); return; }
+    if (maybeSoloConvo(b, dt)) { talkConvo(b, dt, v, t); return; }
 
-    if (b.wait > 0) { b.wait -= dt; return; }
+    // the carrier, when it is time (or immediately if a fellow Traitor ordered a target)
+    const o = typeof AIDirector !== 'undefined' && AIDirector.order ? AIDirector.order() : null;
+    const orderedVictim = poison && o && o.how !== 'vote' && o.how !== 'recruit'
+      && alive(o.target) && o.target !== b.id && (v.partners || []).indexOf(o.target) < 0 ? o.target : null;
+    if (b.wait > 0) {
+      if (orderedVictim && (!b.plan || b.plan.kind !== 'poison' || b.plan.target !== orderedVictim)) b.wait = 0;
+      else { b.wait -= dt; return; }
+    }
 
-    // the carrier, when it is time
-    if (poison && (elapsed() > b.stalkAfter || t < 75)) {
+    if (poison && (orderedVictim || elapsed() > b.stalkAfter || t < 75)) {
       b.repick -= dt;
-      if (!b.plan || b.plan.kind !== 'poison' || !alive(b.plan.target) || b.repick <= 0) {
+      if (!b.plan || b.plan.kind !== 'poison' || !alive(b.plan.target)
+          || (orderedVictim && b.plan.target !== orderedVictim) || b.repick <= 0) {
         const target = pickVictim(b, v);
         if (target && !(b.plan && b.plan.kind === 'poison' && b.plan.target === target)) b.plan = { kind: 'poison', target, wait: 0 };
         b.repick = 5;
@@ -786,10 +898,12 @@ const CastleBots = (() => {
     if (b.flee) return { kind: 'flee', with: b.flee.from };
     if (b.lead) return { kind: 'lead', with: b.lead.target, room: b.lead.room, stage: b.lead.stage };
     if (b.follow) return { kind: 'follow', with: b.follow.leader };
+    if (b.convo) return { kind: 'convo', with: b.convo.target };
+    if (b.social && b.social.arrived) return { kind: 'social', with: b.social.target };
     return null;
   };
 
   return { start, stop, update, path, buildGrid, free, canApproach, approach,
-           follow, unfollow, lead, flee, company, wary: (id, otherId) => { const b = botById(id); return !!b && isWary(b, otherId); },
+           follow, unfollow, engage, endConvo, lead, flee, company, wary: (id, otherId) => { const b = botById(id); return !!b && isWary(b, otherId); },
            get running() { return running; }, get bots() { return bots; } };
 })();

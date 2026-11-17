@@ -42,7 +42,12 @@ const Scenes = (() => {
 
   /* ---------------- the overlay ---------------- */
 
+  /* Letterbox up means a ceremony is on: a slate, a body, a name, a
+     colour. The AIs read it as "the room is not yours" (see
+     AIDirector's claudiaBusy), so they never chat across one. */
+  let barsOn = false;
   const Cine = {
+    get barsOn() { return barsOn; },
     on(v = true) {
       cache();
       if (dom.root) dom.root.classList.toggle('on', !!v);
@@ -52,13 +57,17 @@ const Scenes = (() => {
     // while a vote panel is up, and the vote panel is not cinematic
     bars(v = true) {
       cache();
+      barsOn = !!v;
       if (dom.root) dom.root.classList.toggle('bars', !!v);
     },
     card(spec) {
       cache();
       if (!dom.card) return;
       if (!spec) { dom.card.classList.remove('on'); return; }
-      dom.card.className = 'cine-card on' + (spec.tone ? ' t-' + spec.tone : '');
+      dom.card.className = 'cine-card' + (spec.tone ? ' t-' + spec.tone : '') + (spec.cls ? ' ' + spec.cls : '');
+      // restart its entrance even when the last card had the same tone
+      void dom.card.offsetWidth;
+      dom.card.className += ' on';
       if (dom.cardKicker) dom.cardKicker.textContent = spec.kicker || '';
       if (dom.cardTitle) dom.cardTitle.textContent = spec.title || '';
       if (dom.cardSub) dom.cardSub.innerHTML = spec.sub || '';
@@ -203,7 +212,12 @@ const Scenes = (() => {
 
   /* ---------------- lifecycle ---------------- */
 
-  function play(instance) {
+  /* `opts.after` is a curtain: a promise the room waits on before it
+     says it is ready, so it is drawn (and warmed) underneath the
+     interlude but does not begin — no line, no clock — until the
+     painting lifts. Every client waits on its own, then the ready gate
+     below lines them up as before. */
+  function play(instance, opts = {}) {
     stop();
     cache();
     token++;
@@ -213,6 +227,13 @@ const Scenes = (() => {
       if (active === instance) instance.update(dt, t);
       Input.endFrame();
     });
+    if (opts.after && typeof opts.after.then === 'function') {
+      opts.after.then(() => { if (active === instance) gate(instance); });
+    } else gate(instance);
+    return instance;
+  }
+
+  function gate(instance) {
     const begin = () => {
       if (active !== instance) return;
       clearInterval(startTimer); startTimer = null;
@@ -233,8 +254,11 @@ const Scenes = (() => {
         ready();
         startTimer = setInterval(ready, 600);
       }
-    } else begin();
-    return instance;
+    } else {
+      // nobody to wait for: the room's clocks start now, as it begins
+      if (s && s.phase && typeof Session.beganAlone === 'function') Session.beganAlone(s.phase);
+      begin();
+    }
   }
 
   function stop() {
@@ -308,7 +332,7 @@ const Scenes = (() => {
         if (!drama.has(stage)) {
           drama.set(stage, { was: !!stage.cinematic, controls: !!(stage.rig && stage.rig.controls) });
         }
-        stage.setCinematic(true, shot || null, { speed: o.speed || 2.2, cut: !!o.cut });
+        stage.setCinematic(true, shot || null, { speed: o.speed || 2.2, cut: !!o.cut, push: o.push });
       }
       if (music && music.silence && o.silent !== false) music.silence(true);
       return wait(o.hold != null ? o.hold : 0.6);
@@ -330,7 +354,7 @@ const Scenes = (() => {
       if (typeof Input !== 'undefined' && Input.haptic) Input.haptic(o.haptic || 30);
     },
     shot(stage, shot, o = {}) {
-      if (stage && stage.setShot) stage.setShot(shot, { speed: o.speed || 1.6, cut: !!o.cut });
+      if (stage && stage.setShot) stage.setShot(shot, { speed: o.speed || 1.6, cut: !!o.cut, push: o.push });
     },
     /* The long breath before an answer, which `hush` is the short one
        of: the bars and the dark edges as before, the camera if asked

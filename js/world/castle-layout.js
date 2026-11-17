@@ -14,7 +14,7 @@
 
    and two wings either side of the round chamber, for the day:
 
-     west       the library behind the great hall, the chapel, the
+     west       the library behind the great hall, the whisky room, the
                 kitchen and its scullery
      east       the long gallery, the billiard and drawing rooms, the
                 laird's study, the gun room, and the conservatory at
@@ -70,11 +70,11 @@ const CastleLayout = (() => {
     Object.assign({ id, shape: 'rect', x0, x1, z0, z1, h, floor, doors: { n: [], s: [], e: [], w: [] } }, more || {});
 
   /* The west wing. The library runs the length of the great hall's
-     north wall and on past it, with the chapel off its far end and the
+     north wall and on past it, with the whisky room off its far end and the
      kitchen beyond; a short passage joins it to the round chamber. */
   ROOMS.push(
     rect('library', -30, -10, -9.5, -2, 5.5, 'timber'),
-    rect('chapel', -30, -20, -21.5, -9.5, 8, 'paving', { quiet: true }),
+    rect('whisky', -30, -20, -21.5, -9.5, 5.5, 'paving', { quiet: true }),
     rect('kitchen', -42, -30, -14, 2, 5, 'paving'),
     rect('scullery', -42, -34, -22, -14, 4, 'paving', { quiet: true }),
     rect('west-link', -10, -7.9, -7.2, -4.8, 4.2, 'paving',
@@ -143,7 +143,7 @@ const CastleLayout = (() => {
   link('great', 'n', [-13.0, -11.4], 'library', { id: 'library-e', into: 'library' });
   // the west wing
   link('library', 'e', [-6.95, -5.05], 'west-link');
-  link('library', 'n', [-25.8, -24.2], 'chapel', { id: 'chapel', into: 'chapel' });
+  link('library', 'n', [-25.8, -24.2], 'whisky', { id: 'whisky', into: 'whisky' });
   link('library', 'w', [-6.6, -5.0], 'kitchen', { id: 'kitchen', into: 'kitchen' });
   link('kitchen', 'n', [-38.8, -37.2], 'scullery', { id: 'scullery', into: 'scullery' });
   // the east wing
@@ -310,8 +310,8 @@ const CastleLayout = (() => {
     [0, 6.4, -6], [0, 2.6, -1.4], [-5.2, 2.6, -9.5], [5.2, 2.6, -9.5], // the round chamber
     [0, 2.8, -15.5], [0, 6.6, -22], [-8.5, 3, 10.5], [0, 3, 3],
     [11, 3, 13.5], [19, 3, 13.5], [24, 3, 13.5], [28.5, 3, 13.5],
-    // the west wing: library, chapel, kitchen, scullery
-    [-25, 3.6, -5.75], [-15, 3.6, -5.75], [-25, 4.6, -15.5], [-36, 3.2, -9], [-36, 3.2, -1], [-38, 2.6, -18],
+    // the west wing: library, whisky room, kitchen, scullery
+    [-25, 3.6, -5.75], [-15, 3.6, -5.75], [-25.5, 3.6, -15], [-36, 3.2, -9], [-36, 3.2, -1], [-38, 2.6, -18],
     // the east wing: passage, gallery, billiard, drawing, study, gun room, conservatory
     [12, 3, -6], [22, 3.4, -5], [34, 3.4, -5], [22, 3.2, -13], [34, 3.4, -13], [44, 2.8, -6],
     [36, 2.8, 2.5], [36, 3.8, 11], [36, 3.8, 16.5],

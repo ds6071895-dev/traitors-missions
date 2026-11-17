@@ -2,14 +2,14 @@
 const { execFileSync } = require('child_process');
 const path = require('path');
 
-const suites = ['performance.test.js', 'session.test.js', 'rules.test.js', 'privacy.test.js',
+const suites = ['performance.test.js', 'session.test.js', 'turret.test.js', 'rules.test.js', 'privacy.test.js',
                 'exposure.test.js', 'castle.test.js', 'doors.test.js', 'stage.test.js', 'touchguard.test.js',
                 'transport.test.js', 'look.test.js',
                 'turn.test.js', 'party.test.js', 'retry.test.js', 'websocket.test.js', 'voice-socket.test.js',
                 'voice-worker.test.js', 'jitter.test.js', 'netcode.test.js',
                 'ai-bridge.test.js', 'claudia-stream.test.js', 'ai-director.test.js', 'speech.test.js', 'encounters.test.js', 'company.test.js',
-                'bots.test.js', 'tutorial.test.js', 'music.test.js', 'music-direction.test.js', 'claudia-lines.test.js', 'wise-one.test.js', 'shield.test.js', 'talking.test.js',
-                'figure.test.js'];
+                'bots.test.js', 'tutorial.test.js', 'music.test.js', 'music-direction.test.js', 'claudia-lines.test.js', 'tie-draw.test.js', 'wise-one.test.js', 'shield.test.js', 'talking.test.js',
+                'figure.test.js', 'interlude.test.js', 'twists.test.js', 'traitor-chat.test.js'];
 
 let bad = 0;
 for (const s of suites) {

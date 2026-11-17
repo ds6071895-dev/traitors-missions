@@ -155,7 +155,7 @@ class ExploreScene {
       <canvas class="tk-map" width="472" height="256"></canvas>
       <button class="tk-notes-btn tk-leave" type="button"><b>Esc</b> Leave</button>
       <div class="tk-prompt"><div class="tk-ring"></div><span class="tk-prompt-text"></span></div>
-      <div class="tk-touch"><button class="tk-use" type="button">USE</button></div>`;
+      <div class="tk-touch"><button class="tk-use" type="button" data-kbd="E">USE</button></div>`;
     document.body.appendChild(root);
     const q = (sel) => root.querySelector(sel);
     this._dom = {

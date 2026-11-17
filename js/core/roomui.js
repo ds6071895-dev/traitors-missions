@@ -28,7 +28,31 @@ const RoomUI = (() => {
 
   /* ---------------- the floor ---------------- */
 
+  /* Enter presses whichever "done" the bar is showing — "I've said
+     enough" on your turn, "Done talking" at the open table. Not while
+     typing, and not when a focused button would take the Enter itself. */
+  let doneKeyWired = false;
+  function wireDoneKey() {
+    if (doneKeyWired || typeof window === 'undefined' || !window.addEventListener) return;
+    doneKeyWired = true;
+    window.addEventListener('keydown', (ev) => {
+      if ((ev.code !== 'Enter' && ev.code !== 'NumpadEnter') || ev.repeat || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      const done = el('floor-done');
+      if (!done || done.hidden || done.disabled || !done.onclick) return;
+      const a = document.activeElement;
+      if (a && a !== document.body && /INPUT|TEXTAREA|SELECT|BUTTON|A/.test(a.tagName || '')) return;
+      if (a && a.isContentEditable) return;
+      ev.preventDefault();
+      done.onclick();
+    });
+  }
+  const setDoneKey = (done, on) => {
+    if (!done.setAttribute) return;
+    if (on) done.setAttribute('data-kbd', 'Enter'); else done.removeAttribute('data-kbd');
+  };
+
   function showFloor(e) {
+    wireDoneKey();
     const bar = el('floor-bar');
     if (!bar) return;
     if (!e || e.done || (!e.playerId && !e.all)) { hideFloor(); return; }
@@ -55,6 +79,7 @@ const RoomUI = (() => {
       done.hidden = !mine;
       done.disabled = false;
       done.textContent = "I've said enough";
+      setDoneKey(done, !!mine);
       done.onclick = mine ? () => {
         AudioBus.play('ui-click');
         Net.send({ type: 'yieldFloor', playerId: e.playerId });
@@ -85,15 +110,16 @@ const RoomUI = (() => {
 
     bar.classList.add('on', 'open');
     bar.classList.remove('mine');
-    el('floor-who').textContent = ready.length
+    el('floor-who').textContent = e.label || (ready.length
       ? 'The table · ' + ready.length + ' of ' + alive.length + ' done'
-      : 'The table is open';
+      : 'The table is open');
 
     const done = el('floor-done');
     if (done) {
-      done.hidden = !(me && me.alive);
+      done.hidden = !!(e.hideDone || !(me && me.alive));
       done.disabled = mineReady;
       done.textContent = mineReady ? 'Waiting…' : 'Done talking';
+      setDoneKey(done, !mineReady);
       done.onclick = mineReady ? null : () => {
         AudioBus.play('ui-click');
         Net.send({ type: 'yieldFloor', playerId: me ? me.id : null });
@@ -227,7 +253,7 @@ const RoomUI = (() => {
     const me = s && s.players.find(p => p.local);
     const holder = VoiceChat.holder;
     const clash = !!holder && who.length + (me && VoiceChat.voiced(me.id) ? 1 : 0) > 1;
-    const key = who.map(p => p.id + (VoiceChat.whisperingFrom && VoiceChat.whisperingFrom(p.id) ? '~' : '')).join(',')
+    const key = who.map(p => p.id).join(',')
       + (clash ? '|' + holder : '');
     if (key === talkKey) return;
     talkKey = key;
@@ -239,7 +265,6 @@ const RoomUI = (() => {
       const cls = !clash ? '' : p.id === holder ? ' hold' : ' over';
       return '<span class="tc-who' + cls + '" style="--tc:' + esc(accent) + '"><i></i>' + esc(p.name)
         + (cls === ' hold' ? '<em>has the room</em>' : '')
-        + (VoiceChat.whisperingFrom && VoiceChat.whisperingFrom(p.id) ? '<em class="tc-wh">to the Traitors</em>' : '')
         + '<b class="tc-bars"><b></b><b></b><b></b></b></span>';
     }).join('');
   }
@@ -261,39 +286,6 @@ const RoomUI = (() => {
             : (VoiceChat.muted ? 'Unmute microphone (V)' : 'Mute microphone (V)');
   }
 
-  /* The Traitors' whisper: the button and G are both held. The button
-     keeps its own hold, so a finger on it and a key down are one hold
-     and letting go of either does not end the other. */
-  /* R (or a quick tap of the button) latches it instead: you stay in the
-     Traitors' chat — the Faithful AIs neither hear you nor reach you,
-     and the Traitor AIs answer you there — until it is pressed again. */
-  let wbHeld = false, wkHeld = false, latched = false, wbDownAt = 0;
-  const TAP_MS = 260;
-  function paintWhisper() {
-    const b = el('whisper-btn');
-    if (!b) return;
-    const can = typeof VoiceChat !== 'undefined' && VoiceChat.canWhisper;
-    if (!can && latched) latched = false;
-    b.hidden = !can;
-    b.classList.toggle('on', !!(can && VoiceChat.whispering));
-    b.classList.toggle('latched', !!(can && latched));
-    b.title = latched ? 'Traitors\' chat is on — press R or tap to leave' : 'Hold to whisper to the Traitors (G) · press R or tap to stay in Traitors\' chat';
-  }
-  function syncWhisper() {
-    if (typeof VoiceChat === 'undefined') return;
-    VoiceChat.holdWhisper(wbHeld || wkHeld || latched);
-    paintWhisper();
-  }
-  function toggleTraitorChat() {
-    if (typeof VoiceChat === 'undefined') return;
-    latched = !latched && !!VoiceChat.canWhisper;
-    syncWhisper();
-    if (typeof Voice !== 'undefined' && Voice.show && !Voice.speaking) {
-      Voice.show('', latched ? 'Traitors\' chat on — only Traitors hear you.' : 'Traitors\' chat off.');
-      setTimeout(() => { if (!Voice.speaking) Voice.clear(); }, 1600);
-    }
-  }
-
   async function toggleMic() {
     if (typeof Party === 'undefined' || !Party.connected) return;
     if (!VoiceChat.available) await VoiceChat.start();
@@ -305,32 +297,12 @@ const RoomUI = (() => {
     const b = el('mic-btn');
     if (b) b.onclick = toggleMic;
     VoiceChat.on('state', paintMic);
-    VoiceChat.on('state', paintWhisper);
-    const w = el('whisper-btn');
-    if (w) {
-      const down = (e) => { e.preventDefault(); wbHeld = true; wbDownAt = Date.now(); try { w.setPointerCapture(e.pointerId); } catch (x) {} syncWhisper(); };
-      const up = () => {
-        if (!wbHeld) return;
-        wbHeld = false;
-        if (Date.now() - wbDownAt < TAP_MS) toggleTraitorChat();   // a tap latches; a hold is push-to-talk
-        else syncWhisper();
-      };
-      w.addEventListener('pointerdown', down);
-      w.addEventListener('pointerup', up);
-      w.addEventListener('pointercancel', up);
-      w.addEventListener('lostpointercapture', up);
-      w.addEventListener('contextmenu', e => e.preventDefault());
-      window.addEventListener('blur', () => { wbHeld = wkHeld = false; syncWhisper(); });
-    }
     /* One place polls the key and the pad button, rather than every
        scene growing its own copy of this. */
     Engine.addUpdater(() => {
       if (Input.pressed('mic')) toggleMic();
-      if (Input.pressed('traitorChat')) toggleTraitorChat();
-      const k = Input.held('whisper');
-      if (k !== wkHeld) { wkHeld = k; syncWhisper(); }
       const now = Date.now();
-      if (now - talkAt > 100) { talkAt = now; paintTalk(); paintWhisper(); }
+      if (now - talkAt > 100) { talkAt = now; paintTalk(); }
     });
     paintMic();
   }
@@ -338,6 +310,9 @@ const RoomUI = (() => {
   function hideAll() {
     hideFloor(); hideBoard();
   }
+
+  // the Traitors' chat is its own panel now (traitor-chat.js)
+  const toggleTraitorChat = () => { if (typeof TraitorChat !== 'undefined') TraitorChat.toggle(); };
 
   return { init, toggleMic, toggleTraitorChat, paintMic, paintTalk,
            showFloor, hideFloor, showBoard, hideBoard, choreBoard,

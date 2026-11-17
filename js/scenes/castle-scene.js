@@ -28,9 +28,20 @@ class CastleScene {
   }
 
   build() {
-    this.stage = Stage.build(this.stageOptions());
+    this.stage = Stage.build(CastleScene.dressDay(this.stageOptions()));
     this.stage.update(0);
+    this._wx = typeof Weather !== 'undefined' ? Weather.fx(this.stage, this.stage.land && this.stage.land.weather) : null;
     return this.stage.view;
+  }
+
+  /* Today's weather and how late in the game it is, onto a room's stage
+     options (unless the room chose its own). */
+  static dressDay(o) {
+    const s = Session.state;
+    if (!s) return o;
+    if (o.weather === undefined && typeof Weather !== 'undefined') o.weather = Weather.forDay(s.seed, s.day);
+    if (o.late === undefined && Session.stakes) o.late = Session.stakes();
+    return o;
   }
 
   stageOptions() { return { seed: Session.state.seed, hour: 'night', dress: 'none', players: [] }; }
@@ -145,7 +156,8 @@ class CastleScene {
           ids: () => Session.alive().map(p => p.id),
           ready: () => (Session.state.floor && Session.state.floor.ready) || [],
           mute: () => Session.alive().filter(p => !p.bot && !this._hasVoice(p.id)).map(p => p.id),
-          minSeconds: opts.minSeconds || Math.min(60, 20 + 6 * Session.alive().length),
+          // never more than the clock the host gave the table
+          minSeconds: Math.min(seconds, opts.minSeconds || Math.min(60, 20 + 6 * Session.alive().length)),
           maxSeconds: seconds,
           judge: opts.judge,
           judgeOnly: opts.judgeOnly !== undefined ? opts.judgeOnly : !!opts.judge,
@@ -305,16 +317,10 @@ class CastleScene {
   async _slates(roomKey) {
     let guard = 0, said = 0;
     const total = Math.max(1, (Session.state.finale.nameQueue || []).length);
-    /* The Wise One has overruled. The room is told before a slate turns
-       — not whose, only that one of them outranks the rest — and that
-       slate is the last. */
+    // a Wise One's overruling slate is turned last, and only then is it said
     const armed = () => { const o = Session.state.finale.overrule; return !!(o && o.armed && !o.by); };
-    if (armed()) {
-      if (this.music) this.music.stinger('overrule-warn', { at: 'beat' });
-      this._react(['gasp', 'handChest', 'shake'], null, 0.4);
-      await this._say('overruleWarn', {}, 'claudia');
-      if (!this._alive) return;
-    }
+    /* No warning up front any more: the room is not told a Wise One has
+       acted until their slate — the last — is turned (see `_overrule`). */
     while (this._alive && guard++ < 10) {
       const s = Session.state;
       const f = s.finale;
@@ -340,8 +346,13 @@ class CastleScene {
          breath it ends on is the beat before the name. */
       if (this.music && this.music.setTension) this.music.setTension(0.3 + 0.65 * heat, 1.2);
       const build = last && this.music && this.music.build ? this.music.build({ shape: 'slate' }) : null;
+      /* Cut to whoever wrote it and creep in on their face while the
+         room waits. Cuts, not swings: the camera used to whip across
+         the room three times a slate and then snap back to your eyes
+         between them. Now the bars stay up from the first slate to the
+         last and the edit is a cut to a face, a push in, a cut. */
       await Scenes.Drama.hush(this.stage, null, 'on:' + voter.id,
-                              { hold: last ? 1.6 : 0.25 + 0.45 * heat, silent: false, speed: 2.6 + heat });
+                              { hold: last ? 1.6 : 0.35 + 0.45 * heat, silent: false, cut: true, push: 0.14, speed: 0.55 });
       if (!this._alive) { if (build) build.cancel(); return; }
       if (this.music) {
         const wait = build ? build.release('slate-turn', { n: said }) : (this.music.stinger('slate-turn', { n: said }), 0);
@@ -355,10 +366,15 @@ class CastleScene {
       });
       Scenes.Cine.card({ kicker: voter.local ? 'Your slate' : voter.name + '’s slate',
                          title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'slate',
+                         cls: (last ? 'last ' : '') + 'heat-' + Math.min(3, Math.round(heat * 3)),
                          sub: last ? 'The last slate.' : (said + 1) + ' of ' + total });
       this._accuse(voter.id, target.id);
+      if (typeof Notebook !== 'undefined') Notebook.vote(voter.id, target.id, f.nameRound);
       said++;
-      Scenes.Drama.shot(this.stage, 'on:' + target.id, { speed: 2.4 });
+      // the slate turns on the writer's face; then the name's face, as it lands on them
+      await this._sleep(0.9);
+      if (!this._alive) return;
+      if (!target.local) Scenes.Drama.shot(this.stage, 'on:' + target.id, { cut: true, push: 0.08, speed: 0.5 });
       // nobody announces their own vote: Claudia reads each slate out
       await Scenes.run([{
         line: { text: (voter.local ? 'You vote' : voter.name + ' votes') + ' for '
@@ -369,13 +385,13 @@ class CastleScene {
       /* Then Claudia turns to them: why? Up to ten seconds, theirs alone,
          and they can finish early. The AIs are not asked. */
       if (!voter.bot && voter.alive) {
-        Scenes.Drama.shot(this.stage, 'on:' + voter.id, { speed: 2.2 });
-        await Scenes.run([{ line: { text: 'Why ' + (target.local ? 'me' : target.name) + ', ' + (voter.local ? 'you' : voter.name) + '?' }, hold: 0.1 }], this);
+        Scenes.Drama.shot(this.stage, 'on:' + voter.id, { cut: true, push: 0.06, speed: 0.4 });
+        // she asks the voter about the name on their slate — by name, even when it is yours
+        await Scenes.run([{ line: { text: (voter.local ? 'You' : voter.name) + '. Why ' + target.name + '?' }, hold: 0.1 }], this);
         if (!this._alive) return;
         await this._turnFloor(voter.id, WHY_SECONDS);
         if (!this._alive) return;
       }
-      Scenes.Drama.end(this.stage, null);
       await Scenes.barrier(roomKey + '-slate-' + f.nameRound + '-' + voter.id);
       if (!this._alive) return;
       const before = voter.id;
@@ -385,6 +401,7 @@ class CastleScene {
       await this._sleep(0.3);
     }
     Scenes.Cine.card(null);
+    Scenes.Drama.end(this.stage, null);
   }
 
   /* The last slate, and the one that decides. The roll and the riser
@@ -517,7 +534,21 @@ class CastleScene {
   update(dt) {
     if (!this.stage) return;
     this.stage.update(dt);
+    if (this._dim) this._dim.step(dt);
+    if (this._wx) this._wx.step(dt);
     if (this._embers) this._embers = Reveal.updateEmbers(this.stage, this._embers, dt);
+  }
+
+  /* The room's last shot before the interlude: the lights going down
+     on whatever `_outroShot` frames, and a sound to cut on. A subclass
+     names the shot and the sound; the dimming is the same everywhere. */
+  outro() {
+    if (!this.stage || !this._alive) return Promise.resolve();
+    const shot = this._outroShot ? this._outroShot() : null;
+    if (shot && this.stage.setCinematic) this.stage.setCinematic(true, shot, { speed: 0.7 });
+    if (this._outroSound && typeof AudioBus !== 'undefined') AudioBus.play(this._outroSound);
+    this._dim = SceneOutro.dim(this.stage, 1.1, this._outroDimTo === undefined ? 0.2 : this._outroDimTo);
+    return this._dim.done;
   }
 
   dispose() {
@@ -531,9 +562,55 @@ class CastleScene {
     Scenes.Cine.card(null);
     Scenes.Drama.end(this.stage, null);
     if (this.music) { this.music.stop(1.4); this.music = null; }
+    if (this._wx) { this._wx.stop(); this._wx = null; }
     if (this._embers) { this._embers = Reveal.clearEmbers(this.stage, this._embers); }
     if (this.stage) { this.stage.dispose(); this.stage = null; }
   }
+}
+
+/* Lights down, for the last shot of a room. Every light in the scene
+   eases to `to` of its own brightness over `secs`, stepped from the
+   scene's own update so it keeps time with the frames. `done` resolves
+   at the bottom. Nothing is restored: the room is about to be torn down. */
+const SceneOutro = {
+  /* `stage` is a Stage: inside the castle its land re-lights itself every
+     frame, so it is asked for a level; outside, the lights are eased
+     directly. */
+  dim(stage, secs, to) {
+    const land = stage && stage.land;
+    const lights = [];
+    if (!(land && land.setLevel) && stage && stage.scene) {
+      stage.scene.traverse(o => { if (o.isLight && o.intensity > 0) lights.push([o, o.intensity]); });
+    }
+    let t = 0, finish;
+    const done = new Promise(r => { finish = r; });
+    return {
+      done,
+      step(dt) {
+        if (t >= secs) return;
+        t = Math.min(secs, t + dt);
+        const u = t / secs;
+        const k = 1 - (1 - to) * u * u * (3 - 2 * u);
+        if (land && land.setLevel) land.setLevel(k);
+        for (const [l, i0] of lights) l.intensity = i0 * k;
+        if (t >= secs) finish();
+      },
+    };
+  },
+};
+if (typeof AudioBus !== 'undefined') {
+  // a candle pinched out: a short breath of air
+  AudioBus.define('snuff', (ctx, dest) => {
+    const t = ctx.currentTime;
+    const len = 0.35;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * len), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / d.length);
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1300; bp.Q.value = 0.8;
+    const g = ctx.createGain(); g.gain.value = 0.32;
+    src.connect(bp); bp.connect(g); g.connect(dest); src.start(t);
+  });
 }
 
 /* Names go into innerHTML in exactly one place, and this is it. */

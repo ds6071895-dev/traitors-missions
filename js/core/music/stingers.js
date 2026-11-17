@@ -373,6 +373,23 @@ const MusicStingers = (() => {
       I.crash(S, t, 0, 0, 0.55);
     },
 
+    // today's twist is revealed: the floor drops, the brass and choir swell, and the bells toll
+    twist(S, t) {
+      I.crash(S, t, 0, 0, 1.2);
+      I.boom(S, t, 0, 0, 1.05, { len: 3.4 });
+      I.downer(S, t + 0.04, S.hz(oct(0, 3)), 0, 0.85, { len: 2.2, pri: 0 });
+      I.taikoEns(S, t, 0, 0, 1.2, { pri: 0 });
+      I.taiko(S, t + 0.14, 0, 0, 1.0, { pri: 0 });
+      I.timpani(S, t, S.hz(oct(0, 1)), 0, 1.2, { pri: 0 });
+      I.braam(S, t, S.hz(oct(0, 1)), 3.2, 1.2);
+      [0, 7, 12, 15].forEach((s, i) => {
+        I.brass(S, t + i * 0.035, S.hz(oct(s, 2)), 2.8, 0.95, { pri: 0 });
+        I.choir(S, t + i * 0.035, S.hz(oct(s, 3)), 3.2, 0.9, { pri: 0, a: 0.06, vowel: 'ah' });
+      });
+      [0, 7, 12].forEach((s, i) =>
+        I.bell(S, t + 0.08 + i * 0.09, S.hz(oct(s, 3)), 0, 0.6, { ratio: 1.4, decay: 3.8, pri: 0 }));
+    },
+
     // the bedroom door, locked for the night
     'door-lock'(S, t) {
       I.tom(S, t, 0, 0, 0.8, { pri: 0 });

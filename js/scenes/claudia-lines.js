@@ -25,6 +25,11 @@ const ClaudiaLines = (() => {
       [ "The room goes round.", "Thirty seconds. Use them." ],
       [ "One voice at a time.", "Half a minute each. Then a decision." ]
     ],
+    "floorOpenAgain": [
+      [ "Again. One at a time." ],
+      [ "Round once more.", "Make it count." ],
+      [ "Thirty seconds each. Again." ]
+    ],
     "floorTo": [
       [ "{name}. The room is yours." ],
       [ "{name}. Go on." ],
@@ -58,19 +63,24 @@ const ClaudiaLines = (() => {
     "welcome": [
       [ "Welcome to my castle." ],
       [ "{count} of you. One pot.", "A castle full of secrets." ],
-      [ "Enjoy the view.", "It is the last easy thing you do." ]
+      [ "Enjoy the view.", "It is the last easy thing you do." ],
+      [ "Hello, and welcome.", "Welcome to the castle." ],
+      [ "Welcome, welcome.", "Come in. Mind the wind." ]
     ],
     "theRules": [
       [ "By day, you work. Every job fills the pot.", "A Traitor poisons in plain sight. You banish who did it." ],
-      [ "Work the castle. Fill the pot.", "Somebody will be poisoned in plain sight. Find who." ]
+      [ "Work the castle. Fill the pot.", "Somebody will be poisoned in plain sight. Find who." ],
+      [ "Faithfuls, find the Traitors. Banish them.", "Traitors, poison in plain sight. Do not get caught." ]
     ],
     "roleIntro": [
       [ "Among the {count} of you, there is a Traitor." ],
-      [ "One of you is a Traitor.", "Only one of you knows it." ]
+      [ "One of you is a Traitor.", "Only one of you knows it." ],
+      [ "Amongst you, there is a Traitor.", "Possibly sitting right next to you." ]
     ],
     "roleIntroOneOrTwo": [
       [ "Among the {count} of you, there are Traitors.", "One, or two. I will not say." ],
-      [ "One of you is a Traitor.", "Perhaps two. Only they know." ]
+      [ "One of you is a Traitor.", "Perhaps two. Only they know." ],
+      [ "Amongst you, there are Traitors.", "They could be anyone." ]
     ],
     "roleIntroMaybe": [
       [ "Among the {count} of you, there may be Traitors.", "There may be none at all." ],
@@ -86,11 +96,13 @@ const ClaudiaLines = (() => {
     ],
     "roleFaithful": [
       [ "You are Faithful.", "Watch who hands you anything." ],
-      [ "Faithful.", "Trust nobody who gets too close." ]
+      [ "Faithful.", "Trust nobody who gets too close." ],
+      [ "You are a Faithful.", "Find the Traitors. Trust nobody." ]
     ],
     "roleTraitor": [
       [ "You are a Traitor.", "Poison a Faithful before the bell. Or I expose you." ],
-      [ "Traitor.", "The poison goes into a Faithful before the bell." ]
+      [ "Traitor.", "The poison goes into a Faithful before the bell." ],
+      [ "You are a Traitor.", "Poison a Faithful before the bell. Do not get caught." ]
     ],
     "toCastle": [
       [ "The castle is yours.", "In you go." ],
@@ -99,7 +111,8 @@ const ClaudiaLines = (() => {
     "nightFalls": [
       [ "That is the day done.", "Go to your rooms." ],
       [ "The castle is going to sleep.", "Some of you will not wake." ],
-      [ "Bed.", "Lock your door. For what it is worth." ]
+      [ "Bed.", "Lock your door. For what it is worth." ],
+      [ "Goodnight, everybody.", "Sleep well. If you can." ]
     ],
     /* The shield: whoever did the most jobs by the bell. It is said at
        nightfall, before anybody knows where the poison went. */
@@ -115,11 +128,14 @@ const ClaudiaLines = (() => {
     ],
     "nightFaithful": [
       [ "Your door is locked.", "Sleep, if you can." ],
-      [ "Lock it. Good.", "It will not help." ]
+      [ "Lock it. Good.", "It will not help." ],
+      [ "Lock your door, Faithful.", "Sleep well. If you can." ]
     ],
     "conclaveOpen": [
-      [ "Traitors.", "Welcome to the turret." ],
-      [ "Sit down.", "Somebody downstairs is not waking up." ]
+      [ "Traitors.", "Only you can hear me now." ],
+      [ "Sit down.", "Somebody downstairs is not waking up." ],
+      [ "Good evening, Traitors.", "Who will it be tonight?" ],
+      [ "Traitors. Welcome to the turret.", "It is time to decide." ]
     ],
     "conclaveRecruit": [
       [ "You lost one of your own.", "Offer a Faithful their seat." ]
@@ -129,17 +145,21 @@ const ClaudiaLines = (() => {
     ],
     "conclaveDone": [
       [ "It is decided.", "Look surprised at breakfast." ],
-      [ "Done.", "Sleep. You need your face tomorrow." ]
+      [ "Done.", "Sleep. You need your face tomorrow." ],
+      [ "Thank you, Traitors.", "Sleep well. If you can." ]
     ],
     "murderedYou": [
       [ "A letter under your door.", "It was poison. You may watch, not speak." ],
-      [ "A knock. Nobody there.", "You were poisoned. Watch in silence." ]
+      [ "A knock. Nobody there.", "You were poisoned. Watch in silence." ],
+      [ "I am so sorry.", "You have been murdered. Watch in silence." ]
     ],
     "recruitOffer": [
-      [ "The Traitors want you.", "Join them, or sleep." ]
+      [ "The Traitors want you.", "Join them, or sleep." ],
+      [ "The Traitors would like you to join them.", "Yes, or no?" ]
     ],
     "recruitedYou": [
-      [ "Welcome to the turret.", "You are a Traitor now." ]
+      [ "Welcome to the Traitors.", "You are one of them now." ],
+      [ "Welcome to the Traitors.", "There is no going back." ]
     ],
     "recruitAccepted": [
       [ "{name} said yes.", "There are more of you now." ],
@@ -153,7 +173,9 @@ const ClaudiaLines = (() => {
       [ "Good morning.", "Not all of you will come down." ],
       [ "Breakfast.", "Let us see who made it." ],
       [ "Morning.", "Count the chairs." ],
-      [ "Come down.", "Slowly." ]
+      [ "Come down.", "Slowly." ],
+      [ "Good morning, everybody.", "Who will walk through that door?" ],
+      [ "Morning, all.", "Breakfast is served. Not everybody will eat." ]
     ],
     "breakfastWait": [
       [ "Somebody is late." ],
@@ -163,7 +185,8 @@ const ClaudiaLines = (() => {
     "breakfastAbsent": [
       [ "{name} will not be joining us.", "Poisoned. A Faithful." ],
       [ "That chair stays empty.", "{name}. Faithful. Poisoned in front of you." ],
-      [ "{name} is dead.", "And {name} was Faithful." ]
+      [ "{name} is dead.", "And {name} was Faithful." ],
+      [ "Oh, my word.", "{name} was murdered in the night. A Faithful." ]
     ],
     "breakfastNobody": [
       [ "Everybody is here.", "The poison never left its bottle." ],
@@ -185,12 +208,18 @@ const ClaudiaLines = (() => {
     "tableOpen": [
       [ "Sit.", "Somebody here is a Traitor. Who saw something?" ],
       [ "Take your seats.", "Somebody saw something. Speak." ],
-      [ "Sit down.", "Who was where? Talk." ]
+      [ "Sit down.", "Who was where? Talk." ],
+      [ "Welcome to the round table.", "Somebody here is a Traitor. Discuss." ],
+      [ "Please, take your seats.", "Let the round table begin." ]
+    ],
+    "tableFloor": [
+      [ "The floor is yours." ]
     ],
     "tableOpenBody": [
       [ "Sit.", "{name} was poisoned yesterday. Who saw it?" ],
       [ "Take your seats.", "Who stood next to {name} yesterday?" ],
-      [ "Sit down.", "{name} is dead. Somebody here did it." ]
+      [ "Sit down.", "{name} is dead. Somebody here did it." ],
+      [ "Welcome to the round table.", "{name} was murdered. Somebody here did it." ]
     ],
     "tableOpenShield": [
       [ "Sit.", "Somebody poisoned {name} yesterday. Who got that close?" ],
@@ -209,42 +238,70 @@ const ClaudiaLines = (() => {
     "tableClose": [
       [ "Enough talking.", "Pick up your slates." ],
       [ "I have heard enough.", "Slates." ],
-      [ "Time.", "Write a name." ]
+      [ "Time.", "The talking is over." ],
+      [ "It is time to vote.", "Pick up your slates." ]
     ],
     "slateIntro": [
       [ "Write a name.", "Turn it when I come to you." ],
-      [ "One name each.", "Show it when I ask." ]
+      [ "One name each.", "Show it when I ask." ],
+      [ "Write down the name you want banished.", "Do not show anyone. Not yet." ]
     ],
     "tableTie": [
       [ "A tie.", "Only {names} can go now. Again." ]
     ],
     "tableLot": [
-      [ "Still tied.", "Then the castle decides." ]
+      [ "Tied. Again.", "You have had two chances.", "Now the castle chooses." ],
+      [ "Still tied.", "You could not decide.", "So the castle will decide for you." ],
+      [ "Twice. Twice you could not choose.", "Then it is out of your hands." ]
+    ],
+    "tieDrawRoll": [
+      [ "{names}.", "One of you leaves this table now." ],
+      [ "{names}.", "Only one of you walks back out." ],
+      [ "{names}.", "Look at each other. One of you is going." ]
+    ],
+    "tieDrawPick": [
+      [ "The castle has chosen." ],
+      [ "And the castle chooses…" ]
+    ],
+    "banishLot": [
+      [ "{name}.", "The castle has chosen you." ],
+      [ "{name}.", "Fate has done what the table could not." ]
+    ],
+    "banishLotYou": [
+      [ "The castle has chosen.", "It is you." ]
     ],
     "banishName": [
       [ "{name}.", "You have been banished." ],
       [ "{name}.", "The table has spoken." ],
-      [ "The table has chosen.", "{name}." ]
+      [ "The table has chosen.", "{name}." ],
+      [ "{name}.", "I am so sorry. You have been banished." ]
     ],
     "banishNameYou": [
       [ "The table has spoken.", "You have been banished." ]
     ],
     "lastWords": [
       [ "{name}. Before you go.", "Who are you?" ],
-      [ "{name}.", "Tell them what you are." ]
+      [ "{name}.", "Tell them what you are." ],
+      [ "{name}. Please tell us.", "Are you a Faithful, or a Traitor?" ],
+      [ "{name}, before you go.", "Faithful, or Traitor?" ]
     ],
     "lastWordsYou": [
-      [ "Before you go.", "Tell them who you are." ]
+      [ "Before you go.", "Tell them who you are." ],
+      [ "Please tell the group.", "Are you a Faithful, or a Traitor?" ]
     ],
     "banishedTraitor": [
       [ "{name}...", "was a Traitor." ],
       [ "{name} was a Traitor.", "Do not get comfortable." ],
-      [ "A Traitor.", "Finally." ]
+      [ "A Traitor.", "Finally." ],
+      [ "Oh my goodness.", "{name} was a Traitor." ],
+      [ "A Traitor.", "Well done, Faithfuls. Well done." ]
     ],
     "banishedFaithful": [
       [ "{name}...", "was Faithful." ],
       [ "{name} was Faithful.", "The Traitors thank you." ],
-      [ "Faithful.", "You sent home an innocent." ]
+      [ "Faithful.", "You sent home an innocent." ],
+      [ "Oh no.", "{name} was a Faithful." ],
+      [ "A Faithful.", "Traitors, you must be delighted." ]
     ],
     "banishedTraitorYou": [
       [ "You were a Traitor.", "Now everybody knows." ]
@@ -260,7 +317,8 @@ const ClaudiaLines = (() => {
       [ "{count} of you left.", "No more work. Tonight, the fire." ]
     ],
     "traitorsGone": [
-      [ "That was the last Traitor.", "It is over." ]
+      [ "That was the last Traitor.", "It is over." ],
+      [ "The Traitors are gone.", "Faithfuls, you have done it." ]
     ],
     "sendOff": [
       [ "Go." ],
@@ -274,7 +332,92 @@ const ClaudiaLines = (() => {
       [ "Another day. {count} of you.", "The jobs are waiting. So is the poison." ],
       [ "{Time}. Most jobs wins the shield.", "Work, and watch." ],
       [ "Back to work.", "Somebody is carrying it again." ],
-      [ "{count} left.", "One of them has poison." ]
+      [ "{count} left.", "One of them has poison." ],
+      [ "Good morning, all.", "Off you go. Fill that pot." ]
+    ],
+    "tasksWingOpen": [
+      [ "And today, {name} is open.", "Half your jobs are in it." ],
+      [ "Today I unlock {name}.", "Half of you will work there." ]
+    ],
+    "tasksWing": [
+      [ "Half of today is in {name}." ],
+      [ "Today, mind {name}.", "Half your jobs are there." ],
+      [ "Today belongs to {name}." ]
+    ],
+    "twistOpenSealed": [
+      [ "One more thing today.", "Tonight, the slates stay sealed." ],
+      [ "A change today.", "Nobody will see your vote. Only the count." ]
+    ],
+    "twistOpenVeiled": [
+      [ "Today has a twist.", "Whoever goes tonight goes without a word." ],
+      [ "One change today.", "The banished will not say what they were." ]
+    ],
+    "twistOpenHeavy": [
+      [ "Today, the shield is worth more.", "Its holder's vote counts twice." ],
+      [ "Work hard today.", "The shield brings a double vote." ]
+    ],
+    "twistOpenClue": [
+      [ "I have whispered to one Faithful.", "They know a name that is safe." ],
+      [ "One of you knows something today.", "A safe name. From me." ]
+    ],
+    "twistOpenNoShield": [
+      [ "No shield today.", "Nobody is safe tonight." ],
+      [ "Today the shield stays with me.", "Anyone can die tonight." ]
+    ],
+    "twistOpenBlackout": [
+      [ "Mind the bell today.", "When it rings, the lights go." ],
+      [ "The fuses are old.", "At the bell, you will be in the dark." ]
+    ],
+    "clueYou": [
+      [ "A word in your ear.", "{name} is not a Traitor." ],
+      [ "Only you hear this.", "{name} is Faithful." ]
+    ],
+    "twistTableSealed": [
+      [ "The slates stay sealed tonight.", "I will only tell you the count." ]
+    ],
+    "twistTableVeiled": [
+      [ "Remember. Whoever goes tonight goes in silence." ]
+    ],
+    "twistTableHeavy": [
+      [ "{name} held the shield.", "Their slate counts twice." ]
+    ],
+    "twistTableHeavyNone": [
+      [ "Nobody held the shield.", "Every slate counts once." ]
+    ],
+    "sealedResult": [
+      [ "The slates stay sealed.", "{name}. {count} votes." ],
+      [ "{count} votes for {name}.", "Nobody will know whose." ]
+    ],
+    "banishVeiled": [
+      [ "Not tonight, {name}.", "Leave without a word." ],
+      [ "Say nothing, {name}.", "Just go." ]
+    ],
+    "banishedVeiled": [
+      [ "We will learn what {name} was at the end." ],
+      [ "Traitor or Faithful? Nobody knows." ]
+    ],
+    "rollcallOpen": [
+      [ "No walking in today.", "I will call you down." ],
+      [ "Answer when I call you.", "If you can." ]
+    ],
+    "rollcallName": [
+      [ "{names}." ],
+      [ "{names}. Come down." ],
+      [ "Next. {names}." ]
+    ],
+    "tableAskShield": [
+      [ "{name}. You held the shield.", "Who came close to you yesterday?" ],
+      [ "{name}, the shield was yours.", "Who were you watching?" ]
+    ],
+    "tableAskLast": [
+      [ "{name}. Last down this morning.", "Why so slow?" ],
+      [ "{name}, you came down last.", "Where were you?" ]
+    ],
+    "tasksOpenLate": [
+      [ "{Time}. Go." ],
+      [ "{count} of you. {Time}." ],
+      [ "Back to work.", "Somebody is still carrying it." ],
+      [ "{Time}. Fewer of you. Same poison." ]
     ],
     "poisonYou": [
       [ "It is in your pocket.", "Stand by a Faithful. Hold still. Before the bell." ],
@@ -289,7 +432,8 @@ const ClaudiaLines = (() => {
        its turn will otherwise wait for one. */
     "fireOpen": [
       [ "{pot}, and a fire.", "Now we find out whose it is." ],
-      [ "Here we are. {pot}.", "Everything from here is out loud." ]
+      [ "Here we are. {pot}.", "Everything from here is out loud." ],
+      [ "Here we are. The Fire of Truth.", "{pot} on the line." ]
     ],
     "fireRules": [
       [ "There may still be a Traitor here.", "End the game, all of you agreeing. Or banish again." ],
@@ -297,10 +441,12 @@ const ClaudiaLines = (() => {
     ],
     "fireOfTruth": [
       [ "End the game. Or banish again.", "Into the pouch." ],
-      [ "Are you done?", "Or is a Traitor still here?" ]
+      [ "Are you done?", "Or is a Traitor still here?" ],
+      [ "Do you want to end the game?", "Or banish again?" ]
     ],
     "decideEnd": [
-      [ "Unanimous.", "The game is over." ]
+      [ "Unanimous.", "The game is over." ],
+      [ "You have all agreed.", "The game is over." ]
     ],
     "decideBanish": [
       [ "Not unanimous.", "Then we banish again." ],
@@ -328,6 +474,16 @@ const ClaudiaLines = (() => {
     "revealFaithful": [
       [ "{name}...", "was Faithful." ],
       [ "Green.", "{name} was Faithful." ]
+    ],
+    "revealVeiled": [
+      [ "The fire keeps {name}'s secret.", "For now." ],
+      [ "Nothing.", "{name} goes, and we do not know." ]
+    ],
+    "revealVeiledYou": [
+      [ "The fire keeps your secret.", "For now." ]
+    ],
+    "hiddenRolesTable": [
+      [ "Remember. Nobody banished tells you what they were.", "Not until the end." ]
     ],
     "revealTraitor": [
       [ "{name}...", "was a Traitor." ],
@@ -521,7 +677,7 @@ const ClaudiaLines = (() => {
      then the room is exactly who hears it. */
   const PRIVATE = new Set(['roleTraitor', 'roleFaithful', 'traitorPartner', 'poisonYou', 'poisonPartner',
     'murderedYou', 'recruitOffer', 'recruitedYou', 'recruitAccepted', 'recruitRefused', 'conclaveOpen', 'conclaveAgree',
-    'conclaveRecruit', 'conclaveDone', 'nightFaithful', 'wiseYou', 'wiseTraitor']);
+    'conclaveRecruit', 'conclaveDone', 'nightFaithful', 'wiseYou', 'wiseTraitor', 'clueYou']);
   /* A "You" twin is the second-person version of a public line: the room
      hears the third-person one, and the person it is about reads theirs. */
   const baseOf = (setName) => (setName && setName.endsWith('You') && SETS[setName.slice(0, -3)]

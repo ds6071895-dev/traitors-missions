@@ -46,7 +46,8 @@ const Stage = (() => {
     if (indoors) {
       /* Inside, there is no sky and no loch to set up: the house brings
          its own light, and its windows say what hour it is. */
-      land = CastleInterior.build(scene, { seed: o.seed, room: o.room, hour: o.hour });
+      land = CastleInterior.build(scene, { seed: o.seed, room: o.room, hour: o.hour,
+                                           weather: o.weather, late: o.late });
       // a house, not a glen: a short far plane keeps the depth buffer
       // fine enough that nothing laid on anything else can shimmer
       camera.near = 0.1; camera.far = 400; camera.updateProjectionMatrix();
@@ -61,6 +62,9 @@ const Stage = (() => {
       Estate.atmosphere(o.hour === 'night');
       const fog = applied.time.fog;
       scene.fog = new THREE.Fog(Sky.PALETTE.fog, fog.near * 1.4, fog.far * 1.5);
+      // the night's weather outside: rain closes the glen in, fog more so
+      if (o.weather === 'fog') { scene.fog.near *= 0.25; scene.fog.far *= 0.3; }
+      else if (o.weather === 'rain' || o.weather === 'storm') { scene.fog.near *= 0.6; scene.fog.far *= 0.65; }
       scene.add(Conditions.lights(cond));
       const castFill=new THREE.DirectionalLight(o.hour==='night'?'#c6d4ff':'#fff4e0',o.hour==='night'?.62:1.0);castFill.position.set(8,16,20);scene.add(castFill);
       /* By day, a sky-blue from above and a grass-green bounce from
@@ -88,8 +92,14 @@ const Stage = (() => {
       Water.setFog(wFog.near * 1.3, wFog.far * 1.6, Sky.PALETTE.fog);
     }
 
+    const wetOut = !indoors && (o.weather === 'rain' || o.weather === 'storm') && typeof Weather !== 'undefined' && Weather.rain;
+    const rainFx = wetOut ? Weather.rain(o.hour === 'night'
+      ? { color: '#8e9cb4', opacity: 0.3 } : { color: '#c4cfdc', opacity: 0.34 }) : null;
+    if (rainFx) scene.add(rainFx.object);
+
     const summitY = land.heightAt(0, 0);
-    const parkedCar = !indoors && o.dress === 'none' && !o.noCar ? EstateCar.build(o.players) : null;
+    // no car: the show starts with everybody already on the hill (only a scene that asks for one gets it)
+    const parkedCar = !indoors && o.dress === 'none' && o.car ? EstateCar.build(o.players) : null;
     if (parkedCar) { parkedCar.pose(land.road.sample(0)); scene.add(parkedCar.group); }
     const seatedDress = o.dress === 'table' || o.dress === 'breakfast' || o.dress === 'conclave';
 
@@ -107,6 +117,16 @@ const Stage = (() => {
     EstateMaterials.fabric(claudia);
     scene.add(claudia);
 
+    /* Is this one of your fellow Traitors? Only ever true on a Traitor's
+       own screen, and not on the hill before Claudia has said it. */
+    const fellowTraitor = (id) => {
+      try {
+        if (typeof Session === 'undefined' || !Session.state || Session.state.phase === 'hill') return false;
+        if (!Session.myRole || Session.myRole() !== 'traitor') return false;
+        const mine = Session.myPrivate && Session.myPrivate();
+        return !!(mine && (mine.partners || []).indexOf(id) >= 0);
+      } catch (e) { return false; }
+    };
     // the players: in an arc facing her, or round whatever table this is
     const figures = [];
     const seats = [];
@@ -152,7 +172,7 @@ const Stage = (() => {
          metres away and a label at forty would be a label on the loch. */
       const look = p.look ? Look.resolve(p.look) : null;
       const tag = Nametag.make(p.name || 'Player',
-        { accent: look ? look.accent : '#f2c14e', near: 14, far: 40 });
+        { accent: look ? look.accent : '#f2c14e', near: 14, far: 40, traitor: fellowTraitor(p.id) });
       scene.add(tag);
       fig.userData.tag = tag;
       figures.push(fig);
@@ -329,21 +349,52 @@ const Stage = (() => {
       longTable: () => ({ pos: V(3.6, summitY + 2.3, 6.6), look: V(0, summitY + 0.9, 0.2), fov: 50, speed: 1.4 }),
     };
 
-    /* Whoever is speaking gets looked at, which is most of the edit.
-       The camera goes *outside* the circle and looks back in, so the
-       table, the fire and Claudia are all behind the person talking
-       rather than behind the lens. Two metres back: any closer and a
-       40mm-equivalent lens is inside their face. */
+    /* Whoever is speaking gets looked at, which is most of the edit —
+       and looked at in the face. This used to put the camera two metres
+       *behind* their chair, outside the ring, which at a table of
+       high-backed chairs is a shot of a chair back and the back of a
+       head. Now it is the shot the programme uses: from across the
+       table (or from in front, standing), a little off the line so the
+       candles and the fire are not in the way, on a long lens.
+       Your own seat has no face to look at: you get the table instead. */
     function shotOn(playerId) {
       const seat = seats.find(s => s.id === playerId);
       if (!seat) return SHOTS.players();
-      const len = Math.hypot(seat.pos.x, seat.pos.z) || 1;
-      const ox = seat.pos.x / len, oz = seat.pos.z / len;
-      const from = V(seat.pos.x + ox * 2.0 + 0.3,
-                     summitY + 1.58,
-                     seat.pos.z + oz * 2.0);
-      return { pos: from, look: V(seat.pos.x, seat.pos.y + 1.42, seat.pos.z),
-               fov: 40, speed: 1.6 };
+      if (seat.local) return SHOTS.table();
+      const seated = !!(o.seated && seatedDress);
+      const head = V(seat.pos.x, seat.pos.y + (seated ? 1.12 : 1.45), seat.pos.z);
+      const face = seat.face || cPos;
+      let fx = face.x - seat.pos.x, fz = face.z - seat.pos.z;
+      const fl = Math.hypot(fx, fz) || 1;
+      fx /= fl; fz /= fl;
+      const clear = (p) => Math.hypot(p.x, p.z) >= PROP_R + 0.12
+        && seats.every(t => t === seat || Math.hypot(t.pos.x - p.x, t.pos.z - p.z) > 0.7);
+      if (o.dress === 'table') {
+        /* Across the table, from just inside the far rim and swung 0.7
+           rad round, so the sightline passes the candles by most of a
+           metre. The side is the one with the most room. */
+        const a = Math.atan2(seat.pos.z, seat.pos.x);
+        const r = PROP_R + 0.18;
+        const gap = (p) => Math.min(...seats.filter(t => t !== seat).map(t => Math.hypot(t.pos.x - p.x, t.pos.z - p.z)), 9);
+        let best = null, room = -1;
+        for (const side of [1, -1]) {
+          const ca = a + Math.PI + side * 0.7;
+          const p = V(Math.cos(ca) * r, summitY + 1.42, Math.sin(ca) * r);
+          const g = gap(p);
+          if (g > room) { room = g; best = p; }
+        }
+        // whoever sits behind the lens is behind it: only the far side is in the frame
+        return { pos: best, look: head, fov: 30, speed: 1.6 };
+      }
+      // standing, or a long table: in front of them, off to one side
+      for (const [ang, dist] of [[0.55, 2.1], [-0.55, 2.1], [0.9, 1.7], [-0.9, 1.7]]) {
+        const c = Math.cos(ang), sn = Math.sin(ang);
+        const dx = fx * c - fz * sn, dz = fx * sn + fz * c;
+        const p = V(seat.pos.x + dx * dist, head.y + 0.06, seat.pos.z + dz * dist);
+        if (clear(p)) return { pos: p, look: head, fov: 36, speed: 1.6 };
+      }
+      const p = V(seat.pos.x + fx * 2.1, head.y + 0.06, seat.pos.z + fz * 2.1);
+      return { pos: p, look: head, fov: 36, speed: 1.6 };
     }
 
     /* The one rule every framing has to obey. A lens inside `PROP_R` is
@@ -388,6 +439,17 @@ const Stage = (() => {
         scripted.look.copy(scripted.targetLook);
         camera.fov = scripted.targetFov;
         camera.updateProjectionMatrix();
+        /* A cut that then creeps in: start a little further out and a
+           little wider, and drift to the frame slowly. On television a
+           face is cut to and then pushed in on, never whipped round to. */
+        if (opts.push) {
+          const k = typeof opts.push === 'number' ? opts.push : 0.1;
+          scripted.pos.sub(scripted.targetLook).multiplyScalar(1 + k).add(scripted.targetLook);
+          clearOfProps(scripted.pos);
+          camera.fov = scripted.targetFov * (1 + k * 0.6);
+          camera.updateProjectionMatrix();
+          scripted.speed = opts.speed || 0.7;
+        }
       }
     }
 
@@ -495,13 +557,15 @@ const Stage = (() => {
       const previous = firstPerson.pos.clone();
       firstPerson.pos.x += firstPerson.vel.x * dt;
       firstPerson.pos.z += firstPerson.vel.z * dt;
-      land.constrain(firstPerson.pos, previous);
-      // Keep the table/fire and every visible person solid enough that
-      // first person cannot walk through them.
+      /* Keep the table/fire and every visible person solid enough that
+         first person cannot walk through them. People push first and the
+         walls get the last word: a person shoving you after the walls
+         had their say could put you inside one, and from inside a wall
+         every step is refused, which is being stuck in it. */
       const blockers = (o.dress === 'none' || o.dress === 'bedroom' ? []
         : o.dress === 'breakfast' ? [-1.7, -0.6, 0.5, 1.6, 2.7, 3.4].map(z => ({ pos: V(0, 0, z), r: 0.95 }))
         : [{ pos: V(0, 0, 0), r: PROP_R + 0.35 }])
-        .concat(claudia.visible ? [{ pos: cPos, r: 0.62 }] : [])
+        .concat(claudia.visible ? [{ pos: claudia.position, r: 0.62 }] : [])
         /* In a free scene people move, so it is where they are standing
            that is solid, not the chair they were given. */
         .concat(o.free
@@ -520,6 +584,7 @@ const Stage = (() => {
           firstPerson.pos.z = b.pos.z + dz / len * b.r;
         }
       });
+      land.constrain(firstPerson.pos, previous);
       if (parkedCar && Math.abs(firstPerson.pos.x-parkedCar.group.position.x)<1.6 && Math.abs(firstPerson.pos.z-parkedCar.group.position.z)<2.8) firstPerson.pos.copy(previous);
       firstPerson.pos.y = land.heightAt(firstPerson.pos.x, firstPerson.pos.z);
       const speed = Math.hypot(firstPerson.vel.x, firstPerson.vel.z);
@@ -552,6 +617,7 @@ const Stage = (() => {
       if (parkedCar && !o.vehicleDirected) parkedCar.update(dt,t,[],false,null,camera);
       land.update(dt, camera.position, t);
       if (!indoors) Sky.update(dt, camera.position, t);
+      if (rainFx) rainFx.update(Math.min(dt, 0.1), camera.position);
 
       /* Who you can hear, whether or not anybody gave them the floor.
          At the open table, on the hill and round the castle the AIs
@@ -568,6 +634,7 @@ const Stage = (() => {
       }
       const focusId = speakingId || voiceId;
 
+      stepClaudia(dt);
       Figure.update(claudia, dt, t);
       EstateMaterials.figureLOD(claudia,camera);
       Figure.lookAt(claudia, claudiaFocus
@@ -718,6 +785,59 @@ const Stage = (() => {
         if (w.onArrive) w.onArrive(f);
       }
     }
+    /* Claudia on the move, the way the programme does it: once the floor
+       is open she leaves her place at the head and walks slowly round
+       behind the chairs, on the ring she stands on, listening, for as
+       long as the argument lasts; when it ends she walks back the short
+       way to the head of the table and turns to face it. */
+    const C_R = Math.hypot(cPos.x, cPos.z) || 3.4;
+    const C_HOME = Math.atan2(cPos.z, cPos.x);
+    const C_SLOW = 0.42, C_BACK = 1.3;          // metres a second
+    let cWalk = null;                            // { a, dir, mode: 'circle' | 'home', v }
+    function claudiaCircle(on) {
+      if (!claudia.visible) return;
+      if (on) {
+        const a = cWalk ? cWalk.a : C_HOME;
+        cWalk = { a, dir: cWalk ? cWalk.dir : 1, mode: 'circle', v: cWalk ? cWalk.v : 0 };
+        return;
+      }
+      if (!cWalk) return;
+      const TAU = Math.PI * 2;
+      let d = ((C_HOME - cWalk.a) % TAU + TAU) % TAU;       // forward distance home
+      cWalk.dir = d <= Math.PI ? 1 : -1;
+      cWalk.mode = 'home';
+    }
+    function stepClaudia(dt) {
+      const w = cWalk;
+      if (!w) return;
+      const TAU = Math.PI * 2;
+      if (w.mode === 'home') {
+        const left = w.dir > 0 ? ((C_HOME - w.a) % TAU + TAU) % TAU : ((w.a - C_HOME) % TAU + TAU) % TAU;
+        const step = Math.min(left, (C_BACK / C_R) * dt);
+        w.v = U.damp(w.v, C_BACK, 4, dt);
+        w.a += w.dir * step;
+        if (left - step < 1e-3) {
+          // there: back on her mark, turning to the table
+          w.a = C_HOME;
+          claudia.position.set(cPos.x, cPos.y, cPos.z);
+          Figure.setLocomotion(claudia, 0, 0);
+          const want = Math.atan2(-cPos.x, -cPos.z);
+          claudia.rotation.y = U.angLerp(claudia.rotation.y, want, 1 - Math.exp(-6 * dt));
+          const off = Math.atan2(Math.sin(claudia.rotation.y - want), Math.cos(claudia.rotation.y - want));
+          if (Math.abs(off) < 0.02) { claudia.rotation.y = want; cWalk = null; }
+          return;
+        }
+      } else {
+        w.v = U.damp(w.v, C_SLOW, 1.5, dt);           // she sets off gently
+        w.a += w.dir * (w.v / C_R) * dt;
+      }
+      const x = Math.cos(w.a) * C_R, z = Math.sin(w.a) * C_R;
+      claudia.position.set(x, land.heightAt(x, z), z);
+      const vx = -Math.sin(w.a) * w.dir, vz = Math.cos(w.a) * w.dir;
+      claudia.rotation.y = U.angLerp(claudia.rotation.y, Math.atan2(vx, vz), 1 - Math.exp(-6 * dt));
+      Figure.setLocomotion(claudia, w.v, 0);
+    }
+
     function hideFigure(playerId, on) {
       const i = seats.findIndex(s => s.id === playerId);
       if (i >= 0 && figures[i]) figures[i].userData.hidden = !!on;
@@ -737,7 +857,8 @@ const Stage = (() => {
       summitY, claudiaPos: cPos, indoors,
       mySeat,
       setShot, setSpeaking, setControls, setCinematic, shotOn, update, dispose,
-      walkIn, walkPath, hideFigure, setSeated: setSeatedAll, setWalk,
+      walkIn, walkPath, hideFigure, setSeated: setSeatedAll, setWalk, claudiaCircle,
+      get claudiaWalking() { return !!cWalk; },
       // point everybody's eyes at something: a door, a chair, a name
       setGaze(v) { gaze = v || null; },
       // the scripted camera: put it somewhere, and keep it on somebody
@@ -1022,59 +1143,89 @@ const Stage = (() => {
     return g;
   }
 
-  /* The turret: a small round table under a red cloth, a map of the
-     house on it, a candelabrum, a goblet at each place, and the tall
-     chairs of the people who decide. */
+  /* The turret: a round oak table under red velvet, and on it what the
+     Traitors decide with — the map of the house with its pieces, a
+     dagger, a green poison bottle, a letter under black wax, a goblet of
+     wine at each place, and a low tray of candles in the middle.
+     Everything on the table stays under a hand's height: across it is
+     the face of the other Traitor, and nothing stands in the way of it
+     (the old five-armed candelabrum stood exactly at eye level). The
+     light is low and warm, from the tray, so faces are lit from below. */
   function buildConclave(land, props, seats) {
     const g = new THREE.Group();
     const y = land.heightAt(0, 0);
     g.position.set(0, y, 0);
     const m = furnitureMats('velvet');
     const dark = EstateMaterials.material('timber', { color: '#5a3c2a', roughness: 0.45 });
-    const TOP = 0.8;
-    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.74, 0.74, 0.06, 48), dark);
-    top.position.y = TOP - 0.03; g.add(top);
-    const cloth = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.006, 48),
-      CastleSurfaces.material('velvet', { color: '#661220', roughness: 0.85 }));
-    cloth.position.y = TOP + 0.003; g.add(cloth);
-    const ped = new THREE.Mesh(CastleProps.lathe([[0.32, 0], [0.33, 0.04], [0.16, 0.1], [0.11, 0.3], [0.15, 0.45],
-                                                  [0.1, 0.62], [0.26, 0.7], [0, 0.74]], 24), dark);
-    g.add(ped);
-    const map = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.4),
-      CastleSurfaces.material('parchment', { roughness: 1, side: THREE.DoubleSide }));
-    map.rotation.x = -Math.PI / 2; map.rotation.z = 0.3; map.position.set(0.12, TOP + 0.0075, 0.1); g.add(map);
-    // rolled ends, in the map's own frame so they sit on it
+    const darker = EstateMaterials.material('timber', { color: '#3c271b', roughness: 0.5 });
+    const gold = CastleSurfaces.material('metal', { color: '#c9a24c', metalness: 0.5, roughness: 0.32 });
+    const iron = CastleSurfaces.material('iron', { color: '#2d2b2a', metalness: 0.4, roughness: 0.55 });
+    const pewter = CastleSurfaces.material('metal', { color: '#8d8f8e', metalness: 0.55, roughness: 0.38 });
+    const parchment = CastleSurfaces.material('parchment', { roughness: 1 });
+    const add = (geo, mat, x = 0, yy = 0, z = 0, ry = 0) => {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x, yy, z); mesh.rotation.y = ry; g.add(mesh); return mesh;
+    };
+    const TOP = 0.8, R = 0.82;
+    // the table: a thick top with a moulded edge, an apron, one carved pedestal on four feet
+    add(new THREE.CylinderGeometry(R, R, 0.06, 64), dark, 0, TOP - 0.03, 0);
+    const edge = add(new THREE.TorusGeometry(R, 0.03, 8, 64), darker, 0, TOP - 0.035, 0); edge.rotation.x = Math.PI / 2;
+    add(new THREE.CylinderGeometry(R - 0.08, R - 0.08, 0.12, 48, 1, true), darker, 0, TOP - 0.12, 0);
+    add(CastleProps.lathe([[0.2, 0], [0.18, 0.06], [0.1, 0.12], [0.08, 0.3], [0.12, 0.42], [0.075, 0.6],
+                           [0.2, 0.7], [0.24, 0.74], [0, 0.74]], 24), dark);
+    for (let i = 0; i < 4; i++) {
+      const a = i / 4 * Math.PI * 2 + Math.PI / 4;
+      add(new THREE.BoxGeometry(0.5, 0.07, 0.09), darker, Math.cos(a) * 0.22, 0.035, Math.sin(a) * 0.22, -a);
+    }
+    // the cloth, with a gold braid round it
+    add(new THREE.CylinderGeometry(R - 0.1, R - 0.1, 0.006, 64), CastleSurfaces.material('velvet', { color: '#661220', roughness: 0.85 }), 0, TOP + 0.003, 0);
+    const braid = add(new THREE.TorusGeometry(R - 0.1, 0.008, 6, 64), gold, 0, TOP + 0.006, 0); braid.rotation.x = Math.PI / 2;
+
+    // the map of the house, its corners held flat by rolled ends, and the pieces on it
+    const map = add(new THREE.PlaneGeometry(0.5, 0.36), parchment, -0.2, TOP + 0.008, 0.18);
+    map.rotation.x = -Math.PI / 2; map.rotation.z = 0.35;
     for (const e of [-1, 1]) {
-      const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.42, 10),
-        CastleSurfaces.material('parchment', { roughness: 1 }));
-      roll.position.set(e * 0.28, 0, 0.022);
+      const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.38, 10), parchment);
+      roll.position.set(e * 0.25, 0, 0.018);
       map.add(roll);
     }
-    const iron = CastleSurfaces.material('iron', { color: '#2d2b2a', metalness: 0.4, roughness: 0.55 });
-    const stem = new THREE.Mesh(CastleProps.lathe([[0.12, 0], [0.1, 0.03], [0.03, 0.06], [0.025, 0.32], [0.05, 0.34], [0, 0.35]], 14), iron);
-    stem.position.set(-0.22, TOP, -0.12); g.add(stem);
+    const pawn = CastleProps.lathe([[0.014, 0], [0.012, 0.006], [0.006, 0.012], [0.005, 0.026], [0.009, 0.032], [0, 0.04]], 10);
+    const red = new THREE.MeshStandardMaterial({ color: '#8a1426', roughness: 0.4 });
+    const ebony = new THREE.MeshStandardMaterial({ color: '#141010', roughness: 0.35 });
+    [[-0.3, 0.12, red], [-0.16, 0.26, ebony], [-0.1, 0.1, ebony], [-0.26, 0.24, ebony], [-0.06, 0.2, red]].forEach(([x, z, mat]) =>
+      add(pawn, mat, x, TOP + 0.009, z));
+    // a dagger laid across the cloth
+    const blade = add(new THREE.BoxGeometry(0.2, 0.004, 0.022), CastleSurfaces.material('metal', { color: '#c9ccd0', metalness: 0.7, roughness: 0.22 }),
+      0.22, TOP + 0.01, 0.2, 0.6);
+    blade.geometry.translate(0.1, 0, 0);
+    add(new THREE.BoxGeometry(0.012, 0.012, 0.08), gold, 0.22, TOP + 0.012, 0.2, 0.6);
+    const hilt = add(new THREE.CylinderGeometry(0.009, 0.01, 0.09, 8), ebony, 0.22, TOP + 0.012, 0.2, 0.6);
+    hilt.rotation.z = Math.PI / 2; hilt.geometry.translate(0, 0.045, 0);
+    // the poison: a small green bottle with a cork, and its stopper beside it
+    const glass = new THREE.MeshStandardMaterial({ color: '#1f5a2a', roughness: 0.12, metalness: 0.1, transparent: true, opacity: 0.85 });
+    add(CastleProps.lathe([[0.032, 0], [0.034, 0.01], [0.034, 0.06], [0.014, 0.085], [0.011, 0.105], [0.014, 0.11], [0, 0.11]], 14), glass, 0.3, TOP + 0.006, -0.18);
+    add(new THREE.CylinderGeometry(0.009, 0.008, 0.02, 8), CastleSurfaces.material('leather', { color: '#8a6338' }), 0.36, TOP + 0.016, -0.14);
+    // a letter, sealed in black wax
+    add(new THREE.BoxGeometry(0.16, 0.003, 0.11), parchment, -0.12, TOP + 0.008, -0.3, 0.25);
+    add(new THREE.CylinderGeometry(0.018, 0.018, 0.006, 14), ebony, -0.12, TOP + 0.012, -0.3);
+    // the middle: a pewter tray of low candles, the only light in the room that matters
+    add(new THREE.CylinderGeometry(0.2, 0.18, 0.018, 32), pewter, 0, TOP + 0.009, 0);
+    const rim = add(new THREE.TorusGeometry(0.2, 0.008, 6, 32), pewter, 0, TOP + 0.018, 0); rim.rotation.x = Math.PI / 2;
     const [wax, flame, core] = flameMats();
-    const pts = [];
-    for (let i = 0; i < 5; i++) {
-      const a = i / 5 * Math.PI * 2;
-      const x = -0.22 + Math.cos(a) * 0.16, z = -0.12 + Math.sin(a) * 0.16;
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.016, 0.016), iron);
-      arm.position.set(-0.22 + Math.cos(a) * 0.08, TOP + 0.3, -0.12 + Math.sin(a) * 0.08); arm.rotation.y = -a; g.add(arm);
-      const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.02, 0.035, 10), iron);
-      cup.position.set(x, TOP + 0.325, z); g.add(cup);
-      pts.push([x, TOP + 0.342, z, 0.14 + (i % 3) * 0.05, 0.022]);
-    }
+    const pts = [[0, 0, 0.13, 0.034], [0.1, 0.05, 0.08, 0.028], [-0.09, 0.07, 0.1, 0.03], [-0.06, -0.1, 0.07, 0.026], [0.08, -0.08, 0.11, 0.03]]
+      .map(([x, z, h, r]) => [x, TOP + 0.018, z, h, r]);
     pillarCandles(g, pts, wax, flame, core);
-    const silver = CastleSurfaces.material('metal', { color: '#c9a24c', metalness: 0.45, roughness: 0.35 });
+    // a goblet of wine at every place
     const gobletG = CastleProps.lathe([[0.04, 0], [0.035, 0.008], [0.008, 0.02], [0.008, 0.09], [0.035, 0.11], [0.045, 0.17], [0.041, 0.17], [0.03, 0.115], [0, 0.11]], 14);
+    const wine = new THREE.MeshStandardMaterial({ color: '#3d0610', roughness: 0.1, metalness: 0.2 });
     for (const s of seats) {
       seatChair(g, m, s, y, { back: 1.55, arms: true });
       const d = Math.hypot(s.pos.x, s.pos.z) || 1;
-      const goblet = new THREE.Mesh(gobletG, silver);
-      goblet.position.set(s.pos.x / d * 0.55, TOP + 0.006, s.pos.z / d * 0.55);
-      g.add(goblet);
+      const gx = s.pos.x / d * 0.58 + (-s.pos.z / d) * 0.16, gz = s.pos.z / d * 0.58 + (s.pos.x / d) * 0.16;
+      add(gobletG, gold, gx, TOP + 0.006, gz);
+      add(new THREE.CylinderGeometry(0.037, 0.037, 0.003, 14), wine, gx, TOP + 0.006 + 0.155, gz);
     }
-    g.userData.candles = [candleLight(g, -0.22, TOP + 0.75, -0.12, 4.5, 6)];
+    g.userData.candles = [candleLight(g, 0, TOP + 0.42, 0, 5.2, 7)];
     props.add(g);
     return g;
   }

@@ -14,7 +14,7 @@ const H = require('./harness');
 const { test, eq, ok, section } = H;
 
 const FILES = ['js/core/util.js', 'js/core/state.js', 'js/world/castle-layout.js', 'js/core/chores.js',
-               'js/core/session.js', 'js/scenes/claudia-lines.js', 'js/core/castle-net.js', 'js/core/ai-director.js'];
+               'js/core/twists.js', 'js/core/session.js', 'js/scenes/claudia-lines.js', 'js/core/castle-net.js', 'js/core/ai-director.js'];
 
 function world(opts = {}) {
   let now = 1.7e12;
@@ -36,10 +36,13 @@ function world(opts = {}) {
   const AI = {
     CLAUDIA: 'claudia-id', available: true, ready: true,
     agent: () => ({}), spawn() {}, prompt(id, text) { prompts.push({ id, text }); }, listen() {}, say() {}, tool() {},
-    ask(id, text) { asked.push({ id, text, at: now }); speaking.add(id); },
+    ask(id, text, o) { asked.push({ id, text, at: now, muted: !!(o && o.muted) }); speaking.add(id); },
     hush(id) { speaking.delete(id); },
     speaking: (id) => speaking.has(id),
-    on(evt, fn) { (listeners[evt] = listeners[evt] || []).push(fn); return () => {}; },
+    on(evt, fn) {
+      (listeners[evt] = listeners[evt] || []).push(fn);
+      return () => { const a = listeners[evt], i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); };
+    },
   };
   const ctx = H.load(FILES, {
     Date: FakeDate, Math: math,
@@ -104,7 +107,7 @@ test('bots stay silent throughout the hill and the first castle introduction', (
   eq(W.asked.length, 1, 'conversation begins after the introduction and a breath');
 });
 
-test('unsolicited replies use alternate opportunities while direct questions always get answers', () => {
+test('a person speaking to the room is answered every time, not every other time', () => {
   const W = world({ random: [0.9] });
   W.say('p1', 'This castle is huge');
   W.step(1.5);
@@ -113,15 +116,11 @@ test('unsolicited replies use alternate opportunities while direct questions alw
   W.step(9);
   W.say('p1', 'The staircase is spooky');
   W.step(2);
-  eq(W.asked.length, 1, 'leave the second remark to the humans');
-  W.step(9);
-  W.say('p1', 'I like the suits of armour');
-  W.step(2);
-  eq(W.asked.length, 2, 'join the third remark');
+  eq(W.asked.length, 2, 'the second remark is answered too');
   W.reply(W.asked[1].id);
   W.say('p1', 'Morag, what do you reckon?');
   W.step(2);
-  eq(W.asked.length, 3, 'a direct question bypasses the alternating rhythm');
+  eq(W.asked.length, 3, 'and a direct question');
 });
 
 test('Claudia blocks assigned turns as well as queued ballot decisions', () => {
@@ -352,27 +351,15 @@ test('assigned AI turns hold their floor against human speech', () => {
   ok(W.speaking.has('m'), 'a dedicated floor lasts until the contestant finishes');
 });
 
-test('an AI occasionally cuts into continuing speech, with space between assertive turns', () => {
+test('an AI never cuts into a person who is still talking', () => {
   const W = world({ random: [0.1] });
-  function talking(seconds) {
-    for (let i = 0; i < seconds * 5; i++) {
-      W.say('p1', 'The timing of that handover does not add up');
-      W.step(0.2);
-    }
+  for (let i = 0; i < 60; i++) {
+    W.say('p1', 'The timing of that handover does not add up');
+    W.step(0.2);
   }
-  talking(5.8);
-  eq(W.asked.length, 0, 'the human gets time to make their point first');
-  talking(2.2);
-  eq(W.asked.length, 1, 'the AI can join without waiting for silence');
-  ok(/Briefly cut in/.test(W.asked[0].text), 'the interjection is prompted as a short relevant point');
-  W.emit('speaking', { id: W.asked[0].id });
-  talking(1);
-  ok(W.speaking.has(W.asked[0].id), 'the interjection is not immediately cancelled by the ongoing voice');
-  W.reply(W.asked[0].id, 'That handover happened before the bell.');
-  talking(11);
-  eq(W.asked.length, 1, 'the AI leaves space before cutting in again');
-  talking(5);
-  eq(W.asked.length, 2, 'another assertive turn can happen later');
+  eq(W.asked.length, 0, 'twelve seconds of talking, and nobody starts over it');
+  W.step(2);
+  eq(W.asked.length, 1, 'answered once they stop');
 });
 
 test('cutting in is occasional and respects Claudia and human-only floors', () => {
@@ -541,6 +528,30 @@ test('at the round table nobody starts talking before she has opened the floor',
   ok(W.asked.some(a => /Ana just said/.test(a.text)), 'once she has opened it, they answer');
 });
 
+test('after the debate, the slates and the walk out are not chatted into', () => {
+  const W = world();
+  W.phase = 'table';
+  W.ctx.Session.state.finale = { stage: 'names', round: 0, nameRound: 0, names: {}, votes: {}, nameQueue: [] };
+  // the debate happened: the table was opened, then closed
+  W.ctx.Session.state.floor = { all: true, done: false, ready: [], endsAt: Date.now() + 90000 };
+  W.step(1);
+  W.ctx.Session.state.floor = { all: true, done: true, ready: [], endsAt: Date.now() };
+  W.say('p1', 'Has anybody seen the turret?');
+  W.step(10);
+  ok(!W.asked.some(a => /Ana just said/.test(a.text)), 'nobody answers across the slates');
+});
+
+test('a ceremony with the letterbox up is hers, even in its silent gaps', () => {
+  const W = world({ scenes: true });
+  W.ctx.Scenes = { performing: false, Cine: { barsOn: true } };
+  W.say('p1', 'Has anybody seen the turret?');
+  W.step(6);
+  eq(W.asked.length, 0, 'bars up: nobody chats');
+  W.ctx.Scenes.Cine.barsOn = false;
+  W.step(5);
+  eq(W.asked.length, 1, 'bars down and a breath later, they answer');
+});
+
 test('a refused turn gives the room back instead of holding it for half a minute', () => {
   const W = world({ random: [0.9] });
   W.say('p1', 'Has anybody seen the turret?');
@@ -581,6 +592,26 @@ test('every voice is told the whole game, not just the last few lines', () => {
   ok(/YOUR READ ON THE OTHERS/.test(last.text), 'and a read on everybody');
   ok(/Morag \+3/.test(last.text), 'a vote for somebody who was Faithful counts against Morag');
 });
+test('the record keeps every day whole, and a sealed day has no names on it', () => {
+  const W = world();
+  const st = W.ctx.Session.state;
+  W.net({ type: 'nameReveal', playerId: 'm', targetId: 'f' });
+  st.banished.push({ id: 'f', name: 'Fergus', day: 0, role: 'faithful' });
+  st.day = 1;
+  st.twistsUsed = [{ day: 1, id: 'sealed' }];
+  st.twist = { day: 1, id: 'sealed' };
+  st.banished.push({ id: 'p2', name: 'P2', day: 1, role: 'veiled' });
+  st.phase = 'table';
+  for (let k = 0; k < 120; k++) W.say('p1', 'filler talk number ' + k);
+  W.step(25);
+  const p = W.prompts.filter(x => x.id === 'i').slice(-1)[0].text;
+  ok(/THE RECORD, DAY BY DAY/.test(p), 'the record is in the prompt');
+  ok(/Day 1: votes: Morag→Fergus; Fergus banished \(a Faithful\)/.test(p), 'day one, whole');
+  ok(/Day 2: twist: sealed; slates sealed/.test(p), 'day two says its slates were sealed');
+  ok(/veiled: role unknown/.test(p), 'a veiled banishment is not given a role');
+  ok(/TODAY'S TWIST — SEALED SLATES/.test(p), 'and the twist is explained');
+});
+
 test('whoever is named answers', () => {
   const W = world();
   W.say('p1', 'Isla, where were you just now?');
@@ -700,13 +731,13 @@ test('in the castle, an AI the other side of a shut door hears nothing — until
   W.phase = 'tasks';
   W.ctx.Session.state.phase = 'tasks';
   const N = W.ctx.CastleNet;
-  const d = W.ctx.CastleLayout.doorById('chapel');
+  const d = W.ctx.CastleLayout.doorById('whisky');
   N.start('d0');
-  N.publish('p1', d.x, d.z - 1.2, 0);         // Ana, just inside the chapel
+  N.publish('p1', d.x, d.z - 1.2, 0);         // Ana, just inside the whisky room
   N.publish('p2', 16, 13.5, 0);
   N.publish('f', d.x, d.z + 1.2, 0);          // Fergus in the library, two metres away
   for (const id of ['m', 'i', 's']) N.publish(id, -16, 7, 0);
-  W.ctx.Session.state.doors = { chapel: 1 };
+  W.ctx.Session.state.doors = { whisky: 1 };
   W.say('p1', 'Is anybody out there?');
   W.step(3);
   eq(W.asked.length, 0, 'not a word through the door');
@@ -986,6 +1017,211 @@ test('a Traitor carrying the poison looks for the Faithful who is getting it rig
   const t = W.ctx.AIDirector.threats(traitor);
   ok(t.get(sharp) >= 3, 'voting out a Traitor makes you a target');
   ok(!t.get(dull), 'voting out a Faithful does not');
+});
+
+test('1-1 convo by day engages CastleBots, coaches the AI 1-on-1, and ends when dismissed', () => {
+  const W = world({ phase: 'tasks' });
+  const engaged = [], ended = [];
+  let activeConvo = null;
+  W.ctx.CastleBots = {
+    running: true,
+    company: (id) => (activeConvo === id ? { kind: 'convo', with: 'p1' } : null),
+    engage(id, target) { activeConvo = id; engaged.push({ id, target }); return true; },
+    endConvo(id) { if (activeConvo === id) { activeConvo = null; ended.push(id); return true; } return false; },
+    unfollow: () => false,
+  };
+  const N = W.ctx.CastleNet;
+  N.start('d0');
+  N.publish('p1', 0, -22, 0);        // Ana in the turret
+  N.publish('f', 1.2, -22, 0);       // Fergus alone with Ana
+  for (const id of ['p2', 'm', 'i', 's']) N.publish(id, -16, 7, 0);
+  W.say('p1', 'Who are you leaning toward?');
+  W.step(1.5);
+  eq(engaged.length, 1, 'engaged Fergus physically into 1-1 convo');
+  eq(engaged[0], { id: 'f', target: 'p1' });
+  ok(/1-on-1 conversation with Ana/.test(W.asked[0].text), 'prompt frames the exchange as 1-on-1');
+  eq(W.ctx.AIDirector.convoWith('p1').id, 'f');
+  W.reply('f', 'Still unsure, Ana.');
+  W.say('p1', 'Alright, you can go now.');
+  W.step(1.5);
+  eq(ended, ['f'], 'dismissal ends the 1-1 convo');
+});
+
+test('1-1 turret at night opens a conversation with a human Traitor partner before forcing a pick', () => {
+  const W = world({ seed: 1 });
+  const now = () => W.ctx.Date.now();
+  const basePrivate = W.ctx.Session.privateView.bind(W.ctx.Session);
+  const endsAt = now() + 25000;
+  W.phase = 'night';
+  W.ctx.Session.state.night = { day: 0, startedAt: now() - 4000, endsAt: now() + 30000, choose: true, canRecruit: false };
+  W.ctx.Session.privateView = (id) => {
+    const v = basePrivate(id);
+    if (id === 'p1' || id === 'm') {
+      return Object.assign({}, v, {
+        role: 'traitor',
+        partners: [id === 'p1' ? 'm' : 'p1'],
+        night: { choose: true, canRecruit: false, picks: {}, locked: false, offer: null, endsAt },
+      });
+    }
+    return Object.assign({}, v, { role: 'faithful', partners: [], night: null });
+  };
+  W.step(2);
+  eq(W.asked.length, 1, 'AI Traitor opens 1-1 turret conversation first');
+  eq(W.asked[0].id, 'm');
+  ok(/1-on-1 conversation in the turret/.test(W.asked[0].text));
+  ok(!/turret_choice/.test(W.asked[0].text), 'does not immediately force turret_choice on opening');
+  eq(W.ctx.AIDirector.convoWith('p1').id, 'm');
+  W.reply('m', 'Should I take the poison tomorrow?');
+  W.say('p1', 'Yeah, you take it tomorrow.');
+  W.step(1.5);
+  ok(/1-on-1 conversation in the turret/.test(W.asked.slice(-1)[0].text), 'subsequent reply stays in 1-1 turret framing');
+});
+
+test('a Traitor writing in the Traitors\' chat is answered there, in writing, and the orders still work', () => {
+  const W = world({ phase: 'tasks' });
+  const basePrivate = W.ctx.Session.privateView.bind(W.ctx.Session);
+  W.ctx.Session.privateView = (id) => {
+    const v = basePrivate(id);
+    if (id === 'p1' || id === 'm') {
+      return Object.assign({}, v, {
+        role: 'traitor',
+        partners: [id === 'p1' ? 'm' : 'p1'],
+        poison: id === 'm' ? { mine: true, used: false } : null,
+      });
+    }
+    return Object.assign({}, v, { role: 'faithful', partners: [], poison: null });
+  };
+  let chat = null;
+  const posts = [], follows = [], ends = [], cues = [];
+  let company = null;
+  W.ctx.TraitorChat = { on(fn) { chat = fn; return () => {}; }, postFor(id, text) { posts.push({ id, text }); return true; } };
+  W.ctx.Net.send = (e) => { if (e && e.type === 'cue') cues.push(e); };
+  W.ctx.CastleBots = {
+    running: true,
+    company: (id) => (id === 'm' ? company : null),
+    follow(id, target) { company = { kind: 'follow', with: target }; follows.push({ id, target }); return true; },
+    endConvo(id) { if (company) { company = null; ends.push(id); return true; } return false; },
+    unfollow: () => false,
+    canApproach: () => false, approach: () => false,
+  };
+  W.ctx.AIDirector.stop();
+  W.ctx.AIDirector.start();
+  ok(typeof chat === 'function', 'the director reads the chat');
+
+  chat({ id: 'p1', text: 'Morag, follow me' });
+  W.step(1.5);
+  eq(W.asked.length, 1, 'answered quickly');
+  eq(W.asked[0].id, 'm');
+  ok(W.asked[0].muted, 'asked for words, not a voice');
+  ok(/TRAITORS' CHAT/.test(W.asked[0].text) && /TYPING/.test(W.asked[0].text), 'told it is writing in the chat');
+  eq(follows, [{ id: 'm', target: 'p1' }], 'and it follows on "follow me"');
+  W.reply('m', '*leans in* Right behind you.');
+  eq(posts, [{ id: 'm', text: 'Right behind you.' }], 'the reply goes into the chat, without stage directions');
+  eq(cues.filter(c => c.id === 'm').length, 0, 'and never onto anybody\'s captions');
+
+  W.step(2);
+  chat({ id: 'p1', text: 'Poison Fergus now' });
+  W.step(1.5);
+  eq(W.ctx.AIDirector.order().target, 'f', 'poison order stored for Fergus');
+  eq(W.ctx.AIDirector.order().how, 'poison');
+  eq(ends, ['m'], 'releases the carrier from following so it can go and poison Fergus');
+  eq(W.asked.length, 2, 'answered again');
+
+  // a reply that comes back after its turn was given up is still the chat's
+  W.step(14);
+  W.reply('m', 'On my way to him.');
+  eq(posts.slice(-1)[0], { id: 'm', text: 'On my way to him.' }, 'late words land in the chat');
+  eq(cues.filter(c => c.id === 'm').length, 0, 'not in the room');
+});
+
+test('the Traitors\' chat ignores Faithfuls and the AIs\' own echoes', () => {
+  const W = world({ phase: 'tasks' });
+  const basePrivate = W.ctx.Session.privateView.bind(W.ctx.Session);
+  W.ctx.Session.privateView = (id) => Object.assign({}, basePrivate(id),
+    id === 'p1' || id === 'm' ? { role: 'traitor', partners: [id === 'p1' ? 'm' : 'p1'] } : { role: 'faithful', partners: [] });
+  let chat = null;
+  W.ctx.TraitorChat = { on(fn) { chat = fn; return () => {}; }, postFor() { return true; } };
+  W.ctx.AIDirector.stop();
+  W.ctx.AIDirector.start();
+  chat({ id: 'p2', text: 'Morag, poison Fergus' });
+  chat({ id: 'm', text: 'Agreed.' });
+  W.step(3);
+  eq(W.asked.length, 0, 'a Faithful cannot write in it, and an AI does not answer itself');
+  eq(W.ctx.AIDirector.order(), null, 'and no order was taken');
+});
+
+test('direct answers echoing words from a finished AI question are not dropped as echo', () => {
+  const W = world({ seed: 1, phase: 'night' });
+  const now = () => W.ctx.Date.now();
+  const basePrivate = W.ctx.Session.privateView.bind(W.ctx.Session);
+  W.ctx.Session.state.night = { day: 0, startedAt: now() - 4000, endsAt: now() + 30000, choose: true, canRecruit: false };
+  W.ctx.Session.privateView = (id) => {
+    const v = basePrivate(id);
+    if (id === 'p1' || id === 'm') {
+      return Object.assign({}, v, {
+        role: 'traitor',
+        partners: [id === 'p1' ? 'm' : 'p1'],
+        night: { choose: true, canRecruit: false, picks: {}, locked: false, offer: null, endsAt: now() + 25000 },
+      });
+    }
+    return Object.assign({}, v, { role: 'faithful', partners: [], night: null });
+  };
+  W.step(2);
+  eq(W.asked.length, 1);
+  W.reply('m', 'Who should carry the poison tomorrow?');
+  W.step(3);
+  W.say('p1', 'You carry the poison');
+  W.step(1.5);
+  eq(W.asked.length, 2, 'short answer sharing question words after turn ends is not swallowed as echo');
+  eq(W.ctx.AIDirector.turretOrder().kind, 'carrier');
+  eq(W.ctx.AIDirector.turretOrder().targetId, 'm');
+});
+
+test('verbal turret orders (you carry, I carry, recruit, no offer) execute turretPick cleanly', () => {
+  const W = world({ seed: 1 });
+  const now = () => W.ctx.Date.now();
+  const sent = [];
+  const basePrivate = W.ctx.Session.privateView.bind(W.ctx.Session);
+  const picks = {};
+  W.ctx.Net.send = (m) => { sent.push(m); if (m.type === 'turretPick') picks[m.playerId] = { kind: m.kind, targetId: m.targetId }; };
+  W.phase = 'night';
+  W.ctx.Session.state.night = { day: 0, startedAt: now() - 4000, endsAt: now() + 25000, choose: true, canRecruit: true };
+  W.ctx.Session.privateView = (id) => {
+    const v = basePrivate(id);
+    if (id === 'p1' || id === 'm') {
+      return Object.assign({}, v, {
+        role: 'traitor',
+        partners: [id === 'p1' ? 'm' : 'p1'],
+        night: { choose: true, canRecruit: true, picks, locked: false, offer: null, endsAt: now() + 25000 },
+      });
+    }
+    return Object.assign({}, v, { role: 'faithful', partners: [], night: null });
+  };
+  // Negated poison line does not trigger a false order
+  W.say('p1', "Don't poison Fergus tonight");
+  eq(W.ctx.AIDirector.order(), null, 'negated target line is ignored');
+
+  // Verbal command: "You carry the poison"
+  W.say('p1', 'You carry the poison');
+  W.step(1.5);
+  const cue = W.asked.slice(-1)[0].text;
+  ok(/call turret_choice right now/i.test(cue) && /YOU \(Morag\)/.test(cue), 'instructs AI to lock turret_choice immediately');
+  W.reply('m', 'Fine, I will take the poison.');
+  // Even without tool invocation from LLM and with >10s left on turret clock, fallback executes ordered pick
+  W.step(12);
+  const pick = sent.find(m => m.type === 'turretPick' && m.playerId === 'm');
+  ok(pick && pick.kind === 'carrier' && pick.targetId === 'm', 'dispatches carrier pick matching verbal order');
+
+  // Changing to recruit and no offer
+  W.say('p1', 'Offer Isla a seat');
+  eq(W.ctx.AIDirector.turretOrder().kind, 'recruit');
+  eq(W.ctx.AIDirector.turretOrder().targetId, 'i');
+  W.say('p1', 'Actually no offer tonight');
+  eq(W.ctx.AIDirector.turretOrder().kind, 'none');
+  eq(W.ctx.AIDirector.turretOrder().targetId, null);
+  W.say('p1', "I'll carry it tomorrow");
+  eq(W.ctx.AIDirector.turretOrder().kind, 'carrier');
+  eq(W.ctx.AIDirector.turretOrder().targetId, 'p1');
 });
 
 H.report();

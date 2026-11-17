@@ -14,7 +14,7 @@
 ------------------------------------------------------------------ */
 const Slate = (() => {
 
-  const HOLD_MS = 4200;            // closes itself, so a slow writer never holds the table
+  const HOLD_MS = 4800;            // closes itself, so a slow writer never holds the table
   let open = null;                 // { close } while a slate is up
 
   if (typeof AudioBus !== 'undefined' && AudioBus.define) {
@@ -37,6 +37,31 @@ const Slate = (() => {
     });
   }
 
+  if (typeof AudioBus !== 'undefined' && AudioBus.define) {
+    /* The slate put down on the table, face down: a short wooden knock. */
+    AudioBus.define('slate-knock', (c, d) => {
+      const t = c.currentTime;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(190, t);
+      o.frequency.exponentialRampToValueAtTime(70, t + 0.12);
+      o.connect(g); g.connect(d);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.42, t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      o.start(t); o.stop(t + 0.22);
+      const n = AudioBus.noiseSource ? AudioBus.noiseSource() : null;
+      if (!n) return;
+      const f = c.createBiquadFilter(), h = c.createGain();
+      f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 1.2;
+      n.connect(f); f.connect(h); h.connect(d);
+      h.gain.setValueAtTime(0.0001, t);
+      h.gain.exponentialRampToValueAtTime(0.2, t + 0.003);
+      h.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+      n.start(t); n.stop(t + 0.1);
+    });
+  }
+
   const esc = (s) => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 
   function html(name) {
@@ -49,11 +74,31 @@ const Slate = (() => {
     return new Promise((resolve) => {
       const wrap = document.createElement('div');
       wrap.className = 'slate-wrap';
-      wrap.innerHTML = '<div class="slate-board"><canvas class="slate-canvas"></canvas>'
+      /* Two faces: the slate, and the wooden back it is turned on to.
+         A stick of chalk rides along the name as it is written. */
+      wrap.innerHTML = '<div class="slate-board"><div class="slate-face">'
+        + '<canvas class="slate-canvas"></canvas><i class="slate-chalk"></i>'
         + '<div class="slate-hint">Underline it, circle it — then turn it over.</div>'
-        + '<button type="button" class="slate-done">TURN IT OVER</button></div>';
+        + '<button type="button" class="slate-done">TURN IT OVER</button></div>'
+        + '<div class="slate-back"><span>VOTE CAST</span></div></div>';
       document.body.appendChild(wrap);
       const canvas = wrap.querySelector('.slate-canvas');
+      const chalk = wrap.querySelector('.slate-chalk');
+      const face = wrap.querySelector('.slate-face');
+      // a puff of dust off the chalk, where it is on the slate (0..1 across, 0..1 down)
+      const puff = (fx, fy) => {
+        if (!face || !document.createElement) return;
+        for (let k = 0; k < 3; k++) {
+          const d = document.createElement('i');
+          d.className = 'slate-dust';
+          d.style.left = (fx * 100).toFixed(1) + '%';
+          d.style.top = (fy * 100).toFixed(1) + '%';
+          d.style.setProperty('--dx', ((Math.random() - 0.5) * 46).toFixed(0) + 'px');
+          d.style.setProperty('--dy', (10 + Math.random() * 34).toFixed(0) + 'px');
+          face.appendChild(d);
+          setTimeout(() => { if (d.remove) d.remove(); }, 800);
+        }
+      };
       const ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null;
       const W = 560, H = 300;
       const dpr = Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
@@ -67,9 +112,15 @@ const Slate = (() => {
         done = true;
         timers.forEach(clearTimeout);
         clearTimeout(closeTimer);
+        // over on to its back, then down on the table with a knock
         if (wrap.classList) wrap.classList.add('turned');
         if (typeof AudioBus !== 'undefined') AudioBus.play('card-in', { tone: 'bad' });
-        setTimeout(() => { if (wrap.remove) wrap.remove(); }, 380);
+        setTimeout(() => {
+          if (wrap.classList) wrap.classList.add('down');
+          if (typeof AudioBus !== 'undefined') AudioBus.play('slate-knock');
+          if (typeof Input !== 'undefined' && Input.haptic) Input.haptic(25);
+        }, 430);
+        setTimeout(() => { if (wrap.remove) wrap.remove(); }, 820);
         if (open && open.close === close) open = null;
         resolve();
       };
@@ -107,10 +158,45 @@ const Slate = (() => {
           ctx.fillText(ch, (Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 2.2);
         }
         ctx.restore && ctx.restore();
+        // the dust a stick of chalk leaves: a few specks under the stroke
+        if (ch !== ' ') {
+          ctx.fillStyle = 'rgba(240,238,228,0.22)';
+          for (let k = 0; k < 7; k++) {
+            ctx.fillRect && ctx.fillRect(x + Math.random() * measure(ch), base + 4 + Math.random() * 14, 1.4, 1.4);
+          }
+        }
         x += measure(ch) + 2;
+        if (chalk && chalk.style) {
+          chalk.style.left = (x / W * 100).toFixed(1) + '%';
+          chalk.style.top = ((base - size * 0.45) / H * 100).toFixed(1) + '%';
+          if (chalk.classList) { chalk.classList.add('on'); chalk.classList.remove('tap'); void chalk.offsetWidth; chalk.classList.add('tap'); }
+        }
+        if (ch !== ' ' && Math.random() < 0.6) puff(x / W, (base + 6) / H);
         if (typeof AudioBus !== 'undefined' && ch !== ' ') AudioBus.play('chalk', { len: 0.07 + Math.random() * 0.06 });
       };
-      [...text].forEach((ch, i) => timers.push(setTimeout(() => { if (!done) letter(ch); }, 180 + i * 95)));
+      /* And the flourish a hand puts under a name it means: one stroke,
+         drawn out left to right, after the last letter. */
+      const underline = () => {
+        if (done || !ctx.beginPath) return;
+        const x0 = (W - measure(text)) / 2 - 6, x1 = x + 4, y0 = base + size * 0.16;
+        let i = 0;
+        const N = 12;
+        const stepLine = () => {
+          if (done || i >= N) { if (chalk && chalk.classList) chalk.classList.remove('on'); return; }
+          const a = x0 + (x1 - x0) * i / N, b = x0 + (x1 - x0) * (i + 1) / N;
+          const wob = (t) => Math.sin(t * 0.04) * 2.5 - (t - x0) * 0.012;
+          ctx.strokeStyle = 'rgba(240,238,228,0.7)';
+          ctx.lineWidth = 4.5; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(a, y0 + wob(a)); ctx.lineTo(b, y0 + wob(b)); ctx.stroke();
+          if (chalk && chalk.style) { chalk.style.left = (b / W * 100).toFixed(1) + '%'; chalk.style.top = ((y0 - 8) / H * 100).toFixed(1) + '%'; }
+          if (i === 0 && typeof AudioBus !== 'undefined') AudioBus.play('chalk', { len: 0.32 });
+          i++;
+          timers.push(setTimeout(stepLine, 22));
+        };
+        stepLine();
+      };
+      [...text].forEach((ch, i) => timers.push(setTimeout(() => { if (!done) letter(ch); }, 380 + i * 95)));
+      timers.push(setTimeout(underline, 380 + text.length * 95 + 120));
 
       // and whatever the hand adds: a line where the pointer drags
       let last = null;

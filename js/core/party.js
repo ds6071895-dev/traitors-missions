@@ -81,7 +81,7 @@ const Party = (() => {
     sync:   new Set(),   // (payload, fromPeer)
     ai:     new Set(),   // (message) — the AI bridge, to the host only
     claudia:new Set(),   // (message) — one of Claudia's lines, read to you, has finished
-    whisper:new Set(),   // ({ id, on }) — a Traitor holding the whisper; Traitors and the host only
+    tchat:  new Set(),   // ({ id, text, at }) — the Traitors' chat; living Traitors and the host only
     error:  new Set(),   // (message)
   };
 
@@ -375,7 +375,7 @@ const Party = (() => {
     };
     candidate.onAI = (msg) => { if (current()) emit('ai', msg); };
     candidate.onClaudia = (msg) => { if (current()) emit('claudia', msg); };
-    candidate.onWhisper = (msg) => { if (current()) emit('whisper', msg); };
+    candidate.onTraitorChat = (msg) => { if (current()) emit('tchat', msg); };
     candidate.onRoster = (players, authority) => {
       if (!current()) return;
       const previous = seats;
@@ -573,11 +573,11 @@ const Party = (() => {
     roster, self, selfId, peerIds, randomCode, normaliseCode, validCode,
     publishRoster,
     MAX, MIN, CODE_LEN, ALPHABET,
-    // the Traitors' whisper; the server decides whether we may
-    setWhisper(on) { if (joined && room && room.setWhisper) room.setWhisper(on); },
-    // host-only: an AI Traitor answering in the whisper
-    setWhisperFor(id, on) { if (host && joined && room && room.setWhisper) room.setWhisper(on, id); },
-    get canWhisper() { return !!(joined && room && room.server && room.setWhisper); },
+    // the Traitors' chat; the server decides whether we may
+    traitorChat(text) { if (joined && room && room.traitorChat) room.traitorChat(text); },
+    // host-only: a seat the host runs (an AI or a bot) writing in it
+    traitorChatFor(id, text) { if (host && joined && room && room.traitorChat) room.traitorChat(text, id); },
+    get canTraitorChat() { return !!(joined && room && room.server && room.traitorChat); },
     /* Host-only: who may hear whom, enforced by the room server. */
     setVoiceRoutes(routes) { if (host && joined && room && room.setRoutes) room.setRoutes(routes || null); },
     /* Host-only: a message to the room's AI bridge on the server. */

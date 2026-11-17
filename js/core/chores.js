@@ -38,8 +38,8 @@ const Chores = (() => {
      is the shortcut a keyboard gets on top. `goal` is the two or three
      words stamped on the panel as it opens, so the job is understood
      before the how is read; `secs` is how long an AI player takes over
-     it. Every type plays differently; a day's list never repeats one if
-     it can help it. */
+     it. Every type plays differently — thirty-four of them — and a
+     day's list never repeats one if it can help it. */
   const TYPES = {
     safe:    { title: 'Crack the portrait safe',   verb: 'Crack the safe', goal: 'Open the safe', secs: [5, 8],
                how: 'A four-digit code flashes on the note. Remember it, then tap it in. ↺ shows it again.',
@@ -85,6 +85,44 @@ const Chores = (() => {
                how: 'Tap weights onto the right pan until it matches the gold one. Tap a weight again to take it off.' },
     window:  { title: 'Clean the window',          verb: 'Clean it', goal: 'Wipe it clean', secs: [4, 7],
                how: 'Rub the glass with your finger or mouse until you can see the loch.' },
+    darts:   { title: 'Three in the gold',         verb: 'Throw darts', goal: 'Three golds', secs: [5, 8],
+               how: 'The sight wobbles over the board. THROW when it is on the gold. Three darts in.',
+               keys: 'Space' },
+    pot:     { title: 'Pot the red',               verb: 'Play a shot', goal: 'Pot 2 reds', secs: [5, 9],
+               how: 'Drag back from the red ball, aim along the line and let go. Bank it off the cushions.' },
+    cups:    { title: 'Find the laird’s ring',     verb: 'Find the ring', goal: 'Follow the ring', secs: [6, 9],
+               how: 'Watch which quaich hides the ring, follow it through the shuffle, then tap it. Twice.' },
+    stack:   { title: 'Stack the logs',            verb: 'Stack the logs', goal: 'Stack 6 logs', secs: [5, 8],
+               how: 'A log swings over the pile. DROP it square on top: whatever hangs over falls off.',
+               keys: 'Space' },
+    reel:    { title: 'Play the laird’s reel',     verb: 'Play the reel', goal: 'Hit 8 notes', secs: [5, 8],
+               how: 'Notes fall down three lanes. Tap a lane as its note crosses the gold line.',
+               keys: 'A S D or ← ↓ →' },
+    lantern: { title: 'Search by lantern light',   verb: 'Search the dark', goal: 'Find 3 things', secs: [6, 10],
+               how: 'Move your lantern through the dark and tap the three things on the list. Ignore the rest.' },
+    clock:   { title: 'Set the stopped clock',     verb: 'Set the clock', goal: 'Set 2 clocks', secs: [5, 9],
+               how: 'Drag the long hand to the minutes and the short hand to the hour on the card.',
+               keys: '← → minutes, ↑ ↓ hours' },
+    fish:    { title: 'Catch the fountain fish',   verb: 'Go fishing', goal: 'Catch 3 fish', secs: [6, 10],
+               how: 'Ignore the nibbles. STRIKE the moment the float goes right under.',
+               keys: 'Space' },
+    tray:    { title: 'Carry the soup',            verb: 'Carry the soup', goal: 'No spills', secs: [5, 8],
+               how: 'Drag left or right to tilt the tray and keep the tureen in the gold until the bar fills.',
+               keys: '← →' },
+    parry:   { title: 'Fence the master',          verb: 'Take up a foil', goal: 'Parry 6 times', secs: [5, 8],
+               how: 'A side glows red: tap that arrow before the blade lands. Watch for feints.',
+               keys: 'Arrow keys' },
+    trace:   { title: 'Embroider the crest',       verb: 'Sew the crest', goal: 'Trace the crest', secs: [5, 9],
+               how: 'Hold and trace the dotted line with your finger or mouse to stitch it in gold.' },
+    bagpipes:{ title: 'Play the clan pipes',       verb: 'Play the pipes', goal: 'Keep them skirling', secs: [5, 8],
+               how: 'Hold BLOW to fill the bag. Keep it in the gold band as it wanders and they play.',
+               keys: 'Hold Space' },
+    ledger:  { title: 'Tot up the accounts',       verb: 'Do the sums', goal: 'Balance 3 pages', secs: [5, 9],
+               how: 'Add up the column of pounds and tap the right total. Three pages.',
+               keys: '1 – 4' },
+    crank:   { title: 'Haul up the dumbwaiter',    verb: 'Wind the handle', goal: 'Wind it up', secs: [4, 7],
+               how: 'Wind the handle round clockwise to haul the box up. Stop and it slips back.',
+               keys: 'Hold Space' },
   };
 
   /* Things to fetch and carry: pick it up in one room, put it down in
@@ -95,12 +133,12 @@ const Chores = (() => {
                  'the laird’s sword', 'a crate of claret', 'the guest book', 'a storm lantern'];
 
   /* Where they are, all over the house. Rooms off the beaten track —
-     the turret, the chapel, the study, the bedrooms, anywhere with a
+     the turret, the whisky room, the study, the bedrooms, anywhere with a
      door that shuts — are deliberate: a job that takes you somewhere
      quiet is a job that might get you killed. */
   const STATIONS = [
     { id: 'hall-desk',       room: 'hall',          x: -5.6, z: 16.4, type: 'letters', label: 'the porter’s desk' },
-    { id: 'hall-clock',      room: 'hall',          x: -5.8, z: 6.0,  type: 'bells',   label: 'the long-case clock' },
+    { id: 'hall-clock',      room: 'hall',          x: -5.8, z: 6.0,  type: 'clock',   label: 'the long-case clock' },
     { id: 'hall-hearth',     room: 'hall',          x: 4.6,  z: 9.4,  type: 'bellows', label: 'the hall fire' },
     { id: 'passage-armour',  room: 'west-passage',  x: -8.5, z: 9.7,  type: 'tartan',  label: 'the suit of armour' },
     { id: 'great-harp',      room: 'great',         x: -11.2, z: 18.6, type: 'tune',   label: 'the harp' },
@@ -112,12 +150,12 @@ const Chores = (() => {
     { id: 'turret-bell',     room: 'turret',        x: -2.2, z: -24.4, type: 'bells',  label: 'the turret bell' },
     { id: 'turret-desk',     room: 'turret',        x: 2.2,  z: -24.4, type: 'candles', label: 'the conspirators’ desk' },
     { id: 'turret-brew',     room: 'turret',        x: 0.0,  z: -25.6, type: 'brew',   label: 'the still' },
-    { id: 'corridor-linen',  room: 'corridor',      x: 24.6, z: 13.5, type: 'letters', label: 'the linen press' },
+    { id: 'corridor-linen',  room: 'corridor',      x: 24.6, z: 13.5, type: 'trace', label: 'the embroidery hoop' },
     { id: 'corridor-lamp',   room: 'corridor',      x: 15.0, z: 12.6, type: 'wires',   label: 'the corridor lamps' },
     { id: 'corridor-portraits', room: 'corridor',   x: 20.5, z: 12.6, type: 'frames',  label: 'the corridor portraits' },
     // the west wing
     { id: 'library-safe',    room: 'library',       x: -20.9, z: -8.2, type: 'safe',   label: 'the safe behind the shelves' },
-    { id: 'chapel-belfry',   room: 'chapel',        x: -28.6, z: -10.6, type: 'bats',  label: 'the chapel belfry' },
+    { id: 'whisky-shelves',  room: 'whisky',        x: -22.7, z: -15.6, type: 'bottles', label: 'the whisky shelves' },
     { id: 'kitchen-rack',    room: 'kitchen',       x: -31.3, z: -0.4, type: 'bottles', label: 'the kitchen wine rack' },
     { id: 'kitchen-larder',  room: 'kitchen',       x: -32.6, z: -12.9, type: 'mouse',  label: 'the larder' },
     { id: 'scullery-pipes',  room: 'scullery',      x: -38.6, z: -20.6, type: 'pipes',  label: 'the scullery pipes' },
@@ -131,33 +169,33 @@ const Chores = (() => {
     { id: 'conservatory-vines', room: 'conservatory', x: 40.2, z: 18.2, type: 'bats',  label: 'the vine-house roof' },
     /* A second job in every corner, so there is always one a few steps
        away and the day is spent working, not walking. */
-    { id: 'hall-console',    room: 'hall',          x: 4.3,  z: 16.3, type: 'candles', label: 'the console table' },
+    { id: 'hall-console',    room: 'hall',          x: 4.3,  z: 16.3, type: 'bagpipes', label: 'the pipes on the console' },
     { id: 'hall-armour',     room: 'hall',          x: -2.2, z: 5.8,  type: 'lock',    label: 'the armour’s gauntlet' },
     { id: 'great-sideboard', room: 'great',         x: -16.0, z: -0.6, type: 'pour',   label: 'the high table sideboard' },
     { id: 'great-landscape', room: 'great',         x: -16.0, z: 18.8, type: 'frames', label: 'the great landscape' },
-    { id: 'great-silver',    room: 'great',         x: -11.6, z: 14.4, type: 'bottles', label: 'the silver sideboard' },
+    { id: 'great-silver',    room: 'great',         x: -11.6, z: 14.4, type: 'cups', label: 'the silver quaichs' },
     { id: 'round-banners',   room: 'round',         x: 4.5,  z: -1.8, type: 'tartan',  label: 'the clan banners' },
     { id: 'turret-cloaks',   room: 'turret',        x: -2.9, z: -20.5, type: 'pairs',  label: 'the cloak pegs' },
     { id: 'corridor-press',  room: 'corridor',      x: 9.5,  z: 14.4, type: 'lock',    label: 'the locked press' },
     { id: 'corridor-window', room: 'corridor',      x: 27.0, z: 14.3, type: 'window',  label: 'the corridor window' },
-    { id: 'library-globe',   room: 'library',       x: -12.2, z: -7.4, type: 'spot',   label: 'the old map' },
+    { id: 'library-globe',   room: 'library',       x: -12.2, z: -7.4, type: 'lantern',   label: 'the unlit stacks' },
     { id: 'library-tables',  room: 'library',       x: -20.0, z: -4.3, type: 'letters', label: 'the reading tables' },
-    { id: 'chapel-altar',    room: 'chapel',        x: -25.0, z: -19.0, type: 'candles', label: 'the altar' },
-    { id: 'chapel-harmonium', room: 'chapel',       x: -25.0, z: -12.6, type: 'tune',  label: 'the harmonium' },
-    { id: 'kitchen-hearth',  room: 'kitchen',       x: -40.2, z: -5.75, type: 'bellows', label: 'the roasting hearth' },
+    { id: 'whisky-still',    room: 'whisky',        x: -25.4, z: -17.4, type: 'pipes', label: 'the copper still' },
+    { id: 'whisky-tasting',  room: 'whisky',        x: -24.0, z: -13.4, type: 'pour',  label: 'the tasting table' },
+    { id: 'kitchen-hearth',  room: 'kitchen',       x: -40.2, z: -5.75, type: 'stack', label: 'the log basket' },
     { id: 'kitchen-table',   room: 'kitchen',       x: -34.0, z: -5.75, type: 'brew',  label: 'the kitchen table' },
-    { id: 'kitchen-dresser', room: 'kitchen',       x: -31.0, z: -11.2, type: 'pairs', label: 'the plate dresser' },
-    { id: 'scullery-window', room: 'scullery',      x: -40.4, z: -16.6, type: 'window', label: 'the scullery window' },
-    { id: 'gallery-armour',  room: 'gallery',       x: 38.2, z: -5.0, type: 'tartan',  label: 'the gallery armour' },
+    { id: 'kitchen-dresser', room: 'kitchen',       x: -31.0, z: -11.2, type: 'tray', label: 'the soup tureen' },
+    { id: 'scullery-window', room: 'scullery',      x: -40.4, z: -16.6, type: 'crank', label: 'the dumbwaiter' },
+    { id: 'gallery-armour',  room: 'gallery',       x: 38.2, z: -5.0, type: 'parry',  label: 'the fencing foils' },
     { id: 'gallery-seat',    room: 'gallery',       x: 32.3, z: -3.7, type: 'window',  label: 'the window seat' },
-    { id: 'billiard-table',  room: 'billiard',      x: 22.0, z: -15.2, type: 'scales', label: 'the billiard table' },
-    { id: 'billiard-cues',   room: 'billiard',      x: 17.2, z: -12.5, type: 'spot',   label: 'the cue rack' },
-    { id: 'drawing-piano',   room: 'drawing',       x: 31.2, z: -11.6, type: 'tune',   label: 'the grand piano' },
+    { id: 'billiard-table',  room: 'billiard',      x: 22.0, z: -15.2, type: 'pot', label: 'the billiard table' },
+    { id: 'billiard-cues',   room: 'billiard',      x: 17.2, z: -12.5, type: 'darts',   label: 'the dartboard' },
+    { id: 'drawing-piano',   room: 'drawing',       x: 31.2, z: -11.6, type: 'reel',   label: 'the grand piano' },
     { id: 'drawing-fire',    room: 'drawing',       x: 34.0, z: -16.3, type: 'bellows', label: 'the drawing-room fire' },
     { id: 'study-shelves',   room: 'study',         x: 46.6, z: -9.8,  type: 'letters', label: 'the study shelves' },
-    { id: 'study-strongbox', room: 'study',         x: 44.0, z: -1.0, type: 'safe',    label: 'the strongbox' },
+    { id: 'study-strongbox', room: 'study',         x: 44.0, z: -1.0, type: 'ledger',    label: 'the account books' },
     { id: 'gun-map',         room: 'gun',           x: 34.0, z: 4.4,  type: 'spot',    label: 'the map table' },
-    { id: 'conservatory-fountain', room: 'conservatory', x: 36.0, z: 11.4, type: 'pipes', label: 'the fountain' },
+    { id: 'conservatory-fountain', room: 'conservatory', x: 36.0, z: 11.4, type: 'fish', label: 'the fountain' },
     { id: 'conservatory-palms', room: 'conservatory', x: 32.6, z: 9.6, type: 'pour',   label: 'the palms' },
   ];
   for (let k = 0; k < 8; k++) {
@@ -176,7 +214,7 @@ const Chores = (() => {
     hall: 'the Entrance Hall', 'west-passage': 'the West Passage', great: 'the Great Hall',
     'north-passage': 'the North Passage', round: 'the Round Table Chamber', stair: 'the Turret Stair',
     turret: 'the Turret', corridor: 'the Bedroom Corridor',
-    library: 'the Library', chapel: 'the Chapel', kitchen: 'the Kitchen', scullery: 'the Scullery',
+    library: 'the Library', whisky: 'the Whisky Room', kitchen: 'the Kitchen', scullery: 'the Scullery',
     'west-link': 'the Library Passage', 'east-link': 'the Gallery Passage', gallery: 'the Long Gallery',
     billiard: 'the Billiard Room', drawing: 'the Drawing Room', study: 'the Laird’s Study',
     gun: 'the Gun Room', conservatory: 'the Conservatory',
@@ -190,7 +228,27 @@ const Chores = (() => {
     for (let i = a.length - 1; i > 0; i--) { const j = rng.int(0, i); [a[i], a[j]] = [a[j], a[i]]; }
     return a;
   };
-  const poolFor = (player) => STATIONS.filter(s => s.bed === undefined || s.bed === player.seat % 8);
+  /* The house by wing, for opening it up a day at a time. */
+  const WEST = new Set(['library', 'whisky', 'kitchen', 'scullery', 'west-passage', 'west-link']);
+  const EAST = new Set(['east-link', 'gallery', 'billiard', 'drawing', 'study', 'gun', 'conservatory']);
+  const wingOf = (room) => (WEST.has(room) ? 'west' : EAST.has(room) ? 'east' : 'core');
+  const WING_NAMES = { west: 'the west wing', east: 'the east wing', core: 'the heart of the house' };
+
+  /* Which wings have jobs in them today, and which one is today's.
+     The first day is the old house and the west wing; the east wing
+     opens on the second, and is where half of everybody's jobs are;
+     from the third the whole house is open and the featured wing goes
+     round. Public: the same for everybody, from the seed and the day. */
+  function dayPlan(day, seed) {
+    const d = Math.max(0, day | 0);
+    if (d === 0) return { wings: new Set(['core', 'west']), wing: null };
+    if (d === 1) return { wings: null, wing: 'east' };
+    const order = ['west', 'core', 'east'];
+    return { wings: null, wing: order[(((seed | 0) >>> 3) + d) % 3] };
+  }
+
+  const poolFor = (player, opts = {}) => STATIONS.filter(s => (s.bed === undefined || s.bed === player.seat % 8)
+    && (!opts.wings || opts.wings.has(wingOf(s.room))));
 
   /* `n` stations of as many different kinds as the deck allows, none
      of them in `avoid`. After the first, each is one of the nearest few
@@ -198,8 +256,11 @@ const Chores = (() => {
      can be, so a list is a round of one part of the house rather than a
      march from wing to wing. */
   const NEAREST = 8;
-  function pickStations(rng, player, n, avoid, wantQuiet, from) {
-    const pool = poolFor(player).filter(s => !avoid.has(s.id));
+  function pickStations(rng, player, n, avoid, wantQuiet, from, opts = {}) {
+    let pool = poolFor(player, opts).filter(s => !avoid.has(s.id));
+    if (opts.only) { const only = pool.filter(opts.only); if (only.length >= n) pool = only; }
+    // yesterday's kinds of puzzle, if the house has others to give
+    const stale = opts.avoidTypes || new Set();
     const picked = [];
     const usedTypes = new Set();
     const take = (s) => { picked.push(s); usedTypes.add(s.type); };
@@ -218,7 +279,10 @@ const Chores = (() => {
           .sort((a, b) => a[0] - b[0]).map(e => e[1]).slice(0, NEAREST);
       }
       // next door rather than the same room: a list still moves you about
-      take(left.find(s => !usedTypes.has(s.type) && (!last || s.room !== last.room))
+      const fresh = (s) => !usedTypes.has(s.type) && !stale.has(s.type);
+      take(left.find(s => fresh(s) && (!last || s.room !== last.room))
+        || left.find(fresh)
+        || left.find(s => !usedTypes.has(s.type) && (!last || s.room !== last.room))
         || left.find(s => !usedTypes.has(s.type)) || left[0]);
     }
     return picked;
@@ -227,8 +291,8 @@ const Chores = (() => {
   /* An errand crosses the house, but not the whole of it: the far end
      is another room within a short walk, not the other wing. */
   const ERRAND = 24;
-  function carry(rng, player, id, avoid) {
-    const pool = shuffle(rng, poolFor(player).filter(s => !avoid.has(s.id)));
+  function carry(rng, player, id, avoid, opts = {}) {
+    const pool = shuffle(rng, poolFor(player, opts).filter(s => !avoid.has(s.id)));
     const from = pool[0];
     const to = pool.find(s => s.room !== from.room && Math.hypot(s.x - from.x, s.z - from.z) <= ERRAND)
       || pool.find(s => s.room !== from.room) || pool[1];
@@ -244,10 +308,19 @@ const Chores = (() => {
      because it is drawn exactly like anybody's. */
   function deal(rng, player, others, opts = {}) {
     const n = opts.count || 4;
-    const picked = pickStations(rng, player, n, new Set(), true);
+    let picked;
+    if (opts.wing) {
+      // half of the list in today's wing, and the rest of the round from there
+      const half = Math.ceil(n / 2);
+      const inWing = pickStations(rng, player, half, new Set(), false, null,
+                                  Object.assign({}, opts, { only: (st) => wingOf(st.room) === opts.wing }));
+      const rest = pickStations(rng, player, n - inWing.length, new Set(inWing.map(st => st.id)), true,
+                                inWing[inWing.length - 1] || null, opts);
+      picked = inWing.concat(rest);
+    } else picked = pickStations(rng, player, n, new Set(), true, null, opts);
     const list = picked.map((s, i) => ({ id: 'c' + i, kind: 'station', station: s.id, type: s.type,
                                          seed: rng.int(1, 0x7ffffff), done: false }));
-    list.splice(rng.int(1, list.length), 0, carry(rng, player, 'c' + list.length, new Set(picked.map(s => s.id))));
+    list.splice(rng.int(1, list.length), 0, carry(rng, player, 'c' + list.length, new Set(picked.map(s => s.id)), opts));
     if (others.length && rng() < (opts.letterChance === undefined ? 0.55 : opts.letterChance)) {
       const to = others[rng.int(0, others.length - 1)];
       list.splice(rng.int(1, list.length), 0, { id: 'c' + list.length, kind: 'letter', target: to.id, done: false });
@@ -257,14 +330,15 @@ const Chores = (() => {
 
   /* A finished list gets more. Nobody stands about with nothing to do,
      and nobody can say they had nothing to do. */
-  function more(rng, player, list) {
+  function more(rng, player, list, opts = {}) {
     const recent = new Set(list.slice(-4).map(j => j.station || j.to).filter(Boolean));
     // carry on from wherever the last job left them
     const last = list.slice().reverse().map(placeOf).find(Boolean);
-    const picked = pickStations(rng, player, 2, recent, false, last ? station(last) : null);
+    const o = { wings: opts.wings || null };
+    const picked = pickStations(rng, player, 2, recent, false, last ? station(last) : null, o);
     const out = picked.map((s, i) => ({ id: 'c' + (list.length + i), kind: 'station', station: s.id, type: s.type,
                                          seed: rng.int(1, 0x7ffffff), done: false }));
-    out.push(carry(rng, player, 'c' + (list.length + out.length), new Set(picked.map(s => s.id))));
+    out.push(carry(rng, player, 'c' + (list.length + out.length), new Set(picked.map(s => s.id)), o));
     return out;
   }
 
@@ -284,5 +358,6 @@ const Chores = (() => {
     return (TYPES[task.type] || {}).title + (s ? ' — ' + s.label : '');
   }
 
-  return { VALUE, HOLD, REACH, TYPES, ITEMS, STATIONS, ROOM_NAMES, roomName, station, deal, more, placeOf, describe };
+  return { VALUE, HOLD, REACH, TYPES, ITEMS, STATIONS, ROOM_NAMES, roomName, station, deal, more, placeOf, describe,
+           dayPlan, wingOf, WING_NAMES };
 })();

@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a1119'/%3E%3Cpath d='M5 21h22l-3 5H8z' fill='%23d81e40'/%3E%3Cpath d='M11 20V9l11 11z' fill='%23f2c14e'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Caveat:wght@700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Caveat:wght@700&family=Cinzel:wght@700;800&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/boat.css">
 </head>
@@ -22,6 +22,7 @@
 <div id="world-labels"></div>
 <div id="drama-vignette"></div>
 <div id="screen-flash"></div>
+<div id="interlude" aria-hidden="true"></div>
 <div id="fade"></div>
 
 <!-- ============ CINEMATIC OVERLAY ============
@@ -125,7 +126,7 @@
         <span class="pot-value" id="play-pot">£0</span>
       </div>
       <button class="chip" id="play-mute" data-nav>Sound</button>
-      <button class="chip" id="play-music" data-nav title="Music under the voices (M)">Music normal</button>
+      <button class="chip" id="play-music" data-kbd="M" data-nav title="Music under the voices (M)">Music normal</button>
       <button class="chip" id="play-howto" data-nav title="Replay every tutorial from the start">How to play</button>
       <label class="chip estate-setting"><input id="estate-motion" type="checkbox"> Reduced motion</label>
       <label class="chip estate-setting">Scenery <select id="estate-quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
@@ -182,39 +183,91 @@
         <div class="lr-hub">
           <div class="lr-code-label">Room code</div>
           <div class="lr-code" id="lobby-code">····</div>
-          <div class="lr-code-hint">read it out</div>
+          <div class="lr-code-hint">read it out, or</div>
+          <button type="button" class="lr-copy" id="lobby-copy" data-nav>Copy invite link</button>
         </div>
         <div class="lobby-roster" id="lobby-roster"></div>
       </div>
       <div class="lr-status" id="lobby-status">Waiting for players… 1/8</div>
       <!-- Everybody's own, and only the host hears it: it leans the deal,
            never decides it. -->
-      <label class="lr-task lr-want" for="lobby-want">
-        <span><b>Want to be a Traitor?</b><small>leans the draw, never decides it</small></span>
-        <input type="range" id="lobby-want" min="-2" max="2" step="1" value="0" data-nav>
-        <output id="lobby-want-out">Don't mind</output>
+      <label class="lr-row lr-want" for="lobby-want">
+        <span class="lr-label"><b>Want to be a Traitor?</b><small>Leans the draw, never decides it. Only the host's machine hears it.</small></span>
+        <span class="lr-control">
+          <input type="range" id="lobby-want" min="-2" max="2" step="1" value="0" data-nav>
+          <output id="lobby-want-out">Don't mind</output>
+        </span>
       </label>
+      <!-- The night's rules, as everybody will play them. The host's
+           copy is the one that counts; guests see a read-only summary. -->
+      <div class="lr-rules" id="lobby-rules" aria-live="polite"></div>
       <div class="lr-opts" id="lobby-opts" hidden>
-        <div class="lr-task lr-cast">
-          <span><b>Traitors</b><small>how many are dealt</small></span>
-          <div class="lr-cast-chips" id="lobby-cast" role="group" aria-label="Traitors dealt">
-            <button class="chip" data-cast="auto" data-nav>Auto</button>
-            <button class="chip" data-cast="1" data-nav>1</button>
-            <button class="chip" data-cast="2" data-nav>2</button>
-            <button class="chip" data-cast="random" data-nav>1 or 2</button>
+        <div class="lr-opts-head">
+          <b>House rules</b>
+          <div class="lr-tabs" id="lobby-tabs" role="tablist" aria-label="Settings">
+            <button type="button" class="lr-tab on" role="tab" data-tab="cast" aria-selected="true" data-nav>Cast</button>
+            <button type="button" class="lr-tab" role="tab" data-tab="rules" aria-selected="false" data-nav>Rules</button>
+            <button type="button" class="lr-tab" role="tab" data-tab="ai" aria-selected="false" data-nav>AI players</button>
           </div>
         </div>
-        <label class="lr-task lr-want" for="lobby-none">
-          <span><b>Chance of none</b><small>a night with no Traitor at all</small></span>
-          <input type="range" id="lobby-none" min="0" max="50" step="5" value="0" data-nav>
-          <output id="lobby-none-out">Off</output>
-        </label>
-        <label class="lr-task" for="lobby-task">
-          <span><b>Jobs time</b><small>how long the day in the castle lasts</small></span>
-          <input type="range" id="lobby-task" min="30" max="180" step="15" value="180" data-nav>
-          <output id="lobby-task-out">3:00</output>
-        </label>
-        <div class="lr-ai" id="lobby-ai"></div>
+        <section class="lr-pane" data-pane="cast" role="tabpanel">
+          <div class="lr-row">
+            <span class="lr-label"><b>Traitors</b><small>How many are dealt</small></span>
+            <div class="lr-control lr-cast-chips" id="lobby-cast" role="group" aria-label="Traitors dealt">
+              <button type="button" class="chip" data-cast="auto" data-nav>Auto</button>
+              <button type="button" class="chip" data-cast="1" data-nav>1</button>
+              <button type="button" class="chip" data-cast="2" data-nav>2</button>
+              <button type="button" class="chip" data-cast="random" data-nav>1 or 2</button>
+            </div>
+          </div>
+          <label class="lr-row" for="lobby-none">
+            <span class="lr-label"><b>Chance of none</b><small>A night with no Traitor at all</small></span>
+            <span class="lr-control">
+              <input type="range" id="lobby-none" min="0" max="50" step="5" value="0" data-nav>
+              <output id="lobby-none-out">Off</output>
+            </span>
+          </label>
+        </section>
+        <section class="lr-pane" data-pane="rules" role="tabpanel" hidden>
+          <label class="lr-row" for="lobby-task">
+            <span class="lr-label"><b>Jobs time</b><small>How long the day in the castle lasts</small></span>
+            <span class="lr-control">
+              <input type="range" id="lobby-task" min="30" max="180" step="15" value="180" data-nav>
+              <output id="lobby-task-out">3:00</output>
+            </span>
+          </label>
+          <label class="lr-row" for="lobby-table">
+            <span class="lr-label"><b>Table talk</b><small>How long the round table argues before the vote</small></span>
+            <span class="lr-control">
+              <input type="range" id="lobby-table" min="0" max="300" step="30" value="0" data-nav>
+              <output id="lobby-table-out">Auto</output>
+            </span>
+          </label>
+          <label class="lr-row lr-toggle" for="lobby-twists">
+            <span class="lr-label"><b>Twists</b><small id="lobby-twists-note">Some days, Claudia changes one rule</small></span>
+            <span class="lr-control">
+              <input type="checkbox" id="lobby-twists" checked data-nav><i class="lr-switch" aria-hidden="true"></i>
+              <output id="lobby-twists-out">On</output>
+            </span>
+          </label>
+          <label class="lr-row lr-toggle" for="lobby-early">
+            <span class="lr-label"><b>Twists from day 1</b><small>A twist may come on the very first day, not only from the second</small></span>
+            <span class="lr-control">
+              <input type="checkbox" id="lobby-early" data-nav><i class="lr-switch" aria-hidden="true"></i>
+              <output id="lobby-early-out">Off</output>
+            </span>
+          </label>
+          <label class="lr-row lr-toggle" for="lobby-hidden">
+            <span class="lr-label"><b>Hidden roles</b><small>The banished leave without saying Traitor or Faithful. All is told at the end.</small></span>
+            <span class="lr-control">
+              <input type="checkbox" id="lobby-hidden" data-nav><i class="lr-switch" aria-hidden="true"></i>
+              <output id="lobby-hidden-out">Off</output>
+            </span>
+          </label>
+        </section>
+        <section class="lr-pane" data-pane="ai" role="tabpanel" hidden>
+          <div class="lr-ai" id="lobby-ai"></div>
+        </section>
       </div>
       <div class="lr-actions">
         <button class="btn ghost" id="lobby-leave" data-nav>Leave</button>
@@ -225,7 +278,7 @@
     <div class="lobby-msg" id="lobby-msg"></div>
 
     <footer class="lobby-foot">
-      <button class="btn ghost" id="lobby-back" data-back data-nav>Back</button>
+      <button class="btn ghost" id="lobby-back" data-kbd="Esc" data-back data-nav>Back</button>
       <span class="lobby-hint">No login. No account. Just a name and four letters.</span>
     </footer>
   </div>
@@ -251,7 +304,7 @@
 
     <div class="dress-actions">
       <button class="btn ghost" id="dress-random" data-nav>Surprise me</button>
-      <button class="btn ghost" id="dress-back" data-back data-nav>Back</button>
+      <button class="btn ghost" id="dress-back" data-kbd="Esc" data-back data-nav>Back</button>
       <button class="btn primary" id="dress-save" data-nav>Save</button>
     </div>
   </div>
@@ -269,7 +322,7 @@
   </div>
 </section>
 
-<button id="mute-btn" title="Mute (M)" aria-label="Mute" hidden>
+<button id="mute-btn" data-kbd="M" title="Mute (M)" aria-label="Mute" hidden>
   <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
     <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/>
     <path class="wave" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"
@@ -283,7 +336,7 @@
   <div class="move-zone"><div class="move-ring"></div><div class="move-knob"></div></div>
 </div>
 
-<div class="stage-hint" id="stage-hint">Click to look <i>·</i> WASD to move <i>·</i> Tab frees the mouse</div>
+<div class="stage-hint" id="stage-hint">Click to look <i>·</i> WASD to move <i>·</i> Tab for a cursor</div>
 
 <!-- ============ VERDICT ============ -->
 <section class="screen verdict" data-screen="verdict">
@@ -308,7 +361,7 @@
     </div>
 
     <div class="verdict-actions">
-      <button class="btn ghost" id="verdict-menu" data-back data-nav>Main menu</button>
+      <button class="btn ghost" id="verdict-menu" data-kbd="Esc" data-back data-nav>Main menu</button>
       <button class="btn primary" id="verdict-again" data-nav>Another night</button>
     </div>
   </div>
@@ -322,7 +375,7 @@
   <div class="fb-clock" id="floor-clock">0:30</div>
   <div class="fb-track"><div class="fb-fill" id="floor-fill"></div></div>
   <div class="fb-mic" id="floor-mic" hidden>mic off</div>
-  <button class="fb-done" id="floor-done" data-nav hidden>I've said enough</button>
+  <button class="fb-done" id="floor-done" data-kbd="Enter" title="Done talking (Enter)" data-nav hidden>I've said enough</button>
 </div>
 
 <!-- Whoever you can hear right now, so a voice always has a name. -->
@@ -331,7 +384,7 @@
 <!-- Your own microphone, which is a different thing from game sound and
      therefore a different button. Present whenever there is somebody to
      talk to; V on a keyboard, Y/triangle on a pad. -->
-<button id="mic-btn" title="Mute microphone (V)" aria-label="Mute microphone" hidden>
+<button id="mic-btn" data-kbd="V" title="Mute microphone (V)" aria-label="Mute microphone" hidden>
   <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
     <path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z" fill="currentColor"/>
     <path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor"
@@ -341,19 +394,13 @@
   </svg>
 </button>
 
-<!-- The Traitors' whisper: hold it and only the other Traitors hear you,
-     wherever they are. Shown to a living Traitor alone; G on a keyboard. -->
-<button id="whisper-btn" title="Hold to whisper to the Traitors (G)" aria-label="Hold to whisper to the Traitors" hidden>
-  <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-    <path d="M4 5h16v10H9l-5 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-    <path d="M8.5 10h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-  </svg>
-  <span>Traitors</span>
-</button>
+<!-- The Traitors' chat: written, and read by the living Traitors alone.
+     Shown to a living Traitor; R on a keyboard (see traitor-chat.js). -->
+<button id="tchat-btn" type="button" hidden></button>
 
 <!-- The band, separately from the voices: normal, quiet, off. M on a
      keyboard. -->
-<button id="music-btn" title="Music: normal (M)" aria-label="Music: normal (M)" data-level="normal">
+<button id="music-btn" data-kbd="M" title="Music: normal (M)" aria-label="Music: normal (M)" data-level="normal">
   <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
     <path d="M9 17V5l10-2v12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
     <circle cx="6.5" cy="17" r="2.5" fill="currentColor"/>
@@ -404,7 +451,7 @@
     <div class="tut-actions">
       <button class="tut-skip" type="button">Skip</button>
       <button class="tut-off" type="button" hidden>Turn tutorials off</button>
-      <button class="btn primary tut-next" type="button">Next</button>
+      <button class="btn primary tut-next" data-kbd="Enter" type="button">Next</button>
     </div>
     <div class="tut-foot"></div>
     <div class="tut-check" aria-hidden="true">
@@ -451,6 +498,7 @@
 <script src="js/core/music.js"></script>
 <script src="js/core/state.js"></script>
 <script src="js/core/screens.js"></script>
+<script src="js/core/interlude.js"></script>
 <script src="js/core/tutorial-steps.js"></script>
 <script src="js/core/tutorial.js"></script>
 <script src="js/core/voice.js"></script>
@@ -458,6 +506,7 @@
 <script src="js/core/look.js"></script>
 <script src="js/core/party.js"></script>
 <script src="js/core/chores.js"></script>
+<script src="js/core/twists.js"></script>
 <script src="js/core/session.js"></script>
 <script src="js/core/net.js"></script>
 <script src="js/core/transports.js"></script>
@@ -467,6 +516,9 @@
 <script src="js/core/bots.js"></script>
 <script src="js/core/roomui.js"></script>
 <script src="js/core/slate.js"></script>
+<script src="js/core/ghost.js"></script>
+<script src="js/core/notebook.js"></script>
+<script src="js/core/traitor-chat.js"></script>
 <script src="js/core/moderator.js"></script>
 <script src="js/core/ai.js"></script>
 <script src="js/core/ai-players.js"></script>
@@ -475,6 +527,7 @@
 <script src="js/world/sky.js"></script>
 <script src="js/world/water.js"></script>
 <script src="js/world/conditions.js"></script>
+<script src="js/world/weather.js"></script>
 <script src="js/world/forest.js"></script>
 <script src="js/world/estate-layout.js"></script>
 <script src="js/world/estate-materials.js"></script>
@@ -501,6 +554,7 @@
 <script src="js/scenes/reveal.js"></script>
 <script src="js/scenes/hill.js"></script>
 <script src="js/scenes/castle-scene.js"></script>
+<script src="js/scenes/tie-draw.js"></script>
 <script src="js/scenes/fireplace.js"></script>
 <script src="js/scenes/exposed.js"></script>
 <script src="js/scenes/roundtable.js"></script>

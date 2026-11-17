@@ -99,4 +99,43 @@ test('conversation does not bypass witnesses or Claudia’s speech guard', () =>
   eq(quiet.bot.social, null);
 });
 
+test('walking up alone to an AI enters a 1-1 convo, holds the bot facing you, and resumes jobs when you leave', () => {
+  const W = world();
+  const b = W.bot;
+  b.plan = { kind: 'station', sx: -16, sz: 10, work: 100, job: 'unfinished', arrived: false };
+  // Ana walks right up to Morag in the hall with nobody else in the room
+  W.ctx.CastleNet.publish('ana', 1.8, 10, 0);
+  W.step(1.2);
+  eq(W.talks.length, 1, 'starts 1-1 encounter once paused together alone');
+  eq(W.ctx.CastleBots.company(b.id).kind, 'convo', 'bot enters convo mode');
+  eq(W.ctx.CastleBots.company(b.id).with, 'ana');
+  W.talks[0].onSpoken();
+  // Extending conversation keeps the bot from walking off to its job
+  W.ctx.CastleBots.engage(b.id, 'ana', 20);
+  W.step(5);
+  eq(W.ctx.CastleBots.company(b.id).kind, 'convo', 'stays in 1-1 convo instead of walking away');
+  ok(Math.sin(b.h) > 0.8, 'faces Ana during the 1-1 convo');
+  // Walking away ends the 1-1 convo and returns to the unfinished job
+  W.ctx.CastleNet.publish('ana', 10, 10, 0);
+  W.step(0.2);
+  eq(W.ctx.CastleBots.company(b.id), null, 'walking away ends 1-1 convo');
+  eq(b.plan.job, 'unfinished', 'unfinished job preserved');
+});
+
+test('a fellow Traitor poison order makes the carrier chase that target immediately without waiting for stalkAfter', () => {
+  const W = world(true);
+  const b = W.bot;
+  b.stalkAfter = 999; // would normally keep doing tasks for a long time
+  b.repick = 10;
+  W.ctx.AIDirector.order = () => ({ target: 'ana', by: 'morag', day: 0, how: 'poison', at: W.ctx.Date.now() });
+  W.ctx.CastleNet.publish('ana', 5, 10, 0);
+  W.step(0.5);
+  ok(b.plan && b.plan.kind === 'poison' && b.plan.target === 'ana', 'immediately starts stalking ordered victim');
+  W.step(4);
+  eq(W.talks.length, 1, 'closes distance and engages target in conversation');
+  W.talks[0].onSpoken();
+  W.step(6);
+  eq(W.actions.filter(a => a.type === 'poison' && a.targetId === 'ana').length, 1, 'delivers the poison to the ordered target');
+});
+
 H.report();

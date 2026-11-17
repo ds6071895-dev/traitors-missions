@@ -280,6 +280,7 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
             /* The tail of a turn that was cut short: its audio was dropped,
                and it must not report "done" for whatever is asked next. */
             if (agent.hushed) { agent.audioDone = false; agent.speaking = false; settle(s, agent); break; }
+            agent.muted = false;
             agent.audioDone = true; flushDone(s, agent); break;
           case 'FunctionCallRequest':
             say(s, { op: 'tool', id, calls: (m.functions || []).slice(0, 4).map(f => ({
@@ -326,7 +327,7 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
      microphone would send them — through the same router as everybody's
      voice. */
   function audioIn(s, agent, data) {
-    if (agent.hushed) return;
+    if (agent.hushed || agent.muted) return;
     agent.pending = Buffer.concat([agent.pending, data]);
     while (agent.pending.length >= FRAME) {
       agent.queue.push(agent.pending.subarray(0, FRAME));
@@ -353,15 +354,19 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
     say(s, { op: 'done', id: agent.id });
   }
 
-  function send(s, msg, build, turn) {
+  /* `muted`: a turn whose words are wanted and whose voice is not (a
+     reply written in the Traitors' chat). Its audio is dropped as it
+     arrives, so nobody anywhere hears it, and it is done as soon as
+     Deepgram is. */
+  function send(s, msg, build, turn, muted = false) {
     const agent = s.agents.get(str(msg.id, 36));
     if (!agent || !agent.ws) return;
     const payload = JSON.stringify(build(agent));
     /* A turn asked for while the last one is still being thrown away
        waits for it to end, or the two would be spoken together. Only
        the newest waiting turn is kept: it is the one that is current. */
-    if (turn && agent.hushed) { agent.deferred = payload; return; }
-    if (turn) { agent.inflight = true; agent.refusals = 0; agent.lastInject = payload; }
+    if (turn && agent.hushed) { agent.deferred = payload; agent.deferredMuted = !!muted; return; }
+    if (turn) { agent.inflight = true; agent.refusals = 0; agent.lastInject = payload; agent.muted = !!muted; }
     if (agent.ready && agent.ws.readyState === 1) agent.ws.send(payload);
     else agent.outbox.push(payload);
   }
@@ -373,6 +378,8 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
     agent.hushed = false;
     const next = agent.deferred;
     agent.deferred = null;
+    agent.muted = !!(next && agent.deferredMuted);
+    agent.deferredMuted = false;
     if (next && agent.ws && agent.ws.readyState === 1) {
       agent.inflight = true; agent.refusals = 0; agent.lastInject = next;
       agent.ws.send(next);
@@ -716,7 +723,7 @@ function createAIBridge({ relayAudio, toHost, toMember = () => {}, audioTo = () 
         send(s, msg, () => ({ type: 'InjectAgentMessage', message: str(msg.text, 1200),
                               ...(msg.queue === false ? {} : { behavior: 'queue' }) }), true); break;
       case 'ask':
-        send(s, msg, () => ({ type: 'InjectUserMessage', content: str(msg.text, 8000) }), true); break;
+        send(s, msg, () => ({ type: 'InjectUserMessage', content: str(msg.text, 8000) }), true, msg.muted === true); break;
       case 'tool': send(s, msg, () => ({ type: 'FunctionCallResponse', id: str(msg.callId, 80),
                                            name: str(msg.name, 64), content: str(msg.content, 2000) })); break;
       case 'hush': hush(s, msg); break;

@@ -66,7 +66,7 @@ const Nametag = (() => {
      rim and three bars after the name, because a voice with no face
      moving is otherwise anybody's. */
   const BARS_W = 46;
-  function texture(name, accent, lit) {
+  function texture(name, accent, lit, traitor) {
     const font = '800 ' + FONT_PX + 'px Inter, system-ui, -apple-system, sans-serif';
     const probe = document.createElement('canvas').getContext('2d');
     probe.font = font;
@@ -81,10 +81,11 @@ const Nametag = (() => {
     const inset = 4;
     roundRect(g, inset, inset, w - inset * 2, CANVAS_H - inset * 2,
               (CANVAS_H - inset * 2) / 2);
-    g.fillStyle = lit ? 'rgba(8,12,18,0.86)' : 'rgba(8,12,18,0.62)';
+    g.fillStyle = traitor ? (lit ? 'rgba(70,6,16,0.9)' : 'rgba(60,6,14,0.72)')
+                : lit ? 'rgba(8,12,18,0.86)' : 'rgba(8,12,18,0.62)';
     g.fill();
-    g.strokeStyle = accent;
-    g.globalAlpha = lit ? 1 : 0.55;
+    g.strokeStyle = traitor ? '#ff4d6a' : accent;
+    g.globalAlpha = lit || traitor ? 1 : 0.55;
     g.lineWidth = lit ? 7 : 3;
     g.stroke();
     g.globalAlpha = 1;
@@ -109,7 +110,7 @@ const Nametag = (() => {
     g.textBaseline = 'middle';
     g.shadowColor = 'rgba(0,0,0,0.75)';
     g.shadowBlur = 6;
-    g.fillStyle = '#eef4fb';
+    g.fillStyle = traitor ? '#ffc2cc' : '#eef4fb';
     g.fillText(name, PAD_X + DOT_R * 2 + GAP, CANVAS_H / 2 + 2);
 
     const t = new THREE.CanvasTexture(c);
@@ -122,8 +123,11 @@ const Nametag = (() => {
      `far` is where it has gone. A mission that names neither gets the
      numbers a clearing wants. */
   function make(name, opts = {}) {
-    const { map, aspect } = texture(clip(name), opts.accent || '#f2c14e');
-    const lit = texture(clip(name), opts.accent || '#f2c14e', true);
+    /* A fellow Traitor, on a Traitor's own screen only: crimson, and
+       the word after the name, so who is on your side is never a guess. */
+    const label = opts.traitor ? clip(name) + ' · TRAITOR' : clip(name);
+    const { map, aspect } = texture(label, opts.accent || '#f2c14e', false, !!opts.traitor);
+    const lit = texture(label, opts.accent || '#f2c14e', true, !!opts.traitor);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
       map, transparent: true, depthTest: false, depthWrite: false,
       sizeAttenuation: false,

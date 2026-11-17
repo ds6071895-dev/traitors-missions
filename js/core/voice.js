@@ -234,8 +234,27 @@ const Voice = (() => {
     Party.claudia({ op: 'prefetch', text: body });
   }
 
-  /* Always resolves, exactly once, whatever the browser does. */
+  /* Claudia does not talk over an AI that is mid-sentence: she waits
+     for it to finish (a few seconds at most), then speaks. Until then
+     the AIs treat her as already speaking, so nobody new starts. */
+  const WAIT_FOR_AI_MS = 5000;
+  let waitingForAI = 0;
   function say(text, opts = {}) {
+    const claudiaLine = opts.speaker === undefined || opts.speaker === 'Claudia';
+    if (claudiaLine && !opts._waited && typeof AIDirector !== 'undefined' && AIDirector.botTalking && AIDirector.botTalking()) {
+      const mine = ++token;
+      waitingForAI++;
+      return new Promise((resolve) => {
+        const t0 = Date.now();
+        const look = () => {
+          if (mine !== token) { waitingForAI--; resolve(); return; }      // something newer took the voice
+          if (Date.now() - t0 < WAIT_FOR_AI_MS && AIDirector.botTalking()) { setTimeout(look, 100); return; }
+          waitingForAI--;
+          say(text, Object.assign({}, opts, { _waited: true })).then(resolve);
+        };
+        setTimeout(look, 100);
+      });
+    }
     const t = ++token;
     if (live) { const l = live; live = null; if (l.timer) clearTimeout(l.timer); l.resolve(); }
     if (remotePlaying) hushRemote();
@@ -408,14 +427,45 @@ const Voice = (() => {
     window.addEventListener('pagehide', stop);
   }
 
-  // Safari will not speak until it has seen a gesture; this is the same
-  // one-shot unlock AudioBus uses
+  /* Safari will not speak until it has seen a gesture, so the first
+     touch speaks one silent space. Once a page, not once a button: on
+     an iPad starting the speech engine takes the audio away from Web Audio, and the context stops — the
+     whole band and every sound effect with it. Doing it on PLAY, with
+     the overture already going, is what silenced the front door. So it
+     happens at the first gesture, before the band has started, and the
+     context is asked to start again as soon as the speech engine lets
+     go. Only a refusal (no gesture counted yet) lets it try again.
+
+     Only WebKit asks for this: Chrome, Edge and Firefox let a page
+     speak once it has had any gesture at all, so on them the silent
+     space is all risk and no use. Every browser on an iPhone or iPad
+     is WebKit underneath. */
+  const WEBKIT = (() => {
+    try {
+      const n = navigator, ua = n.userAgent || '';
+      const ios = /iPad|iPhone|iPod/.test(ua) || (n.platform === 'MacIntel' && n.maxTouchPoints > 1);
+      return ios || (/Safari\//.test(ua) && !/Chrome|Chromium|Edg\/|OPR\/|Firefox|Android/.test(ua));
+    } catch (e) { return false; }
+  })();
+  let unlocked = false, unlockU = null;
   function unlock() {
-    if (!supported) return;
+    if (!supported || unlocked || !WEBKIT) return;
+    unlocked = true;
+    const wake = () => {
+      if (typeof AudioBus === 'undefined' || !AudioBus.resume) return;
+      AudioBus.resume();
+      setTimeout(() => AudioBus.resume(), 250);
+      setTimeout(() => AudioBus.resume(), 1200);
+    };
     try {
       const u = new SpeechSynthesisUtterance(' ');
-      u.volume = 0; synth.speak(u);
-    } catch (e) {}
+      u.volume = 0;
+      u.onend = wake;
+      u.onerror = (e) => { if (e && e.error === 'not-allowed') unlocked = false; wake(); };
+      unlockU = u;               // Chrome drops the events of an utterance nothing holds
+      synth.speak(u);
+    } catch (e) { unlocked = false; }
+    wake();
   }
 
   return { init, unlock, say, prefetch, stop, clear, show, list, setVoice, setMuted, refresh, setRemote, setHostSpeaking,
@@ -426,7 +476,9 @@ const Voice = (() => {
               time, and that is the thing anybody outside here wants to
               know. Used as a liveness signal: a room that is still
               talking is a room whose ceremony has not stalled. */
-           get speaking() { return !!live || hostSpeaking; },
+           get speaking() { return !!live || hostSpeaking || waitingForAI > 0; },
+           // she has a line to say and is letting an AI finish first
+           get waitingForAI() { return waitingForAI > 0; },
            // one of her scripted lines is being read right now (not the live AI Claudia)
            get reading() { return !!(live && live.claudia); },
            /* Milliseconds since a line last finished, for anybody who needs

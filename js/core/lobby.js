@@ -23,6 +23,8 @@ const Lobby = (() => {
   let publishedAI = null;          // last room/roster/AI snapshot sent
   let wants = {};                  // host only: each guest's want, by player id
   let sentWant = null;             // guest only: the last want told to the host
+  let sharedRules = null;          // guest only: the host's house rules, as words
+  let tab = 'cast';                // host only: which settings pane is open
 
   /* ---------------- the code control ----------------
      `Party.normaliseCode` is the whole of it: it upper-cases, drops
@@ -56,7 +58,7 @@ const Lobby = (() => {
 
   function paint() {
     const inRoom = Party.connected;
-    if (!inRoom) { sharedAI = []; publishedAI = null; wants = {}; sentWant = null; }
+    if (!inRoom) { sharedAI = []; publishedAI = null; wants = {}; sentWant = null; sharedRules = null; }
     for (const id of ['lobby-host', 'lobby-join']) {
       const button = el(id);
       if (button) button.disabled = !!Party.connecting;
@@ -113,6 +115,8 @@ const Lobby = (() => {
       paintTask();
       paintCast();
       paintWant();
+      paintTabs(ai.length);
+      paintRules();
       tellWant();
     }
 
@@ -137,10 +141,11 @@ const Lobby = (() => {
   function publishAI(humans, ai) {
     // Share display data only, never the host's key or agent configuration.
     const seats = ai.map(b => ({ id: b.id, name: b.name, ready: !!b.ready, status: b.status }));
-    const snapshot = JSON.stringify([Party.code, humans.map(p => p.id), seats]);
+    const rules = rulesList();
+    const snapshot = JSON.stringify([Party.code, humans.map(p => p.id), seats, rules]);
     if (snapshot === publishedAI) return;
     publishedAI = snapshot;
-    Party.post('lobby', { seats });
+    Party.post('lobby', { seats, rules });
   }
 
   function emptySeats(n) {
@@ -227,13 +232,17 @@ const Lobby = (() => {
       .concat(ai.map(b => ({ id: b.id, name: b.name, look: b.look, bot: true, voice: b.voice })));
     const aiOn = { claudia: !!(typeof AIPlayers !== 'undefined' && AIPlayers.claudia) };
     const taskSeconds = taskTime();
+    const tableTalk = tableTime();
+    const twistsEarly = twistsOn() && earlyOn();
     const cast = castChoice();
+    const twists = twistsOn();
+    const hideRoles = hiddenOn();
     // the wants stay on this machine: the deal is drawn here and nowhere else
     const said = Object.assign({}, wants, { [Party.selfId()]: myWant() });
     const dealWants = {};
     for (const p of list) if (Object.hasOwn(said, p.id)) dealWants[p.id] = said[p.id];
-    Party.post('go', { seed, players, ai: aiOn, taskSeconds, cast });
-    launch(seed, players, aiOn, taskSeconds, cast, dealWants);
+    Party.post('go', { seed, players, ai: aiOn, taskSeconds, tableTalk, twistsEarly, cast, twists, hideRoles });
+    launch(seed, players, aiOn, taskSeconds, cast, dealWants, twists, hideRoles, { tableTalk, twistsEarly });
   }
 
   /* How long the day in the castle lasts: the host's to set, never under
@@ -242,14 +251,91 @@ const Lobby = (() => {
     const n = Math.round(Number(GameState.settings.taskSeconds));
     return Number.isFinite(n) ? Math.max(Session.TASK_MIN, Math.min(Session.TASK_SECONDS, n)) : Session.TASK_SECONDS;
   }
+  /* How long the round table talks: 0 is Auto (it grows with the
+     table), anything else is the host's own clock, 0:30 to 5:00. */
+  function tableTime() {
+    const n = Math.round(Number(GameState.settings.tableTalk));
+    return Number.isFinite(n) && n > 0 ? Math.max(Session.TABLE_MIN || 30, Math.min(Session.TABLE_MAX || 300, n)) : 0;
+  }
+  const clock = (t) => Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+  // whether a day may change the rules: on unless the host turned it off
+  const twistsOn = () => GameState.settings.twists !== false;
+  // whether a twist may land on the first day: off unless the host turned it on
+  const earlyOn = () => GameState.settings.twistsEarly === true;
+  // whether the banished keep their role to themselves: off unless the host turned it on
+  const hiddenOn = () => GameState.settings.hideRoles === true;
+  function paintTwists() {
+    const box = el('lobby-twists'), out = el('lobby-twists-out');
+    if (box) box.checked = twistsOn();
+    if (out) out.textContent = twistsOn() ? 'On' : 'Off';
+    const early = el('lobby-early'), eout = el('lobby-early-out');
+    if (early) { early.checked = earlyOn(); early.disabled = !twistsOn(); }
+    if (eout) eout.textContent = twistsOn() && earlyOn() ? 'On' : 'Off';
+    const hid = el('lobby-hidden'), hout = el('lobby-hidden-out');
+    if (hid) hid.checked = hiddenOn();
+    if (hout) hout.textContent = hiddenOn() ? 'On' : 'Off';
+    /* Hidden roles already does what the veiled twist does, every day:
+       the deck leaves that one out, and the line under Twists says so. */
+    const note = el('lobby-twists-note');
+    if (note) note.textContent = !twistsOn() ? 'Every day plays by the same rules'
+      : hiddenOn() ? 'Some days, Claudia changes one rule (not Veiled: roles are hidden already)'
+      : 'Some days, Claudia changes one rule';
+  }
+
+  /* The settings, in three panes: who is dealt, how the night plays,
+     and the AI seats. Only one is open at a time, so the room stays a
+     room and not a form. */
+  function paintTabs(aiCount) {
+    document.querySelectorAll('#lobby-tabs [data-tab]').forEach(b => {
+      const on = b.dataset.tab === tab;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      if (b.dataset.tab === 'ai') b.dataset.count = aiCount ? String(aiCount) : '';
+    });
+    document.querySelectorAll('#lobby-opts [data-pane]').forEach(p => { p.hidden = p.dataset.pane !== tab; });
+  }
+
+  /* The night's rules in a few words each, for the line everybody can
+     read: the host builds it from its settings and sends it with the
+     seats; a guest shows what it was sent. */
+  function rulesList() {
+    const c = castChoice();
+    const t = taskTime();
+    const count = { auto: 'Auto', 1: '1', 2: '2', random: '1 or 2' }[c.count] || 'Auto';
+    return [
+      { k: 'Traitors', v: count + (c.none ? ' · ' + Math.round(c.none * 100) + '% none' : '') },
+      { k: 'Jobs', v: clock(t) },
+      { k: 'Table', v: tableTime() ? clock(tableTime()) : 'Auto' },
+      { k: 'Twists', v: !twistsOn() ? 'Off' : earlyOn() ? 'From day 1' : 'On' },
+      { k: 'Roles', v: hiddenOn() ? 'Hidden' : 'Revealed', hot: hiddenOn() },
+    ];
+  }
+  function paintRules() {
+    const box = el('lobby-rules');
+    if (!box) return;
+    const list = Party.isHost ? rulesList() : sharedRules;
+    box.hidden = !list || !list.length;
+    if (box.hidden) return;
+    box.innerHTML = '<span class="lr-rules-k">' + (Party.isHost ? 'Tonight' : 'Host\u2019s rules') + '</span>'
+      + list.map(r => '<span class="lr-rule' + (r.hot ? ' hot' : '') + '"><small>' + escape(r.k) + '</small>'
+        + escape(r.v) + '</span>').join('');
+  }
+
   function paintTask() {
+    paintTwists();
     const r = el('lobby-task'), out = el('lobby-task-out');
     if (!r || !out) return;
     const n = taskTime();
     r.min = String(Session.TASK_MIN);
     r.max = String(Session.TASK_SECONDS);
     if (document.activeElement !== r) r.value = String(n);
-    out.textContent = Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0');
+    out.textContent = clock(n);
+    const tr = el('lobby-table'), tout = el('lobby-table-out');
+    if (tr && tout) {
+      const k = tableTime();
+      if (document.activeElement !== tr) tr.value = String(k);
+      tout.textContent = k ? clock(k) : 'Auto';
+    }
   }
 
   /* How many Traitors, and the chance of none: the host's to set and
@@ -298,7 +384,7 @@ const Lobby = (() => {
     Party.post('lobby', { want: myWant() }, Party.hostId);
   }
 
-  function launch(seed, players, aiOn, taskSeconds, cast, dealWants) {
+  function launch(seed, players, aiOn, taskSeconds, cast, dealWants, twists, hideRoles, more = {}) {
     const mine = Party.selfId();
     const seated = players.map(p => Object.assign({}, p, { local: p.id === mine }));
     const launchRoom = Party.room;
@@ -307,8 +393,9 @@ const Lobby = (() => {
     Screens.transition(() => {
       if (Party.room !== launchRoom || !Party.connected) return;
       Game.enterShow();
-      Show.beginParty({ seed, players: seated, host: Party.isHost, ai: aiOn || null, taskSeconds,
-                        cast: cast || null, wants: Party.isHost ? dealWants || null : null });
+      Show.beginParty({ seed, players: seated, host: Party.isHost, ai: aiOn || null, taskSeconds, tableTalk: more.tableTalk || null,
+                        twists: twists !== false, twistsEarly: !!more.twistsEarly,
+                        hideRoles: !!hideRoles, cast: cast || null, wants: Party.isHost ? dealWants || null : null });
     }, 420);
   }
 
@@ -344,8 +431,38 @@ const Lobby = (() => {
     if (task) task.addEventListener('input', () => {
       GameState.settings.taskSeconds = Number(task.value);
       GameState.save();
-      paintTask();
+      paint();
     });
+    const table = el('lobby-table');
+    if (table) table.addEventListener('input', () => {
+      GameState.settings.tableTalk = Number(table.value);
+      GameState.save();
+      paint();
+    });
+    const tw = el('lobby-twists');
+    if (tw) tw.addEventListener('change', () => {
+      GameState.settings.twists = !!tw.checked;
+      GameState.save();
+      paint();
+    });
+    const early = el('lobby-early');
+    if (early) early.addEventListener('change', () => {
+      GameState.settings.twistsEarly = !!early.checked;
+      GameState.save();
+      paint();
+    });
+    const hid = el('lobby-hidden');
+    if (hid) hid.addEventListener('change', () => {
+      GameState.settings.hideRoles = !!hid.checked;
+      GameState.save();
+      paint();
+    });
+    document.querySelectorAll('#lobby-tabs [data-tab]').forEach(b => b.addEventListener('click', () => {
+      if (tab === b.dataset.tab) return;
+      tab = b.dataset.tab;
+      if (typeof AudioBus !== 'undefined') AudioBus.play('ui-click');
+      paint();
+    }));
     const want = el('lobby-want');
     if (want) want.addEventListener('input', () => {
       GameState.settings.traitorWant = Number(want.value);
@@ -357,15 +474,17 @@ const Lobby = (() => {
     if (none) none.addEventListener('input', () => {
       GameState.settings.castNone = Number(none.value);
       GameState.save();
-      paintCast();
+      paint();
     });
     document.querySelectorAll('#lobby-cast [data-cast]').forEach(b => b.addEventListener('click', () => {
       GameState.settings.castTraitors = b.dataset.cast;
       GameState.save();
-      paintCast();
+      paint();
     }));
     el('lobby-host').onclick = host;
     el('lobby-join').onclick = join;
+    const copy = el('lobby-copy');
+    if (copy) copy.onclick = copyInvite;
     el('lobby-leave').onclick = leave;
     el('lobby-start').onclick = start;
     el('lobby-mic-btn').onclick = toggleMic;
@@ -392,6 +511,8 @@ const Lobby = (() => {
       if (from !== Party.hostId || !Array.isArray(data && data.seats)) return;
       sharedAI = data.seats.slice(0, Party.MAX).filter(b => b && typeof b.name === 'string')
         .map(b => ({ id: b.id, name: b.name, ready: !!b.ready, status: String(b.status || 'waking') }));
+      sharedRules = Array.isArray(data.rules) ? data.rules.slice(0, 8).filter(r => r && r.k && r.v)
+        .map(r => ({ k: String(r.k).slice(0, 16), v: String(r.v).slice(0, 24), hot: !!r.hot })) : null;
       paint();
     });
     Party.on('error', (m) => {
@@ -405,7 +526,8 @@ const Lobby = (() => {
     Party.on('go', (data) => {
       if (Party.isHost || started || !data) return;
       started = true;
-      launch(data.seed, data.players || [], data.ai || null, data.taskSeconds, data.cast || null);
+      launch(data.seed, data.players || [], data.ai || null, data.taskSeconds, data.cast || null, null, data.twists,
+             !!data.hideRoles, { tableTalk: data.tableTalk || null, twistsEarly: !!data.twistsEarly });
     });
     VoiceChat.on('state', paint);
 
@@ -431,5 +553,51 @@ const Lobby = (() => {
     });
   }
 
-  return { init, paint, leave, say, get started() { return started; } };
+  /* ---------------- invite links ----------------
+     `?join=ABCD` on the game's own address. The host copies (or, on a
+     phone, shares) it from the room; whoever opens it lands in the
+     lobby with the code filled in and is knocking on the door. */
+  function inviteLink(code) {
+    const u = new URL(location.href);
+    u.search = ''; u.hash = '';
+    u.searchParams.set('join', code);
+    return u.toString();
+  }
+  async function copyInvite() {
+    const code = Party.code;
+    if (!code) return;
+    const link = inviteLink(code);
+    const b = el('lobby-copy');
+    const done = (text) => { if (b) { b.textContent = text; setTimeout(() => { b.textContent = 'Copy invite link'; }, 2200); } };
+    try {
+      if (navigator.share && Input.isTouch) {
+        await navigator.share({ title: 'The Traitors', text: 'Join my room: ' + code, url: link });
+        done('Shared'); return;
+      }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(link); done('Link copied'); say('Invite link copied — send it to them.', 'good'); return; }
+    catch (e) {}
+    // no clipboard: show it, selected, so it can be copied by hand
+    window.prompt('Copy this link and send it:', link);
+  }
+  function joinFromLink() {
+    let code = null;
+    try {
+      const q = new URLSearchParams(location.search);
+      code = Party.normaliseCode(q.get('join') || '');
+      if (q.has('join')) {
+        q.delete('join');
+        const rest = q.toString();
+        history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+      }
+    } catch (e) { return false; }
+    if (!code || !Party.validCode(code)) return false;
+    Screens.show('lobby');
+    const f = el('code-input');
+    if (f) f.value = code;
+    join();
+    return true;
+  }
+
+  return { init, paint, leave, say, joinFromLink, inviteLink, get started() { return started; } };
 })();

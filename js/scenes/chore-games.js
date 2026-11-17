@@ -32,6 +32,20 @@
      pipes    a few pipe sections, turned until the water runs through
      scales   weights onto a pan until it balances the gold one
      window   grime on the glass, rubbed off until the loch shows
+     darts    a wobbling sight, thrown when it crosses the gold
+     pot      the red, pulled back and let go, off the cushions
+     cups     three quaichs and a ring, followed through the shuffle
+     stack    logs swung over the pile and dropped square
+     reel     notes down three lanes, struck on the line
+     lantern  a dark room, a lantern, and three things on a list
+     clock    two hands dragged to the time on the card
+     fish     a float that nibbles, then goes under: strike
+     tray     a tureen on a tipping tray, kept in the gold
+     parry    a blade from one side, sometimes a feint: parry it
+     trace    a dotted crest in the hoop, traced in gold thread
+     bagpipes the bag kept in a wandering band, and the pipes play
+     ledger   a column of pounds, and the right total
+     crank    a handle wound round to haul the dumbwaiter up
 
    Every panel says how it is played in one line under its title, so
    nobody has to work a puzzle out with a Traitor walking up behind
@@ -193,6 +207,46 @@ const ChoreGames = (() => {
     return '<svg class="cg-pic" viewBox="0 0 24 24" aria-hidden="true"' + (p.c ? ' style="color:' + p.c + '"' : '') + '>' + p.d + '</svg>';
   }
 
+  /* ---------------- the boards ----------------
+
+     A canvas for the puzzles that are drawn rather than built: `w` × `h`
+     in the units the puzzle thinks in, painted at the screen's own
+     sharpness and shrunk to fit whatever the panel has room for (the
+     CSS does that with --w and --ar). `at(e)` is a pointer event in
+     those units. */
+  function board(parent, cls, w, h) {
+    const cv = el('canvas', 'cg-canvas ' + (cls || ''));
+    const dpr = Math.max(1, Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1));
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    cv.style.setProperty('--w', w + 'px');
+    cv.style.setProperty('--ar', String(w / h));
+    cv.style.aspectRatio = w + ' / ' + h;
+    parent.appendChild(cv);
+    const g = cv.getContext('2d');
+    if (g && g.setTransform) g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const at = (e) => {
+      const r = cv.getBoundingClientRect();
+      return { x: (e.clientX - r.left) * w / (r.width || w), y: (e.clientY - r.top) * h / (r.height || h) };
+    };
+    return { cv, g, w, h, at };
+  }
+
+  /* A frame loop for a puzzle: `fn(dt, t)` every frame until the
+     returned stop is called (the puzzle's cleanup does that). A frame
+     that throws stops the loop rather than the castle. */
+  function loop(fn) {
+    let raf = 0, last = 0, t = 0, live = true;
+    const tick = (now) => {
+      if (!live) return;
+      const dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
+      last = now; t += dt;
+      try { fn(dt, t); } catch (e) { console.warn('puzzle frame failed:', e); live = false; return; }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => { live = false; cancelAnimationFrame(raf); };
+  }
+
   /* ---------------- the frame ---------------- */
 
   function open(task, opts = {}) {
@@ -252,7 +306,9 @@ const ChoreGames = (() => {
           burst(panel);
           const pay = typeof Chores !== 'undefined' && !opts.practice ? '+' + U.money(Chores.VALUE) : 'Done';
           panel.appendChild(el('div', 'cg-reward', esc(pay)));
-          setTimeout(() => close(true), 820);
+          const medal = rate(type, (now() - t0) / 1000, meta);
+          if (medal) panel.appendChild(el('div', 'cg-medal' + (medal.best ? ' best' : '') + (medal.fast ? ' fast' : ''), medal.html));
+          setTimeout(() => close(true), medal && (medal.best || medal.fast) ? 1150 : 900);
         } else close(false);
       };
       // stopped here, so the Escape that shuts a puzzle does not also
@@ -263,6 +319,7 @@ const ChoreGames = (() => {
       window.addEventListener('keydown', onKey, true);
       shut.onclick = () => { click(); finish(false); };
       let cleanup = null;
+      const t0 = now();
       try {
         cleanup = game({ body, hint, rng, done: () => finish(true), panel, pips });
       } catch (e) {
@@ -279,6 +336,28 @@ const ChoreGames = (() => {
       };
       if (opts.signal) opts.signal.addEventListener('abort', () => finish(false), { once: true });
     });
+  }
+
+  /* How quick that was: a stamp under the money for beating the AI's
+     own time, and your best for each kind of job, kept on this machine. */
+  const BEST_KEY = 'traitors.jobBests';
+  const now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+  function rate(type, secs, meta) {
+    if (!(secs > 0.3)) return null;
+    let bests = {};
+    try { bests = JSON.parse(localStorage.getItem(BEST_KEY) || '{}') || {}; } catch (e) { bests = {}; }
+    const prev = Number(bests[type]) || 0;
+    const best = !prev || secs < prev;
+    if (best) {
+      bests[type] = Math.round(secs * 10) / 10;
+      try { localStorage.setItem(BEST_KEY, JSON.stringify(bests)); } catch (e) {}
+    }
+    const s = meta && meta.secs;
+    const fast = s ? (secs <= s[0] ? 'Lightning!' : secs <= s[1] ? 'Nimble fingers' : '') : '';
+    const time = secs.toFixed(1) + ' s';
+    const tail = best && prev ? ' · new best!' : prev ? ' · best ' + prev.toFixed(1) + ' s' : '';
+    return { fast: !!fast, best: best && !!prev,
+             html: (fast ? '<b>' + esc(fast) + '</b>' : '') + '<span>' + esc(time + tail) + '</span>' };
   }
 
   function close(ok) {
@@ -1237,6 +1316,1138 @@ const ChoreGames = (() => {
       window.addEventListener('pointerup', up);
       hint.textContent = '0% clean';
       return () => window.removeEventListener('pointerup', up);
+    },
+
+    /* ---------------- the second wing of puzzles ----------------
+       Fourteen more, each a different thing to do with your hands: aim,
+       timing, a flick, a watched shuffle, a stack, a rhythm, a search in
+       the dark, a dial, patience, balance, reflexes, a traced line, a
+       held breath, a sum and a crank. Most draw on a small canvas
+       (`board`) and run on `loop`. */
+
+    /* The dartboard in the billiard room. Your hand is not steady: the
+       sight drifts over the board, and you throw when it crosses the
+       gold. Three in the gold, and the drift quickens with each. */
+    darts({ body, hint, rng, done, panel, pips }) {
+      const NEED = 3;
+      const P = pips(NEED);
+      const B = board(body, 'cg-darts', 260, 230);
+      const btn = el('button', 'cg-pour-btn', 'THROW');
+      btn.type = 'button';
+      body.appendChild(btn);
+      const { g, w, h } = B;
+      const cx = w / 2, cy = h / 2 + 4, R = 98, GOLD = 27, BULL = 9;
+      const ph = [rng.range(0, 6.28), rng.range(0, 6.28), rng.range(0.85, 1.15)];
+      let hits = 0, t = 0, busy = 0, over = false;
+      const thrown = [];
+      let pop = null;
+      const sight = () => {
+        const k = (1 + hits * 0.32) * ph[2];
+        return { x: cx + Math.sin(t * 1.55 * k + ph[0]) * 62 + Math.sin(t * 4.1 * k) * 9,
+                 y: cy + Math.sin(t * 2.15 * k + ph[1]) * 56 + Math.cos(t * 3.4 * k) * 8 };
+      };
+      hint.textContent = 'Throw when the sight is on the gold';
+      const draw = () => {
+        g.clearRect(0, 0, w, h);
+        g.fillStyle = '#20150e'; g.fillRect(0, 0, w, h);
+        // the board: twenty wedges, the rings, the gold and the bull
+        g.save(); g.translate(cx, cy);
+        g.fillStyle = '#0d0d0d'; g.beginPath(); g.arc(0, 0, R + 10, 0, Math.PI * 2); g.fill();
+        for (let i = 0; i < 20; i++) {
+          const a0 = (i - 0.5) / 20 * Math.PI * 2, a1 = (i + 0.5) / 20 * Math.PI * 2;
+          g.fillStyle = i % 2 ? '#e9dcc0' : '#1b1b1b';
+          g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, R, a0, a1); g.closePath(); g.fill();
+          g.fillStyle = i % 2 ? '#2f7d4a' : '#b8323a';
+          g.beginPath(); g.arc(0, 0, R, a0, a1); g.arc(0, 0, R - 7, a1, a0, true); g.closePath(); g.fill();
+          g.beginPath(); g.arc(0, 0, 62, a0, a1); g.arc(0, 0, 55, a1, a0, true); g.closePath(); g.fill();
+        }
+        g.fillStyle = 'rgba(242,193,78,.85)'; g.beginPath(); g.arc(0, 0, GOLD, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = '#fff3c4'; g.lineWidth = 1.5; g.stroke();
+        g.fillStyle = '#b8323a'; g.beginPath(); g.arc(0, 0, BULL, 0, Math.PI * 2); g.fill();
+        g.restore();
+        // the darts that are in, flights up
+        for (const d of thrown) {
+          const k = Math.min(1, d.t / 0.16);
+          const x = U.lerp(w / 2, d.x, k), y = U.lerp(h + 20, d.y, k);
+          g.strokeStyle = '#c9ced6'; g.lineWidth = 2.5;
+          g.beginPath(); g.moveTo(x, y); g.lineTo(x + 7, y + 13); g.stroke();
+          g.fillStyle = d.good ? '#f2c14e' : '#7cc8ff';
+          g.beginPath(); g.moveTo(x + 7, y + 13); g.lineTo(x + 14, y + 14); g.lineTo(x + 9, y + 21); g.closePath(); g.fill();
+        }
+        if (!over) {
+          const s = sight();
+          g.strokeStyle = busy > 0 ? 'rgba(255,255,255,.35)' : '#ffffff'; g.lineWidth = 2;
+          g.beginPath(); g.arc(s.x, s.y, 9, 0, Math.PI * 2); g.stroke();
+          g.beginPath(); g.moveTo(s.x - 15, s.y); g.lineTo(s.x - 5, s.y); g.moveTo(s.x + 5, s.y); g.lineTo(s.x + 15, s.y);
+          g.moveTo(s.x, s.y - 15); g.lineTo(s.x, s.y - 5); g.moveTo(s.x, s.y + 5); g.lineTo(s.x, s.y + 15); g.stroke();
+        }
+        if (pop) {
+          g.globalAlpha = Math.max(0, 1 - pop.t / 0.8);
+          g.fillStyle = pop.c; g.font = '700 20px sans-serif'; g.textAlign = 'center';
+          g.fillText(pop.text, pop.x, pop.y - 18 - pop.t * 30);
+          g.globalAlpha = 1;
+        }
+      };
+      const stop = loop((dt) => {
+        t += dt; busy -= dt;
+        for (const d of thrown) d.t += dt;
+        if (pop) { pop.t += dt; if (pop.t > 0.8) pop = null; }
+        draw();
+      });
+      const shoot = () => {
+        if (over || busy > 0) return;
+        busy = 0.4;
+        const s = sight();
+        const d = Math.hypot(s.x - cx, s.y - cy);
+        const good = d <= GOLD;
+        thrown.push({ x: s.x, y: s.y, t: 0, good });
+        if (thrown.length > 7) thrown.shift();
+        tone(good ? 900 : 300, 0.08, 'square', 0.05);
+        if (!good) { bad(); pop = { text: d > R ? 'Wall!' : 'Wide', c: '#7cc8ff', x: s.x, y: s.y, t: 0 }; hint.textContent = 'Wide — wait for the gold'; return; }
+        hits++; P(hits); step(hits * 3);
+        pop = { text: d <= BULL ? 'BULL!' : 'Gold!', c: '#f2c14e', x: s.x, y: s.y, t: 0 };
+        hint.textContent = hits + ' of ' + NEED + ' in the gold' + (hits < NEED ? ' — steadier now…' : '');
+        if (hits >= NEED) { over = true; setTimeout(done, 380); }
+      };
+      btn.onclick = shoot;
+      B.cv.addEventListener('pointerdown', (e) => { e.preventDefault(); shoot(); });
+      const onKey = (e) => { if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) shoot(); } };
+      window.addEventListener('keydown', onKey);
+      return () => { stop(); window.removeEventListener('keydown', onKey); };
+    },
+
+    /* The billiard table. Pull back from the red and let go: it runs,
+       bounces off the cushions and drops if it finds a pocket. Two pots. */
+    pot({ body, hint, rng, done, pips }) {
+      const NEED = 2;
+      const P = pips(NEED);
+      const B = board(body, 'cg-pool', 320, 184);
+      const { g, w, h } = B;
+      const M = 18, BR = 8, PR = 13;
+      const pockets = [[M, M], [w / 2, M - 3], [w - M, M], [M, h - M], [w / 2, h - M + 3], [w - M, h - M]];
+      const ball = { x: 0, y: 0, vx: 0, vy: 0, sink: 0, in: null };
+      let potted = 0, aim = null, over = false, moving = false;
+      const place = () => {
+        for (let k = 0; k < 40; k++) {
+          ball.x = rng.range(M + 40, w - M - 40); ball.y = rng.range(M + 30, h - M - 30);
+          if (pockets.every(p => Math.hypot(p[0] - ball.x, p[1] - ball.y) > 70)) break;
+        }
+        ball.vx = ball.vy = 0; ball.sink = 0; ball.in = null;
+      };
+      place();
+      hint.textContent = 'Drag back from the ball, aim, and let go';
+      const draw = () => {
+        g.fillStyle = '#5a3418'; g.fillRect(0, 0, w, h);
+        g.fillStyle = '#1f6b3d'; g.fillRect(M - 6, M - 6, w - 2 * M + 12, h - 2 * M + 12);
+        g.fillStyle = 'rgba(255,255,255,.05)';
+        g.beginPath(); g.ellipse(w / 2, h / 2, w * 0.32, h * 0.3, 0, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = 'rgba(255,255,255,.18)'; g.beginPath(); g.moveTo(w * 0.25, M); g.lineTo(w * 0.25, h - M); g.stroke();
+        for (const p of pockets) { g.fillStyle = '#050505'; g.beginPath(); g.arc(p[0], p[1], PR, 0, Math.PI * 2); g.fill(); }
+        if (aim && !moving) {
+          const dx = ball.x - aim.x, dy = ball.y - aim.y, L = Math.min(110, Math.hypot(dx, dy));
+          if (L > 6) {
+            const ux = dx / Math.hypot(dx, dy), uy = dy / Math.hypot(dx, dy);
+            g.setLineDash([5, 6]); g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 2;
+            g.beginPath(); g.moveTo(ball.x, ball.y); g.lineTo(ball.x + ux * (40 + L * 1.6), ball.y + uy * (40 + L * 1.6)); g.stroke();
+            g.setLineDash([]);
+            // the cue, drawn back behind the ball
+            g.strokeStyle = '#d9b77a'; g.lineWidth = 5;
+            g.beginPath(); g.moveTo(ball.x - ux * (12 + L * 0.5), ball.y - uy * (12 + L * 0.5));
+            g.lineTo(ball.x - ux * (140 + L * 0.5), ball.y - uy * (140 + L * 0.5)); g.stroke();
+            g.fillStyle = L > 80 ? '#ff8a5a' : '#f2c14e';
+            g.fillRect(M, h - 8, (w - 2 * M) * L / 110, 4);
+          }
+        }
+        const r = BR * (1 - ball.sink);
+        if (r > 0.5) {
+          g.fillStyle = '#c4162c'; g.beginPath(); g.arc(ball.x, ball.y, r, 0, Math.PI * 2); g.fill();
+          g.fillStyle = 'rgba(255,255,255,.55)'; g.beginPath(); g.arc(ball.x - r * 0.35, ball.y - r * 0.35, r * 0.3, 0, Math.PI * 2); g.fill();
+        }
+      };
+      const stop = loop((dt) => {
+        if (ball.in) {
+          ball.sink = Math.min(1, ball.sink + dt * 4);
+          ball.x = U.lerp(ball.x, ball.in[0], 0.3); ball.y = U.lerp(ball.y, ball.in[1], 0.3);
+        } else if (moving) {
+          const sub = 4;
+          for (let i = 0; i < sub; i++) {
+            ball.x += ball.vx * dt / sub; ball.y += ball.vy * dt / sub;
+            let jaw = false;
+            for (const p of pockets) {
+              const d = Math.hypot(p[0] - ball.x, p[1] - ball.y);
+              // a pocket's lip draws in a ball that is passing close
+              if (d < PR + 9) { ball.vx += (p[0] - ball.x) * 8 * dt / sub; ball.vy += (p[1] - ball.y) * 8 * dt / sub; }
+              if (d < PR + 2) { ball.in = p; break; }
+              // in the jaws of a pocket there is no cushion to bounce off
+              if (d < PR + BR + 8) jaw = true;
+            }
+            if (ball.in) break;
+            if (jaw) continue;
+            if (ball.x < M + BR) { ball.x = M + BR; ball.vx = Math.abs(ball.vx) * 0.8; tone(180, 0.05, 'sine', 0.06); }
+            if (ball.x > w - M - BR) { ball.x = w - M - BR; ball.vx = -Math.abs(ball.vx) * 0.8; tone(180, 0.05, 'sine', 0.06); }
+            if (ball.y < M + BR) { ball.y = M + BR; ball.vy = Math.abs(ball.vy) * 0.8; tone(180, 0.05, 'sine', 0.06); }
+            if (ball.y > h - M - BR) { ball.y = h - M - BR; ball.vy = -Math.abs(ball.vy) * 0.8; tone(180, 0.05, 'sine', 0.06); }
+          }
+          const f = Math.exp(-1.1 * dt);
+          ball.vx *= f; ball.vy *= f;
+          if (ball.in) {
+            moving = false;
+            tone(220, 0.25, 'sine', 0.16);
+            potted++; P(potted); step(potted * 4);
+            if (potted >= NEED) { over = true; hint.textContent = 'Both down!'; setTimeout(done, 450); }
+            else { hint.textContent = 'Potted! One more'; setTimeout(() => { if (!over) place(); }, 650); }
+          } else if (Math.hypot(ball.vx, ball.vy) < 7) {
+            moving = false; ball.vx = ball.vy = 0;
+            hint.textContent = 'Shoot again from there';
+          }
+        }
+        draw();
+      });
+      const down = (e) => {
+        if (moving || over || ball.in) return;
+        e.preventDefault();
+        aim = B.at(e);
+        try { B.cv.setPointerCapture(e.pointerId); } catch (err) {}
+      };
+      const move = (e) => { if (aim) aim = B.at(e); };
+      const up = () => {
+        if (!aim) return;
+        const dx = ball.x - aim.x, dy = ball.y - aim.y, L = Math.hypot(dx, dy);
+        aim = null;
+        if (L < 8 || moving || over) return;
+        const pow = Math.min(110, L) * 5.2;
+        ball.vx = dx / L * pow; ball.vy = dy / L * pow;
+        moving = true;
+        tone(420, 0.06, 'triangle', 0.12);
+      };
+      B.cv.addEventListener('pointerdown', down);
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      return () => { stop(); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    },
+
+    /* Three silver quaichs and the laird's ring. Watch which one it goes
+       under, watch them shuffle, and lift the right one. Twice; the
+       second shuffle is quicker and longer. */
+    cups({ body, hint, rng, done, panel, pips }) {
+      const NEED = 2;
+      const P = pips(NEED);
+      const table = el('div', 'cg-cups');
+      const ring = el('i', 'cg-ring');
+      table.appendChild(ring);
+      body.appendChild(table);
+      const SLOT = [18, 50, 82];
+      const pos = [0, 1, 2];                 // the slot each cup is in
+      const cups = [0, 1, 2].map((c) => {
+        const b = el('button', 'cg-cup', '<i></i>');
+        b.type = 'button';
+        b.onclick = () => pick(c);
+        table.appendChild(b);
+        return b;
+      });
+      let won = 0, ringCup = 0, phase = 'show';
+      const timers = [];
+      const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+      const lay = (ms) => cups.forEach((b, c) => {
+        b.style.transitionDuration = ms + 'ms, 220ms';
+        b.style.left = SLOT[pos[c]] + '%';
+      });
+      lay(0);
+      const round = () => {
+        phase = 'show';
+        ringCup = rng.int(0, 2);
+        ring.style.left = SLOT[pos[ringCup]] + '%';
+        ring.classList.add('on');
+        cups.forEach(b => b.classList.add('up'));
+        hint.textContent = 'Watch the ring…';
+        later(() => { cups.forEach(b => b.classList.remove('up')); }, 850);
+        later(() => {
+          ring.classList.remove('on');
+          phase = 'shuffle';
+          const swaps = 4 + won * 3, ms = Math.max(170, 320 - won * 100);
+          for (let k = 0; k < swaps; k++) later(() => {
+            const a = rng.int(0, 2), b = (a + 1 + rng.int(0, 1)) % 3;
+            const ca = pos.indexOf(a), cb = pos.indexOf(b);
+            pos[ca] = b; pos[cb] = a;
+            cups[ca].classList.add('lift'); cups[cb].classList.remove('lift');
+            lay(ms);
+            tone(260 + k * 14, 0.05, 'sine', 0.05);
+          }, k * (ms + 40));
+          later(() => { phase = 'pick'; cups.forEach(b => b.classList.remove('lift')); hint.textContent = 'Which quaich has the ring?'; },
+                swaps * (ms + 40) + 80);
+        }, 1150);
+      };
+      function pick(c) {
+        if (phase !== 'pick') return;
+        phase = 'reveal';
+        ring.style.left = SLOT[pos[ringCup]] + '%';
+        ring.classList.add('on');
+        cups[c].classList.add('up');
+        if (c === ringCup) {
+          won++; P(won); step(won * 4);
+          hint.textContent = won >= NEED ? 'Sharp eyes.' : 'Found it! Again — quicker';
+          if (won >= NEED) { later(done, 500); return; }
+          later(round, 1100);
+        } else {
+          bad(); shake(panel);
+          cups[ringCup].classList.add('up');
+          hint.textContent = 'It was under that one. Again —';
+          later(round, 1400);
+        }
+      }
+      later(round, 300);
+      return () => timers.forEach(clearTimeout);
+    },
+
+    /* The log basket by the kitchen fire. A log swings across over the
+       pile; drop it on top. Whatever hangs over the edge falls off, so
+       a sloppy pile gets narrower. Six high. */
+    stack({ body, hint, rng, done, panel, pips }) {
+      const NEED = 6;
+      const P = pips(NEED);
+      const B = board(body, 'cg-logs', 240, 240);
+      const btn = el('button', 'cg-pour-btn', 'DROP');
+      btn.type = 'button';
+      body.appendChild(btn);
+      const { g, w, h } = B;
+      const LH = 22, GROUND = h - 18;
+      const pile = [{ x: w / 2 - 60, w: 120 }];
+      const bits = [];
+      let mv = { x: 0, w: 120, dir: 1 }, over = false, flash = null;
+      const speed = () => 120 + (pile.length - 1) * 22;
+      const yOf = (i) => GROUND - (i + 1) * LH;
+      hint.textContent = 'Drop each log square on the pile';
+      const logAt = (x, y, lw, a = 1) => {
+        g.globalAlpha = a;
+        g.fillStyle = '#7a4a26';
+        g.beginPath(); g.roundRect ? g.roundRect(x, y + 2, lw, LH - 4, 9) : g.rect(x, y + 2, lw, LH - 4); g.fill();
+        g.fillStyle = 'rgba(0,0,0,.2)'; g.fillRect(x + 6, y + 8, Math.max(0, lw - 12), 2);
+        g.fillStyle = '#d8a86a';
+        g.beginPath(); g.ellipse(x + lw - 4, y + LH / 2, 4, (LH - 4) / 2, 0, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = '#8a5a34'; g.lineWidth = 1;
+        g.beginPath(); g.ellipse(x + lw - 4, y + LH / 2, 2, (LH - 8) / 3, 0, 0, Math.PI * 2); g.stroke();
+        g.globalAlpha = 1;
+      };
+      const stop = loop((dt) => {
+        if (!over) {
+          mv.x += mv.dir * speed() * dt;
+          if (mv.x + mv.w > w - 4) { mv.x = w - 4 - mv.w; mv.dir = -1; }
+          if (mv.x < 4) { mv.x = 4; mv.dir = 1; }
+        }
+        for (const b of bits) { b.vy += 700 * dt; b.y += b.vy * dt; b.x += b.vx * dt; b.a -= dt * 0.9; }
+        while (bits.length && bits[0].a <= 0) bits.shift();
+        g.fillStyle = '#1c130d'; g.fillRect(0, 0, w, h);
+        g.fillStyle = 'rgba(255,140,40,.12)'; g.beginPath(); g.arc(w / 2, h + 40, 170, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#3a2a1b'; g.fillRect(0, GROUND, w, h - GROUND);
+        pile.forEach((p, i) => logAt(p.x, yOf(i), p.w));
+        for (const b of bits) logAt(b.x, b.y, b.w, Math.max(0, b.a));
+        if (!over) logAt(mv.x, yOf(pile.length) - 24, mv.w);
+        if (flash) {
+          flash.t += dt;
+          g.globalAlpha = Math.max(0, 1 - flash.t);
+          g.fillStyle = '#f2c14e'; g.font = '700 18px sans-serif'; g.textAlign = 'center';
+          g.fillText(flash.text, w / 2, 26);
+          g.globalAlpha = 1;
+          if (flash.t > 1) flash = null;
+        }
+      });
+      const drop = () => {
+        if (over) return;
+        const top = pile[pile.length - 1];
+        const l = Math.max(mv.x, top.x), r = Math.min(mv.x + mv.w, top.x + top.w);
+        const y = yOf(pile.length) - 24;
+        if (r - l < 6) {
+          bad(); shake(panel);
+          bits.push({ x: mv.x, y, w: mv.w, vx: mv.dir * 40, vy: 0, a: 1 });
+          hint.textContent = 'Missed the pile — again';
+          mv.x = mv.dir > 0 ? 4 : w - 4 - mv.w;
+          return;
+        }
+        if (Math.abs(mv.x - top.x) < 5) {
+          pile.push({ x: top.x, w: Math.min(120, top.w + 6) });
+          flash = { text: 'Perfect!', t: 0 };
+          tone(1046, 0.16, 'triangle', 0.12);
+        } else {
+          if (mv.x < l) bits.push({ x: mv.x, y, w: l - mv.x, vx: -50, vy: 0, a: 1 });
+          if (mv.x + mv.w > r) bits.push({ x: r, y, w: mv.x + mv.w - r, vx: 50, vy: 0, a: 1 });
+          pile.push({ x: l, w: r - l });
+          thud(120, 70, 0.12, 0.14);
+        }
+        const n = pile.length - 1;
+        P(n); step(n * 2);
+        if (n >= NEED) { over = true; hint.textContent = 'A fine pile.'; setTimeout(done, 400); return; }
+        const top2 = pile[pile.length - 1];
+        // a pile gone thin gets a fresh, wide log to save it
+        mv = { x: mv.dir > 0 ? 4 : w - 4 - Math.max(top2.w, 34), w: Math.max(top2.w, 34), dir: mv.dir };
+        hint.textContent = n + ' of ' + NEED + ' logs';
+      };
+      btn.onclick = drop;
+      B.cv.addEventListener('pointerdown', (e) => { e.preventDefault(); drop(); });
+      const onKey = (e) => { if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) drop(); } };
+      window.addEventListener('keydown', onKey);
+      return () => { stop(); window.removeEventListener('keydown', onKey); };
+    },
+
+    /* A reel on the piano. Notes fall down three lanes; tap a lane as its
+       note reaches the line and the tune plays. Eight good notes. */
+    reel({ body, hint, rng, done, pips }) {
+      const NEED = 8;
+      const P = pips(NEED);
+      const B = board(body, 'cg-reel', 240, 250);
+      const { g, w, h } = B;
+      const LANES = 3, LW = w / LANES, HIT = h - 38, FALL = 1.5;
+      const TUNE = [587, 698, 880, 784, 698, 659, 587, 523, 587, 698, 880, 1047, 932, 880, 784, 698, 659, 587];
+      const KEYS = (typeof Input !== 'undefined' && Input.isTouch) ? ['', '', ''] : ['A', 'S', 'D'];
+      let t = 0, hits = 0, over = false, nextAt = 0.7, made = 0;
+      const notes = [], rings = [], lit = [0, 0, 0], miss = [0, 0, 0];
+      const speed = (HIT + 12) / FALL;
+      hint.textContent = 'Tap each lane as its note hits the line';
+      const stop = loop((dt) => {
+        t += dt;
+        if (!over && t >= nextAt) {
+          let lane = rng.int(0, LANES - 1);
+          const last = notes[notes.length - 1];
+          if (last && last.lane === lane && rng() < 0.6) lane = (lane + 1 + rng.int(0, 1)) % LANES;
+          notes.push({ lane, y: -12, k: made++, hit: false, gone: false });
+          nextAt = t + (hits > 4 ? 0.42 : 0.52) + rng() * 0.12;
+        }
+        for (const n of notes) {
+          if (n.hit || n.gone) continue;
+          n.y += speed * dt;
+          if (n.y > HIT + 30) { n.gone = true; }
+        }
+        while (notes.length && (notes[0].hit || notes[0].gone) && notes.length > 12) notes.shift();
+        for (let i = 0; i < 3; i++) { lit[i] = Math.max(0, lit[i] - dt * 4); miss[i] = Math.max(0, miss[i] - dt * 4); }
+        for (const r of rings) r.t += dt;
+        while (rings.length && rings[0].t > 0.5) rings.shift();
+        // draw
+        g.fillStyle = '#120c08'; g.fillRect(0, 0, w, h);
+        for (let i = 0; i < LANES; i++) {
+          g.fillStyle = i % 2 ? '#1f1610' : '#251a12';
+          g.fillRect(i * LW, 0, LW, h);
+          if (lit[i]) { g.fillStyle = 'rgba(242,193,78,' + (lit[i] * 0.25) + ')'; g.fillRect(i * LW, 0, LW, h); }
+          if (miss[i]) { g.fillStyle = 'rgba(255,80,80,' + (miss[i] * 0.22) + ')'; g.fillRect(i * LW, 0, LW, h); }
+        }
+        g.strokeStyle = 'rgba(242,193,78,.7)'; g.lineWidth = 2;
+        g.beginPath(); g.moveTo(0, HIT); g.lineTo(w, HIT); g.stroke();
+        for (let i = 0; i < LANES; i++) {
+          g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 2;
+          g.beginPath(); g.arc(i * LW + LW / 2, HIT, 15, 0, Math.PI * 2); g.stroke();
+          if (KEYS[i]) { g.fillStyle = 'rgba(255,255,255,.45)'; g.font = '700 11px sans-serif'; g.textAlign = 'center'; g.fillText(KEYS[i], i * LW + LW / 2, h - 8); }
+        }
+        for (const n of notes) {
+          if (n.hit || n.gone) continue;
+          const x = n.lane * LW + LW / 2;
+          g.fillStyle = '#f2c14e'; g.beginPath(); g.arc(x, n.y, 12, 0, Math.PI * 2); g.fill();
+          g.fillStyle = '#5a3a10'; g.beginPath(); g.arc(x - 2, n.y + 2, 4.5, 0, Math.PI * 2); g.fill();
+          g.fillRect(x + 1.5, n.y - 9, 2, 11);
+        }
+        for (const r of rings) {
+          g.strokeStyle = 'rgba(255,240,180,' + (1 - r.t * 2) + ')'; g.lineWidth = 3;
+          g.beginPath(); g.arc(r.x, HIT, 15 + r.t * 50, 0, Math.PI * 2); g.stroke();
+        }
+      });
+      const play = (lane) => {
+        if (over) return;
+        let best = null;
+        for (const n of notes) {
+          if (n.hit || n.gone || n.lane !== lane) continue;
+          if (Math.abs(n.y - HIT) < 28 && (!best || Math.abs(n.y - HIT) < Math.abs(best.y - HIT))) best = n;
+        }
+        if (!best) { miss[lane] = 1; thud(170, 110, 0.08, 0.08); return; }
+        best.hit = true;
+        lit[lane] = 1;
+        rings.push({ x: lane * LW + LW / 2, t: 0 });
+        tone(TUNE[hits % TUNE.length], 0.3, 'triangle', 0.16);
+        hits++; P(hits);
+        hint.textContent = hits + ' of ' + NEED + ' notes';
+        if (hits >= NEED) { over = true; setTimeout(done, 300); }
+      };
+      B.cv.addEventListener('pointerdown', (e) => { e.preventDefault(); play(Math.max(0, Math.min(LANES - 1, Math.floor(B.at(e).x / LW)))); });
+      const LANE_OF = { KeyA: 0, ArrowLeft: 0, Digit1: 0, KeyS: 1, ArrowDown: 1, ArrowUp: 1, Digit2: 1, KeyD: 2, ArrowRight: 2, Digit3: 2 };
+      const onKey = (e) => { if (e.code in LANE_OF) { e.preventDefault(); if (!e.repeat) play(LANE_OF[e.code]); } };
+      window.addEventListener('keydown', onKey);
+      return () => { stop(); window.removeEventListener('keydown', onKey); };
+    },
+
+    /* The library stacks with the lamps out. Your lantern is the only
+       light; find the three things on the list among the clutter. */
+    lantern({ body, hint, rng, done, panel, pips }) {
+      const NEED = 3;
+      const P = pips(NEED);
+      const KINDS = shuffled(rng, ['key', 'candle', 'owl', 'rose', 'apple', 'star', 'bell', 'anchor', 'moon', 'wine', 'shoe', 'boat', 'stag']);
+      const want = KINDS.slice(0, NEED), decoys = KINDS.slice(NEED, NEED + 6);
+      const list = el('div', 'cg-find', '<span>Find</span>' + want.map(k => '<b data-k="' + k + '">' + pic(k) + '</b>').join(''));
+      const room = el('div', 'cg-dark');
+      body.append(list, room);
+      const W = 300, H = 196;
+      const spots = [];
+      const items = want.concat(decoys).map((k) => {
+        let x = 0, y = 0;
+        for (let n = 0; n < 60; n++) {
+          x = rng.range(22, W - 22); y = rng.range(22, H - 22);
+          if (spots.every(s => Math.hypot(s[0] - x, s[1] - y) > 44)) break;
+        }
+        spots.push([x, y]);
+        const b = el('button', 'cg-thing-lit', pic(k));
+        b.type = 'button';
+        b.style.left = (x / W * 100) + '%'; b.style.top = (y / H * 100) + '%';
+        room.appendChild(b);
+        return { k, b, x, y, found: false };
+      });
+      const cv = el('canvas', 'cg-gloom');
+      cv.width = W; cv.height = H;
+      room.appendChild(cv);
+      const g = cv.getContext('2d');
+      let lx = W / 2, ly = H / 2, t = 0, got = 0;
+      const toRoom = (e) => {
+        const r = room.getBoundingClientRect();
+        return { x: (e.clientX - r.left) * W / (r.width || W), y: (e.clientY - r.top) * H / (r.height || H) };
+      };
+      const stop = loop((dt) => {
+        t += dt;
+        const R = 50 + Math.sin(t * 7) * 1.6 + Math.sin(t * 13.3) * 1.1;
+        g.globalCompositeOperation = 'source-over';
+        g.clearRect(0, 0, W, H);
+        g.fillStyle = 'rgba(4,3,2,.965)'; g.fillRect(0, 0, W, H);
+        g.globalCompositeOperation = 'destination-out';
+        const grad = g.createRadialGradient(lx, ly, R * 0.25, lx, ly, R);
+        grad.addColorStop(0, 'rgba(0,0,0,1)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = grad; g.beginPath(); g.arc(lx, ly, R, 0, Math.PI * 2); g.fill();
+        g.globalCompositeOperation = 'source-over';
+        g.fillStyle = 'rgba(255,170,60,.10)'; g.beginPath(); g.arc(lx, ly, R * 0.9, 0, Math.PI * 2); g.fill();
+      });
+      const seek = (e) => { const p = toRoom(e); lx = p.x; ly = p.y; };
+      room.addEventListener('pointermove', seek);
+      room.addEventListener('pointerdown', seek);
+      hint.textContent = 'Move the lantern about. Tap what is on the list.';
+      for (const it of items) {
+        it.b.onclick = (e) => {
+          if (it.found) return;
+          const p = e && e.clientX !== undefined && e.clientX !== 0 ? toRoom(e) : { x: lx, y: ly };
+          if (Math.hypot(p.x - it.x, p.y - it.y) > 40 && Math.hypot(lx - it.x, ly - it.y) > 56) return;
+          if (want.indexOf(it.k) < 0) {
+            bad(); shake(panel);
+            hint.textContent = 'Not that — check the list';
+            return;
+          }
+          it.found = true;
+          it.b.classList.add('got');
+          const tick = list.querySelector('[data-k="' + it.k + '"]');
+          if (tick) tick.classList.add('got');
+          got++; P(got); step(got * 4);
+          hint.textContent = got + ' of ' + NEED + ' found';
+          if (got >= NEED) setTimeout(done, 300);
+        };
+      }
+      return () => stop();
+    },
+
+    /* The long-case clock has stopped. Set it to the time on the card:
+       drag the long hand for the minutes and the short one for the hour.
+       Two clocks. */
+    clock({ body, hint, rng, done, panel, pips }) {
+      const NEED = 2;
+      const P = pips(NEED);
+      const card = el('div', 'cg-timecard');
+      const NS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('viewBox', '-100 -100 200 200');
+      svg.classList.add('cg-clock');
+      const mk = (tag, attrs) => {
+        const n = document.createElementNS(NS, tag);
+        for (const k in attrs) n.setAttribute(k, attrs[k]);
+        svg.appendChild(n);
+        return n;
+      };
+      mk('circle', { r: 94, class: 'cg-clock-rim' });
+      mk('circle', { r: 86, class: 'cg-clock-face' });
+      for (let i = 0; i < 60; i++) {
+        const a = i / 60 * Math.PI * 2, big = i % 5 === 0;
+        mk('line', { x1: Math.sin(a) * (big ? 72 : 78), y1: -Math.cos(a) * (big ? 72 : 78),
+                     x2: Math.sin(a) * 82, y2: -Math.cos(a) * 82, class: big ? 'cg-tick big' : 'cg-tick' });
+      }
+      for (let i = 1; i <= 12; i++) {
+        const a = i / 12 * Math.PI * 2;
+        const tx = mk('text', { x: Math.sin(a) * 60, y: -Math.cos(a) * 60 + 6, class: 'cg-numeral' });
+        tx.textContent = String(i);
+      }
+      const hourH = mk('line', { x1: 0, y1: 8, x2: 0, y2: -46, class: 'cg-hand hour' });
+      const minH = mk('line', { x1: 0, y1: 12, x2: 0, y2: -72, class: 'cg-hand min' });
+      mk('circle', { r: 6, class: 'cg-hub' });
+      body.append(card, svg);
+      const WORD = ['twelve', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven'];
+      const say = (hh, mm) => {
+        const H = WORD[hh % 12], N = WORD[(hh + 1) % 12];
+        if (mm === 0) return H + ' o’clock';
+        if (mm === 15) return 'quarter past ' + H;
+        if (mm === 30) return 'half past ' + H;
+        if (mm === 45) return 'quarter to ' + N;
+        return mm < 30 ? mm + ' past ' + H : (60 - mm) + ' to ' + N;
+      };
+      let hh = 0, mm = 0, target = null, won = 0, grab = null, live = true;
+      const paint = () => {
+        minH.setAttribute('transform', 'rotate(' + (mm * 6) + ')');
+        hourH.setAttribute('transform', 'rotate(' + ((hh % 12 + mm / 60) * 30) + ')');
+      };
+      const deal = () => {
+        hh = rng.int(0, 11); mm = rng.int(0, 11) * 5;
+        do { target = { h: rng.int(0, 11), m: rng.int(0, 11) * 5 }; } while (target.h === hh || target.m === mm);
+        const digital = (target.h || 12) + ':' + String(target.m).padStart(2, '0');
+        card.innerHTML = '<small>Set it to</small><b>' + esc(say(target.h, target.m)) + '</b><span>' + digital + '</span>';
+        paint();
+      };
+      deal();
+      const check = () => {
+        if (!live || hh !== target.h || mm !== target.m) return;
+        won++; P(won); step(won * 5);
+        svg.classList.add('right');
+        tone(784, 0.4, 'sine', 0.14);
+        grab = null;
+        if (won >= NEED) { live = false; hint.textContent = 'Right on time.'; setTimeout(done, 350); return; }
+        hint.textContent = 'That one’s going. The next…';
+        live = false;
+        setTimeout(() => { svg.classList.remove('right'); live = true; deal(); hint.textContent = 'Drag the hands'; }, 700);
+      };
+      const angleOf = (e) => {
+        const r = svg.getBoundingClientRect();
+        const x = (e.clientX - r.left) / (r.width || 200) * 200 - 100, y = (e.clientY - r.top) / (r.height || 200) * 200 - 100;
+        let a = Math.atan2(x, -y) * 180 / Math.PI; if (a < 0) a += 360;
+        return { a, r: Math.hypot(x, y) };
+      };
+      const set = (e) => {
+        const p = angleOf(e);
+        const before = hh * 60 + mm;
+        if (grab === 'min') {
+          const m2 = Math.round(p.a / 30) * 5 % 60;
+          // winding past twelve carries the hour along, the way a real clock does
+          if (mm >= 45 && m2 <= 10) hh = (hh + 1) % 12;
+          else if (mm <= 10 && m2 >= 45) hh = (hh + 11) % 12;
+          mm = m2;
+        } else if (grab === 'hour') hh = ((Math.round(p.a / 30 - mm / 60) % 12) + 12) % 12;
+        if (hh * 60 + mm !== before) { tone(1500, 0.03, 'square', 0.04); paint(); check(); }
+      };
+      svg.addEventListener('pointerdown', (e) => {
+        if (!live) return;
+        e.preventDefault();
+        const p = angleOf(e);
+        grab = p.r < 54 ? 'hour' : 'min';
+        try { svg.setPointerCapture(e.pointerId); } catch (err) {}
+        set(e);
+      });
+      const move = (e) => { if (grab && live) set(e); };
+      const up = () => { grab = null; };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      const onKey = (e) => {
+        if (!live) return;
+        const k = { ArrowRight: [0, 5], ArrowLeft: [0, -5], ArrowUp: [1, 0], ArrowDown: [-1, 0] }[e.code];
+        if (!k) return;
+        e.preventDefault();
+        let total = (hh * 60 + mm + k[0] * 60 + k[1] + 720) % 720;
+        hh = Math.floor(total / 60); mm = total % 60;
+        tone(1500, 0.03, 'square', 0.04); paint(); check();
+      };
+      window.addEventListener('keydown', onKey);
+      hint.textContent = 'Long hand: minutes. Short hand: the hour.';
+      return () => { live = false; window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('keydown', onKey); };
+    },
+
+    /* The fountain's goldfish. The float bobs; little nibbles are
+       nothing. When it goes right under, strike — too soon and the fish
+       is gone for a moment. Three fish. */
+    fish({ body, hint, rng, done, panel, pips }) {
+      const NEED = 3;
+      const P = pips(NEED);
+      const B = board(body, 'cg-pond', 280, 190);
+      const btn = el('button', 'cg-pour-btn', 'STRIKE');
+      btn.type = 'button';
+      body.appendChild(btn);
+      const { g, w, h } = B;
+      let t = 0, caught = 0, state = 'wait', until = 0, dip = 0, nibbles = [], leap = null, over = false;
+      const ripples = [];
+      const fx = w * 0.56, fy = h * 0.52;
+      const arm = () => {
+        state = 'wait';
+        until = t + rng.range(1.3, 2.8);
+        nibbles = [];
+        const n = rng.int(caught ? 1 : 0, 2);
+        for (let i = 0; i < n; i++) nibbles.push(t + rng.range(0.4, until - t - 0.3));
+      };
+      arm();
+      hint.textContent = 'Wait for the float to go right under…';
+      const stop = loop((dt) => {
+        t += dt;
+        let want = 0;
+        if (state === 'wait') {
+          for (const n of nibbles) if (t > n && t < n + 0.22) want = 4;
+          if (nibbles.some(n => Math.abs(t - n) < dt)) ripples.push({ x: fx, y: fy, t: 0, s: 0.5 });
+          if (t >= until) {
+            state = 'bite'; until = t + Math.max(0.5, 0.8 - caught * 0.08);
+            ripples.push({ x: fx, y: fy, t: 0, s: 1.2 });
+            tone(240, 0.12, 'sine', 0.14);
+          }
+        } else if (state === 'bite') {
+          want = 14;
+          if (t >= until) { state = 'late'; until = t + 0.8; hint.textContent = 'It got away — strike on the big dip'; }
+        } else if ((state === 'late' || state === 'scared' || state === 'reel') && t >= until) {
+          if (state === 'reel' && caught >= NEED) { over = true; done(); }
+          else { arm(); hint.textContent = caught + ' of ' + NEED + ' — watch the float'; }
+        }
+        dip = U.lerp(dip, want, 1 - Math.exp(-16 * dt));
+        for (const r of ripples) r.t += dt;
+        while (ripples.length && ripples[0].t > 1.4) ripples.shift();
+        // the pond
+        const grd = g.createLinearGradient(0, 0, 0, h);
+        grd.addColorStop(0, '#16384a'); grd.addColorStop(1, '#0a1c28');
+        g.fillStyle = grd; g.fillRect(0, 0, w, h);
+        g.fillStyle = '#2f6b3a';
+        for (const [px, py, pr] of [[46, 150, 20], [230, 40, 16], [250, 160, 22]]) {
+          g.beginPath(); g.arc(px, py, pr, 0.4, Math.PI * 2); g.lineTo(px, py); g.fill();
+        }
+        for (const r of ripples) {
+          g.strokeStyle = 'rgba(200,230,255,' + Math.max(0, 0.6 - r.t * 0.45) + ')'; g.lineWidth = 1.5;
+          g.beginPath(); g.ellipse(r.x, r.y + 6, 8 + r.t * 40 * r.s, (8 + r.t * 40 * r.s) * 0.35, 0, 0, Math.PI * 2); g.stroke();
+        }
+        // the line and the float
+        const bob = Math.sin(t * 2.4) * 1.5;
+        g.strokeStyle = 'rgba(255,255,255,.4)'; g.lineWidth = 1;
+        g.beginPath(); g.moveTo(8, 4); g.quadraticCurveTo(fx - 60, fy - 70, fx, fy - 8 + dip + bob); g.stroke();
+        g.save(); g.beginPath(); g.rect(0, 0, w, fy + 6); g.clip();
+        g.fillStyle = '#f4f0e6'; g.beginPath(); g.ellipse(fx, fy + dip + bob, 5, 7, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#e0352e'; g.beginPath(); g.ellipse(fx, fy - 5 + dip + bob, 5, 5, 0, Math.PI, Math.PI * 2); g.fill();
+        g.restore();
+        if (state === 'bite') { g.fillStyle = '#ffd66b'; g.font = '800 22px sans-serif'; g.textAlign = 'center'; g.fillText('!', fx, fy - 22); }
+        if (leap) {
+          leap.t += dt;
+          const k = Math.min(1, leap.t / 0.8);
+          const x = U.lerp(fx, 30, k), y = fy - Math.sin(k * Math.PI) * 80;
+          g.save(); g.translate(x, y); g.rotate(-0.6 + k * 1.4);
+          g.fillStyle = '#ff8c2a'; g.beginPath(); g.ellipse(0, 0, 14, 7, 0, 0, Math.PI * 2); g.fill();
+          g.beginPath(); g.moveTo(12, 0); g.lineTo(22, -7); g.lineTo(22, 7); g.closePath(); g.fill();
+          g.fillStyle = '#111'; g.beginPath(); g.arc(-8, -2, 1.6, 0, Math.PI * 2); g.fill();
+          g.restore();
+          if (k >= 1) leap = null;
+        }
+      });
+      const strike = () => {
+        if (over) return;
+        if (state === 'bite') {
+          caught++; P(caught); step(caught * 4);
+          state = 'reel'; until = t + 0.9;
+          leap = { t: 0 };
+          ripples.push({ x: fx, y: fy, t: 0, s: 1.6 });
+          hint.textContent = caught >= NEED ? 'Three fine fish!' : 'Got one!';
+          return;
+        }
+        if (state === 'wait') {
+          bad(); shake(panel);
+          state = 'scared'; until = t + 1.1;
+          ripples.push({ x: fx, y: fy, t: 0, s: 1 });
+          hint.textContent = 'Too soon — you scared it off';
+        }
+      };
+      btn.onclick = strike;
+      B.cv.addEventListener('pointerdown', (e) => { e.preventDefault(); strike(); });
+      const onKey = (e) => { if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) strike(); } };
+      window.addEventListener('keydown', onKey);
+      return () => { stop(); window.removeEventListener('keydown', onKey); };
+    },
+
+    /* Soup up the back stairs. The tray tips with every step; tilt it to
+       keep the tureen in the gold. Fill the bar without a spill — a
+       spill only costs you some of it. */
+    tray({ body, hint, rng, done, panel, pips }) {
+      const P = pips(4);
+      const B = board(body, 'cg-tray', 280, 170);
+      const { g, w, h } = B;
+      const ph = [rng.range(0, 6.28), rng.range(0, 6.28)];
+      const ZONE = 0.3;
+      let t = 0, x = 0, v = 0, tilt = 0, want = 0, fill = 0, held = false, keys = 0, over = false, splash = null, shown = 0;
+      const steer = (e) => { const p = B.at(e); want = U.clamp((p.x - w / 2) / (w * 0.38), -1, 1); };
+      B.cv.addEventListener('pointerdown', (e) => { e.preventDefault(); held = true; steer(e); try { B.cv.setPointerCapture(e.pointerId); } catch (err) {} });
+      B.cv.addEventListener('pointermove', (e) => { if (held || e.pointerType === 'mouse') steer(e); });
+      const up = () => { held = false; };
+      window.addEventListener('pointerup', up);
+      const kd = (e) => {
+        if (e.code === 'ArrowLeft' || e.code === 'KeyA') { e.preventDefault(); keys = e.type === 'keydown' ? -1 : (keys < 0 ? 0 : keys); }
+        if (e.code === 'ArrowRight' || e.code === 'KeyD') { e.preventDefault(); keys = e.type === 'keydown' ? 1 : (keys > 0 ? 0 : keys); }
+      };
+      window.addEventListener('keydown', kd); window.addEventListener('keyup', kd);
+      hint.textContent = 'Tilt to keep the tureen in the gold';
+      const stop = loop((dt) => {
+        t += dt;
+        const aim = keys ? keys : want;
+        tilt = U.lerp(tilt, aim, 1 - Math.exp(-6 * dt));
+        const late = Math.min(1, t / 6);
+        const gust = (Math.sin(t * 0.85 + ph[0]) * 0.9 + Math.sin(t * 2.2 + ph[1]) * 0.45) * (0.8 + late * 0.5);
+        if (!over && !splash) {
+          v += (tilt * 2.6 + gust) * dt;
+          v *= Math.exp(-0.9 * dt);
+          x += v * dt;
+          if (Math.abs(x) < ZONE) fill = Math.min(1, fill + dt / 4.2);
+          if (Math.abs(x) > 1) {
+            bad(); shake(panel);
+            splash = { t: 0, x };
+            fill = Math.max(0, fill - 0.25);
+            hint.textContent = 'Spilt! Steady…';
+          }
+          if (fill >= 1) { over = true; hint.textContent = 'Not a drop spilt.'; setTimeout(done, 250); }
+        } else if (splash) {
+          splash.t += dt;
+          if (splash.t > 0.8) { splash = null; x = 0; v = 0; hint.textContent = 'Tilt to keep the tureen in the gold'; }
+        }
+        const k = Math.floor(fill * 4 + 1e-6);
+        if (k !== shown) { if (k > shown) step(k * 3); shown = k; P(k); }
+        // draw
+        g.fillStyle = '#1a1410'; g.fillRect(0, 0, w, h);
+        g.save(); g.translate(w / 2, h * 0.62); g.rotate(tilt * 0.22);
+        const TW = w * 0.78;
+        g.fillStyle = '#b8b2a4'; g.fillRect(-TW / 2, 0, TW, 8);
+        g.fillStyle = '#8a8478'; g.fillRect(-TW / 2 - 8, -4, 10, 14); g.fillRect(TW / 2 - 2, -4, 10, 14);
+        g.fillStyle = 'rgba(242,193,78,.55)'; g.fillRect(-TW / 2 * ZONE, 0, TW * ZONE, 3);
+        const bx = U.clamp(x, -1.1, 1.1) * TW / 2;
+        if (!splash) {
+          g.fillStyle = '#e8e1cf'; g.beginPath(); g.ellipse(bx, -12, 26, 13, 0, 0, Math.PI); g.fill();
+          g.fillStyle = '#d0b070'; g.beginPath(); g.ellipse(bx, -12, 24, 5, 0, 0, Math.PI * 2); g.fill();
+          g.strokeStyle = 'rgba(255,255,255,' + (0.25 + 0.15 * Math.sin(t * 3)) + ')'; g.lineWidth = 2;
+          for (let s = -1; s <= 1; s++) {
+            g.beginPath(); g.moveTo(bx + s * 9, -20);
+            g.quadraticCurveTo(bx + s * 9 + 6 * Math.sin(t * 2 + s), -32, bx + s * 9, -44); g.stroke();
+          }
+        } else {
+          g.fillStyle = 'rgba(208,176,112,' + (1 - splash.t) + ')';
+          for (let i = 0; i < 9; i++) {
+            const a = i / 9 * Math.PI;
+            g.beginPath(); g.arc(bx + Math.cos(a) * splash.t * 60 * Math.sign(splash.x), -10 - Math.sin(a) * splash.t * 40 + splash.t * splash.t * 60, 4, 0, Math.PI * 2); g.fill();
+          }
+        }
+        g.restore();
+        g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(20, h - 16, w - 40, 6);
+        g.fillStyle = '#f2c14e'; g.fillRect(20, h - 16, (w - 40) * fill, 6);
+      });
+      return () => { stop(); window.removeEventListener('pointerup', up); window.removeEventListener('keydown', kd); window.removeEventListener('keyup', kd); };
+    },
+
+    /* The fencing master in the gallery. Watch the blade: it comes from
+       one side, sometimes after a feint, and you parry that way before
+       it lands. Six parries, each a little quicker. */
+    parry({ body, hint, rng, done, panel, pips }) {
+      const NEED = 6;
+      const P = pips(NEED);
+      const arena = el('div', 'cg-arena');
+      const core = el('div', 'cg-foil', '<i></i>');
+      arena.appendChild(core);
+      const DIRS = ['up', 'left', 'right', 'down'];
+      const ARROW = { up: '↑', left: '←', right: '→', down: '↓' };
+      const btns = {};
+      for (const d of DIRS) {
+        const b = el('button', 'cg-dir ' + d, ARROW[d]);
+        b.type = 'button';
+        b.onclick = () => parry(d);
+        arena.appendChild(b);
+        btns[d] = b;
+      }
+      body.appendChild(arena);
+      let done_ = 0, threat = null, live = true;
+      const timers = [];
+      const later = (fn, ms) => { const id = setTimeout(fn, ms); timers.push(id); return id; };
+      let strikeT = null;
+      const clear = () => { for (const d of DIRS) btns[d].classList.remove('threat', 'feint', 'good', 'hurt'); core.className = 'cg-foil'; };
+      const attack = () => {
+        if (!live) return;
+        clear(); threat = null;
+        core.classList.add('wind');
+        hint.textContent = 'En garde…';
+        later(() => {
+          if (!live) return;
+          let d = DIRS[rng.int(0, 3)];
+          const windowMs = Math.max(520, 1050 - done_ * 90);
+          const go = (dir) => {
+            clear(); threat = dir;
+            btns[dir].classList.add('threat');
+            core.classList.add('at-' + dir);
+            core.style.setProperty('--win', windowMs + 'ms');
+            tone(660, 0.05, 'square', 0.05);
+            clearTimeout(strikeT);
+            strikeT = later(() => { if (threat === dir) hit('Too slow — touché!'); }, windowMs);
+          };
+          if (done_ >= 2 && rng() < 0.4) {
+            // the feint: it shows one side, then comes from another
+            const f = d;
+            d = DIRS[(DIRS.indexOf(f) + 1 + rng.int(0, 2)) % 4];
+            clear(); threat = 'feint:' + f;
+            btns[f].classList.add('feint');
+            later(() => { if (live && threat === 'feint:' + f) go(d); }, 260);
+          } else go(d);
+          hint.textContent = 'Parry!';
+        }, 500 + rng.int(0, 450));
+      };
+      const hit = (why) => {
+        clearTimeout(strikeT);
+        threat = null;
+        bad(); shake(panel);
+        arena.classList.add('touched'); later(() => arena.classList.remove('touched'), 300);
+        hint.textContent = why;
+        later(attack, 800);
+      };
+      function parry(d) {
+        if (!live || !threat) return;
+        if (threat.startsWith('feint:')) { hit('A feint — you bit. Touché!'); return; }
+        if (d !== threat) { hit('Wrong side — touché!'); return; }
+        clearTimeout(strikeT);
+        btns[d].classList.add('good');
+        threat = null;
+        tone(1320, 0.07, 'square', 0.06); tone(1760, 0.12, 'triangle', 0.08);
+        done_++; P(done_);
+        hint.textContent = done_ + ' of ' + NEED + ' parried';
+        if (done_ >= NEED) { live = false; setTimeout(done, 300); return; }
+        later(attack, 380);
+      }
+      const KEY = { ArrowUp: 'up', KeyW: 'up', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowDown: 'down', KeyS: 'down' };
+      const onKey = (e) => { if (KEY[e.code]) { e.preventDefault(); if (!e.repeat) parry(KEY[e.code]); } };
+      window.addEventListener('keydown', onKey);
+      later(attack, 400);
+      return () => { live = false; timers.forEach(clearTimeout); window.removeEventListener('keydown', onKey); };
+    },
+
+    /* A crest in the embroidery hoop, half sewn. Trace the dotted line
+       with your finger to stitch it in gold. Wander off it and you are
+       sewing air. */
+    trace({ body, hint, rng, done, pips }) {
+      const P = pips(5);
+      const B = board(body, 'cg-hoop', 230, 220);
+      const { g, w, h } = B;
+      const cx = w / 2, cy = h / 2, N = 140;
+      const SHAPES = [
+        (t) => [16 * Math.pow(Math.sin(t), 3), -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t))].map(v => v * 5),
+        (t) => { const r = 62 + 18 * Math.cos(5 * t); return [Math.sin(t) * r, -Math.cos(t) * r]; },
+        (t) => [Math.sin(t) * 82, Math.sin(2 * t) * 44],
+        (t) => { const k = (t / (Math.PI * 2)) * 10, i = Math.floor(k) % 10, f = k - Math.floor(k);
+                 const pt = (j) => { const a = j / 10 * Math.PI * 2, r = j % 2 ? 34 : 84; return [Math.sin(a) * r, -Math.cos(a) * r]; };
+                 const a = pt(i), b = pt(i + 1); return [U.lerp(a[0], b[0], f), U.lerp(a[1], b[1], f)]; },
+      ];
+      const shape = SHAPES[rng.int(0, SHAPES.length - 1)];
+      const pts = Array.from({ length: N }, (_, i) => { const p = shape(i / N * Math.PI * 2); return { x: cx + p[0], y: cy + p[1] + 4, on: false }; });
+      let down = false, last = null, done_ = false, sewn = 0, needle = null, stray = 0;
+      const draw = () => {
+        g.fillStyle = '#2a1c12'; g.fillRect(0, 0, w, h);
+        g.fillStyle = '#efe6d4'; g.beginPath(); g.arc(cx, cy, 104, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = 'rgba(120,100,70,.12)'; g.lineWidth = 1;
+        for (let i = -104; i < 104; i += 6) { g.beginPath(); g.moveTo(cx + i, cy - 104); g.lineTo(cx + i, cy + 104); g.moveTo(cx - 104, cy + i); g.lineTo(cx + 104, cy + i); g.stroke(); }
+        g.strokeStyle = '#9a6e50'; g.lineWidth = 7; g.beginPath(); g.arc(cx, cy, 106, 0, Math.PI * 2); g.stroke();
+        g.setLineDash([3, 5]); g.strokeStyle = 'rgba(80,60,40,.6)'; g.lineWidth = 2;
+        g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)); g.closePath(); g.stroke();
+        g.setLineDash([]);
+        g.strokeStyle = '#d4a017'; g.lineWidth = 4.5; g.lineCap = 'round';
+        for (let i = 0; i < N; i++) {
+          const a = pts[i], b = pts[(i + 1) % N];
+          if (a.on && b.on) { g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); }
+        }
+        if (needle) {
+          g.strokeStyle = stray > 0 ? '#ff8a9a' : '#c9ced6'; g.lineWidth = 2;
+          g.beginPath(); g.moveTo(needle.x, needle.y); g.lineTo(needle.x + 14, needle.y - 14); g.stroke();
+        }
+      };
+      const sew = (p) => {
+        const from = last || p, d = Math.hypot(p.x - from.x, p.y - from.y), n = Math.max(1, Math.ceil(d / 4));
+        let near = false;
+        for (let s = 1; s <= n; s++) {
+          const q = { x: U.lerp(from.x, p.x, s / n), y: U.lerp(from.y, p.y, s / n) };
+          for (const pt of pts) {
+            const dd = Math.hypot(pt.x - q.x, pt.y - q.y);
+            if (dd < 22) near = true;
+            if (dd < 15 && !pt.on) { pt.on = true; sewn++; }
+          }
+        }
+        last = p; needle = p;
+        stray = near ? 0 : stray + 1;
+        const k = sewn / N;
+        P(Math.min(5, Math.floor(k / 0.88 * 5)));
+        hint.textContent = stray > 6 ? 'Back onto the dotted line' : Math.round(Math.min(1, k / 0.88) * 100) + '% sewn';
+        if (k >= 0.88 && !done_) { done_ = true; for (const pt of pts) pt.on = true; good(); setTimeout(done, 200); }
+      };
+      const stop = loop(draw);
+      B.cv.addEventListener('pointerdown', (e) => { e.preventDefault(); down = true; last = null; try { B.cv.setPointerCapture(e.pointerId); } catch (err) {} sew(B.at(e)); });
+      B.cv.addEventListener('pointermove', (e) => { if (down) sew(B.at(e)); else needle = B.at(e); });
+      const up = () => { down = false; last = null; };
+      window.addEventListener('pointerup', up);
+      hint.textContent = 'Trace the dotted line';
+      return () => { stop(); window.removeEventListener('pointerup', up); };
+    },
+
+    /* The clan pipes, flat on the console. Blow to fill the bag and keep
+       it in the gold as the gold wanders — while it is, they play. */
+    bagpipes({ body, hint, rng, done, panel, pips }) {
+      const P = pips(4);
+      const wrap = el('div', 'cg-pipesbag');
+      const gauge = el('div', 'cg-gauge', '<i class="cg-gband"></i><i class="cg-glevel"></i>');
+      const bag = el('div', 'cg-bag', '<i></i><i></i><i></i>');
+      wrap.append(bag, gauge);
+      const btn = el('button', 'cg-pour-btn', 'HOLD TO BLOW');
+      btn.type = 'button';
+      body.append(wrap, btn);
+      const band = gauge.querySelector('.cg-gband'), lvl = gauge.querySelector('.cg-glevel');
+      const ph = rng.range(0, 6.28);
+      let t = 0, p = 0.3, blowing = false, fill = 0, shown = 0, over = false;
+      // the drone and the chanter: real oscillators, faded in while in tune
+      let ctx = null, gain = null, osc = [], chanter = null;
+      try {
+        ctx = (typeof AudioBus !== 'undefined' && (AudioBus.ctx || AudioBus.init())) || null;
+        if (ctx) {
+          gain = ctx.createGain(); gain.gain.value = 0;
+          const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400;
+          lp.connect(gain); gain.connect(ctx.destination);
+          for (const f of [73.4, 146.8, 147.3]) { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(lp); o.start(); osc.push(o); }
+          chanter = ctx.createOscillator(); chanter.type = 'sawtooth'; chanter.frequency.value = 587; chanter.connect(lp); chanter.start(); osc.push(chanter);
+        }
+      } catch (e) { ctx = null; }
+      const MEL = [587, 659, 698, 880, 784, 698, 659, 587, 523, 587];
+      const blowOn = (e) => { if (e) e.preventDefault(); blowing = true; btn.classList.add('on'); };
+      const blowOff = () => { blowing = false; btn.classList.remove('on'); };
+      btn.addEventListener('pointerdown', blowOn);
+      window.addEventListener('pointerup', blowOff);
+      const onKey = (e) => { if (e.code === 'Space') { e.preventDefault(); if (e.type === 'keydown') { if (!e.repeat) blowOn(); } else blowOff(); } };
+      window.addEventListener('keydown', onKey); window.addEventListener('keyup', onKey);
+      hint.textContent = 'Keep the bag in the gold';
+      const stop = loop((dt) => {
+        t += dt;
+        p += (blowing ? 0.62 : -0.34) * dt;
+        const c = 0.55 + Math.sin(t * 0.75 + ph) * 0.2 + Math.sin(t * 1.9) * 0.05, hw = 0.12;
+        let inTune = false;
+        if (p > 1) { bad(); shake(panel); p = 0.55; hint.textContent = 'Squeal! Gentler…'; }
+        p = Math.max(0, p);
+        if (!over && Math.abs(p - c) < hw) { inTune = true; fill = Math.min(1, fill + dt / 4.5); }
+        band.style.bottom = ((c - hw) * 100) + '%'; band.style.height = (hw * 200) + '%';
+        lvl.style.height = (Math.min(1, p) * 100) + '%';
+        gauge.classList.toggle('in', inTune);
+        bag.style.transform = 'scale(' + (0.75 + Math.min(1, p) * 0.35).toFixed(3) + ')';
+        if (gain && ctx) {
+          gain.gain.setTargetAtTime(inTune ? 0.05 : 0, ctx.currentTime, 0.04);
+          if (chanter) chanter.frequency.setTargetAtTime(MEL[Math.floor(t * 3.2) % MEL.length], ctx.currentTime, 0.01);
+        }
+        const k = Math.floor(fill * 4 + 1e-6);
+        if (k !== shown) { shown = k; P(k); if (k) hint.textContent = ['', 'They’re skirling!', 'Keep it up…', 'Nearly a tune'][Math.min(3, k)] || hint.textContent; }
+        if (!over && fill >= 1) { over = true; hint.textContent = 'A proper lament.'; setTimeout(done, 200); }
+      });
+      return () => {
+        stop();
+        window.removeEventListener('pointerup', blowOff);
+        window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey);
+        try { if (gain && ctx) gain.gain.setTargetAtTime(0, ctx.currentTime, 0.03); osc.forEach(o => o.stop(ctx.currentTime + 0.2)); } catch (e) {}
+      };
+    },
+
+    /* The laird's account book. Add up the column and pick the total.
+       Three pages, a line longer each time. */
+    ledger({ body, hint, rng, done, panel, pips }) {
+      const NEED = 3;
+      const P = pips(NEED);
+      const page = el('div', 'cg-ledger');
+      const opts = el('div', 'cg-sums');
+      body.append(page, opts);
+      const GOODS = ['Candles', 'Claret', 'Oats', 'Peat', 'Tartan', 'Venison', 'Coal', 'Wax', 'Salt', 'Whisky', 'Hay', 'Lamp oil'];
+      let won = 0, live = true, choices = [];
+      const deal = () => {
+        const n = 2 + won;
+        const goods = shuffled(rng, GOODS).slice(0, n);
+        const sums = goods.map(() => rng.int(2, 9 + won * 4));
+        const total = sums.reduce((a, b) => a + b, 0);
+        page.innerHTML = goods.map((gd, i) => '<div><span>' + esc(gd) + '</span><b>£' + sums[i] + '</b></div>').join('')
+          + '<div class="cg-total"><span>Total</span><b>£ ?</b></div>';
+        const set = new Set([total]);
+        const near = [1, -1, 2, -2, 10, -10, 3];
+        for (const d of shuffled(rng, near)) { if (set.size >= 4) break; if (total + d > 0) set.add(total + d); }
+        choices = shuffled(rng, [...set]);
+        opts.innerHTML = '';
+        choices.forEach((v, i) => {
+          const b = el('button', 'cg-sum', '£' + v + ((typeof Input !== 'undefined' && Input.isTouch) ? '' : '<kbd>' + (i + 1) + '</kbd>'));
+          b.type = 'button';
+          b.onclick = () => pick(v, b, total, page);
+          opts.appendChild(b);
+        });
+        hint.textContent = 'Page ' + (won + 1) + ' of ' + NEED;
+      };
+      const pick = (v, b, total, pg) => {
+        if (!live || b.disabled) return;
+        if (v !== total) { bad(); shake(panel); b.disabled = true; b.classList.add('wrong'); hint.textContent = 'Not that — tot it up again'; return; }
+        b.classList.add('right');
+        const tl = pg.querySelector('.cg-total b'); if (tl) tl.textContent = '£' + total;
+        won++; P(won); step(won * 4);
+        live = false;
+        if (won >= NEED) { hint.textContent = 'The books balance.'; setTimeout(done, 350); return; }
+        setTimeout(() => { live = true; deal(); }, 600);
+      };
+      const onKey = (e) => {
+        const m = /^(?:Digit|Numpad)([1-4])$/.exec(e.code);
+        if (!m) return;
+        const b = opts.children[Number(m[1]) - 1];
+        if (b) { e.preventDefault(); b.click(); }
+      };
+      window.addEventListener('keydown', onKey);
+      deal();
+      return () => { live = false; window.removeEventListener('keydown', onKey); };
+    },
+
+    /* The dumbwaiter in the scullery: wind the handle round and round to
+       haul the box up the shaft. Stop winding and it creeps back down. */
+    crank({ body, hint, rng, done, pips }) {
+      const P = pips(4);
+      const TURNS = 3.2;
+      const wrap = el('div', 'cg-winch');
+      const shaft = el('div', 'cg-shaft', '<i class="cg-box"></i><i class="cg-rope"></i>');
+      const NS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('viewBox', '-80 -80 160 160');
+      svg.classList.add('cg-wheel');
+      svg.innerHTML = '<circle r="70" class="cg-wheel-rim"/><circle r="10" class="cg-hub"/>'
+        + '<g class="cg-arm"><line x1="0" y1="0" x2="0" y2="-54"/><circle cy="-54" r="13" class="cg-knob"/></g>'
+        + '<path class="cg-wheel-arrow" d="M 44 -56 A 72 72 0 0 1 70 -16" />';
+      wrap.append(svg, shaft);
+      body.appendChild(wrap);
+      const arm = svg.querySelector('.cg-arm'), box = shaft.querySelector('.cg-box'), rope = shaft.querySelector('.cg-rope');
+      let ang = 0, prog = 0, grab = null, lastA = 0, clickAt = 0, idle = 0, over = false, keyTurn = false, shown = 0;
+      const angleOf = (e) => {
+        const r = svg.getBoundingClientRect();
+        const x = (e.clientX - r.left) / (r.width || 160) * 160 - 80, y = (e.clientY - r.top) / (r.height || 160) * 160 - 80;
+        return Math.atan2(x, -y);
+      };
+      const turn = (d) => {
+        if (over) return;
+        if (d > 0) { prog = Math.min(1, prog + d / (Math.PI * 2 * TURNS)); idle = 0; }
+        ang += d;
+        if (Math.abs(ang - clickAt) > 0.5) { clickAt = ang; tone(d > 0 ? 900 : 500, 0.025, 'square', 0.04); }
+      };
+      svg.addEventListener('pointerdown', (e) => { e.preventDefault(); grab = true; lastA = angleOf(e); try { svg.setPointerCapture(e.pointerId); } catch (err) {} });
+      const move = (e) => {
+        if (!grab) return;
+        const a = angleOf(e);
+        let d = a - lastA;
+        if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2;
+        lastA = a;
+        turn(d);
+      };
+      const up = () => { grab = null; };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      const onKey = (e) => {
+        if (e.code === 'Space' || e.code === 'ArrowRight') { e.preventDefault(); keyTurn = e.type === 'keydown'; }
+      };
+      window.addEventListener('keydown', onKey); window.addEventListener('keyup', onKey);
+      hint.textContent = 'Wind it clockwise, round and round';
+      const stop = loop((dt) => {
+        if (keyTurn) turn(dt * 5.2);
+        idle += dt;
+        if (!over && idle > 0.35 && prog > 0) prog = Math.max(0, prog - dt * 0.05);
+        arm.setAttribute('transform', 'rotate(' + (ang * 180 / Math.PI).toFixed(1) + ')');
+        box.style.bottom = (prog * 78) + '%';
+        rope.style.height = ((1 - prog) * 78 + 4) + '%';
+        const k = Math.floor(prog * 4 + 1e-6);
+        if (k !== shown) { if (k > shown) step(k * 3); shown = k; P(k); }
+        hint.textContent = over ? 'Up it comes.' : idle > 0.35 && prog > 0 ? 'It’s slipping — keep winding!' : Math.round(prog * 100) + '% of the way up';
+        if (!over && prog >= 1) { over = true; hint.textContent = 'Up it comes.'; setTimeout(done, 250); }
+      });
+      return () => { stop(); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); };
     },
   };
 
