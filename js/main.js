@@ -194,7 +194,6 @@ const Game = (() => {
      so, and there is now exactly one way to do it. */
   function toLobby() {
     AudioBus.resume();
-    Voice.unlock();
     AudioBus.play('ui-click');
     Screens.transition(() => {
       if (typeof Show !== 'undefined' && Show.running) Show.end({ abandon: true });
@@ -313,6 +312,10 @@ const Game = (() => {
 
     // audio can only start after a real user gesture, and so can speech
     const kick = () => {
+      /* Speech first, before the band: starting the speech engine can
+         stop Web Audio on an iPad, and it must not happen under music
+         that is already playing (see `Voice.unlock`). */
+      Voice.unlock();
       AudioBus.init(); AudioBus.resume();
       AudioBus.setMuted(GameState.settings.muted);
       setMusic(GameState.settings.music);
@@ -324,6 +327,8 @@ const Game = (() => {
     };
     window.addEventListener('pointerdown', kick, { once: true });
     window.addEventListener('keydown', kick, { once: true });
+    // Safari may not count a bare pointerdown as the gesture speech needs; a no-op once it has taken
+    window.addEventListener('click', () => Voice.unlock(), { once: true, capture: true });
 
     /* screens */
     Screens.onShow(syncOverture);
