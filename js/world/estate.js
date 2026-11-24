@@ -56,9 +56,8 @@ const Estate = (() => {
     for(const x of [-6,6]){box('masonry',6,10,6,x,27,-24);roof(x,-24,6.7,7,32,5);}
     box('masonry',6,3,6,0,30.5,-24);
     for(const x of [-2.9,2.9])box('timber',.24,5.3,2.6,x,24.65,-23);
-    // the forecourt's top at the ground's own height (22), the gravel just proud, so the opening cast's feet are not in the stone
-    box('paving',45,.2,55,0,21.9,3);
-    box('gravel',11,.12,17,10,21.944,-10);box('gravel',12,.12,17,14,21.944,20);
+    box('paving',45,.2,55,0,21.99,3);
+    box('gravel',11,.12,17,10,22.08,-10);box('gravel',12,.12,17,14,22.08,20);
     box('masonry',1,1.3,55,-23,22.65,3);
     // The lantern path leaves through a gateway in the east wall, cut exactly
     // to its kerbs: piers either side and a threshold stone level with both.
