@@ -9,8 +9,6 @@ const Estate = (() => {
     const toLocal=p=>p.applyAxisAngle(axisY,turn),toWorld=(x,z)=>V(x,0,z).applyAxisAngle(axisY,-turn).add(V(origin[0],0,origin[2]));
     const group=new THREE.Group();group.name='highland-estate';group.rotation.y=turn;group.position.copy(toLocal(V(-origin[0],0,-origin[2])));scene.add(group);
     const mats={}, batches=new Map(),lights=[],windows=[],gates=[];
-    // a fixed hash of a place: the same stone, tree and hill every game
-    const hash2=(x,z)=>{const h=Math.sin(x*127.1+z*311.7)*43758.5453;return h-Math.floor(h);};
     const mat=id=>mats[id]||(mats[id]=EstateMaterials.material(id));
     function mesh(g,id,x=0,y=0,z=0,ry=0,staticMesh=true){
       EstateMaterials.uv(g,EstateMaterials.families[id][1]);
@@ -58,57 +56,8 @@ const Estate = (() => {
     for(const x of [-6,6]){box('masonry',6,10,6,x,27,-24);roof(x,-24,6.7,7,32,5);}
     box('masonry',6,3,6,0,30.5,-24);
     for(const x of [-2.9,2.9])box('timber',.24,5.3,2.6,x,24.65,-23);
-    /* The forecourt is where everybody stands at the start, at the ground's
-       own height (22): the paving's top is laid at it, and the gravel just
-       proud of the paving. It used to stand 9 cm (paving) and 14 cm (gravel)
-       above, and the whole opening cast had their feet in the stone. */
-    // the joints: a darker bed 1.5 cm under the flags, seen between them
-    box('masonry',45,.2,55,0,21.885,3);
-    /* The flags themselves, laid in courses, each stone its own shade of
-       weathered sandstone — and where the cast gathers at the start, a
-       ring of radial setts with a dark border and an eight-point star let
-       into the middle, so the opening stands somewhere, not on a car park. */
-    {
-      const pos=[],col=[],c=new THREE.Color(),Y=22.0,G=.035;
-      const shade=(x,z,k)=>{const h=hash2(x*1.7+k,z*2.3-k);const tones=['#9a9384','#8e877a','#a59e8e','#857f74','#b0a796','#938a7a'];
-        c.set(tones[Math.floor(h*tones.length)]);c.multiplyScalar(.92+.16*hash2(z,x));return c;};
-      const quad=(pts,cc)=>{for(const i of [0,1,2,0,2,3]){pos.push(pts[i][0],Y,pts[i][1]);col.push(cc.r,cc.g,cc.b);}};
-      const CX=0,CZ=0,RING=6.2,BORDER=6.75;
-      // the courses, clear of the circle
-      for(let z=-24.4,row=0;z<30.4;row++){
-        const d=row%3===1?.62:.88;
-        for(let x=-22.4+hash2(row,1)*.6;x<22.4;){
-          const w=.85+hash2(x,z)*.85,x1=Math.min(22.4,x+w),z1=Math.min(30.4,z+d);
-          const mx=(x+x1)/2-CX,mz=(z+z1)/2-CZ;
-          if(Math.hypot(mx,mz)>BORDER+.55)quad([[x+G,z+G],[x1-G,z+G],[x1-G,z1-G],[x+G,z1-G]],shade(x,z,0));
-          x=x1;
-        }
-        z+=d;
-      }
-      // the ring of setts, and the border
-      const arcQuad=(r0,r1,a0,a1,cc)=>quad([[CX+Math.cos(a0)*r0,CZ+Math.sin(a0)*r0],[CX+Math.cos(a0)*r1,CZ+Math.sin(a0)*r1],
-                                           [CX+Math.cos(a1)*r1,CZ+Math.sin(a1)*r1],[CX+Math.cos(a1)*r0,CZ+Math.sin(a1)*r0]],cc);
-      for(let r=1.4;r<RING-.01;r+=.62){
-        const r1=Math.min(RING,r+.62),n=Math.max(8,Math.round(2*Math.PI*r/0.95));
-        for(let k=0;k<n;k++){const a0=k/n*Math.PI*2+G/r,a1=(k+1)/n*Math.PI*2-G/r;arcQuad(r+G,r1-G,a0,a1,shade(r,k,3).multiplyScalar(1.04));}
-      }
-      for(let k=0;k<72;k++){const a0=k/72*Math.PI*2+.006,a1=(k+1)/72*Math.PI*2-.006;arcQuad(RING+G,BORDER-G,a0,a1,c.set(k%2?'#4f4b46':'#5c5751'));}
-      // the star in the middle: eight points, dark and pale by turns
-      for(let k=0;k<16;k++){
-        const a=k/16*Math.PI*2,b=(k+1)/16*Math.PI*2,tipA=k%2?.62:1.36,tipB=k%2?1.36:.62;
-        const cc=c.set(k%2?'#c8bfae':'#5a554f');
-        for(const i of [0,1,2]){const pt=[[CX,CZ],[CX+Math.cos(a)*tipA,CZ+Math.sin(a)*tipA],[CX+Math.cos(b)*tipB,CZ+Math.sin(b)*tipB]][i];pos.push(pt[0],Y,pt[1]);col.push(cc.r,cc.g,cc.b);}
-      }
-      // the plain ring the star sits in
-      const n0=24;for(let k=0;k<n0;k++)arcQuad(1.36+G,1.4-G+0.0001,k/n0*Math.PI*2,(k+1)/n0*Math.PI*2,c.set('#4f4b46'));
-      const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
-      g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
-      // flat, facing up, whichever way each quad was wound
-      const nrm=new Float32Array(pos.length);for(let i=1;i<nrm.length;i+=3)nrm[i]=1;g.setAttribute('normal',new THREE.BufferAttribute(nrm,3));
-      g.setAttribute('uv',new THREE.Float32BufferAttribute(Array.from({length:pos.length/3*2},(_,i)=>i%2?pos[(i>>1)*3+2]/2.5:pos[(i>>1)*3]/2.5),2));
-      const flags=new THREE.Mesh(g,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.93,side:THREE.DoubleSide}));
-      flags.name='estate-forecourt';group.add(flags);
-    }
+    // the forecourt's top at the ground's own height (22), the gravel just proud, so the opening cast's feet are not in the stone
+    box('paving',45,.2,55,0,21.9,3);
     box('gravel',11,.12,17,10,21.944,-10);box('gravel',12,.12,17,14,21.944,20);
     box('masonry',1,1.3,55,-23,22.65,3);
     // The lantern path leaves through a gateway in the east wall, cut exactly
@@ -285,152 +234,27 @@ const Estate = (() => {
       const key=Math.floor(x/100)+':'+Math.floor(z/100);if(!cells.has(key))cells.set(key,[]);
       cells.get(key).push([x,EstateLayout.heightAt(x,z),z,rng.range(5,14),rng.range(.7,1.4)]);
     }
-    /* Two Highland trees, not one green cone. A Scots pine: a long bare
-       trunk going red-brown towards the top, and dark flat crowns of
-       needles held out at the top in two or three clumps. A spruce: a
-       dark narrow spire in three tiers. */
     const trunkGeo=new THREE.CylinderGeometry(.12,.25,1,7),leafGeo=new THREE.ConeGeometry(1,1,8),dummy=new THREE.Object3D();
-    const crownGeo=(()=>{const g=new THREE.IcosahedronGeometry(1,1),p=g.attributes.position;
-      for(let i=0;i<p.count;i++){const x=p.getX(i),y=p.getY(i),z=p.getZ(i),k=1+.18*Math.sin(x*5.1+z*3.7);p.setXYZ(i,x*k,y*.42*(y<0?.55:1),z*k);}
-      g.computeVertexNormals();return g;})();
-    // tints over the needle texture (already a dark green): a cooler spruce, a warmer pine; the bark map is pine bark already
-    const leaves=EstateMaterials.material('foliage',{color:'#5e9a6a',roughness:1});
-    const pineLeaves=EstateMaterials.material('foliage',{color:'#73a552',roughness:1});
-    const pineBark=EstateMaterials.material('bark',{color:'#ffe2cc'});
+    const leaves=EstateMaterials.material('foliage',{color:'#6aa856',roughness:1});
     const wind={value:0},leafSurface=leaves.onBeforeCompile;leaves.onBeforeCompile=shader=>{leafSurface(shader);shader.uniforms.estateTime=wind;shader.vertexShader='uniform float estateTime;\n'+shader.vertexShader;shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n transformed.x += sin(estateTime * 1.5 + instanceMatrix[3].x * .14) * .018 * (position.y + .5);');};
-    pineLeaves.onBeforeCompile=leaves.onBeforeCompile;
-    for(const all of cells.values()){
-      // which is which: the same every game, from where the tree stands
-      const pines=all.filter(p=>hash2(p[0]*.37,p[2]*.37)<.58),firs=all.filter(p=>hash2(p[0]*.37,p[2]*.37)>=.58);
-      if(firs.length){
-        const trunks=new THREE.InstancedMesh(trunkGeo,mat('bark'),firs.length),canopies=new THREE.InstancedMesh(leafGeo,leaves,firs.length*3);
-        firs.forEach((p,i)=>{
-          dummy.rotation.set(0,0,0);
-          dummy.position.set(p[0],p[1]+p[3]/2,p[2]);dummy.scale.set(p[4],p[3],p[4]);dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);
-          for(let k=0;k<3;k++){dummy.position.y=p[1]+p[3]*(.42+k*.2);const w=p[3]*(.26-k*.06);dummy.scale.set(w,p[3]*(.5-k*.08),w);dummy.updateMatrix();canopies.setMatrixAt(i*3+k,dummy.matrix);}
-        });trunks.computeBoundingSphere();canopies.computeBoundingSphere();group.add(trunks,canopies);
-      }
-      if(pines.length){
-        const trunks=new THREE.InstancedMesh(trunkGeo,pineBark,pines.length),crowns=new THREE.InstancedMesh(crownGeo,pineLeaves,pines.length*3);
-        pines.forEach((p,i)=>{
-          const H=p[3]*1.25,lean=(hash2(p[0],p[2])-.5)*.12;
-          dummy.rotation.set(lean,0,lean*.6);
-          dummy.position.set(p[0],p[1]+H*.42,p[2]);dummy.scale.set(p[4]*.75,H*.84,p[4]*.75);dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);
-          for(let k=0;k<3;k++){
-            const a=hash2(p[0]+k,p[2]-k)*6.28,off=k?H*.11:0,w=H*(k?.16:.22);
-            dummy.rotation.set(0,a,0);
-            dummy.position.set(p[0]+Math.cos(a)*off+lean*H*.8,p[1]+H*(.86-k*.1),p[2]+Math.sin(a)*off+lean*H*.5);
-            dummy.scale.set(w,w*.9,w*(.8+.3*hash2(k,p[0])));dummy.updateMatrix();crowns.setMatrixAt(i*3+k,dummy.matrix);
-          }
-        });trunks.computeBoundingSphere();crowns.computeBoundingSphere();group.add(trunks,crowns);
-      }
+    for(const list of cells.values()){
+      const trunks=new THREE.InstancedMesh(trunkGeo,mat('bark'),list.length),canopies=new THREE.InstancedMesh(leafGeo,leaves,list.length*2);
+      list.forEach((p,i)=>{
+        dummy.position.set(p[0],p[1]+p[3]/2,p[2]);dummy.scale.set(p[4],p[3],p[4]);dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);
+        for(let k=0;k<2;k++){dummy.position.y=p[1]+p[3]*(.55+k*.23);dummy.scale.set(p[3]*(.28-k*.065),p[3]*.65,p[3]*(.28-k*.065));dummy.updateMatrix();canopies.setMatrixAt(i*2+k,dummy.matrix);}
+      });trunks.computeBoundingSphere();canopies.computeBoundingSphere();group.add(trunks,canopies);
     }
     // Fixed mountain shoulders; seed variation never shifts the estate geography.
-    /* Highland bens, not cones: a ridged fractal over a falling profile
-       gives knife-edge arêtes and gullies, one shoulder is scooped into a
-       corrie, and the colour comes from height and steepness — grass and
-       bracken at the foot, a band of purple heather, bare schist on the
-       steep faces, scree above, and snow lying where the high ground is
-       flat enough to hold it. The highest, facing the forecourt, has a
-       waterfall down its gully. Fixed noise: every game sees the same hills. */
-    const vnoise=(x,z)=>{const xi=Math.floor(x),zi=Math.floor(z),xf=x-xi,zf=z-zi,u=xf*xf*(3-2*xf),v=zf*zf*(3-2*zf);
-      const a=hash2(xi,zi),b=hash2(xi+1,zi),c=hash2(xi,zi+1),d=hash2(xi+1,zi+1);return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;};
-    const ridged=(x,z)=>{let sum=0,amp=.55,f=1,w=1;for(let o=0;o<5;o++){let n=1-Math.abs(vnoise(x*f,z*f)*2-1);n*=n*w;w=Math.min(1,n*1.6);sum+=n*amp;amp*=.5;f*=2.03;}return sum;};
-    const benMat=new THREE.MeshStandardMaterial({vertexColors:true,roughness:1});
-    const BENS=[[-510,100,195,210],[-520,450,230,285],[-280,780,250,320],[120,1000,280,360],[620,210,230,270],[740,700,230,335],[-330,-270,190,210],[160,-380,230,270]];
-    const benAt=[];
-    BENS.forEach(([bx,bz,radius,h],bi)=>{
-      const RINGS=low?14:30,SEG=low?36:84;
-      const toCourt=Math.atan2(-bz,-bx),corrie=toCourt+(bi%2?.9:-.9);
-      const sumX=radius*.18*Math.cos(bi*1.7),sumZ=radius*.14*Math.sin(bi*2.3);
-      const height=(u,a)=>{
-        // a falling profile, with the summit off-centre
-        const prof=Math.pow(Math.max(0,1-Math.pow(u,1.2)),1.75)*(1+.16*Math.cos(a*2+bi));
-        const px=Math.cos(a)*u*radius,pz=Math.sin(a)*u*radius;
-        const r=ridged(px/150+bi*7.3,pz/150-bi*3.1);
-        let y=h*prof*(.62+.62*r);
-        // the corrie: a bowl bitten out of one high shoulder, with a lip
-        const da=Math.atan2(Math.sin(a-corrie),Math.cos(a-corrie));
-        const bowl=Math.exp(-(da*da)/.18)*Math.exp(-Math.pow((u-.42)/.17,2));
-        y-=h*.24*bowl;
-        return Math.max(0,y);
-      };
-      const pos=[],col=[],ind=[],c=new THREE.Color();
-      for(let ri=0;ri<=RINGS;ri++){
-        const u=ri/RINGS;
-        for(let si=0;si<SEG;si++){
-          const a=si/SEG*Math.PI*2,y=height(u,a)+(ri===RINGS?-40:0),pull=1-u;
-          pos.push(Math.cos(a)*u*radius+sumX*pull*pull,y,Math.sin(a)*u*radius+sumZ*pull*pull);
-        }
+    for(const [x,z,radius,h]of [[-510,100,195,210],[-520,450,230,285],[-280,780,250,320],[120,1000,280,360],[620,210,230,270],[740,700,230,335],[-330,-270,190,210],[160,-380,230,270]]){
+      const geo=new THREE.ConeGeometry(radius,h,low?18:30,low?8:14);const p=geo.attributes.position,col=[],c=new THREE.Color();
+      for(let i=0;i<p.count;i++){
+        const yy=p.getY(i),t=(yy+h/2)/h,angle=Math.atan2(p.getZ(i),p.getX(i));
+        const rough=1+.16*Math.sin(angle*5+t*3)+.12*Math.cos(angle*9-t*6);
+        p.setX(i,p.getX(i)*rough+t*t*radius*.21);p.setZ(i,p.getZ(i)*rough+t*radius*.15);
+        c.set(t>.8&&h>280?'#f6f8fb':t>.62?'#a9b3ae':t>.35?'#8fae80':'#76a463');c.multiplyScalar(.88+.12*Math.sin(angle*7));col.push(c.r,c.g,c.b);
       }
-      for(let ri=0;ri<RINGS;ri++)for(let si=0;si<SEG;si++){
-        const a=ri*SEG+si,b=ri*SEG+(si+1)%SEG,cI=(ri+1)*SEG+si,d=(ri+1)*SEG+(si+1)%SEG;
-        ind.push(a,b,cI,b,d,cI);
-      }
-      const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));geo.setIndex(ind);geo.computeVertexNormals();
-      const nrm=geo.attributes.normal,snowLine=h>300?.5:h>260?.58:.7;
-      for(let i=0;i<pos.length/3;i++){
-        if(i>=RINGS*SEG){c.set('#5f8a47');col.push(c.r,c.g,c.b);continue;}   // the skirt, under the grass
-        const x=pos[i*3],y=pos[i*3+1],z=pos[i*3+2],t=y/h,up=nrm.getY(i),nz=vnoise(x*.05,z*.05),fine=vnoise(x*.21+3,z*.21-5);
-        if(t>snowLine+(nz-.5)*.12&&up>.5)c.set('#f3f6fa').lerp(new THREE.Color('#c9d3e0'),(1-up)*.8);
-        else if(up<.62)c.set('#5f6266').lerp(new THREE.Color('#878a8c'),fine);              // bare schist
-        else if(t>.52)c.set('#8c897e').lerp(new THREE.Color('#a29d8f'),fine);              // scree
-        else if(t>.2+(nz-.5)*.12)c.set(nz>.5?'#6e4f72':'#7d6550').lerp(new THREE.Color('#5d6b48'),fine*.5); // heather, bracken
-        else c.set('#5f8a47').lerp(new THREE.Color('#7a9a52'),fine);                       // grass at the foot
-        c.multiplyScalar(.86+.18*up);col.push(c.r,c.g,c.b);
-      }
-      geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));EstateMaterials.uv(geo,8);
-      // untextured: from the forecourt a tiled rock map is only noise, and it greyed the snow
-      const mountain=new THREE.Mesh(geo,benMat);mountain.name='estate-ben';
-      // its foot just under the lowest ground round it, so it rises out of the glen with no seam
-      let foot=Infinity;for(let k=0;k<24;k++){const a=k/24*Math.PI*2;foot=Math.min(foot,EstateLayout.heightAt(bx+Math.cos(a)*radius*.97,bz+Math.sin(a)*radius*.97));}
-      foot=Math.min(15,foot-1.5);mountain.position.set(bx,foot,bz);group.add(mountain);
-      benAt.push({bx,bz,radius,h,height,toCourt,sumX,sumZ,foot});
-    });
-    // a waterfall down the gully of the tallest ben the forecourt can see
-    {
-      const b=benAt.reduce((m,x)=>x.h>m.h&&Math.hypot(x.bx,x.bz)<900?x:m,benAt[0]),pts=[],uvs=[],ix=[];
-      const a=b.toCourt+.12,N=40;
-      for(let k=0;k<=N;k++){
-        const u=.22+.5*k/N,wob=.025*Math.sin(k*1.3),aa=a+wob,y=b.height(u,aa)+b.foot+1.2,pull=1-u,w=1.2+k*.11;
-        const cx=b.bx+Math.cos(aa)*u*b.radius+b.sumX*pull*pull,cz=b.bz+Math.sin(aa)*u*b.radius+b.sumZ*pull*pull;
-        const sx=-Math.sin(aa)*w,sz=Math.cos(aa)*w;
-        pts.push(cx-sx,y,cz-sz,cx+sx,y,cz+sz);uvs.push(0,k/N,1,k/N);
-        if(k)ix.push((k-1)*2,(k-1)*2+1,k*2,k*2,(k-1)*2+1,k*2+1);
-      }
-      const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pts,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));g.setIndex(ix);g.computeVertexNormals();
-      const fall=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:opts.night?'#6c7a92':opts.evening?'#d6dde8':'#eef6ff',transparent:true,opacity:.82,side:THREE.DoubleSide,depthWrite:false,fog:true}));
-      fall.name='estate-waterfall';fall.renderOrder=2;group.add(fall);
-    }
-    /* A circle of standing stones on the brae above the forecourt, older
-       than the castle; and a few lone pines on the margins, so the first
-       shots of the night have something between the cast and the bens. */
-    {
-      const ring=[],SC=[-62,24],R=7.5,stoneGeo=(()=>{const g=new THREE.BoxGeometry(1,1,1,1,3,1),p=g.attributes.position;
-        for(let i=0;i<p.count;i++){const y=p.getY(i)+.5,k=1-.32*y;p.setX(i,p.getX(i)*k);p.setZ(i,p.getZ(i)*(k+.08*Math.sin(y*4)));p.setY(i,y);}
-        g.computeVertexNormals();return EstateMaterials.uv(g,1.2);})();
-      for(let k=0;k<11;k++){
-        if(k===7)continue;           // a gap where one fell
-        const a=k/11*Math.PI*2+hash2(k,3)*.2,x=SC[0]+Math.cos(a)*R,z=SC[1]+Math.sin(a)*R,hh=1.8+hash2(k,9)*1.7;
-        ring.push([x,EstateLayout.heightAt(x,z)-.25,z,hh,.6+hash2(k,5)*.35,a,(hash2(k,1)-.5)*.14]);
-      }
-      // the one that fell, lying in the grass, and the tall one at the head
-      ring.push([SC[0]+Math.cos(7/11*Math.PI*2)*(R+1.2),EstateLayout.heightAt(SC[0]+Math.cos(7/11*Math.PI*2)*(R+1.2),SC[1]+Math.sin(7/11*Math.PI*2)*(R+1.2))+.15,
-                 SC[1]+Math.sin(7/11*Math.PI*2)*(R+1.2),2.6,.7,0,1.5]);
-      ring.push([SC[0],EstateLayout.heightAt(SC[0],SC[1])-.3,SC[1]+R+3.5,4.2,.9,0,.04]);
-      const stones=new THREE.InstancedMesh(stoneGeo,mat('rock'),ring.length);
-      ring.forEach((r,i)=>{dummy.position.set(r[0],r[1],r[2]);dummy.rotation.set(r[6],r[5]+Math.PI/2,r[6]>1?0:r[6]*.5);
-        dummy.scale.set(r[4]*(r[6]>1?1.1:1),r[3],r[4]*.55);dummy.updateMatrix();stones.setMatrixAt(i,dummy.matrix);});
-      stones.computeBoundingSphere();stones.name='estate-stone-circle';group.add(stones);
-      const lone=[[-34,-12,13],[-39,22,11],[37,44,12],[-31,47,15],[44,-30,10],[-46,-34,14]]
-        .filter(([x,z])=>!EstateLayout.walkable(x,z)&&EstateLayout.route.nearest(x,z).distance>6&&F.nearest(x,z,5).distance>=5);
-      const lt=new THREE.InstancedMesh(trunkGeo,pineBark,lone.length),lc=new THREE.InstancedMesh(crownGeo,pineLeaves,lone.length*4);
-      lone.forEach(([x,z,H],i)=>{
-        const y=EstateLayout.heightAt(x,z);dummy.rotation.set(.05,0,-.04);
-        dummy.position.set(x,y+H*.42,z);dummy.scale.set(.55,H*.86,.55);dummy.updateMatrix();lt.setMatrixAt(i,dummy.matrix);
-        for(let k=0;k<4;k++){const a=k*1.9+i,off=k?H*.12:0,w=H*(k?.15:.2);dummy.rotation.set(0,a,0);
-          dummy.position.set(x+Math.cos(a)*off,y+H*(.88-k*.09),z+Math.sin(a)*off);dummy.scale.set(w,w*.9,w*.85);dummy.updateMatrix();lc.setMatrixAt(i*4+k,dummy.matrix);}
-      });lt.computeBoundingSphere();lc.computeBoundingSphere();group.add(lt,lc);
+      geo.computeVertexNormals();geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));EstateMaterials.uv(geo,8);
+      const mountain=new THREE.Mesh(geo,EstateMaterials.material('rock',{vertexColors:true,roughness:1}));mountain.position.set(x,h/2+15,z);group.add(mountain);
     }
     // Exposed schist outcrops and rough ridgelines interrupt the soft glen.
     const crags=[];
