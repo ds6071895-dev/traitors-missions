@@ -389,6 +389,11 @@ class FinaleScene {
           this._drawn = fz.pending + ':' + fz.round;
           await TieDraw.play(this, { key: 'fire-tie', claudiaShot: 'claudiaSide' });
           if (!this._alive) return;
+        } else if (!fz.lot && typeof Wildcard !== 'undefined' && this._wild !== fz.pending + ':' + fz.round) {
+          // the fire's own wild card: a name that went by one slate, or on a change of heart
+          this._wild = fz.pending + ':' + fz.round;
+          await Wildcard.play(this, Wildcard.detect(Session.state));
+          if (!this._alive) return;
         }
         await this._reveal();
       }
@@ -447,25 +452,84 @@ class FinaleScene {
   }
 
   /* The pouches of the decision, burned one by one: the Ends first, so
-     the room hears hope before it hears the Banish that kills it. */
+     the room hears hope before it hears the Banish that kills it.
+
+     Every pouch is a beat — the camera on whoever threw it, the room
+     holding still, the word, the fire answering in gold or blood — and
+     the count is kept on screen, because ending needs every one. One
+     pouch is the one that decides: the first Banish, which kills the
+     hope, or the last End of a unanimous fire, which ends the game. That
+     one gets the whole build, the breath and the biggest hit; the
+     Banishes after it are only the rest of the count. */
   async _decisions() {
     this._cue('names', { at: 'beat', glide: 0.6 });
-    let guard = 0, said = 0;
+    let guard = 0, said = 0, ends = 0, banishes = 0;
+    const f0 = Session.state.finale;
+    const total = Math.max(1, (f0.decisionQueue || []).length);
+    const count = () => 'END ' + ends + '  ·  BANISH ' + banishes + '  ·  ' + total + ' pouches';
+    await Scenes.Drama.hush(this.stage, null, 'claudia', { hold: 0.4, silent: false, cut: true, push: 0.08, speed: 0.5 });
+    if (!this._alive) return;
+    await Scenes.run([{ line: { text: 'Ending the game needs every pouch. One Banish, and it goes on.' }, hold: 0.3 }], this);
+    if (!this._alive) return;
     while (this._alive && guard++ < 10 && Session.state.phase === 'finale'
            && Session.state.finale.stage === 'decisions') {
       const f = Session.state.finale;
       const voter = Session.playerById(f.decisionQueue[0]);
       if (!voter) break;
       const choice = f.votes[voter.id];
-      await Scenes.run([{ shot: 'on:' + voter.id, wait: 0.5 }], this);
-      if (!this._alive) return;
+      const end = choice === 'end';
+      const lastPouch = f.decisionQueue.length === 1;
+      // the pouch that settles it: the first Banish, or the last of an all-End fire
+      const decides = (!end && banishes === 0) || (end && lastPouch);
+      const after = banishes > 0;               // already settled: only the count is left
+      const heat = decides ? 1 : after ? 0.35 : Math.min(0.9, 0.3 + 0.6 * (said + 1) / total);
+      if (this.music && this.music.setTension) this.music.setTension(0.3 + 0.7 * heat, 1.0);
+      const t0 = Date.now();
+      const build = decides ? Scenes.Drama.build(this.stage, this.music, 'pouch', { shot: 'on:' + voter.id, speed: 0.5, cut: true })
+                            : null;
       Scenes.Cine.card({ kicker: voter.local ? 'Your pouch' : voter.name + '\u2019s pouch',
-                         title: choice === 'end' ? 'END' : 'BANISH',
-                         tone: choice === 'end' ? 'faithful' : 'traitor' });
-      if (this.music) this.music.stinger(choice === 'end' ? 'vote' : 'name', { n: said++ });
-      else AudioBus.play('vote-in', { index: said++ });
-      await Scenes.wait(1.3);
+                         title: '· · ·', tone: 'slate', cls: 'heat-' + Math.min(3, Math.round(heat * 3)),
+                         sub: decides && ends === total - 1 ? 'Every pouch so far says End.' : count() });
+      if (!build) await Scenes.Drama.hush(this.stage, null, 'on:' + voter.id,
+                                          { hold: after ? 0.35 : 0.5 + 0.7 * heat, silent: false, cut: true, push: 0.12, speed: 0.5 });
+      else {
+        Scenes.Drama.shot(this.stage, 'on:' + voter.id, { cut: true, push: 0.25, speed: 0.3 });
+        await Scenes.Drama.peak(build, { since: t0, min: 2.6, max: 5 });
+      }
+      if (!this._alive) { if (build) build.cancel(); return; }
+      if (build) {
+        const wait = build.release(end ? 'vote' : 'name', { n: 4 });
+        if (wait) await Scenes.wait(wait);
+        if (!this._alive) return;
+      } else if (this.music) this.music.stinger(end ? 'vote' : 'name', { n: said });
+      else AudioBus.play('vote-in', { index: said });
+      said++;
+      if (end) ends++; else banishes++;
+      // the fire answers: gold for an End, blood for a Banish
+      this._burstEmbers(end ? '#ffcf6a' : '#d4142a', decides ? 1 : 0.35 + 0.4 * heat);
+      if (this.stage && this.stage.flare) this.stage.flare(decides ? 1 : 0.3 + 0.4 * heat);
+      Scenes.Drama.hit(this.stage, null, null, {
+        shake: decides ? 0.9 : 0.1 + 0.4 * heat,
+        flash: end ? 'rgba(255,196,90,' + (decides ? 0.7 : 0.15 + 0.25 * heat).toFixed(2) + ')'
+                   : 'rgba(210,16,30,' + (decides ? 0.8 : 0.2 + 0.3 * heat).toFixed(2) + ')',
+        haptic: decides ? 140 : 20 + Math.round(50 * heat),
+      });
+      Scenes.Cine.card({ kicker: voter.local ? 'Your pouch' : voter.name + '\u2019s pouch',
+                         title: end ? 'END' : 'BANISH', tone: end ? 'faithful' : 'traitor',
+                         cls: (decides ? 'last ' : '') + 'heat-' + Math.min(3, Math.round(heat * 3)),
+                         sub: count() });
+      if (this.stage && this.stage.setMood) this.stage.setMood(voter.id, decides ? 'nervous' : 'calm');
+      await Scenes.wait(decides ? 1.6 : after ? 0.8 : 1.3);
       if (!this._alive) return;
+      if (decides) {
+        // and Claudia says what it means, on her face
+        Scenes.Drama.shot(this.stage, 'claudia', { cut: true, push: 0.1, speed: 0.5 });
+        await Scenes.run([{ line: { text: end
+          ? 'Every single pouch says End.'
+          : (ends ? ends + (ends === 1 ? ' End, and then ' : ' Ends, and then ') : '')
+            + (voter.local ? 'yours' : voter.name + '\u2019s') + ' says Banish. The game goes on.' }, hold: 0.4 }], this);
+        if (!this._alive) return;
+      }
       await Scenes.barrier('decision-' + this._round() + '-' + voter.id);
       const before = voter.id;
       if (Session.isHost) Net.send({ type: 'decisionPouch', playerId: voter.id });
@@ -475,6 +539,7 @@ class FinaleScene {
       await Scenes.wait(0.3);
     }
     Scenes.Cine.card(null);
+    Scenes.Drama.end(this.stage, null);
     if (!this._alive || Session.state.phase !== 'finale') return;
     const t = Session.state.finale.lastTally;
     if (t && t.stage === 'decide') {
@@ -487,11 +552,13 @@ class FinaleScene {
   async _name() {
     const revote = Session.state.finale.nameRound > 0;
     if (revote) {
+      // the split, played as a stand-off between the tied (tie-draw.js)
+      await TieDraw.standoff(this, { line: 'voteNameTie', claudiaShot: 'claudiaSide' });
+      if (!this._alive) return;
       // nobody knows, and the harmony does not either
       this._cue('ballot', { at: 'bar' });
-      if (this.music) { this.music.setIntensity(1.1); this.music.stinger('tie', { at: 'beat' }); }
-    }
-    await this._say(revote ? 'voteNameTie' : 'voteName', {}, 'players');
+      if (this.music) this.music.setIntensity(1.1);
+    } else await this._say('voteName', {}, 'players');
     if (!this._alive || Session.state.finale.stage !== 'name') return;
 
     /* Talk first, name second — and one at a time. At the fire the

@@ -40,4 +40,36 @@ test('every screen spins the same wheel', () => {
   eq(JSON.stringify(a), JSON.stringify(b));
 });
 
-H.report();
+H.atest('tied once: a stand-off between the tied, then the revote', async () => {
+  const people = [{ id: 'a', name: 'Isla', seat: 2 }, { id: 'b', name: 'Ross', seat: 0 }, { id: 'c', name: 'Me', seat: 1, local: true }];
+  const said = [], cards = [], shots = [], acts = [];
+  let released = null, ended = 0;
+  const c = H.load(['js/core/util.js', 'js/scenes/tie-draw.js'], {
+    Session: {
+      state: { seed: 5, day: 2, finale: { nameRound: 1, tied: ['a', 'b'], lastTally: { counts: { a: 2, b: 2, c: 1 } } } },
+      playerById: (id) => people.find(p => p.id === id) || null,
+    },
+    Scenes: {
+      wait: () => Promise.resolve(),
+      Cine: { card: (x) => cards.push(x) },
+      Drama: {
+        hush: () => Promise.resolve(), hit() {}, end() { ended++; },
+        shot: (st, s) => shots.push(s),
+        build: () => ({ live: true, holding: true, release: (s) => { released = s; return 0; }, cancel() {} }),
+        peak: () => Promise.resolve(),
+      },
+    },
+  });
+  const scene = {
+    _alive: true, music: { silence() {}, stinger() {} },
+    stage: { act: (id, a) => acts.push(id + ':' + a), setMood() {} },
+    _say: (set, vars) => { said.push(set + ':' + (vars.names || '')); return Promise.resolve(); },
+  };
+  await c.TieDraw.standoff(scene, { line: 'tableTie' });
+  eq(said, ['tableTie:Ross and Isla', 'tieStandoff:Ross and Isla'], 'names the tied, in seat order');
+  ok(shots.indexOf('on:b') >= 0 && shots.indexOf('on:a') >= 0, 'a cut to each tied face');
+  ok(cards.some(x => x && x.title === 'A TIE' && /2 votes each/.test(x.sub)), 'A TIE, with the count');
+  eq(released, 'name', 'the revote lands on a hit');
+  eq(ended, 1, 'the camera is given back');
+  eq(cards[cards.length - 1], null, 'and the card is cleared');
+}).then(() => H.report());

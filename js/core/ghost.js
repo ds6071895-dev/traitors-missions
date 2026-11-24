@@ -38,7 +38,7 @@ const Ghost = (() => {
     badge.innerHTML = ICON + '<span><b>YOU ARE A GHOST</b><i>Out of the game · the living can’t hear you</i></span>';
     title = document.createElement('div');
     title.id = 'ghost-title';
-    title.innerHTML = ICON + '<b>You are a ghost</b><i>You are out of the game. Watch how it ends —<br>nobody still playing can hear you now.</i>';
+    title.innerHTML = ICON + '<b>You are a ghost</b><i>You are out of the game. Watch how it ends —<br>nobody still playing can hear you now.<br>You can still do jobs by day: nobody sees you, and they pay nothing.</i>';
     document.body.appendChild(veil);
     document.body.appendChild(title);
     document.body.appendChild(badge);

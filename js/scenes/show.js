@@ -47,6 +47,7 @@ const Show = (() => {
       tableTalk: opts.tableTalk || null,
       twists: opts.twists !== false,
       twistsEarly: !!opts.twistsEarly,
+      twistChance: opts.twistChance === undefined ? null : opts.twistChance,
       hideRoles: !!opts.hideRoles,
       forceTwist: opts.forceTwist || null,
       cast: opts.cast || null,

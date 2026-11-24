@@ -155,6 +155,25 @@ test('a route goes round furniture, not through it', () => {
 });
 
 
+test('a target on the hall stair is walked to, not into', () => {
+  const ctx = fresh();
+  const stair = { x0: -6.75, x1: -4.55, z0: 12.4, z1: 17.75 };       // the grand stair's solid box
+  ctx.CastleBots.buildGrid([stair]);
+  for (const st of ctx.Chores.STATIONS.filter(s => s.room === 'hall')) {
+    ok(!(st.x > stair.x0 - 0.3 && st.x < stair.x1 + 0.3 && st.z > stair.z0 - 0.3 && st.z < stair.z1 + 0.3), st.id + ' is not on the stair');
+  }
+  const route = ctx.CastleBots.path(0, 15, -5.6, 16.4);
+  let from = { x: 0, z: 15 };
+  for (const p of route) {
+    for (let k = 1; k <= 40; k++) {
+      const x = from.x + (p.x - from.x) * k / 40, z = from.z + (p.z - from.z) * k / 40;
+      ok(!(x > stair.x0 && x < stair.x1 && z > stair.z0 && z < stair.z1), 'the route climbs into the stair at ' + x.toFixed(1) + ',' + z.toFixed(1));
+    }
+    from = p;
+  }
+});
+
+
 section('castle — the pictures');
 
 /* The jobs are drawn, never typed: an emoji is a different picture on

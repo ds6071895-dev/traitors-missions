@@ -226,7 +226,7 @@ function talk(opts = {}) {
     canApproach: () => true, approach: () => true,
   };
   const ctx = H.load(['js/core/util.js', 'js/core/state.js', 'js/world/castle-layout.js', 'js/core/chores.js',
-                      'js/core/session.js', 'js/scenes/claudia-lines.js', 'js/core/castle-net.js', 'js/core/ai-director.js'], {
+                      'js/core/session.js', 'js/scenes/claudia-lines.js', 'js/core/castle-net.js', 'js/core/ai-strategy.js', 'js/core/ai-director.js'], {
     Date: FakeDate, Math: math,
     setInterval: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; }, clearInterval() {},
     setTimeout: (fn, ms) => { timeouts.push({ fn, at: now + ms }); return timeouts.length; }, clearTimeout() {},
@@ -311,7 +311,7 @@ test('a Faithful that suspects you says no, and its feet agree', () => {
 
 test('an AI asks for a private word; a yes and it leads the way', () => {
   const T = talk();
-  T.step(1);
+  T.step(1.5);
   ok(T.ctx.AIDirector.startEncounter('m', 'p1', null), 'it walked over and spoke');
   ok(/word in private/.test(T.asked[0].text), 'it asked for a private word');
   T.reply('m');
@@ -331,7 +331,7 @@ test('an AI asks for a private word; a yes and it leads the way', () => {
 
 test('"no worries" is a yes; "not now" is a no', () => {
   const T = talk();
-  T.step(1);
+  T.step(1.5);
   T.ctx.AIDirector.startEncounter('m', 'p1', null);
   T.reply('m');
   T.step(4);
@@ -339,7 +339,7 @@ test('"no worries" is a yes; "not now" is a no', () => {
   T.step(1.5);
   ok(T.walker.calls.some(c => c[0] === 'lead'), 'no worries means yes');
   const U2 = talk();
-  U2.step(1);
+  U2.step(1.5);
   U2.ctx.AIDirector.startEncounter('m', 'p1', null);
   U2.reply('m');
   U2.step(4);
@@ -361,7 +361,7 @@ test('get_away: an AI that comes to suspect you in private runs, and remembers',
 test('the fright is spoken: a line queued by the walker goes out in the next gap', () => {
   const T = talk();
   T.ctx.AIDirector.moved('fled', 'm', 'p1');
-  T.step(1);
+  T.step(1.5);
   eq(T.asked.length, 1);
   ok(/getting away/.test(T.asked[0].text));
 });

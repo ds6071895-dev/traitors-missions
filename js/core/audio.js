@@ -108,6 +108,12 @@ const AudioBus = (() => {
     for (const ev of ['pointerdown', 'touchend', 'click', 'keydown']) document.addEventListener(ev, kick, true);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
     if (ctx) ctx.addEventListener && ctx.addEventListener('statechange', () => { if (!document.hidden) setTimeout(kick, 300); });
+    /* A desktop can suspend the context with nobody touching anything —
+       headphones unplugged, a Bluetooth set going to sleep, the system
+       switching output — and a player standing still in a conversation
+       presses no key to wake it. A page that has been clicked once may
+       resume without a gesture, so it is simply asked every few seconds. */
+    if (typeof setInterval !== 'undefined') setInterval(() => { if (!document.hidden) kick(); }, 3000);
   }
 
   const now = () => (ctx ? ctx.currentTime : 0);

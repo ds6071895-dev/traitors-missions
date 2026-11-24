@@ -91,9 +91,9 @@ const Session = (() => {
     return clampTask(Math.round(clampTask(asked) * k / 15) * 15);
   };
   const NOTE_EVERY = 4;            // seconds between looks round the room
-  const NIGHT_SECONDS = 30;        // every night lasts exactly this, whatever was decided
-  const RECRUIT_NIGHT_EXTRA = 15;  // ...and this much more when a seat may be offered
-  const PICK_SECONDS = 25;         // the Traitors have this long (from lights out) to talk and agree
+  const NIGHT_SECONDS = 20;        // every night lasts exactly this, whatever was decided
+  const RECRUIT_NIGHT_EXTRA = 10;  // ...and this much more when a seat may be offered
+  const PICK_SECONDS = 15;         // the Traitors have this long (from lights out) to talk and agree
   const RECRUIT_PICK_EXTRA = 5;    // more time to talk it over when a seat is on the table
   const RECRUIT_SECONDS = 12;      // an offer is answered or refused (Claudia knocks first)
   const WISE_SECONDS = 10;         // the Traitors' window to choose the Wise One
@@ -323,6 +323,17 @@ const Session = (() => {
       secret.lists.set(p.id, list);
       stale.set(p.id, new Set(list.filter(j => j.type).map(j => j.type)));
     }
+    /* Ghosts keep busy: a dead human still gets a list to play, but
+       nobody can see them, it pays nothing into the pot, it wins no
+       shield, and there is nobody to hand a letter to. */
+    for (const p of state.players) {
+      if (p.alive || p.bot) continue;
+      const list = Chores.deal(r, p, [], { wings: plan.wings, wing: plan.wing, letterChance: 0, avoidTypes: stale.get(p.id) })
+        .filter(j => j.kind !== 'letter');
+      list.forEach(j => { j.ghost = true; });
+      secret.lists.set(p.id, list);
+      stale.set(p.id, new Set(list.filter(j => j.type).map(j => j.type)));
+    }
   }
 
   /* Who carries it. On the first day the seed decides; after that the
@@ -364,6 +375,8 @@ const Session = (() => {
       cast: cleanCast(opts && opts.cast),  // what the host chose, which everybody may know
       twists: !(opts && opts.twists === false),  // the host's switch: may a day change the rules
       twistsEarly: !!(opts && opts.twistsEarly),  // ...and may the very first day have one
+      twistChance: opts && Number.isFinite(Number(opts.twistChance)) && opts.twistChance !== null
+        ? Math.max(0, Math.min(1, Number(opts.twistChance))) : null,  // how often; null is the default
       hideRoles: !!(opts && opts.hideRoles),     // the host's switch: the banished never say what they were
       twist: null,              // { day, id } — today's twist, said aloud (twists.js)
       twistsUsed: [],           // [{ day, id }] — each comes up at most once
@@ -403,7 +416,7 @@ const Session = (() => {
   const newBallot = (kind) => ({ kind, round: 0, stage: kind === 'fire' ? 'decide' : 'name',
                                  votes: {}, decisionQueue: [], decisionsShown: [],
                                  names: {}, nameQueue: [], namesShown: [], nameRound: 0,
-                                 tied: null, lot: false,
+                                 tied: null, lot: false, prevNames: null,
                                  pending: null, burned: [], lastTally: null,
                                  overrule: null,
                                  queue: [], opened: [], reason: null });
@@ -801,7 +814,8 @@ const Session = (() => {
     // with every role kept back already, a veiled day would change nothing
     const exclude = state.hideRoles ? ['veiled'] : [];
     const early = !!state.twistsEarly;
-    let id = Twists.pick(state.seed, d, { used, yesterday, last, exclude, early });
+    const chance = state.twistChance === null || state.twistChance === undefined ? undefined : state.twistChance;
+    let id = Twists.pick(state.seed, d, { used, yesterday, last, exclude, early, chance });
     if (state.forceTwist && d >= (early ? 0 : 1) && Twists.DECK.indexOf(state.forceTwist) >= 0
         && used.indexOf(state.forceTwist) < 0 && exclude.indexOf(state.forceTwist) < 0) id = state.forceTwist;
     if (!id) return;
@@ -978,6 +992,18 @@ const Session = (() => {
 
   function pay(p) {
     const c = state.chores;
+    if (!p.alive) {
+      // a ghost's job: counted for them alone, never the pot or the shield
+      (c.ghost || (c.ghost = {}))[p.id] = (c.ghost[p.id] || 0) + 1;
+      const list = secret.lists.get(p.id) || [];
+      if (typeof Chores !== 'undefined' && list.length && list.every(j => j.done)) {
+        const r = rngFor(SALT.chores ^ (state.day * 0x9e37) ^ (p.seat * 0x2f1) ^ (list.length * 0x71), state.seed);
+        list.push(...Chores.more(r, p, list, { wings: secret.dayPlan ? secret.dayPlan.wings : null })
+          .filter(j => j.kind !== 'letter').map(j => Object.assign(j, { ghost: true })));
+      }
+      emit('private');
+      return;
+    }
     c.done[p.id] = (c.done[p.id] || 0) + 1;
     // when they got to this count: the first there keeps a tied shield
     (c.reached || (c.reached = {}))[p.id] = Date.now() - c.startedAt;
@@ -998,7 +1024,7 @@ const Session = (() => {
   function doChore(a) {
     if (state.phase !== 'tasks' || !state.chores || state.chores.closed) return false;
     const p = playerById(a.playerId);
-    if (!p || !p.alive) return false;
+    if (!p || (!p.alive && p.bot)) return false;
     const t = myJob(p, a.jobId);
     if (!t || t.done) return false;
     // an errand: picked up first, then put down somewhere else
@@ -1006,12 +1032,13 @@ const Session = (() => {
       if (!t.step) { t.step = 1; emit('private'); return false; }
       t.done = true;
       pay(p);
-      return true;
+      return !!p.alive;
     }
     if (t.kind !== 'station') return false;
     t.done = true;
     pay(p);
-    return true;
+    // a ghost's job moves nothing anybody else can see
+    return !!p.alive;
   }
 
   /* A letter, handed over. It has to be the right person and they have
@@ -1775,7 +1802,7 @@ const Session = (() => {
     if (result === 'end') openPouches('ended-by-vote');
     else {
       f.stage = 'name'; f.names = {}; f.nameQueue = []; f.namesShown = [];
-      f.nameRound = 0; f.tied = null; f.lot = false;
+      f.nameRound = 0; f.tied = null; f.lot = false; f.prevNames = null;
     }
   }
 
@@ -1813,6 +1840,14 @@ const Session = (() => {
     return true;
   }
 
+  /* True when, on a revote, this slate names somebody other than the
+     one it named the first time round. */
+  function changedVote(f, id) {
+    if (!f || !f.tied || !f.prevNames || !f.nameRound) return false;
+    const was = f.prevNames[id], now = f.names[id];
+    return !!was && !!now && now !== 'sealed' && was !== now;
+  }
+
   /* On a revote between two, each of them can only name the other —
      and if somebody's only choice would be themselves, they abstain. */
   function canName(p, f) {
@@ -1829,8 +1864,13 @@ const Session = (() => {
     f.stage = 'names';
     /* An overruling slate is turned last. The room is told that there is
        one — that is the drama — but not whose until it turns. */
+    /* On a revote, whoever has changed their mind is turned after
+       everybody who held firm: the room watches the count stay level,
+       slate after slate, until the swing votes come — and they are the
+       ones that decide it. */
+    const swung = (p) => changedVote(f, p.id) ? 1 : 0;
     f.nameQueue = alive().filter(p => f.names[p.id])
-      .sort((a, b) => (a.id === wise) - (b.id === wise) || a.seat - b.seat).map(p => p.id);
+      .sort((a, b) => (a.id === wise) - (b.id === wise) || swung(a) - swung(b) || a.seat - b.seat).map(p => p.id);
     f.namesShown = [];
     f.overrule = wise ? { armed: true, by: null, targetId: null } : null;
     /* Sealed: no slate is turned — except an overruling one, which is
@@ -1877,10 +1917,12 @@ const Session = (() => {
     // a heavy-slate day: the shield holder's name counts twice
     const heavy = f.kind === 'table' && isTwist('heavy') && state.shield && state.shield.day === state.day
       ? state.shield.id : null;
+    const wrote = {};
     for (const p of alive()) {
       const t = f.sealed && secret.sealed[p.id] ? secret.sealed[p.id] : f.names[p.id];
       if (!t || !(playerById(t) || {}).alive) continue;
       counts[t] = (counts[t] || 0) + (p.id === heavy ? 2 : 1);
+      wrote[p.id] = t;
     }
     if (f.sealed) secret.sealed = {};
     if (heavy) f.heavy = heavy;
@@ -1917,6 +1959,10 @@ const Session = (() => {
       f.namesShown = [];
       f.tied = tied.length > 1 ? tied : null;
       f.nameRound = (f.nameRound || 0) + 1;
+      /* What everybody wrote the first time. The slates were turned in
+         front of the whole table (or, sealed, counted for it), so this
+         is no secret — and it is how the revote knows who changed. */
+      f.prevNames = f.sealed ? null : wrote;
       return;
     }
     f.pending = pick;
@@ -2029,6 +2075,7 @@ const Session = (() => {
     f.nameRound = 0;
     f.tied = null;
     f.lot = false;
+    f.prevNames = null;
   }
 
   /* ---------------- the verdict ---------------- */
@@ -2116,7 +2163,7 @@ const Session = (() => {
       if (!state) return null;
       return JSON.parse(JSON.stringify(state));
     },
-    finaleNext, beganAlone, pacedSeconds, stakes,
+    finaleNext, beganAlone, pacedSeconds, stakes, changedVote,
     SEATS, MIN_PLAYERS, FINALE_AT, NIGHT_SECONDS, RECRUIT_NIGHT_EXTRA, nightSeconds, PICK_SECONDS, TASK_SECONDS, TASK_MIN, BELL_AT,
     RECRUIT_SECONDS, LAST_WORDS_SECONDS, FLOOR_SECONDS, WISE_SECONDS,
     tableSeconds, TABLE_MIN, TABLE_MAX, traitorCount, castChances, cleanCast,

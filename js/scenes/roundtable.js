@@ -226,13 +226,15 @@ class RoundtableScene extends CastleScene {
   async _ballot() {
     const f = Session.state.finale;
     const revote = f.nameRound > 0;
+    if (revote) {
+      // the split, played as a stand-off between the tied (tie-draw.js)
+      await TieDraw.standoff(this, { line: 'tableTie', claudiaShot: 'claudia' });
+      if (!this._alive) return;
+    }
     if (this.music) this.music.section('slate', { at: 'bar', glide: 1.5 });
     if (revote) {
       // a table that cannot decide goes up a semitone
       if (this.music) this.music.setKey(Music.sceneMusic('table', Session.state.seed, Session.state.day, { revote: f.nameRound }).key);
-      const names = (f.tied || []).map(id => Session.playerById(id)).filter(Boolean)
-        .map(p => p.local ? 'you' : p.name);
-      await this._say('tableTie', { names: joinNames(names) }, 'claudia');
     } else {
       await this._say('tableClose', {}, 'claudia');
       if (!this._alive) return;
@@ -314,6 +316,11 @@ class RoundtableScene extends CastleScene {
     }
     // tied twice: the castle draws, and it is the table's biggest moment
     if (f.stage === 'reveal' && f.lot) await TieDraw.play(this, { key: 'table-tie', claudiaShot: 'claudia' });
+    // a result that turned on one slate, an overrule or a change of heart is played as what it is
+    // (an overrule has already shown the verdict it threw out, in `_wiseReveal`)
+    else if (f.stage === 'reveal' && typeof Wildcard !== 'undefined' && !(f.lastTally && f.lastTally.overrule)) {
+      await Wildcard.play(this, Wildcard.detect(Session.state));
+    }
   }
 
   /* ---------------- the banishment ---------------- */

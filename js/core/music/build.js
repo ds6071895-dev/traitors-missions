@@ -49,6 +49,10 @@ const MusicBuild = (() => {
     slate:  { ramp: 1.6, breath: 0.25, bpm: 100, pulse: 'tom', accent: 'timpani',
               ladder: [7, 8, 10, 11], stages: [0.3, 0.6, 0.85], v: [0.4, 0.9],
               choir: 0, brass: 0, riser: 0.6, tone: [900, 12000] },
+    // Claudia reads the count and it could go anywhere: a heart, the timpani, the whole choir holding its breath
+    count:  { ramp: 3.0, breath: 0.4, bpm: 84, pulse: 'heartbeat', accent: 'timpani', snare: 0.35,
+              ladder: [0, 1, 3, 5, 7, 8, 10, 11], stages: [0.3, 0.6, 0.85], v: [0.4, 1.05],
+              choir: 0.8, brass: 0.6, brassAt: 0.55, riser: 0.95, tone: [500, 14000] },
     // the Wise One: bells in it, and the climb is brighter
     wise:   { ramp: 3.4, breath: 0.35, bpm: 88, pulse: 'timpani', accent: 'bell', horns: true,
               ladder: [0, 2, 5, 7, 9, 10, 11], stages: [0.3, 0.55, 0.8], v: [0.3, 1.0],

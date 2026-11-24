@@ -315,7 +315,10 @@ class CastleScene {
      A finished ballot, performed. Each voter in seat order turns their
      slate and the name is said out loud; the hits climb as they go. */
   async _slates(roomKey) {
-    let guard = 0, said = 0;
+    let guard = 0, said = 0, swingsTold = false;
+    // the running count, as this screen has turned the slates (every screen turns the same ones)
+    const tally = new Map();
+    const counted = { n: 0, last: -9, key: '' };
     const total = Math.max(1, (Session.state.finale.nameQueue || []).length);
     // a Wise One's overruling slate is turned last, and only then is it said
     const armed = () => { const o = Session.state.finale.overrule; return !!(o && o.armed && !o.by); };
@@ -339,8 +342,41 @@ class CastleScene {
       /* Each slate lands harder than the one before — a shorter breath,
          a bigger hit, a redder flash — and the last is the biggest. Never
          long: under two seconds of theatre a slate. */
-      const heat = Math.min(1, (said + 1) / total), last = f.nameQueue.length === 1;
+      const last = f.nameQueue.length === 1;
+      /* A revote, and this slate is not the name it was last time. The
+         swing votes are turned last (see `beginNameReveal`), and each
+         one is played as the moment it is: the old name shown while the
+         room waits, a build, the breath, and the change of heart landing
+         as the hardest hit of the night. */
+      const was = Session.changedVote && Session.changedVote(f, voter.id) ? Session.playerById(f.prevNames[voter.id]) : null;
+      const heat = was ? 1 : Math.min(1, (said + 1) / total);
       Scenes.Cine.card(null);
+      if (was) {
+        if (!swingsTold) {
+          swingsTold = true;
+          const n = f.nameQueue.filter(id => Session.changedVote(f, id)).length;
+          Scenes.Drama.shot(this.stage, 'claudia', { cut: true, push: 0.1, speed: 0.5 });
+          if (this.music && this.music.setTension) this.music.setTension(1, 0.8);
+          await Scenes.run([{ line: { text: n > 1
+            ? 'Not everybody has held their nerve. ' + n + ' of you have changed your vote.'
+            : 'One of you has changed their vote.' }, hold: 0.5 }], this);
+          if (!this._alive) return;
+        }
+        await this._swingSlate(voter, target, was, last);
+        if (!this._alive) return;
+        this._countIn(tally, voter.id, target.id);
+        this._accuse(voter.id, target.id);
+        if (typeof Notebook !== 'undefined') Notebook.vote(voter.id, target.id, f.nameRound);
+        said++;
+        await Scenes.barrier(roomKey + '-slate-' + f.nameRound + '-' + voter.id);
+        if (!this._alive) return;
+        const swung = voter.id;
+        if (Session.isHost) Net.send({ type: 'speakName', playerId: voter.id });
+        await this._waitFor(() => Session.state.finale.stage !== 'names'
+          || Session.state.finale.nameQueue[0] !== swung, 6000);
+        await this._sleep(0.3);
+        continue;
+      }
       /* The room winds up a notch a slate. The last one gets a build of
          its own — short, dry, a clock tripping over itself — and the
          breath it ends on is the beat before the name. */
@@ -392,6 +428,9 @@ class CastleScene {
         await this._turnFloor(voter.id, WHY_SECONDS);
         if (!this._alive) return;
       }
+      this._countIn(tally, voter.id, target.id);
+      await this._countMoment(tally, counted, said);
+      if (!this._alive) return;
       await Scenes.barrier(roomKey + '-slate-' + f.nameRound + '-' + voter.id);
       if (!this._alive) return;
       const before = voter.id;
@@ -402,6 +441,139 @@ class CastleScene {
     }
     Scenes.Cine.card(null);
     Scenes.Drama.end(this.stage, null);
+  }
+
+  /* ---------------- the count ----------------
+     With a big table, the vote is a race. After a slate, if the top two
+     are level or a vote apart and the slates still to turn could
+     overturn it, Claudia stops and reads the count out — under a build,
+     the room's faces, and a hit as she finishes. Not every slate: three
+     times a ballot at most, never two running unless the lead changed
+     hands. Every screen counts the same slates, so every screen stops
+     at the same one. */
+  _slateWeight(voterId) {
+    const s = Session.state, f = s.finale || {};
+    const heavy = f.kind === 'table' && typeof Twists !== 'undefined' && Twists.has(s, 'heavy')
+      && s.shield && s.shield.day === s.day ? s.shield.id : null;
+    return voterId === heavy ? 2 : 1;
+  }
+  _countIn(tally, voterId, targetId) {
+    tally.set(targetId, (tally.get(targetId) || 0) + this._slateWeight(voterId));
+  }
+  static countMoment(tally, left, said, alive, counted) {
+    if (alive < 6 || said < 3 || left < 1 || counted.n >= 3) return null;
+    const rows = [...tally.entries()].filter(r => r[1] > 0).sort((a, b) => b[1] - a[1]);
+    if (rows.length < 2) return null;
+    const gap = rows[0][1] - rows[1][1];
+    if (gap > 1 || gap > left) return null;
+    const key = rows.filter(r => r[1] === rows[0][1]).map(r => r[0]).sort().join(',');
+    if (said - counted.last < 2 && key === counted.key) return null;
+    return { rows, gap, left, key };
+  }
+  async _countMoment(tally, counted, said) {
+    const s = Session.state, f = s.finale;
+    if (!f || f.sealed) return;
+    // what is still to come: the slates behind this one, as they will count
+    const rest = (f.nameQueue || []).slice(1);
+    const left = rest.reduce((n, id) => n + this._slateWeight(id), 0);
+    const m = CastleScene.countMoment(tally, left, said, Session.alive().length, counted);
+    if (!m) return;
+    counted.n++; counted.last = said; counted.key = m.key;
+    const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+    const w = (n) => WORDS[n] || String(n);
+    const nm = (id) => { const p = Session.playerById(id); return p ? (p.local ? 'you' : p.name) : 'somebody'; };
+    const top = m.rows.filter(r => r[1] === m.rows[0][1]);
+    const votes = (n) => w(n) + (n === 1 ? ' vote' : ' votes');
+    let text;
+    if (m.gap === 0) {
+      text = top.map(r => votes(r[1]).replace(/^./, c => c.toUpperCase()) + ' for ' + nm(r[0]) + '.').join(' ')
+        + (top.length > 2 ? ' Three of you, level.' : ' Level.')
+        + ' And ' + w(m.left) + (m.left === 1 ? ' slate' : ' slates') + ' still to turn.';
+    } else {
+      const second = m.rows.filter(r => r[1] === m.rows[1][1]);
+      text = 'That is ' + votes(m.rows[0][1]) + ' for ' + nm(m.rows[0][0]) + '. '
+        + second.map(r => w(r[1]) + ' for ' + nm(r[0])).join(', ').replace(/^./, c => c.toUpperCase()) + '. '
+        + (m.left === 1 ? 'One slate left. It could still go either way.' : 'With ' + w(m.left) + ' still to come, this could go anywhere.');
+    }
+    const board = m.rows.slice(0, 3).map(r => (Session.playerById(r[0]) || {}).local ? 'YOU ' + r[1]
+      : String(nm(r[0])).toUpperCase() + ' ' + r[1]).join(' · ');
+    if (this.music && this.music.setTension) this.music.setTension(1, 0.6);
+    const build = this.music && this.music.build ? this.music.build({ shape: 'count' }) : null;
+    Scenes.Cine.card({ kicker: 'The count', title: board, tone: 'slate', cls: 'count heat-3',
+                       sub: m.left + (m.left === 1 ? ' slate' : ' slates') + ' to turn' });
+    Scenes.Drama.shot(this.stage, 'claudia', { cut: true, push: 0.12, speed: 0.45 });
+    await Scenes.run([{ line: { text }, hold: 0.2 }], this);
+    if (!this._alive) { if (build) build.cancel(); return; }
+    // the faces of whoever is in it, one breath each
+    for (const r of top.slice(0, 2)) {
+      const p = Session.playerById(r[0]);
+      if (!p || p.local) continue;
+      Scenes.Drama.shot(this.stage, 'on:' + p.id, { cut: true, push: 0.1, speed: 0.5 });
+      await this._sleep(0.7);
+      if (!this._alive) { if (build) build.cancel(); return; }
+    }
+    if (build) {
+      const wait = build.release('slate-turn', { n: said + 2 });
+      if (wait) await Scenes.wait(wait);
+    }
+    if (!this._alive) return;
+    Scenes.Drama.hit(this.stage, null, null, { shake: 0.45, flash: 'rgba(210,12,24,0.45)', haptic: 70 });
+    await this._sleep(0.4);
+    Scenes.Cine.card(null);
+  }
+
+  /* A changed vote, turned. The camera finds the voter while the card
+     still shows what they wrote last time; the band builds under the
+     question; then the breath, and the slate. The one they abandoned
+     breathes out, the one they turned on takes it in the face — and
+     Claudia says it out loud. Ten seconds, not two: this is the vote
+     the tie was waiting on. */
+  async _swingSlate(voter, target, was, last) {
+    const st = this.stage, music = this.music;
+    const t0 = Date.now();
+    const build = Scenes.Drama.build(st, music, 'slate', { shot: 'on:' + voter.id, speed: 0.5, cut: true });
+    Scenes.Cine.card({ kicker: 'Last time, ' + (voter.local ? 'you' : voter.name) + ' wrote',
+                       title: was.local ? 'YOU' : was.name.toUpperCase(), tone: 'slate', cls: 'heat-2',
+                       sub: 'And now?' });
+    Scenes.Drama.shot(st, 'on:' + voter.id, { cut: true, push: 0.22, speed: 0.35 });
+    if (st && st.setMood) { st.setMood(was.id, 'nervous'); st.setMood(target.id, 'nervous'); }
+    await Scenes.wait(1.3);
+    if (!this._alive) { build.cancel(); return; }
+    // the one they voted for last time, waiting to find out if they still are
+    if (!was.local) Scenes.Drama.shot(st, 'on:' + was.id, { cut: true, push: 0.12, speed: 0.4 });
+    await Scenes.wait(1.1);
+    if (!this._alive) { build.cancel(); return; }
+    Scenes.Cine.card(null);
+    Scenes.Drama.shot(st, 'on:' + voter.id, { cut: true, push: 0.3, speed: 0.3 });
+    await Scenes.Drama.peak(build, { since: t0, min: 3.2, max: 6 });
+    if (!this._alive) { build.cancel(); return; }
+    const wait = build.release('slate-turn', { n: 4 });
+    if (wait) await Scenes.wait(wait);
+    if (!this._alive) return;
+    if (music && music.stinger) music.stinger('tie');
+    Scenes.Drama.hit(st, null, null, { shake: 0.95, flash: 'rgba(230,20,32,.78)', haptic: 120 });
+    Scenes.Cine.card({ kicker: (voter.local ? 'You' : voter.name) + ' changed their vote',
+                       title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'bad',
+                       cls: 'last heat-3', sub: 'Not ' + (was.local ? 'you' : was.name) + ' — not any more.' });
+    if (st && st.setMood) { st.setMood(was.id, 'relief'); st.setMood(target.id, 'gasp'); }
+    await this._sleep(1.1);
+    if (!this._alive) return;
+    if (!target.local) Scenes.Drama.shot(st, 'on:' + target.id, { cut: true, push: 0.14, speed: 0.4 });
+    await Scenes.run([{
+      line: { text: (voter.local ? 'You have' : voter.name + ' has') + ' changed ' + (voter.local ? 'your' : 'their')
+                    + ' vote. Not ' + (was.local ? 'you' : was.name) + ' this time — '
+                    + (target.local ? 'you' : target.name) + '.' },
+      hold: 0.4,
+    }], this);
+    if (!this._alive) return;
+    // and why the change of heart, from the person who had it
+    if (!voter.bot && voter.alive) {
+      Scenes.Drama.shot(st, 'on:' + voter.id, { cut: true, push: 0.08, speed: 0.4 });
+      await Scenes.run([{ line: { text: (voter.local ? 'You' : voter.name) + '. What changed your mind?' }, hold: 0.1 }], this);
+      if (!this._alive) return;
+      await this._turnFloor(voter.id, WHY_SECONDS);
+    }
+    if (last) Scenes.Cine.card(null);
   }
 
   /* The last slate, and the one that decides. The roll and the riser
@@ -435,27 +607,18 @@ class CastleScene {
     const wait = build.release(real ? 'overrule' : 'slate-turn', real ? { then: 'overrule' } : { n: 4 });
     if (wait) await Scenes.wait(wait);
     if (!this._alive) return;
-    Scenes.Drama.hit(st, null, null,
-                     { shake: real ? 0.8 : 0.3, flash: real ? 'rgba(230,186,80,.7)' : null, haptic: 90 });
-    Scenes.Cine.card(real
-      ? { kicker: 'The Wise One', title: voter.local ? 'YOU' : voter.name.toUpperCase(), tone: 'wise',
-          sub: (voter.local ? 'You overrule' : 'Overrules') + ' the round table.' }
-      : { kicker: voter.local ? 'Your slate' : voter.name + '’s slate',
-          title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'bad' });
-    if (st && st.act) st.act(voter.id, 'nod');
-    this._react(['gasp', 'handsFace', 'shake', 'handChest'], voter.id, real ? 0.6 : 0.2);
     if (real) {
-      await this._sleep(1.0);
-      if (!this._alive) return;
-      await this._say(this._setFor('overruleName', voter), { name: voter.name }, null);
-      if (!this._alive) return;
-      Scenes.Drama.shot(st, 'on:' + target.id);
-      this._accuse(voter.id, target.id);
-      if (music) music.stinger('name', { n: 4 });
-      Scenes.Cine.card({ kicker: (voter.local ? 'You name' : voter.name + ' names'),
-                         title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'bad',
-                         sub: 'The table’s vote does not count.' });
-    } else this._accuse(voter.id, target.id);
+      await this._wiseReveal(voter, target);
+      Scenes.Drama.end(st, music);
+      Scenes.Cine.card(null);
+      return;
+    }
+    Scenes.Drama.hit(st, null, null, { shake: 0.3, haptic: 90 });
+    Scenes.Cine.card({ kicker: voter.local ? 'Your slate' : voter.name + '’s slate',
+                       title: target.local ? 'YOU' : target.name.toUpperCase(), tone: 'bad' });
+    if (st && st.act) st.act(voter.id, 'nod');
+    this._react(['gasp', 'handsFace', 'shake', 'handChest'], voter.id, 0.2);
+    this._accuse(voter.id, target.id);
     await Scenes.run([{
       line: { text: (voter.local ? 'You vote' : voter.name + ' votes') + ' for '
                     + (target.local ? 'you' : target.name) + '.' },
@@ -463,6 +626,106 @@ class CastleScene {
     }], this);
     Scenes.Drama.end(st, music);
     Scenes.Cine.card(null);
+  }
+
+  /* The Wise One, unmasked. Played in four beats, each its own hit:
+
+     the name    gold, the biggest shake of the night, and they stand up
+                 out of their chair while the room turns to look
+     the faces   a cut round the table: who saw that coming
+     the void    what the table wrote, shown — and thrown out
+     the word    a breath of silence, and the one name that counts
+
+     Every screen has the same state by now (the slate was turned at a
+     barrier), so this runs without waiting on anybody. */
+  async _wiseReveal(voter, target) {
+    const st = this.stage;
+    const music = this.music;
+    const f = Session.state.finale;
+    const nm = (p) => (p.local ? 'YOU' : p.name.toUpperCase());
+    const fig = st && st.figureOf ? st.figureOf(voter.id) : null;
+    const gone = () => !this._alive;
+
+    // what the table wrote, without the Wise One's slate: the verdict being thrown out
+    const counts = {};
+    for (const id in (f.names || {})) {
+      if (id === voter.id) continue;
+      const t = f.names[id];
+      counts[t] = (counts[t] || 0) + 1;
+    }
+    let top = null, n = 0, split = false;
+    for (const id in counts) {
+      if (counts[id] > n) { top = id; n = counts[id]; split = false; } else if (counts[id] === n) split = true;
+    }
+    const table = top && !split ? Session.playerById(top) : null;
+
+    // 1. the name: gold, and they rise
+    Scenes.Drama.shot(st, 'on:' + voter.id, { cut: true, push: 0.24, speed: 0.3 });
+    Scenes.Drama.hit(st, null, null, { shake: 1.0, flash: 'rgba(240,196,90,.85)', haptic: 160 });
+    Scenes.Cine.card({ kicker: 'The Wise One', title: nm(voter), tone: 'wise', cls: 'last heat-3',
+                       sub: voter.local ? 'You were the Wise One all along.' : 'Hidden at this table all along.' });
+    if (fig && typeof Figure !== 'undefined') Figure.setSeated(fig, false);
+    if (st && st.act) setTimeout(() => { if (this._alive && this.stage) this.stage.act(voter.id, 'handsHips'); }, 900);
+    this._react(['gasp', 'handsFace', 'flinch', 'handChest', 'leanBack'], voter.id, 0.9);
+    await this._sleep(1.8);
+    if (gone()) return;
+
+    // 2. the faces: the table, taking it
+    const faces = Session.alive().filter(p => !p.local && p.id !== voter.id);
+    const pickFaces = [target, table].filter(p => p && !p.local && p.id !== voter.id);
+    for (const p of faces) if (pickFaces.length < 3 && pickFaces.indexOf(p) < 0) pickFaces.push(p);
+    for (let i = 0; i < pickFaces.length; i++) {
+      const p = pickFaces[i];
+      Scenes.Drama.shot(st, 'on:' + p.id, { cut: true, push: 0.12, speed: 0.5 });
+      if (st && st.act) st.act(p.id, ['gasp', 'handsFace', 'leanBack'][i % 3]);
+      if (typeof Input !== 'undefined' && Input.haptic) Input.haptic(18);
+      await this._sleep(0.8);
+      if (gone()) return;
+    }
+    Scenes.Drama.shot(st, 'on:' + voter.id, { cut: true, push: 0.16, speed: 0.4 });
+    await this._say(this._setFor('overruleName', voter), { name: voter.name }, null);
+    if (gone()) return;
+
+    // 3. the void: the table's own verdict, on the screen, and then not
+    if (table && table.id !== target.id) {
+      if (!table.local) Scenes.Drama.shot(st, 'on:' + table.id, { cut: true, push: 0.1, speed: 0.5 });
+      Scenes.Cine.card({ kicker: 'The table wrote', title: nm(table), tone: 'slate', cls: 'heat-2',
+                         sub: n + (n === 1 ? ' vote' : ' votes') });
+      if (music && music.stinger) music.stinger('vote', { n: 3 });
+      await this._sleep(1.5);
+      if (gone()) return;
+      Scenes.Drama.hit(st, null, null, { shake: 0.5, flash: 'rgba(240,196,90,.45)', haptic: 70 });
+      Scenes.Cine.card({ kicker: 'Overruled', title: nm(table), tone: 'wise', sub: 'Every slate at this table: void.' });
+      if (st && st.act) st.act(table.id, 'relief');
+      if (st && st.setMood) st.setMood(table.id, 'calm');
+      await this._say('overruleVoid', {}, null);
+      if (gone()) return;
+    } else {
+      Scenes.Cine.card({ kicker: 'Overruled', title: 'THE ROUND TABLE', tone: 'wise', sub: 'Every slate at this table: void.' });
+      await this._say('overruleVoid', {}, null);
+      if (gone()) return;
+    }
+
+    // 4. the word: a breath of nothing, and the name
+    Scenes.Cine.card(null);
+    if (music && music.silence) music.silence(true);
+    Scenes.Drama.shot(st, 'on:' + voter.id, { cut: true, push: 0.3, speed: 0.25 });
+    await this._sleep(1.2);
+    if (gone()) return;
+    if (!target.local) Scenes.Drama.shot(st, 'on:' + target.id, { cut: true, push: 0.22, speed: 0.3 });
+    this._accuse(voter.id, target.id);
+    if (music && music.silence) music.silence(false);
+    if (music && music.stinger) music.stinger('name', { n: 5 });
+    Scenes.Drama.hit(st, null, null, { shake: 0.9, flash: 'rgba(220,10,24,.75)', haptic: 140 });
+    Scenes.Cine.card({ kicker: voter.local ? 'You send home' : voter.name + ' sends home',
+                       title: nm(target), tone: 'bad', cls: 'last heat-3', sub: 'On the Wise One’s word alone.' });
+    if (st && st.act) st.act(target.id, 'handsFace');
+    if (st && st.setMood) st.setMood(target.id, 'nervous');
+    await this._say(this._setFor('overruleSends', target), { name: target.local ? 'You' : target.name }, null);
+    if (gone()) return;
+    await this._sleep(1.0);
+    // and the Wise One sits back down
+    if (fig && typeof Figure !== 'undefined' && this._alive) Figure.setSeated(fig, true);
   }
 
   /* A slate turned: the voter points across the table at the name on

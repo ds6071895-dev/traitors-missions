@@ -138,6 +138,10 @@ const CastleBots = (() => {
       }
     }
     if (came[goal] < 0 && goal !== start) return [{ x: bx, z: bz }];
+    /* A target inside furniture — a job spot on the stair, a person
+       leaning on a table — is walked to the nearest clear cell of, not
+       into: the last leg would otherwise go straight through it. */
+    if (!free(bx, bz)) { bx = X0 + (b[0] + 0.5) * CELL; bz = Z0 + (b[1] + 0.5) * CELL; }
     const cells = [];
     for (let n = goal; n !== -1; n = came[n]) { cells.push(n); if (n === start) break; }
     cells.reverse();

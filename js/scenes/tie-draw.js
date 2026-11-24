@@ -121,5 +121,81 @@ const TieDraw = (() => {
     Scenes.Drama.end(st, music);
   }
 
-  return { play, wheel };
+  /* Tied once: the slates split, and the table goes again between the
+     tied. That used to be one line and a key change. Now it is a
+     stand-off:
+
+     the stop    the band cuts, the bars, a red hit and A TIE
+     Claudia     names them, on her
+     the faces   a heartbeat drumroll, and a slow cut from one tied face
+                 to the next, each with their count, each taking it
+     the turn    the breath, and the revote lands on a hit
+
+     Every screen plays it from the same state; nothing waits on it, so
+     there is no barrier — the ballot after it is already open. */
+  async function standoff(scene, o = {}) {
+    const s = Session.state;
+    const f = s.finale;
+    const st = scene.stage;
+    const music = scene.music;
+    const round = f.nameRound;
+    const tied = (f.tied || []).map(id => Session.playerById(id)).filter(Boolean)
+      .sort((a, b) => a.seat - b.seat);
+    if (!tied.length || !scene._alive) return;
+    const alive = () => scene._alive && Session.state.finale && Session.state.finale.nameRound === round;
+    const counts = (f.lastTally && f.lastTally.counts) || {};
+    const each = counts[tied[0].id] || 0;
+    const names = tied.map(p => (p.local ? 'you' : p.name));
+    const said = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names.join('');
+    let build = null;
+    const done = () => { if (build) build.cancel(0.6); Scenes.Cine.card(null); Scenes.Drama.end(st, music); };
+
+    // the stop: the band goes, and the split lands
+    if (music && music.silence) music.silence(true);
+    await Scenes.Drama.hush(st, null, o.claudiaShot || 'claudia', { hold: 0.8, silent: false, cut: true, push: 0.08, speed: 0.5 });
+    if (!alive()) return done();
+    if (music && music.stinger) { music.silence(false); music.stinger('tie'); }
+    Scenes.Drama.hit(st, null, null, { shake: 0.55, flash: 'rgba(200,16,30,.5)', haptic: 70 });
+    Scenes.Cine.card({ kicker: 'The slates are split', title: 'A TIE', tone: 'bad', cls: 'heat-2',
+                       sub: tied.map(nameOf).join('  ·  ') + (each ? '  —  ' + each + (each === 1 ? ' vote' : ' votes') + ' each' : '') });
+    tied.forEach((p, i) => {
+      if (st && st.setMood) st.setMood(p.id, 'nervous');
+      if (st && st.act) setTimeout(() => { if (scene._alive && scene.stage) scene.stage.act(p.id, i % 2 ? 'flinch' : 'gasp'); }, 200 + 300 * i);
+    });
+    await Scenes.wait(1.5);
+    if (!alive()) return done();
+    Scenes.Cine.card(null);
+    await scene._say(o.line || 'tableTie', { names: said }, o.claudiaShot || 'claudia');
+    if (!alive()) return done();
+
+    // the faces: a heartbeat under them, and one at a time
+    const t0 = Date.now();
+    build = Scenes.Drama.build(st, music, 'banish', { camera: false, bed: 'drumroll', ramp: 1.4 * tied.length + 1.5 });
+    for (let i = 0; i < tied.length; i++) {
+      const p = tied[i];
+      if (!p.local) Scenes.Drama.shot(st, 'on:' + p.id, { cut: true, push: 0.1 + 0.06 * i, speed: 0.45 });
+      Scenes.Cine.card({ kicker: i === tied.length - 1 && tied.length > 1 ? '…or' : 'Tied', title: nameOf(p), tone: 'slate',
+                         cls: 'heat-' + Math.min(3, 1 + i), sub: each ? each + (each === 1 ? ' vote' : ' votes') : '' });
+      if (st && st.act) st.act(p.id, ['handChest', 'neckRub', 'glance', 'shake'][i % 4]);
+      if (typeof Input !== 'undefined' && Input.haptic) Input.haptic(20);
+      await Scenes.wait(1.4);
+      if (!alive()) return done();
+    }
+    // the table, looking at them
+    Scenes.Drama.shot(st, o.wideShot || o.claudiaShot || 'claudia', { cut: true, push: 0.05, speed: 0.4 });
+    Scenes.Cine.card({ kicker: 'Revote', title: tied.map(nameOf).join(' or '), tone: 'bad', cls: 'last heat-3',
+                       sub: 'Only the tied names can go.' });
+    await scene._say(o.after || 'tieStandoff', { names: said }, null);
+    if (!alive()) return done();
+    await Scenes.Drama.peak(build, { since: t0, min: 1, max: 4 });
+    if (!alive()) return done();
+    const wait = build.release('name', { n: 3 });
+    build = null;
+    if (wait) await Scenes.wait(wait);
+    Scenes.Drama.hit(st, null, null, { shake: 0.4, haptic: 50 });
+    await Scenes.wait(0.6);
+    done();
+  }
+
+  return { play, wheel, standoff };
 })();

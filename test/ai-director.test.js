@@ -14,7 +14,7 @@ const H = require('./harness');
 const { test, eq, ok, section } = H;
 
 const FILES = ['js/core/util.js', 'js/core/state.js', 'js/world/castle-layout.js', 'js/core/chores.js',
-               'js/core/twists.js', 'js/core/session.js', 'js/scenes/claudia-lines.js', 'js/core/castle-net.js', 'js/core/ai-director.js'];
+               'js/core/twists.js', 'js/core/session.js', 'js/scenes/claudia-lines.js', 'js/core/castle-net.js', 'js/core/ai-strategy.js', 'js/core/ai-director.js'];
 
 function world(opts = {}) {
   let now = 1.7e12;
@@ -216,11 +216,14 @@ test('sustained speech can interrupt after the protected opening, via either tra
     W.step(0.6);
     ok(W.speaking.has('m'));
     W.emit('speaking', { id: 'm' });
-    W.step(2);
+    W.step(2.5);
     W.emit(event, { id: 'p2', text: 'No!', final: true });
     ok(W.speaking.has('m'), 'one overlapping word does not cancel the turn');
-    W.step(0.6);
-    W.emit(event, { id: 'p2', text: 'No, I disagree with that theory.', final: true });
+    W.step(0.8);
+    W.emit(event, { id: 'p2', text: 'No, I disagree with that.', final: true });
+    ok(W.speaking.has('m'), 'under a second and a half of talking over it is not a takeover');
+    W.step(0.8);
+    W.emit(event, { id: 'p2', text: 'No, I disagree with that theory, it was Bo.', final: true });
     ok(!W.speaking.has('m'), 'continued speech can take the room via ' + event);
   }
 });
@@ -235,7 +238,7 @@ test('the protected opening starts at actual audio and is not renewed by later a
   }
   ok(W.speaking.has('m'), 'generation latency cannot use up the opening');
   W.emit('speaking', { id: 'm' });
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 12; i++) {
     W.emit('hearing', { id: 'p2', text: 'I have another theory about the timing' });
     W.step(0.2);
   }
@@ -265,12 +268,12 @@ test('repeated recognition of one phrase does not count as continued human speec
   W.say('p1', 'Morag, what do you think?');
   W.step(0.6);
   W.emit('speaking', { id: 'm' });
-  W.step(2);
+  W.step(2.5);
   W.emit('hearing', { id: 'p2', text: 'I disagree with that' });
   W.step(0.6);
   W.emit('heard', { id: 'p2', text: 'I disagree with that.', final: true });
   ok(W.speaking.has('m'), 'the final result repeats the interim; it is not another spoken phrase');
-  W.step(0.2);
+  W.step(1);
   W.emit('hearing', { id: 'p2', text: 'I disagree with that because Bo was in the kitchen' });
   ok(!W.speaking.has('m'), 'new words still allow a genuine interruption');
 });
@@ -306,6 +309,8 @@ test('a person still talking between transcripts is not talked over', () => {
   eq(W.asked.length, 0, 'the meter says she is still going');
   voice.delete('p1');
   W.step(1.5);
+  eq(W.asked.length, 0, '"what do you think of" is not the end of a sentence');
+  W.step(1.2);
   eq(W.asked.length, 1, 'answered once she stops');
 });
 
@@ -687,7 +692,7 @@ test('an arriving Traitor shares real observations and uses conversation as pois
   N.start('d0');
   N.publish('p1', 0, 10, 0);
   N.publish('i', 6, 10, 0);
-  W.step(1);
+  W.step(1.5);
   ok(!W.ctx.AIDirector.startEncounter('i', 'p1'), 'must walk over before speaking');
   N.publish('i', 1.2, 10, 0);
   const privateView = W.ctx.Session.privateView;
@@ -1222,6 +1227,87 @@ test('verbal turret orders (you carry, I carry, recruit, no offer) execute turre
   W.say('p1', "I'll carry it tomorrow");
   eq(W.ctx.AIDirector.turretOrder().kind, 'carrier');
   eq(W.ctx.AIDirector.turretOrder().targetId, 'p1');
+});
+
+section('ai — listening to the end, and the dead stay dead (2026-11-24)');
+
+test('a person who pauses mid-sentence is not answered until they finish', () => {
+  const W = world();
+  W.emit('hearing', { id: 'p1' });
+  W.emit('heard', { id: 'p1', text: 'I think the person who did it was', final: false });
+  W.step(1.4);
+  eq(W.asked.length, 0, 'a breath in the middle is not the end');
+  W.emit('heard', { id: 'p1', text: 'probably the gardener, because he was in the kitchen.', final: true });
+  W.step(1);
+  eq(W.asked.length, 1, 'answered once the sentence is done');
+  ok(/was probably the gardener, because he was in the kitchen/.test(W.asked[0].text), 'to the whole of it');
+});
+
+test('a reply still being written when the person carries on is dropped and asked again', () => {
+  const W = world();
+  W.say('p1', 'Morag, what do you think?');
+  W.step(0.8);
+  eq(W.asked.length, 1);
+  W.say('p1', 'About the letter, I mean.');
+  ok(!W.speaking.has('m'), 'the half-answer never starts');
+  W.step(1.5);
+  eq(W.asked.length, 2, 'Morag answers again');
+  ok(/what do you think\?.*About the letter/.test(W.asked[1].text), 'to all of it');
+});
+
+test('turn gaps: unfinished words wait longest, a named question least', () => {
+  const W = world();
+  const g = W.ctx.AIDirector.turnGap;
+  ok(g({ text: 'and then um', final: true, named: [] }) >= 2, 'a trailing "um"');
+  ok(g({ text: 'it was Bo and', final: true, named: [] }) >= 2, 'a trailing "and"');
+  ok(g({ text: 'Morag, what do you think?', final: true, named: ['m'] }) <= 0.6, 'a named question');
+  ok(g({ text: 'Yeah, go on then.', final: true, named: [] }) < 1, '"go on then." is finished');
+  ok(g({ text: 'I reckon it was', final: false, named: [] }) > g({ text: 'I reckon it was Bo.', final: true, named: [] }));
+});
+
+test('a line spoken to the dead is dropped, and the voice starts afresh', () => {
+  const W = world();
+  const spawned = [];
+  W.ctx.AI.spawn = (spec) => spawned.push(spec.id);
+  W.ctx.AI.close = () => {};
+  kill(W, 'm', 'murdered');
+  const T = W.ctx.AIDirector.talksToGone;
+  ok(T('Morag, where were you last night?'), 'speaking to her');
+  ok(T('I think we should vote for Morag.'), 'voting for her');
+  ok(T('What about you, Morag?'), 'asking her');
+  ok(!T('Poor Morag was poisoned, it has to be Bo.'), 'talking about her is fine');
+  ok(!T('Fergus, what do you reckon?'), 'somebody still here');
+  W.say('p1', 'Fergus, thoughts?');
+  W.step(2);
+  W.emit('text', { id: 'f', text: 'Morag, did you see anything?' });
+  const p = latest(W, 'i');
+  ok(!/did you see anything/.test(p), 'never reaches anybody');
+  ok(spawned.indexOf('f') >= 0, 'Fergus is given a fresh agent');
+});
+
+test('when somebody goes, every voice still playing gets a fresh agent', () => {
+  const W = world();
+  const spawned = [];
+  W.ctx.AI.spawn = (spec) => spawned.push(spec.id);
+  W.ctx.AI.close = () => {};
+  W.step(1);
+  kill(W, 's', 'faithful');
+  W.net({ type: 'reveal' });
+  W.step(1);
+  eq(spawned.slice().sort(), ['f', 'i', 'm'], 'the living, and not the gone');
+});
+
+test('a sentence already being spoken runs on through a change of scene', () => {
+  const W = world();
+  W.say('p1', 'Morag, what do you think?');
+  W.step(0.8);
+  W.emit('speaking', { id: 'm' });
+  W.phase = 'table';
+  W.net({ type: 'phase' });
+  ok(W.speaking.has('m'), 'not chopped off by the cut');
+  W.say('p1', 'Wait, wait, hang on a moment there Morag.');
+  W.step(2);
+  ok(W.speaking.has('m'), 'and not talked off it either');
 });
 
 H.report();

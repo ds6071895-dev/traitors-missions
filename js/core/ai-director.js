@@ -44,7 +44,12 @@ const AIDirector = (() => {
   const roleWords = (r) => (r === 'traitor' ? 'a TRAITOR' : r === 'veiled' ? 'veiled: role unknown until the end' : 'a Faithful');
 
   const TICK_MS = 200;
-  const QUIET_BEFORE_BOT = 0.4;      // a short conversational beat after recognized speech
+  /* A beat after recognised speech before an AI starts anything. It was
+     0.4 s, and a breath in the middle of a sentence is longer than that:
+     the AI answered half of what you said and talked over the rest.
+     Answering a person waits for `turnGap()`, which reads whether they
+     have actually finished. */
+  const QUIET_BEFORE_BOT = 1.1;
   const BOT_COOLDOWN = 9;            // an AI does not speak twice in this many seconds
   const TURN_TIMEOUT = 26;           // a reply that never finishes is abandoned
   const CHAT_TIMEOUT = 12;           // ...and a written one sooner: it has no audio to wait for
@@ -54,8 +59,13 @@ const AIDirector = (() => {
   const TALK_TOGETHER_MS = 14000;    // two people speaking within this are talking to each other
   const LULL_AMONG_PEOPLE = 0.9;     // give a human conversation a little more room
   const ROOM_TURN_GAP = 3000;        // leave space for people between unprompted comments
-  const SPEECH_GRACE_MS = 1000;     // protected opening, measured from actual audio, not the request
-  const INTERRUPT_HOLD_MS = 600;    // continued human speech, rather than one overlapping word
+  /* An AI mid-sentence is only cut off by somebody who clearly means to
+     take over: a couple of seconds in, five real words, a second and a
+     half of talking. A laugh, an "mm", a word to the person beside you
+     or a bit of its own voice back through a speaker no longer stops it. */
+  const SPEECH_GRACE_MS = 2200;     // protected opening, measured from actual audio, not the request
+  const INTERRUPT_HOLD_MS = 1500;   // continued human speech, rather than one overlapping word
+  const INTERRUPT_WORDS = 5;
   const INTERRUPT_GAP_MS = 1200;    // allow for the recognizer's spacing between interim results
   const CUT_IN_CHECK_MS = 6000;     // one chance per interval, not one roll every clock tick
   const CUT_IN_GAP_MS = 18000;      // leave plenty of human conversation between assertive turns
@@ -201,6 +211,8 @@ const AIDirector = (() => {
     }
     AI.listen(s.players.filter(p => !p.bot).map(p => ({ id: p.id, name: p.name })));
     offs.push(AI.on('heard', onHeard));
+    // the recogniser's "that utterance is over": the person has stopped, not paused
+    offs.push(AI.on('pause', (m) => { if (heardLast && heardLast.id === m.id) heardLast.ended = Date.now(); }));
     if (typeof TraitorChat !== 'undefined' && TraitorChat.on) offs.push(TraitorChat.on(onChat));
     chatAsk = null;
     order = null;
@@ -665,6 +677,49 @@ const AIDirector = (() => {
     return out.length ? out.join('\n') : '(none yet — you can propose one to somebody you trust, or accept one)';
   }
 
+  /* ---------------- the playbook ----------------
+     What `AIStrategy` needs to choose a play: the moment, from the
+     public record and this AI's own private view only. */
+  function stratCtx(b) {
+    const s = Session.state;
+    if (!s || typeof AIStrategy === 'undefined') return null;
+    const me = b.id;
+    const v = Session.privateView(me) || {};
+    const traitor = v.role === 'traitor';
+    const partners = new Set((v.partners || []).filter(id => (Session.playerById(id) || {}).alive));
+    const living = Session.alive();
+    const others = Math.max(1, living.length - 1);
+    const lean = roomLean(me);
+    const read = suspicion(me, traitor).filter(x => x.score > -50);
+    const lastGone = (s.banished || []).slice(-1)[0];
+    const recent = lastGone && lastGone.day >= s.day - 1;
+    const f = s.finale || {};
+    const debate = s.phase === 'table' || s.phase === 'finale';
+    const pLean = lean.filter(x => partners.has(x.id)).sort((a, c) => c.n - a.n)[0];
+    const top = lean[0];
+    // somebody alive who has said nothing lately, at a table where people are talking
+    const said = new Set(lines.slice(-40).map(l => l.who));
+    const quiet = debate && lines.length > 8 ? living.find(p => p.id !== me && !said.has(p.id)) : null;
+    const topRead = read.find(x => x.id === (top && top.id));
+    return {
+      botId: me, seed: s.seed | 0, traitor, phase: s.phase, day: s.day | 0,
+      alive: living.length, atFire: s.phase === 'finale' && f.stage !== 'name' && f.stage !== 'names',
+      revote: debate && (f.nameRound | 0) > 0 && !!f.tied,
+      banishedFaithful: !!(recent && lastGone.role === 'faithful'),
+      caughtTraitor: !!(recent && lastGone.role === 'traitor'),
+      murderToday: (s.murdered || []).some(m => m.day >= s.day - 1) && (s.phase === 'breakfast' || s.phase === 'table'),
+      topSuspectScore: !traitor && read[0] ? read[0].score : 0,
+      myHeat: !!lean.find(x => x.id === me && x.n >= 1),
+      allies: alliesOf(me).length,
+      privateWords: (memories.get(me) || []).length > 0,
+      pileOnCleared: !traitor && !!(top && top.n >= 2 && top.id !== me && topRead && topRead.score < 0),
+      quietOne: !!quiet,
+      partnerHeat: !!(pLean && pLean.n >= 1),
+      partnerDoomed: !!(pLean && pLean.n >= Math.max(2, others / 2)),
+      leanOnFaithful: traitor && !!(top && top.n >= 2 && top.id !== me && !partners.has(top.id)),
+    };
+  }
+
   /* ---------------- the plan ----------------
      What a strong player would be doing right now, worked out from the
      record rather than left to the model to rediscover every turn. */
@@ -806,6 +861,7 @@ const AIDirector = (() => {
       'YOUR ALLIANCES (private between you and them):', alliancesText(b.id, traitor),
       '',
       traitor ? STRATEGY_TRAITOR : STRATEGY_FAITHFUL,
+      typeof AIStrategy !== 'undefined' ? AIStrategy.promptText(stratCtx(b)) : '',
       ALLIANCE_PLAY,
       '',
       'WHAT YOU SAW WITH YOUR OWN EYES:', notesFor(v),
@@ -850,13 +906,56 @@ const AIDirector = (() => {
     if (!active) return;
     const now = Date.now();
     const key = aliveKey();
-    if (key !== goneKey) { goneKey = key; force = true; }
+    if (key !== goneKey) {
+      const first = !goneKey;
+      goneKey = key; force = true;
+      /* Somebody has gone. A prompt update only swaps the instructions:
+         the agent's own conversation still has them alive in it, asking
+         and answering, and that history is what it copies. So every
+         voice still playing starts again as a fresh agent, from today's
+         prompt — which has the whole game in it, and nothing stale. */
+      if (!first) for (const b of bots) renew(b.id);
+    }
     if (!force && (!promptDirty || now - lastRefresh < 20000)) return;
     promptDirty = false;
     lastRefresh = now;
     for (const b of bots) freshen(b.id, true);
     if (claudiaLive) freshen(AI.CLAUDIA, true);
   }
+  const renewing = new Set();        // voices waiting to finish a line before they are renewed
+  function renew(id) {
+    const b = bots.find(x => x.id === id);
+    const me = Session.playerById(id);
+    if (!b || !me || !me.alive || !AI.spawn || !AI.close) return;
+    if (speaking && speaking.id === id) { renewing.add(id); return; }
+    renewing.delete(id);
+    AI.close(id);
+    sentAt.delete(id);
+    AI.spawn({ id: b.id, name: b.name, voice: b.voice || 'aura-2-thalia-en', prompt: promptFor(b), functions: BOT_FUNCTIONS });
+    sentAt.set(id, lines.length + ':' + (Session.state ? Session.state.phase + Session.state.day : '') + ':' + aliveKey());
+  }
+
+  /* The last guard: a line that speaks to somebody who is gone, or asks
+     the room to vote out somebody already gone, is never let out. */
+  function talksToGone(text) {
+    const s = Session.state;
+    if (!s) return null;
+    const t = String(text || '');
+    for (const g of goneList(s)) {
+      const n = String(g.name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (!n) continue;
+      const res = [
+        new RegExp('^\\W*(?:(?:hey|oi|so|right|well|and|but|ok(?:ay)?|look|listen)[,\\s]+)?' + n + '\\s*[,?!]', 'i'),
+        new RegExp('(?:,|\\b(?:you|then|eh|mate|love|pal))\\s+' + n + '\\s*[?!.]*\\s*$', 'i'),
+        new RegExp(',\\s*' + n + '\\s*\\?', 'i'),
+        new RegExp('\\b(?:vote|voting|banish|banishing|write down|writing down|go(?:ing)? for|get rid of)\\s+(?:for\\s+|out\\s+)?' + n + '\\b', 'i'),
+        new RegExp('\\bwhat (?:do you|about you)[^.?!]{0,20}' + n + '\\b', 'i'),
+      ];
+      if (res.some(re => re.test(t))) return g;
+    }
+    return null;
+  }
+
   function freshen(id, force) {
     const stamp = lines.length + ':' + (Session.state ? Session.state.phase + Session.state.day : '') + ':' + aliveKey();
     if (!force && sentAt.get(id) === stamp) return;
@@ -1166,6 +1265,17 @@ const AIDirector = (() => {
     if (!p) return;
     lastHuman = Date.now();
     wordsAt.set(p.id, lastHuman);
+    /* They had not finished: the reply being written to the first half of
+       what they said is dropped before a word of it is heard, and the AI
+       answers the whole thing once they really stop. */
+    if (speaking && !speaking.firm && !speaking.chat && speaking.audioAt === null && speaking.origin
+        && speaking.origin.id === p.id && speaking.id !== AI.CLAUDIA) {
+      const origin = speaking.origin;
+      AI.hush(speaking.id, true);
+      finishTurn(speaking.id);
+      thread = null;
+      if (!heardLast) heardLast = Object.assign({}, origin, { at: Date.now() });
+    }
     interrupt(p.id, m.text);
     const s = Session.state;
     const turret = s.phase === 'night';
@@ -1198,6 +1308,8 @@ const AIDirector = (() => {
         text: ((same ? heardLast.text + ' ' : '') + m.text).slice(-400),
         named: same ? [...new Set(heardLast.named.concat(named))] : named,
         intent: same ? heardLast.intent : null,
+        final: !!m.final,
+        ended: 0,
       };
     }
   }
@@ -1208,12 +1320,17 @@ const AIDirector = (() => {
   /* What a transcript says once the words an AI or Claudia has just said
      aloud are taken out of it: `null` if it was all echo, the text if
      none of it was, and the remainder if it was both. */
-  const ECHO_RECENT_MS = 1800;
+  /* Measured from when the voice stopped, not when its words arrived: a
+     six-second sentence's echo is transcribed after it ends, and counted
+     from its start it came back as the person's own words — the AIs
+     then answered somebody for what an AI had said. */
+  const ECHO_RECENT_MS = 3000;
   function isEchoLine(l, now) {
     if (l.who !== AI.CLAUDIA && !isBot(l.who)) return false;
     if (speaking && l.who === speaking.id && l.t >= speaking.since) return true;
-    if (l.who === AI.CLAUDIA && typeof Voice !== 'undefined' && Voice.speaking) return true;
-    return now - l.t < ECHO_RECENT_MS;
+    if (l.who === AI.CLAUDIA && typeof Voice !== 'undefined'
+        && (Voice.speaking || (now - l.t < 20000 && Voice.sinceSpoke < ECHO_RECENT_MS))) return true;
+    return now - Math.max(l.t, l.until || 0) < ECHO_RECENT_MS;
   }
   function unEcho(text) {
     const w = wordsOf(text);
@@ -1319,7 +1436,7 @@ const AIDirector = (() => {
      not a takeover; continued speech from the same nearby person is. */
   function interrupt(humanId, text) {
     if (thread && Session.playerById(humanId) && Session.playerById(humanId).alive) thread = null;
-    if (!speaking || speaking.id === AI.CLAUDIA || speaking.firm) return;
+    if (!speaking || speaking.id === AI.CLAUDIA || speaking.firm || speaking.carry) return;
     const p = Session.playerById(humanId);
     if (!p || !p.alive || !inEarshot(humanId, speaking.id)) return;
     const now = Date.now();
@@ -1335,7 +1452,7 @@ const AIDirector = (() => {
        short acknowledgement also leaves the current sentence intact. */
     if (overlap.text === phrase) return;
     overlap.text = phrase;
-    if (words.length < 3) return;
+    if (words.length < INTERRUPT_WORDS) return;
     if (speaking.audioAt === null || now - speaking.audioAt < SPEECH_GRACE_MS
         || now - overlap.since < INTERRUPT_HOLD_MS) return;
     AI.hush(speaking.id, true);
@@ -1369,6 +1486,14 @@ const AIDirector = (() => {
     if (botSpeechBlocked(s, b.id)) { AI.hush(b.id, true); return; }
     // nor does anybody hear from somebody who is out of the game
     if (!(Session.playerById(b.id) || {}).alive) { AI.hush(b.id, true); return; }
+    // a word to the dead: dropped before most of it is heard, and never remembered
+    const ghost = talksToGone(m.text);
+    if (ghost) {
+      AI.hush(b.id, true);
+      if (speaking && speaking.id === b.id) finishTurn(b.id);
+      renew(b.id);
+      return;
+    }
     if (speaking && speaking.id === b.id && speaking.onText) {
       const started = speaking.onText;
       speaking.onText = null;
@@ -1403,6 +1528,11 @@ const AIDirector = (() => {
      for the room. */
   const lateChat = new Map();        // bot id -> Date.now() until which its words are chat
   function finishTurn(id) {
+    // when this voice stopped: its words can still come back through a microphone for a moment
+    if (speaking && speaking.id === id) {
+      const end = Date.now();
+      for (let i = lines.length - 1; i >= 0 && lines[i].t >= speaking.since - 50; i--) if (lines[i].who === id) lines[i].until = end;
+    }
     const st = state.get(id);
     if (st) { st.last = Date.now(); st.said++; }
     if (speaking && speaking.id === id && speaking.chat) lateChat.set(id, Date.now() + 10000);
@@ -1415,6 +1545,7 @@ const AIDirector = (() => {
       thread.waiting = null;
       thread.nextAt = Date.now() + 450 + Math.random() * 850;
     }
+    if (renewing.has(id)) renew(id);
   }
 
   function hostSpeech(on) {
@@ -1640,7 +1771,7 @@ const AIDirector = (() => {
 
   function allianceIntent(s, quiet) {
     const h = heardLast;
-    if (!h || h.intent || h.allied === h.text || quiet < QUIET_BEFORE_BOT || s.phase === 'night') return;
+    if (!h || h.intent || h.allied === h.text || quiet < turnGap(h) || s.phase === 'night') return;
     h.allied = h.text;
     const near = listeners(h.id, s);
     if (!near.length) return;
@@ -1791,6 +1922,29 @@ const AIDirector = (() => {
 
   /* ---------------- the clock ---------------- */
 
+  /* How long a person has to have been quiet before an AI answers them.
+     The recogniser says when a sentence ended (`final`: its endpoint;
+     `ended`: a whole utterance over), and the words say whether it
+     sounds finished: "so I think we should…", "and", "um" are a person
+     still talking, not a person waiting for a reply. */
+  // a sentence that ends on these has not ended, punctuated or not
+  const TRAILING = /\b(?:and|but|because|cos|or|um+|uh+|er+m?)\W*$/i;
+  // ...and on these, unless the recogniser heard it finish (a full stop, a question mark)
+  const TRAILING_SOFT = /\b(?:so|like|the|a|an|i|if|that|with|to|of|my|your|is|was|were|we|they|i'm|i've|mean|maybe|just|about|for|in|at)\W*$/i;
+  function turnGap(h, among) {
+    const text = String((h && h.text) || '').trim();
+    let gap;
+    // (a `final` already has 0.4 s of silence behind it: the recogniser's endpoint)
+    const done = /[?!.]["”']?$/.test(text);
+    if (!text || TRAILING.test(text) || (!done && TRAILING_SOFT.test(text))) gap = 2.4;
+    else if (h.ended && h.ended >= h.at) gap = done ? 0.5 : 0.9;
+    else if (h.final) gap = done ? 0.7 : 1.2;
+    else gap = 1.8;      // mid-utterance: the recogniser has not heard them stop
+    // a question put to an AI by name is plainly for it
+    if (h.named && h.named.length && /\?["”']?$/.test(text) && (h.final || h.ended)) gap = Math.min(gap, 0.5);
+    return gap + (among ? 0.6 : 0);
+  }
+
   function humansQuietFor() {
     return (Date.now() - lastHuman) / 1000;
   }
@@ -1916,6 +2070,7 @@ const AIDirector = (() => {
      Whoever was named answers. A remark aimed at another person by name
      is left to them. By day only the AIs in earshot can hear it at all. */
   let thread = null;     // { origin, said: [{ id, name, text }], left, waiting, nextAt, used: Set }
+  let lastPhase = null;
   let lastBanter = 0;
 
   /* Claudia has the room while she is speaking, in the breath after she
@@ -2016,7 +2171,7 @@ const AIDirector = (() => {
     const soloBot = oneOnOneBot(h.id, s);
     // Usually wait for a gap; occasionally take a short, assertive turn.
     const among = !soloBot && humansTalkingTogether() && !h.named.length;
-    const waiting = quiet < (among ? LULL_AMONG_PEOPLE : QUIET_BEFORE_BOT);
+    const waiting = quiet < turnGap(h, among);
     const cutIn = waiting && canCutIn(quiet);
     if (waiting && !cutIn) return;
     heardLast = null;
@@ -2302,7 +2457,7 @@ const AIDirector = (() => {
 
   function intents(s, quiet) {
     const h = heardLast;
-    if (!h || h.acted === h.text || quiet < QUIET_BEFORE_BOT
+    if (!h || h.acted === h.text || quiet < turnGap(h)
         || typeof CastleBots === 'undefined' || !CastleBots.running || !CastleBots.company) return;
     h.acted = h.text;
     const near = listeners(h.id, s);
@@ -2478,7 +2633,7 @@ const AIDirector = (() => {
     return (v && v.role === 'traitor'
       ? ' Secret Traitor goal: dig into this exchange and plant one believable seed of doubt about a Faithful. Use a real remark, vote or observation, ask a leading question, and let the humans draw the conclusion. Stay in character as a Faithful; never expose private knowledge.'
       : ' Test the theory against what was actually said or seen. Invite a human to explain a detail, and be willing to back them when their answer makes sense.')
-      + focusFor(b) + callbackCue(b, s);
+      + focusFor(b) + (typeof AIStrategy !== 'undefined' ? AIStrategy.cue(stratCtx(b)) : '') + callbackCue(b, s);
   }
 
   /* ---------------- ballots ---------------- */
@@ -2565,9 +2720,12 @@ const AIDirector = (() => {
     const read = new Map(suspicion(botId, traitor).map(x => [x.id, x]));
     const lean = new Map(roomLean(botId).map(x => [x.id, x.n]));
     const others = Math.max(1, Session.alive().length - 1);
+    const sx = typeof AIStrategy !== 'undefined' ? stratCtx({ id: botId }) : null;
     return options.map(p => {
       const r = read.get(p.id) || null, n = lean.get(p.id) || 0;
       let sc = (r ? Math.max(-20, r.score) : 0) + n * (traitor ? 1.5 : 0.75);
+      // the plays this AI is using push its slate their way (see ai-strategy.js)
+      if (sx) sc += AIStrategy.voteBias(sx, { id: p.id, n, score: r ? r.score : 0, partner: partners.has(p.id), ally: allies.indexOf(p.id) >= 0 });
       for (const a of allies) {
         const pl = plans.get(a);
         if (pl && pl.day === s.day && pl.target === p.id) sc += traitor ? 1 : 2;
@@ -2813,8 +2971,19 @@ const AIDirector = (() => {
       if (e.type === 'reveal' || (f && f.stage === 'reveal')) { AI.hush(speaking.id, true); finishTurn(speaking.id); }
     }
     if (e.type === 'phase') {
-      // a new room: nobody is mid-sentence in it
-      if (speaking) { AI.hush(speaking.id, true); speaking = null; }
+      /* A new room. A sentence that is already coming out of the speakers
+         is let finish (Claudia waits for it): chopping it off at every
+         change of scene was much of "the AI keeps getting interrupted".
+         One still being written is dropped, and nothing said in the
+         turret carries out of it. */
+      const was = lastPhase;
+      lastPhase = Session.state ? Session.state.phase : null;
+      if (speaking) {
+        const finishing = speaking.id !== AI.CLAUDIA && !speaking.chat && speaking.audioAt !== null
+          && AI.speaking(speaking.id) && was !== 'night' && lastPhase !== 'verdict';
+        if (finishing) { speaking.after = null; speaking.carry = true; }
+        else { AI.hush(speaking.id, true); speaking = null; }
+      }
       heardLast = null;
       thread = null;
       asks.clear();
@@ -2872,7 +3041,7 @@ const AIDirector = (() => {
   }
 
   return {
-    start, stop, pauseBots, botTalking, startEncounter, convoWith, claudiaLine, claudiaJudge, discussionStarted, discussionEnded, mentions,
+    start, stop, pauseBots, botTalking, talksToGone, turnGap, startEncounter, convoWith, claudiaLine, claudiaJudge, discussionStarted, discussionEnded, mentions,
     distrusts, moved, threats,
     // the Traitors' standing order, for the castle bots' choice of victim
     order: () => (active ? liveOrder() : null),

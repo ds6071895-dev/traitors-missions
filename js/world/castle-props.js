@@ -490,7 +490,29 @@ const CastleProps = (() => {
     morning: { lawn: '#77a64a', rough: '#86a050', shore: '#a29a86', gravel: '#cfc6b2', light: '#f4f8ff', trunk: '#80705e' },
     night:   { lawn: '#18261a', rough: '#1b261a', shore: '#1e2228', gravel: '#2c3038', light: '#26324c', trunk: '#1a1a1c' },
   };
+  /* The view out of the windows, built once per hour and kept: its
+     lawn, its eight thousand tufts and its trees are placed by
+     rejection sampling, which was a third of every castle scene
+     change. A scene gets a copy — the same geometry, its own
+     materials, because a grey day tints them and a dispose frees
+     them. */
+  const VIEWS = new Map();
   function view(hour, cx, cz) {
+    const k = hour + ':' + cx + ':' + cz + ':' + (low() ? 'low' : 'full');
+    let src = VIEWS.get(k);
+    if (!src) {
+      src = buildView(hour, cx, cz);
+      src.traverse(o => { if (o.geometry) o.geometry.userData.keep = true; });
+      VIEWS.set(k, src);
+    }
+    const g = src.clone(true);
+    g.traverse(o => {
+      if (o.material) o.material = Array.isArray(o.material) ? o.material.map(m => m.clone()) : o.material.clone();
+    });
+    g.userData.sun = src.userData.sun.clone();
+    return g;
+  }
+  function buildView(hour, cx, cz) {
     const P = skyFor(hour);
     const key = hour === 'night' ? 'night' : hour === 'morning' ? 'morning' : 'golden';
     const Tn = TINTS[key];

@@ -54,17 +54,17 @@ function loadNightScene(sessionStub, extras = {}) {
   return { NightScene: ctx.NightScene, calls };
 }
 
-test('turret timer is in the 20-30s range and voice routes stay private to Traitors', () => {
+test('turret timer is in the 10-20s range and voice routes stay private to Traitors', () => {
   const ctx = toNight();
   const { Session } = ctx;
-  ok(Session.PICK_SECONDS >= 20 && Session.PICK_SECONDS <= 30,
-     'PICK_SECONDS is between 20 and 30');
+  ok(Session.PICK_SECONDS >= 10 && Session.PICK_SECONDS <= 20,
+     'PICK_SECONDS is between 10 and 20 (a short night in the turret)');
   eq(Session.state.phase, 'night', 'entered night phase');
   const traitors = Session.alive().filter(p => Session.privateView(p.id).role === 'traitor');
   eq(traitors.length, 2, 'two living Traitors');
   const v = Session.privateView(traitors[0].id);
   const pickMs = v.night.endsAt - Session.state.night.startedAt;
-  ok(pickMs >= 20000 && pickMs <= 30000, 'turret pick/chat window is 20-30s (' + pickMs + 'ms)');
+  ok(pickMs >= 10000 && pickMs <= 20000, 'turret pick/chat window is 10-20s (' + pickMs + 'ms)');
   ok(Session.state.night.endsAt >= v.night.endsAt, 'full night covers turret window');
   const routes = Session.voiceRoutes();
   eq(routes.night.slice().sort(), traitors.map(t => t.id).sort(), 'only living Traitors share the night route');

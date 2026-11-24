@@ -768,7 +768,10 @@ const Music = (() => {
         I.bell(this, T + 0.3, this.hz(48 + 7), 0, 0.3, { pri: 0 });
       }
       const lead = T - now;
-      setTimeout(() => this.stop(ring * 0.7), (lead + ring * 0.45) * 1000);
+      /* Only if the scene really did end here. A section asked for after
+         the coda clears `_ended` and plays on — and the old timer still
+         stopped it a second later, leaving that scene with no band. */
+      setTimeout(() => { if (this._ended === T) this.stop(ring * 0.7); }, (lead + ring * 0.45) * 1000);
       return lead;
     }
 
