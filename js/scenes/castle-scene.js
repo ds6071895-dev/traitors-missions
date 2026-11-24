@@ -643,7 +643,6 @@ class CastleScene {
     const music = this.music;
     const f = Session.state.finale;
     const nm = (p) => (p.local ? 'YOU' : p.name.toUpperCase());
-    const fig = st && st.figureOf ? st.figureOf(voter.id) : null;
     const gone = () => !this._alive;
 
     // what the table wrote, without the Wise One's slate: the verdict being thrown out
@@ -664,8 +663,11 @@ class CastleScene {
     Scenes.Drama.hit(st, null, null, { shake: 1.0, flash: 'rgba(240,196,90,.85)', haptic: 160 });
     Scenes.Cine.card({ kicker: 'The Wise One', title: nm(voter), tone: 'wise', cls: 'last heat-3',
                        sub: voter.local ? 'You were the Wise One all along.' : 'Hidden at this table all along.' });
-    if (fig && typeof Figure !== 'undefined') Figure.setSeated(fig, false);
-    if (st && st.act) setTimeout(() => { if (this._alive && this.stage) this.stage.act(voter.id, 'handsHips'); }, 900);
+    /* They stay in their chair: standing in place at the table, with
+       hands held on the hips, read as a shuffle and a dance. One lean
+       in and a nod says it. */
+    if (st && st.act) setTimeout(() => { if (this._alive && this.stage) this.stage.act(voter.id, 'leanIn'); }, 500);
+    if (st && st.act) setTimeout(() => { if (this._alive && this.stage) this.stage.act(voter.id, 'nod'); }, 1500);
     this._react(['gasp', 'handsFace', 'flinch', 'handChest', 'leanBack'], voter.id, 0.9);
     await this._sleep(1.8);
     if (gone()) return;
@@ -724,8 +726,6 @@ class CastleScene {
     await this._say(this._setFor('overruleSends', target), { name: target.local ? 'You' : target.name }, null);
     if (gone()) return;
     await this._sleep(1.0);
-    // and the Wise One sits back down
-    if (fig && typeof Figure !== 'undefined' && this._alive) Figure.setSeated(fig, true);
   }
 
   /* A slate turned: the voter points across the table at the name on

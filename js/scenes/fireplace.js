@@ -387,7 +387,7 @@ class FinaleScene {
         const fz = Session.state.finale;
         if (fz.lot && this._drawn !== fz.pending + ':' + fz.round) {
           this._drawn = fz.pending + ':' + fz.round;
-          await TieDraw.play(this, { key: 'fire-tie', claudiaShot: 'claudiaSide' });
+          await TieDraw.play(this, { key: 'fire-tie', claudiaShot: 'claudiaSide', sub: 'The fire cannot choose.' });
           if (!this._alive) return;
         } else if (!fz.lot && typeof Wildcard !== 'undefined' && this._wild !== fz.pending + ':' + fz.round) {
           // the fire's own wild card: a name that went by one slate, or on a change of heart
@@ -552,8 +552,8 @@ class FinaleScene {
   async _name() {
     const revote = Session.state.finale.nameRound > 0;
     if (revote) {
-      // the split, played as a stand-off between the tied (tie-draw.js)
-      await TieDraw.standoff(this, { line: 'voteNameTie', claudiaShot: 'claudiaSide' });
+      // the split, played as the fire's own long stand-off between the tied (tie-draw.js)
+      await TieDraw.fireStandoff(this, { line: 'voteNameTie', claudiaShot: 'claudiaSide' });
       if (!this._alive) return;
       // nobody knows, and the harmony does not either
       this._cue('ballot', { at: 'bar' });

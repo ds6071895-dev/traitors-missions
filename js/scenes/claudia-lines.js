@@ -471,6 +471,21 @@ const ClaudiaLines = (() => {
       [ "Tied.", "{names}." ],
       [ "The fire cannot take two.", "{names}." ]
     ],
+    "fireTieStakes": [
+      [ "Everything you have played for.", "And it comes down to this." ],
+      [ "The money is right there.", "And one of you will never touch it." ],
+      [ "No more hiding.", "Not now. Not at this fire." ]
+    ],
+    "fireTieFaces": [
+      [ "Look at each other.", "Really look." ],
+      [ "One of these faces is lying to you.", "Maybe." ],
+      [ "Friends, at this table.", "Not at this fire." ]
+    ],
+    "fireTieAgain": [
+      [ "Write again.", "Split again, and the fire chooses for you." ],
+      [ "One more slate.", "Make it count. There is no other." ],
+      [ "Choose.", "Because if you cannot, the castle will." ]
+    ],
     "pouchIntro": [
       [ "{name}. Your pouch." ],
       [ "{name}. Give it to me." ]

@@ -64,7 +64,7 @@ const TieDraw = (() => {
     if (music && music.stinger) { music.silence(false); music.stinger('tie'); }
     Scenes.Drama.hit(st, null, null, { shake: 0.7, flash: 'rgba(200,16,30,.65)', haptic: 80 });
     Scenes.Cine.card({ kicker: 'Tied twice', title: 'DEADLOCK', tone: 'bad', cls: 'last heat-3',
-                       sub: 'The table cannot choose.' });
+                       sub: o.sub || 'The table cannot choose.' });
     between.forEach((p) => { if (st && st.setMood) st.setMood(p.id, 'nervous'); });
     await Scenes.wait(1.4);
     if (!alive()) return;
@@ -197,5 +197,110 @@ const TieDraw = (() => {
     done();
   }
 
-  return { play, wheel, standoff };
+  /* Split at the fire, in the last round: a vote for each name, and
+     the money right there. The table's stand-off, made bigger and
+     slower, because this is the end of the game:
+
+     the stop     the band and the fire both die; a long, dark beat
+     the split    a heavy hit, ONE VOTE EACH (or A TIE), the room flinching
+     the stakes   Claudia, on what this costs
+     the faces    each tied face held long, the fire rising with each,
+                  a heartbeat drumroll building under them
+     the face-off every name on one card, A  vs  B  vs  C, and Claudia
+                  telling them to look at each other
+     the turn     silence, then the revote lands on the biggest hit
+
+     Like `standoff`, it waits on nobody: the ballot is already open. */
+  async function fireStandoff(scene, o = {}) {
+    const s = Session.state;
+    const f = s.finale;
+    const st = scene.stage;
+    const music = scene.music;
+    const round = f.nameRound;
+    const tied = (f.tied || []).map(id => Session.playerById(id)).filter(Boolean)
+      .sort((a, b) => a.seat - b.seat);
+    if (!tied.length || !scene._alive) return;
+    const alive = () => scene._alive && Session.state.finale && Session.state.finale.nameRound === round;
+    const counts = (f.lastTally && f.lastTally.counts) || {};
+    const each = counts[tied[0].id] || 0;
+    const names = tied.map(p => (p.local ? 'you' : p.name));
+    const said = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names.join('');
+    const votes = (n) => n + (n === 1 ? ' vote' : ' votes');
+    const fire = (v) => { if (st && st.flare) st.flare(v); };
+    const shot = o.claudiaShot || 'claudiaSide';
+    let build = null;
+    const done = () => { if (build) build.cancel(0.6); Scenes.Cine.card(null); fire(1); Scenes.Drama.end(st, music); };
+
+    // the stop: the band goes, the fire sinks, and nobody moves
+    if (music && music.silence) music.silence(true);
+    fire(0.25);
+    await Scenes.Drama.hush(st, null, shot, { hold: 1.8, silent: false, cut: true, push: 0.06, speed: 0.3 });
+    if (!alive()) return done();
+
+    // the split
+    if (music && music.stinger) { music.silence(false); music.stinger('tie'); }
+    Scenes.Drama.hit(st, null, null, { shake: 1.0, flash: 'rgba(200,16,30,.7)', haptic: 140 });
+    if (st && st.shake) st.shake(0.8);
+    fire(1.4);
+    Scenes.Cine.card({ kicker: 'The fire is split', title: each === 1 ? 'ONE VOTE EACH' : 'A TIE', tone: 'bad',
+                       cls: 'last heat-3', sub: tied.map(nameOf).join('  ·  ') + (each ? '  —  ' + votes(each) + ' each' : '') });
+    tied.forEach((p, i) => {
+      if (st && st.setMood) st.setMood(p.id, 'nervous');
+      if (st && st.act) setTimeout(() => { if (scene._alive && scene.stage) scene.stage.act(p.id, ['gasp', 'flinch', 'handsFace'][i % 3]); }, 150 + 260 * i);
+    });
+    await Scenes.wait(2.0);
+    if (!alive()) return done();
+    fire(0.5);
+    Scenes.Cine.card(null);
+    await scene._say(o.line || 'voteNameTie', { names: said }, shot);
+    if (!alive()) return done();
+    await scene._say('fireTieStakes', {}, null);
+    if (!alive()) return done();
+
+    // the faces: held long, the fire coming up behind each, the drum under them
+    const t0 = Date.now();
+    build = Scenes.Drama.build(st, music, 'banish', { camera: false, bed: 'drumroll', ramp: 2.6 * tied.length + 3 });
+    for (let i = 0; i < tied.length; i++) {
+      const p = tied[i];
+      if (!p.local) Scenes.Drama.shot(st, 'on:' + p.id, { cut: true, push: 0.16 + 0.06 * i, speed: 0.22 });
+      fire(0.6 + 0.3 * i);
+      Scenes.Cine.card({ kicker: i === tied.length - 1 && tied.length > 1 ? '…or' : 'Facing the fire', title: nameOf(p), tone: 'slate',
+                         cls: 'heat-' + Math.min(3, 1 + i), sub: each ? votes(each) : '' });
+      if (st && st.act) st.act(p.id, ['handChest', 'neckRub', 'shake', 'glance'][i % 4]);
+      if (typeof Input !== 'undefined' && Input.haptic) Input.haptic(30);
+      await Scenes.wait(2.6);
+      if (!alive()) return done();
+    }
+
+    // the face-off: every name on one card, and the room looking
+    Scenes.Drama.shot(st, o.wideShot || 'players', { cut: true, push: 0.08, speed: 0.3 });
+    Scenes.Cine.card({ kicker: 'Face to face', title: tied.map(nameOf).join('  vs  '), tone: 'bad', cls: 'last heat-3',
+                       sub: 'One of them leaves the game. Now.' });
+    if (st && st.act) tied.forEach((p, i) => setTimeout(() => {
+      if (scene._alive && scene.stage) scene.stage.act(p.id, 'glance');
+    }, 300 * i));
+    await scene._say('fireTieFaces', {}, null);
+    if (!alive()) return done();
+
+    // the turn: everything stops, and then the revote lands
+    Scenes.Drama.shot(st, shot, { cut: true, push: 0.14, speed: 0.3 });
+    Scenes.Cine.card({ kicker: 'Revote', title: tied.map(nameOf).join(' or '), tone: 'bad', cls: 'last heat-3',
+                       sub: 'Only the tied names can go. Split again, and the castle draws.' });
+    await scene._say(o.after || 'fireTieAgain', { names: said }, null);
+    if (!alive()) return done();
+    await Scenes.Drama.peak(build, { since: t0, min: 2, max: 6 });
+    if (!alive()) return done();
+    fire(0.2);
+    const wait = build.release('name', { n: 5 });
+    build = null;
+    if (wait) await Scenes.wait(wait);
+    if (!alive()) return done();
+    Scenes.Drama.hit(st, null, null, { shake: 0.9, flash: 'rgba(220,10,24,.6)', haptic: 120 });
+    if (st && st.shake) st.shake(0.6);
+    fire(1.5);
+    await Scenes.wait(1.0);
+    done();
+  }
+
+  return { play, wheel, standoff, fireStandoff };
 })();
