@@ -380,18 +380,20 @@ class TasksScene {
     const leadText = noShield ? 'None today' : lead ? (lead.id === this._meId ? 'You' : lead.name) + ' · ' + lead.n : 'Nobody yet';
     if (d.shieldWho.textContent !== leadText) d.shieldWho.textContent = leadText;
     d.shield.classList.toggle('mine', !!lead && lead.id === this._meId);
-    const jobs = this._dead ? [] : (v.jobs || []);
+    const jobs = v.jobs || [];
     const open = jobs.filter(j => !j.done);
     const done = jobs.length - open.length;
     d.count.textContent = done + ' done';
     /* What is left, in order, and the last two you finished — a list
        that grows all day is a list nobody reads. */
     const shown = open.concat(jobs.filter(j => j.done).slice(-2).reverse());
-    const html = this._dead
+    const ghostTop = this._dead
+      ? '<li class="done ghost-note">Ghost jobs · nobody sees you, and nothing goes in the pot</li>' : '';
+    const html = ghostTop + (this._dead && !jobs.length
       ? '<li class="done">You are out of the game. Watch.</li>'
       : shown.map(j => '<li class="' + (j.done ? 'done' : '') + (j.kind === 'carry' ? ' carry' : j.kind === 'letter' ? ' letter' : '')
           + (this._nearJob && this._nearJob.id === j.id ? ' near' : '') + '"><i>' + this._icon(j) + '</i><span>'
-          + castleEsc(Chores.describe(j, (id) => this._name(id))) + '</span></li>').join('');
+          + castleEsc(Chores.describe(j, (id) => this._name(id))) + '</span></li>').join(''));
     if (html !== this._listHtml) { d.list.innerHTML = html; this._listHtml = html; }
     const carrying = jobs.find(j => j.kind === 'carry' && j.step && !j.done);
     d.carry.hidden = !carrying;
@@ -760,7 +762,7 @@ class TasksScene {
   /* What is in front of you: one of your stations, or a person. */
   _interact(dt) {
     const d = this._dom;
-    if (!d || this._dead || this._busy) { if (d) this._setPrompt(''); this._hold = null; return; }
+    if (!d || this._busy) { if (d) this._setPrompt(''); this._hold = null; return; }
     const v = Session.myPrivate() || {};
     const c = Session.state.chores;
     if (!c || c.closed) { this._setPrompt(''); this._hold = null; return; }
@@ -778,10 +780,11 @@ class TasksScene {
     if ((this._nearJob && this._nearJob.id) !== (job && job.id)) { this._nearJob = job; this._dirty = true; }
 
     // a door within reach, unless a job is nearer
-    let door = CastleLayout.doorNear(me.x, me.z, 1.6);
+    // a ghost does stations and errands only: no doors, nobody to face
+    let door = this._dead ? null : CastleLayout.doorNear(me.x, me.z, 1.6);
     if (door && job && jd < Math.hypot(door.x - me.x, door.z - me.z)) door = null;
 
-    const who = this._facingWho(dt);
+    const who = this._dead ? null : this._facingWho(dt);
     const letter = who && (v.jobs || []).find(j => j.kind === 'letter' && !j.done && j.target === who.id);
     const partners = new Set(v.partners || []);
     const canPoison = who && v.poison && v.poison.mine && !v.poison.used && !partners.has(who.id);

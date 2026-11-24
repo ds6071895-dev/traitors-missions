@@ -159,6 +159,8 @@ const Bots = (() => {
       twists: q.get('twists') !== 'off',
       // `twists=early`: a twist may come on the first day too
       twistsEarly: q.get('twists') === 'early',
+      // `often=1` every day … `often=0.25` rare
+      twistChance: q.has('often') ? Number(q.get('often')) : null,
       // `roles=hidden`: nobody banished says what they were until the end
       hideRoles: q.get('roles') === 'hidden',
     };
@@ -469,6 +471,7 @@ const Bots = (() => {
       traitorSeat: cfg.traitorSeat,
       twists: cfg.twists !== false,
       twistsEarly: !!cfg.twistsEarly,
+      twistChance: cfg.twistChance === undefined ? null : cfg.twistChance,
       hideRoles: !!cfg.hideRoles,
       forceTwist: cfg.twist || null,
     });

@@ -56,8 +56,12 @@ const Twists = (() => {
      host's settings rule out, early: bool the first day may have one }. Only public things
      go in, so the choice can tell nobody anything. */
   function pick(seed, day, ctx = {}) {
-    if ((day | 0) < (ctx.early ? 0 : 1) || ctx.last || ctx.yesterday) return null;
-    if (hash(seed, day, 0x1) >= CHANCE) return null;
+    // how often, as the host set it: 0.25 rare … 1 every day
+    const chance = Number.isFinite(ctx.chance) ? Math.max(0, Math.min(1, ctx.chance)) : CHANCE;
+    if (chance <= 0) return null;
+    // every day means every day: only then may one follow another
+    if ((day | 0) < (ctx.early ? 0 : 1) || ctx.last || (ctx.yesterday && chance < 1)) return null;
+    if (hash(seed, day, 0x1) >= chance) return null;
     const used = new Set((ctx.used || []).concat(ctx.exclude || []));
     const open = DECK.filter(id => !used.has(id));
     if (!open.length) return null;
@@ -69,5 +73,10 @@ const Twists = (() => {
   const cardLine = (s) => { const id = today(s); return id ? INFO[id].card : null; };
   const aiLine = (s) => { const id = today(s); return id ? INFO[id].ai : null; };
 
-  return { DECK, INFO, CHANCE, pick, has, today, cardLine, aiLine };
+  /* The lobby's "how often" stops, as chances. */
+  const OFTEN = [
+    { v: 0.25, label: 'Rare' }, { v: 0.5, label: 'Some days' },
+    { v: 0.75, label: 'Often' }, { v: 1, label: 'Every day' },
+  ];
+  return { DECK, INFO, CHANCE, OFTEN, pick, has, today, cardLine, aiLine };
 })();

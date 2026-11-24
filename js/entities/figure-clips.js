@@ -259,5 +259,9 @@ const FigureClips = (() => {
     happy:   { fidget: 0.8, slump: -0.02, smile: 0.7, brow: 0.2, browIn: 0.0, lids: 0.1 },
   };
 
-  return { STAND, SEAT_HANDS, TALK, ACTS, MOODS, TALK_NAMES: Object.keys(TALK) };
+  /* A pointed finger means somebody. Picked at random mid-sentence it
+     stabbed at the air (or the floor) at nobody, which is the "weird"
+     pointing people saw — so talking never picks it. A real point is
+     aimed, by `Figure.pointAt`. */
+  return { STAND, SEAT_HANDS, TALK, ACTS, MOODS, TALK_NAMES: Object.keys(TALK).filter(n => n !== 'point') };
 })();

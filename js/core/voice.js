@@ -237,7 +237,7 @@ const Voice = (() => {
   /* Claudia does not talk over an AI that is mid-sentence: she waits
      for it to finish (a few seconds at most), then speaks. Until then
      the AIs treat her as already speaking, so nobody new starts. */
-  const WAIT_FOR_AI_MS = 5000;
+  const WAIT_FOR_AI_MS = 9000;
   let waitingForAI = 0;
   function say(text, opts = {}) {
     const claudiaLine = opts.speaker === undefined || opts.speaker === 'Claudia';

@@ -148,6 +148,30 @@ const Game = (() => {
     GameState.settings.music = setMusic(MUSIC_ORDER[(Math.max(0, now) + 1) % MUSIC_ORDER.length]);
     GameState.save();
     AudioBus.play('ui-click');
+    musicToast(GameState.settings.music);
+  }
+  /* M sits between N (the notebook) and the space bar, and two stray
+     presses used to turn the music off without a word — and keep it
+     off, because the setting is saved. That was the band that "just
+     randomly stopped" on a desktop. Every change now says so. */
+  let toastEl = null, toastT = 0;
+  function musicToast(m, lead) {
+    if (typeof document === 'undefined' || !document.body) return;
+    if (!toastEl) {
+      toastEl = document.createElement('div');
+      toastEl.id = 'music-toast';
+      toastEl.setAttribute('role', 'status');
+      toastEl.style.cssText = 'position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:9999;'
+        + 'padding:7px 14px;border-radius:999px;background:rgba(12,8,6,.82);color:#f3e6c8;'
+        + 'font:600 13px/1.2 system-ui,sans-serif;letter-spacing:.02em;pointer-events:none;'
+        + 'border:1px solid rgba(214,170,90,.45);transition:opacity .35s;opacity:0';
+      document.body.appendChild(toastEl);
+    }
+    toastEl.textContent = (lead || '') + (m === 'off' ? 'Music off — press M to bring it back'
+      : m === 'quiet' ? 'Music quiet (M)' : 'Music on (M)');
+    toastEl.style.opacity = '1';
+    clearTimeout(toastT);
+    toastT = setTimeout(() => { if (toastEl) toastEl.style.opacity = '0'; }, m === 'off' ? 4200 : 2200);
   }
 
   function syncMuteChip() {
@@ -397,6 +421,8 @@ const Game = (() => {
     document.getElementById('play-music').onclick = cycleMusic;
     Engine.addUpdater(() => { if (Input.pressed('mute')) cycleMusic(); });
     setMusic(GameState.settings.music);
+    // a saved "off" is the first thing a player who lost the band should hear about
+    if (GameState.settings.music === 'off') setTimeout(() => musicToast('off'), 1500);
 
     showAttract();
     EstateMaterials.preload();

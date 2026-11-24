@@ -74,6 +74,8 @@ const Engine = (() => {
       view.camera.updateProjectionMatrix();
     }
     warm(v);
+    // the old shaders are released once this view is warm: see `retire`
+    if (!warmUp && retired.size) setTimeout(releaseRetired, 1500);
   }
 
   function clearView() { view = null; onFrame = null; warmUp = null; }
@@ -114,7 +116,7 @@ const Engine = (() => {
       const t = w.textures.pop();
       if (t.version > 0 && renderer.properties.get(t).__version !== t.version) renderer.initTexture(t);
     }
-    if ((w.ready && !w.textures.length) || now > w.until) { warmUp = null; return false; }
+    if ((w.ready && !w.textures.length) || now > w.until) { warmUp = null; releaseRetired(); return false; }
     return true;
   }
 
@@ -173,7 +175,8 @@ const Engine = (() => {
   function disposeObject(root) {
     if (!root) return;
     root.traverse(o => {
-      if (o.geometry) o.geometry.dispose();
+      // a castle kit's geometry is shared by every castle scene: see castle-interior.js
+      if (o.geometry && !(o.geometry.userData && o.geometry.userData.keep)) o.geometry.dispose();
       const m = o.material;
       if (!m) return;
       const mats = Array.isArray(m) ? m : [m];
@@ -182,15 +185,34 @@ const Engine = (() => {
           const v = mm[k];
           if (v && v.isTexture && !(v.userData && v.userData.estateShared)) v.dispose();
         }
-        mm.dispose();
+        retire(mm);
       }
     });
     if (root.parent) root.parent.remove(root);
   }
 
+  /* A material's shader is freed with the last material that uses it.
+     Disposed with the old scene, before the new one is built, every
+     castle shader was thrown away and compiled again from nothing at
+     each change of scene — a second of hitching on a laptop. So a
+     disposed material is held until the next view has warmed up (its
+     own materials have taken over the same programs by then) and only
+     then let go; five seconds at most, if no view follows. */
+  const retired = new Set();
+  let retireT = null;
+  function retire(m) {
+    retired.add(m);
+    if (!retireT && typeof setTimeout !== 'undefined') retireT = setTimeout(releaseRetired, 5000);
+  }
+  function releaseRetired() {
+    if (retireT) { clearTimeout(retireT); retireT = null; }
+    retired.forEach(m => { try { m.dispose(); } catch (e) {} });
+    retired.clear();
+  }
+
   return {
     init, start, setView, clearView, addUpdater, onResize, resize,
-    setPaused, isPaused, disposeObject, drawn,
+    setPaused, isPaused, disposeObject, retire, drawn,
     get renderer() { return renderer; },
     get hasView() { return !!view; },
     get size() { return size; },

@@ -47,7 +47,7 @@ const FigureAnim = (() => {
 
   /* scratch */
   const V = () => new THREE.Vector3();
-  const _a = V(), _b = V(), _c = V(), _d = V(), _e = V(), _p = V(), _t = V(), _k = V();
+  const _a = V(), _b = V(), _c = V(), _d = V(), _e = V(), _p = V(), _t = V(), _k = V(), _pl = V(), _fw = V();
   const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion();
   const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
   const _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
@@ -581,7 +581,19 @@ const FigureAnim = (() => {
        different, so a table does not swivel as one) and never further
        than a neck goes; past that the eyes do the rest, and past those
        the person simply is not looking. */
-    const yawWant = U.clamp(U.wrapAngle(d.yawWant || 0), -1.4, 1.4);
+    /* Pointing at somebody, you look at them: the head and chest come
+       round with the arm. And the arm that points is the one on their
+       side, chosen as the point starts, so nobody reaches across their
+       own chest. */
+    let gazeYaw = d.yawWant || 0;
+    const pointP = d.pointAt || (A.pointW > 0.01 ? A.lastPoint : null);
+    if (pointP) {
+      const loc = _pl.copy(pointP);
+      fig.worldToLocal(loc);
+      if (d.pointAt && A.pointW < 0.12) A.pointSide = loc.x >= 0 ? 'r' : 'l';
+      gazeYaw = lerp(gazeYaw, Math.atan2(loc.x, loc.z), 0.85 * Math.min(1, A.pointW * 1.4));
+    }
+    const yawWant = U.clamp(U.wrapAngle(gazeYaw), -1.4, 1.4);
     const pitchWant = U.clamp(d.pitchWant || 0, -0.4, 0.4);
     const gr = A.gazeRate || 1;
     A.eyeY = U.damp(A.eyeY, yawWant, 12, dt);
@@ -631,7 +643,7 @@ const FigureAnim = (() => {
     A.pointW = U.damp(A.pointW, pointTo ? 1 : 0, 5, dt);
     A.reachW = U.damp(A.reachW, reachTo ? 1 : 0, 5, dt);
     if (A.pointW > 0.05) {
-      const H = A.handWant.r;
+      const H = A.handWant[A.pointSide || 'r'];
       H[0] = lerp(H[0], 1.15, A.pointW); H[1] = lerp(H[1], 0, A.pointW);
       H[2] = lerp(H[2], 0.85, A.pointW); H[3] = lerp(H[3], 0, A.pointW);
     }
@@ -707,12 +719,26 @@ const FigureAnim = (() => {
         }
         const shoulderW = _c;
         B[I['arm_' + k]].getWorldPosition(shoulderW);
-        if (k === 'r' && A.pointW > 0.01 && (d.pointAt || A.lastPoint)) {
+        if (k === (A.pointSide || 'r') && A.pointW > 0.01 && (d.pointAt || A.lastPoint)) {
           if (d.pointAt) A.lastPoint = d.pointAt.clone();
           const P = A.lastPoint;
           _e.copy(P).sub(shoulderW).normalize();
-          const len = (ARM_A + ARM_B) * s * 0.985;
+          /* Never behind the body: past a little over sixty degrees from
+             where the chest faces, the arm stops and the turn does the
+             rest. */
+          _fw.set(0, 0, 1).transformDirection(fig.matrixWorld);
+          const aim = Math.atan2(_e.x, _e.z), front = Math.atan2(_fw.x, _fw.z);
+          const off = U.wrapAngle(aim - front), lim = 1.1;
+          if (Math.abs(off) > lim) {
+            const flat = Math.hypot(_e.x, _e.z), a = front + Math.sign(off) * lim;
+            _e.set(Math.sin(a) * flat, _e.y, Math.cos(a) * flat);
+          }
+          // and not a stiff salute: a soft elbow, the hand just under the line
+          _e.y = U.clamp(_e.y, -0.45, 0.35);
+          _e.normalize();
+          const len = (ARM_A + ARM_B) * s * 0.965;
           _k.copy(shoulderW).addScaledVector(_e, len);
+          _k.y -= 0.035 * s;
           target.lerp(_k, w > 0 ? A.pointW : 1);
           w = Math.max(w, A.pointW);
         }

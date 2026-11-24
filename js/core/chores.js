@@ -137,7 +137,7 @@ const Chores = (() => {
      door that shuts — are deliberate: a job that takes you somewhere
      quiet is a job that might get you killed. */
   const STATIONS = [
-    { id: 'hall-desk',       room: 'hall',          x: -5.6, z: 16.4, type: 'letters', label: 'the porter’s desk' },
+    { id: 'hall-desk',       room: 'hall',          x: 4.3,  z: 16.4, type: 'letters', label: 'the porter’s desk' },
     { id: 'hall-clock',      room: 'hall',          x: -5.8, z: 6.0,  type: 'clock',   label: 'the long-case clock' },
     { id: 'hall-hearth',     room: 'hall',          x: 4.6,  z: 9.4,  type: 'bellows', label: 'the hall fire' },
     { id: 'passage-armour',  room: 'west-passage',  x: -8.5, z: 9.7,  type: 'tartan',  label: 'the suit of armour' },

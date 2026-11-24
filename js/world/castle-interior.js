@@ -176,6 +176,14 @@ const CastleInterior = (() => {
 
   const RAIN_SPEC = { keepUV: true };
 
+  /* The house's geometry, by quality and weather: see `build`. At most
+     four, and the wet ones only on a rainy day. */
+  const KIT = new Map();
+  function forgetKits() {
+    KIT.forEach(k => { k.batches.forEach(b => b[1].dispose()); k.glow.forEach(b => b[1].dispose()); });
+    KIT.clear();
+  }
+
   function build(scene, opts = {}) {
     const L = CastleLayout;
     const focus = L.FOCUS[opts.room] || L.FOCUS.hall;
@@ -585,6 +593,19 @@ const CastleInterior = (() => {
     };
     const FLOOR = { paving: 'flags', timber: 'boards', masonry: 'dressed' };
 
+    /* Everything from here to the doors is the house itself: walls,
+       floors, furniture, plants — about a million and a half vertices,
+       and two seconds of a laptop's main thread. None of it depends on
+       the hour, the room you start in or the seed; only on the quality
+       setting and whether it rains at the windows. So it is made once
+       per kit and handed to every later castle scene, which is what
+       made each scene change freeze the picture (and run the music
+       dry). Lights, windows, materials and doors are still the
+       scene's own. */
+    const kitKey = (low ? 'low' : 'full') + (wetOut ? ':wet' : ':dry');
+    const kit = KIT.get(kitKey) || null;
+    const solid = kit ? kit.solid.map(b => Object.assign({}, b)) : [];
+    if (!kit) {
     for (const r of L.ROOMS) {
       const fy = r.y || 0, f = finishOf(r);
       const floorId = FLOOR[r.floor] || 'flags';
@@ -937,7 +958,7 @@ const CastleInterior = (() => {
 
     /* ---------------- the house, room by room ---------------- */
 
-    const solid = [];
+    // (`solid` is declared above the house, so a kit can hand its own over)
     const P = Math.PI;
 
     /* The entrance hall: a stone hall with a grand stair up the west side,
@@ -1782,6 +1803,8 @@ const CastleInterior = (() => {
       for (const z of [10.0, 17.0]) chandelier(fx, 3.7, z, 0.45, 6, c.h + 1.55);
     }
 
+    } // end of the house, built once per kit (see KIT)
+
     /* The doors: real ones, on hinges, standing open all day — every
        room in the wings, the bedrooms, the great hall and the turret.
        Anybody may shut one by day, and a shut door is a wall until
@@ -1870,11 +1893,27 @@ const CastleInterior = (() => {
     /* ---------------- merge ---------------- */
 
     const meshes = [];
-    for (const [key, geos] of batches) {
-      if (!geos.length) continue;
+    /* The batches merged once, then kept: the kit's geometry is marked
+       so a scene's dispose leaves it on the GPU for the next one. */
+    const built = kit || { solid: solid.map(b => Object.assign({}, b)), batches: [], glow: [] };
+    if (!kit) {
+      for (const [key, geos] of batches) {
+        if (!geos.length) continue;
+        const merged = EstateMaterials.merge(geos);
+        geos.forEach(g => g.dispose());
+        merged.userData.keep = true;
+        built.batches.push([key, merged]);
+      }
+      for (const [colour, geos] of glowBatches) {
+        const merged = EstateMaterials.merge(geos);
+        geos.forEach(g => g.dispose());
+        merged.userData.keep = true;
+        built.glow.push([colour, merged]);
+      }
+      KIT.set(kitKey, built);
+    }
+    for (const [key, merged] of built.batches) {
       const id = key.slice(0, key.indexOf('@'));
-      const merged = EstateMaterials.merge(geos);
-      geos.forEach(g => g.dispose());
       const m = new THREE.Mesh(merged, mat(id));
       m.name = key;
       m.matrixAutoUpdate = false;
@@ -1882,9 +1921,7 @@ const CastleInterior = (() => {
       if (id === 'rain') m.renderOrder = 1;
       group.add(m); meshes.push(m);
     }
-    for (const [colour, geos] of glowBatches) {
-      const merged = EstateMaterials.merge(geos);
-      geos.forEach(g => g.dispose());
+    for (const [colour, merged] of built.glow) {
       const m = new THREE.Mesh(merged, new THREE.MeshBasicMaterial({ color: colour, side: THREE.DoubleSide, fog: false }));
       m.matrixAutoUpdate = false;
       group.add(m);
@@ -2061,7 +2098,7 @@ const CastleInterior = (() => {
       scene.remove(group, hemi, sun, sun.target);
       pool.forEach(l => scene.remove(l));
       Engine.disposeObject(group);
-      Object.values(mats).forEach(m => m.dispose());
+      Object.values(mats).forEach(m => (Engine.retire ? Engine.retire(m) : m.dispose()));
     }
 
     const roomAnchor = (id) => {
@@ -2099,5 +2136,5 @@ const CastleInterior = (() => {
     };
   }
 
-  return { build, FINISH, windowsFor, MATS };
+  return { build, forgetKits, FINISH, windowsFor, MATS, get kits() { return KIT.size; } };
 })();

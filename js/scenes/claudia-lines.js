@@ -247,7 +247,14 @@ const ClaudiaLines = (() => {
       [ "Write down the name you want banished.", "Do not show anyone. Not yet." ]
     ],
     "tableTie": [
-      [ "A tie.", "Only {names} can go now. Again." ]
+      [ "A tie.", "Only {names} can go now. Again." ],
+      [ "Split down the middle.", "{names}." ],
+      [ "We have a tie.", "{names}." ]
+    ],
+    "tieStandoff": [
+      [ "Look at them.", "One of them leaves on this vote." ],
+      [ "Only they can go now.", "Write again." ],
+      [ "Choose again.", "And this time, choose." ]
     ],
     "tableLot": [
       [ "Tied. Again.", "You have had two chances.", "Now the castle chooses." ],
@@ -461,7 +468,23 @@ const ClaudiaLines = (() => {
       [ "Name somebody.", "A Traitor is sitting here." ]
     ],
     "voteNameTie": [
-      [ "Tied.", "Vote again." ]
+      [ "Tied.", "{names}." ],
+      [ "The fire cannot take two.", "{names}." ]
+    ],
+    "fireTieStakes": [
+      [ "Everything you have played for.", "And it comes down to this." ],
+      [ "The money is right there.", "And one of you will never touch it." ],
+      [ "No more hiding.", "Not now. Not at this fire." ]
+    ],
+    "fireTieFaces": [
+      [ "Look at each other.", "Really look." ],
+      [ "One of these faces is lying to you.", "Maybe." ],
+      [ "Friends, at this table.", "Not at this fire." ]
+    ],
+    "fireTieAgain": [
+      [ "Write again.", "Split again, and the fire chooses for you." ],
+      [ "One more slate.", "Make it count. There is no other." ],
+      [ "Choose.", "Because if you cannot, the castle will." ]
     ],
     "pouchIntro": [
       [ "{name}. Your pouch." ],
@@ -597,6 +620,18 @@ const ClaudiaLines = (() => {
     ],
     "overruleNameYou": [
       [ "You are the Wise One.", "And you have overruled the table." ]
+    ],
+    "overruleVoid": [
+      [ "Your slates.", "Every one of them.", "Worthless." ],
+      [ "The table has spoken.", "And it does not matter." ],
+      [ "Everything you wrote tonight.", "Gone." ]
+    ],
+    "overruleSends": [
+      [ "{name}.", "The Wise One sends you home." ],
+      [ "{name}.", "One slate. And you are gone." ]
+    ],
+    "overruleSendsYou": [
+      [ "You.", "The Wise One sends you home." ]
     ]
   };
 

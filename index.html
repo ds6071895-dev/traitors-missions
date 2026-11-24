@@ -250,6 +250,13 @@
               <output id="lobby-twists-out">On</output>
             </span>
           </label>
+          <label class="lr-row" for="lobby-often">
+            <span class="lr-label"><b>How often</b><small>The chance that any one day brings a twist</small></span>
+            <span class="lr-control">
+              <input type="range" id="lobby-often" min="0" max="3" step="1" value="1" data-nav>
+              <output id="lobby-often-out">Some days</output>
+            </span>
+          </label>
           <label class="lr-row lr-toggle" for="lobby-early">
             <span class="lr-label"><b>Twists from day 1</b><small>A twist may come on the very first day, not only from the second</small></span>
             <span class="lr-control">
@@ -522,6 +529,7 @@
 <script src="js/core/moderator.js"></script>
 <script src="js/core/ai.js"></script>
 <script src="js/core/ai-players.js"></script>
+<script src="js/core/ai-strategy.js"></script>
 <script src="js/core/ai-director.js"></script>
 <script src="js/core/scenes.js"></script>
 <script src="js/world/sky.js"></script>
@@ -555,6 +563,7 @@
 <script src="js/scenes/hill.js"></script>
 <script src="js/scenes/castle-scene.js"></script>
 <script src="js/scenes/tie-draw.js"></script>
+<script src="js/scenes/wildcard.js"></script>
 <script src="js/scenes/fireplace.js"></script>
 <script src="js/scenes/exposed.js"></script>
 <script src="js/scenes/roundtable.js"></script>

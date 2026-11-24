@@ -234,6 +234,7 @@ const Lobby = (() => {
     const taskSeconds = taskTime();
     const tableTalk = tableTime();
     const twistsEarly = twistsOn() && earlyOn();
+    const twistChance = oftenStop().v;
     const cast = castChoice();
     const twists = twistsOn();
     const hideRoles = hiddenOn();
@@ -241,8 +242,8 @@ const Lobby = (() => {
     const said = Object.assign({}, wants, { [Party.selfId()]: myWant() });
     const dealWants = {};
     for (const p of list) if (Object.hasOwn(said, p.id)) dealWants[p.id] = said[p.id];
-    Party.post('go', { seed, players, ai: aiOn, taskSeconds, tableTalk, twistsEarly, cast, twists, hideRoles });
-    launch(seed, players, aiOn, taskSeconds, cast, dealWants, twists, hideRoles, { tableTalk, twistsEarly });
+    Party.post('go', { seed, players, ai: aiOn, taskSeconds, tableTalk, twistsEarly, twistChance, cast, twists, hideRoles });
+    launch(seed, players, aiOn, taskSeconds, cast, dealWants, twists, hideRoles, { tableTalk, twistsEarly, twistChance });
   }
 
   /* How long the day in the castle lasts: the host's to set, never under
@@ -262,6 +263,14 @@ const Lobby = (() => {
   const twistsOn = () => GameState.settings.twists !== false;
   // whether a twist may land on the first day: off unless the host turned it on
   const earlyOn = () => GameState.settings.twistsEarly === true;
+  // how often a day brings one: a stop on Twists.OFTEN, "Some days" unless the host moved it
+  const OFTEN = (typeof Twists !== 'undefined' && Twists.OFTEN) || [{ v: 0.5, label: 'Some days' }];
+  const oftenIndex = () => {
+    const v = Number(GameState.settings.twistChance);
+    const i = OFTEN.findIndex(o => o.v === v);
+    return i >= 0 ? i : Math.max(0, OFTEN.findIndex(o => o.v === 0.5));
+  };
+  const oftenStop = () => OFTEN[oftenIndex()];
   // whether the banished keep their role to themselves: off unless the host turned it on
   const hiddenOn = () => GameState.settings.hideRoles === true;
   function paintTwists() {
@@ -271,6 +280,9 @@ const Lobby = (() => {
     const early = el('lobby-early'), eout = el('lobby-early-out');
     if (early) { early.checked = earlyOn(); early.disabled = !twistsOn(); }
     if (eout) eout.textContent = twistsOn() && earlyOn() ? 'On' : 'Off';
+    const often = el('lobby-often'), oout = el('lobby-often-out');
+    if (often) { often.max = String(OFTEN.length - 1); often.value = String(oftenIndex()); often.disabled = !twistsOn(); }
+    if (oout) oout.textContent = twistsOn() ? oftenStop().label : 'Off';
     const hid = el('lobby-hidden'), hout = el('lobby-hidden-out');
     if (hid) hid.checked = hiddenOn();
     if (hout) hout.textContent = hiddenOn() ? 'On' : 'Off';
@@ -306,7 +318,7 @@ const Lobby = (() => {
       { k: 'Traitors', v: count + (c.none ? ' · ' + Math.round(c.none * 100) + '% none' : '') },
       { k: 'Jobs', v: clock(t) },
       { k: 'Table', v: tableTime() ? clock(tableTime()) : 'Auto' },
-      { k: 'Twists', v: !twistsOn() ? 'Off' : earlyOn() ? 'From day 1' : 'On' },
+      { k: 'Twists', v: !twistsOn() ? 'Off' : oftenStop().label + (earlyOn() ? ' · from day 1' : '') },
       { k: 'Roles', v: hiddenOn() ? 'Hidden' : 'Revealed', hot: hiddenOn() },
     ];
   }
@@ -395,6 +407,7 @@ const Lobby = (() => {
       Game.enterShow();
       Show.beginParty({ seed, players: seated, host: Party.isHost, ai: aiOn || null, taskSeconds, tableTalk: more.tableTalk || null,
                         twists: twists !== false, twistsEarly: !!more.twistsEarly,
+                        twistChance: Number.isFinite(more.twistChance) ? more.twistChance : null,
                         hideRoles: !!hideRoles, cast: cast || null, wants: Party.isHost ? dealWants || null : null });
     }, 420);
   }
@@ -442,6 +455,13 @@ const Lobby = (() => {
     const tw = el('lobby-twists');
     if (tw) tw.addEventListener('change', () => {
       GameState.settings.twists = !!tw.checked;
+      GameState.save();
+      paint();
+    });
+    const often = el('lobby-often');
+    if (often) often.addEventListener('input', () => {
+      const o = OFTEN[Math.max(0, Math.min(OFTEN.length - 1, Math.round(Number(often.value))))];
+      GameState.settings.twistChance = o.v;
       GameState.save();
       paint();
     });
@@ -527,7 +547,8 @@ const Lobby = (() => {
       if (Party.isHost || started || !data) return;
       started = true;
       launch(data.seed, data.players || [], data.ai || null, data.taskSeconds, data.cast || null, null, data.twists,
-             !!data.hideRoles, { tableTalk: data.tableTalk || null, twistsEarly: !!data.twistsEarly });
+             !!data.hideRoles, { tableTalk: data.tableTalk || null, twistsEarly: !!data.twistsEarly,
+                                 twistChance: Number.isFinite(data.twistChance) ? data.twistChance : null });
     });
     VoiceChat.on('state', paint);
 
