@@ -88,6 +88,14 @@ const AIDirector = (() => {
   const state = new Map();           // botId -> per-bot bookkeeping
   let speaking = null;               // { id, since } — the one voice that has the room
   let lastHuman = 0;                 // Date.now() a person last spoke
+  /* One person talking without a break holds the room, and every AI
+     waits for a gap that never comes. Past FLOOR_LIMIT_MS of that, with
+     no AI heard in between, one of them breaks in anyway (`breakIn`). */
+  const FLOOR_LIMIT_MS = 20000;
+  const HOLD_GAP_MS = 4000;          // a pause shorter than this is no room for an AI to answer in
+  const holds = new Map();           // person -> { since, last } of their current unbroken run
+  let lastBotHeard = 0;              // Date.now() an AI's voice was last coming out of the speakers
+  let nextBreakAt = 0;
   let promptDirty = true;
   let judgeAsk = null;               // { at, verdict }
   let heardLast = null;              // { id, name, text, at, named } — a person's words nobody has answered yet
@@ -165,6 +173,9 @@ const AIDirector = (() => {
     voteLog.length = 0;
     humanTalk.length = 0;
     wordsAt.clear();
+    holds.clear();
+    lastBotHeard = 0;
+    nextBreakAt = 0;
     commentOpportunity = 0;
     lastBotTurn = 0;
     leaveRoomUntil = 0;
@@ -221,6 +232,7 @@ const AIDirector = (() => {
       if (!humanSpeaker(m)) return;
       lastHuman = Date.now();
       wordsAt.set(m.id, lastHuman);
+      noteHold(m.id);
       interrupt(m.id, m.text);
     }));
     offs.push(AI.on('refused', (m) => { if (m.final && speaking && speaking.id === m.id) finishTurn(m.id); }));
@@ -240,7 +252,7 @@ const AIDirector = (() => {
           if (origin && !heardLast) heardLast = Object.assign({}, origin, { at: Date.now() });
           return;
         }
-        speaking.audioAt = Date.now();
+        speaking.audioAt = lastBotHeard = Date.now();
       }
     }));
     offs.push(AI.on('tool', onTool));
@@ -1265,6 +1277,7 @@ const AIDirector = (() => {
     if (!p) return;
     lastHuman = Date.now();
     wordsAt.set(p.id, lastHuman);
+    noteHold(p.id);
     /* They had not finished: the reply being written to the first half of
        what they said is dropped before a word of it is heard, and the AI
        answers the whole thing once they really stop. */
@@ -1535,6 +1548,7 @@ const AIDirector = (() => {
     }
     const st = state.get(id);
     if (st) { st.last = Date.now(); st.said++; }
+    if (speaking && speaking.id === id && !speaking.chat && speaking.audioAt !== null && id !== AI.CLAUDIA) lastBotHeard = Date.now();
     if (speaking && speaking.id === id && speaking.chat) lateChat.set(id, Date.now() + 10000);
     if (speaking && speaking.id === id) {
       const cb = speaking.after;
@@ -1936,13 +1950,18 @@ const AIDirector = (() => {
     let gap;
     // (a `final` already has 0.4 s of silence behind it: the recogniser's endpoint)
     const done = /[?!.]["”']?$/.test(text);
-    if (!text || TRAILING.test(text) || (!done && TRAILING_SOFT.test(text))) gap = 2.4;
-    else if (h.ended && h.ended >= h.at) gap = done ? 0.5 : 0.9;
-    else if (h.final) gap = done ? 0.7 : 1.2;
-    else gap = 1.8;      // mid-utterance: the recogniser has not heard them stop
+    /* These count from the last word heard, which already arrives a
+       moment after the person stopped, and the reply then takes a second
+       or so to write and voice: 2.4 s here was a four-second silence
+       before anybody answered. The trailing-word rule is what stops an
+       AI cutting a sentence in half, not the length of the wait. */
+    if (!text || TRAILING.test(text) || (!done && TRAILING_SOFT.test(text))) gap = 1.6;
+    else if (h.ended && h.ended >= h.at) gap = done ? 0.3 : 0.6;
+    else if (h.final) gap = done ? 0.45 : 0.8;
+    else gap = 1.2;      // mid-utterance: the recogniser has not heard them stop
     // a question put to an AI by name is plainly for it
-    if (h.named && h.named.length && /\?["”']?$/.test(text) && (h.final || h.ended)) gap = Math.min(gap, 0.5);
-    return gap + (among ? 0.6 : 0);
+    if (h.named && h.named.length && /\?["”']?$/.test(text) && (h.final || h.ended)) gap = Math.min(gap, 0.35);
+    return gap + (among ? 0.4 : 0);
   }
 
   function humansQuietFor() {
@@ -2153,6 +2172,11 @@ const AIDirector = (() => {
     if (speaking) return;
     // Claudia has the room; nobody talks over her
     if (botSpeechBlocked(s) || tableNotOpen(s)) return;
+    // somebody who will not stop has had long enough: one AI talks anyway
+    if (!(s.floor && !s.floor.done && s.floor.playerId)) {
+      const hog = hogger();
+      if (hog && breakIn(s, hog)) return;
+    }
     /* And nobody starts while a person is talking — by the live meter,
        not only by the words, which arrive a second late. */
     if (voiceNow()) { lastHuman = Date.now(); return; }
@@ -2199,6 +2223,58 @@ const AIDirector = (() => {
     if (intent) { speak(b.id, intent); return; }
     if (speak(b.id, chatCue(b, h, s) + (cutIn
       ? ' Briefly cut in with one relevant point, naturally and confidently. One short sentence; do not ask permission to speak.' : ''))) speaking.origin = h;
+  }
+
+  function noteHold(id) {
+    const now = Date.now();
+    const h = holds.get(id);
+    if (!h || now - h.last > HOLD_GAP_MS) holds.set(id, { since: now, last: now });
+    else h.last = now;
+  }
+  // the person who has kept the room longest past the limit, if anybody has
+  function hogger() {
+    const now = Date.now();
+    if (now < nextBreakAt) return null;
+    let best = null;
+    for (const [id, h] of holds) {
+      if (now - h.last > HOLD_GAP_MS) continue;
+      const p = Session.playerById(id);
+      if (!p || !p.alive) continue;
+      const held = now - Math.max(h.since, lastBotHeard);
+      if (held >= FLOOR_LIMIT_MS && (!best || held > best.held)) best = { id, held, name: p.name };
+    }
+    return best;
+  }
+  /* Firm, so neither their voice at the start nor their carrying on
+     over it stops the AI: that is the point. It answers what they have
+     been saying, calls out an accusation with no reason behind it, and
+     hands the room to somebody else. */
+  function breakIn(s, hog) {
+    const near = listeners(hog.id, s);
+    if (!near.length) return false;
+    nextBreakAt = Date.now() + 8000;
+    const b = near.slice().sort((x, y) => state.get(x.id).last - state.get(y.id).last)[0];
+    const said = lines.filter(l => l.who === hog.id && l.t >= Date.now() - hog.held).slice(-4).map(l => l.text).join(' / ');
+    const others = s.players.filter(p => p.alive && p.id !== hog.id && p.id !== b.id && inEarshot(hog.id, p.id));
+    const accused = others.filter(p => said && mentions(said, p.name));
+    const handTo = accused[0] || others.find(p => !p.bot) || others[0];
+    const secs = Math.round(hog.held / 1000);
+    const where = s.phase === 'tasks' ? castleWhere(b, { id: hog.id, name: hog.name, text: said })
+      : 'Right now: ' + phaseWords(s) + '.';
+    const cue = where + ' ' + hog.name + ' has been talking without a break for ' + secs
+      + ' seconds and nobody else has been able to get a word in.'
+      + (said ? ' Lately they have said: "' + said + '".' : '')
+      + ' Break in now, firmly but not rudely: tell ' + hog.name + ' to let other people speak. Answer what they have actually said in one short sentence'
+      + ' — if they keep repeating an accusation or a name without giving any reason, say so plainly and ask for the reason.'
+      + (handTo ? ' Then hand the room to ' + handTo.name + (accused[0] ? ', whom they have been accusing,' : '') + ' by name.' : '')
+      + ' Three short sentences at most. Do not apologise for interrupting.'
+      + ((s.phase === 'table' || s.phase === 'finale') ? strategyCue(b, s) : '');
+    thread = null;
+    heardLast = null;
+    if (!speak(b.id, cue, null, true)) return false;
+    const st = state.get(b.id);
+    st.with = hog.id;
+    return true;
   }
 
   const otherHumansNear = (humanId, s) => s.players.some(p => !p.bot && p.alive && p.id !== humanId && hears(p.id, humanId, s));

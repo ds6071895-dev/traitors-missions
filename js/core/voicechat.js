@@ -321,7 +321,12 @@ const VoiceChat = (() => {
      who holds on keeps the room. Claudia is not a player and is never
      turned down. */
   const COURTESY = 0.4;
-  let courtesy = false, holder = null;
+  /* ...but not forever. Somebody who has held the room this long without
+     a break no longer gets to turn everybody else down: whoever else is
+     talking (the person they are shouting at, trying to answer) is heard
+     at full volume instead. */
+  const HOLDER_LIMIT_MS = 20000;
+  let courtesy = false, holder = null, holderSince = 0;
   const humanIds = () => {
     const s = typeof Session !== 'undefined' && Session.state;
     return s ? s.players.filter(p => !p.bot && p.alive).map(p => p.id) : [];
@@ -335,14 +340,19 @@ const VoiceChat = (() => {
     const st = typeof Session !== 'undefined' && Session.state;
     // a scene that ended mid-argument does not carry it into the castle
     if (!courtesy || !st || (st.phase !== 'table' && st.phase !== 'finale')) holder = null;
-    else if (!voiced(holder)) {
+    else if (!voiced(holder) || (Date.now() - holderSince > HOLDER_LIMIT_MS
+                                 && humanIds().some(id => id !== holder && voiced(id)))) {
+      const tired = voiced(holder) ? holder : null;
       holder = null;
       let first = Infinity;
       for (const id of humanIds()) {
-        if (voiced(id) && voiceSince.get(id) < first) { first = voiceSince.get(id); holder = id; }
+        if (id !== tired && voiced(id) && voiceSince.get(id) < first) { first = voiceSince.get(id); holder = id; }
       }
     }
-    if (holder !== was) for (const [id, e] of peers) applyVolume(id, e);
+    if (holder !== was) {
+      holderSince = Date.now();
+      for (const [id, e] of peers) applyVolume(id, e);
+    }
   }
   function setCourtesy(on) {
     courtesy = !!on;

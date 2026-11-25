@@ -199,3 +199,18 @@ test('courtesy is only for the argument at the table, and only while it is on', 
   eq(w.VC.holder + ' ' + bob.volume, 'null 1', 'switched off, everybody is back at once');
   void ann;
 });
+
+test('somebody who holds the room for twenty seconds stops turning the others down', () => {
+  const w = world();
+  w.session.state = { phase: 'table', players: ['me', 'ann', 'bob'].map(id => ({ id, alive: true, local: id === 'me' })) };
+  const ann = w.join('ann'), bob = w.join('bob');
+  w.VC.setCourtesy(true);
+  w.loud.set('ann', 0.09); w.step(300);
+  w.loud.set('bob', 0.09); w.step(300);
+  eq(w.VC.holder + ' ' + +bob.volume.toFixed(2), 'ann 0.4', 'at first she has it');
+  w.step(19000);
+  eq(w.VC.holder, 'ann', 'still hers just under the limit');
+  w.step(1500);
+  eq(w.VC.holder + ' ' + +bob.volume.toFixed(2) + ' ' + +ann.volume.toFixed(2), 'bob 1 0.4',
+     'past it, the one trying to answer is heard in full');
+});
