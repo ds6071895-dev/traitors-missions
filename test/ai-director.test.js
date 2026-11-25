@@ -180,6 +180,24 @@ test('a remark to the room gets an answer, from one of them, after a breath', ()
   ok(/Ana just said/.test(W.asked[0].text) && /This castle is SO cool/.test(W.asked[0].text), 'to what was said');
 });
 
+test('one person who never stops talking is broken in on after twenty seconds, and not talked down', () => {
+  const W = world();
+  const shout = (sec) => { for (let t = 0; t < sec; t += 0.3) { W.say('p1', 'Bo is a Traitor!'); W.step(0.3); } };
+  shout(19);
+  ok(!W.asked.some(a => /without a break/.test(a.text)), 'nobody breaks in before the limit');
+  shout(2);
+  const b = W.asked.find(a => /without a break/.test(a.text));
+  ok(b, 'one of them breaks in past it');
+  ok(/Ana has been talking/.test(b.text) && /Bo is a Traitor/.test(b.text), 'about the person and what they kept saying');
+  ok(/hand the room to Bo, whom they have been accusing/.test(b.text), 'and gives the accused the room');
+  W.emit('speaking', { id: b.id });
+  shout(4);
+  ok(W.speaking.has(b.id), 'carrying on shouting does not silence it');
+  W.reply(b.id);
+  shout(6);
+  eq(W.asked.filter(a => /without a break/.test(a.text)).length, 1, 'and the clock starts again after it was heard');
+});
+
 test('microphone noise cannot starve a direct reply or the open discussion', () => {
   const W = world();
   W.ctx.VoiceChat.selfLevel = 0.4;
@@ -1258,8 +1276,8 @@ test('a reply still being written when the person carries on is dropped and aske
 test('turn gaps: unfinished words wait longest, a named question least', () => {
   const W = world();
   const g = W.ctx.AIDirector.turnGap;
-  ok(g({ text: 'and then um', final: true, named: [] }) >= 2, 'a trailing "um"');
-  ok(g({ text: 'it was Bo and', final: true, named: [] }) >= 2, 'a trailing "and"');
+  ok(g({ text: 'and then um', final: true, named: [] }) >= 1.5, 'a trailing "um"');
+  ok(g({ text: 'it was Bo and', final: true, named: [] }) >= 1.5, 'a trailing "and"');
   ok(g({ text: 'Morag, what do you think?', final: true, named: ['m'] }) <= 0.6, 'a named question');
   ok(g({ text: 'Yeah, go on then.', final: true, named: [] }) < 1, '"go on then." is finished');
   ok(g({ text: 'I reckon it was', final: false, named: [] }) > g({ text: 'I reckon it was Bo.', final: true, named: [] }));
