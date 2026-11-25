@@ -8,11 +8,11 @@
 
    This builds the same person as a handful of skinned surfaces on one
    skeleton (`figure-skeleton.js`):
-     skin      head, neck, hands, eyelids, ears
+     skin      head, neck, hands, ears
      coat      the jacket or long coat, with the shirt in its V
      legs      trousers and boots
      hair      the hair, and the brows
-     features  eyes, the inside of the mouth, teeth
+     features  eyes and their glints, the inside of the mouth
      accent    hat, scarf / sash / cowl, a brooch
    six draw calls a person, whatever they chose.
 
@@ -51,8 +51,11 @@ const FigureBody = (() => {
     }
     get count() { return this.p.length / 3; }
 
+    /* Everything is drawn at design heights and lands at the figure's
+       real ones (`FigureSkeleton.remap`: the short legs); weights are
+       worked out before, from the design height. */
     add(P, u, v, w, tag, col) {
-      this.p.push(P.x, P.y, P.z);
+      this.p.push(P.x, SK().remap(P.y, this.rigid), P.z);
       this.n.push(0, 0, 0);
       this.uv.push(u, v);
       const W = norm4(w);
@@ -261,10 +264,10 @@ const FigureBody = (() => {
     // inside out? the sum of normals against the ring centres says
     let dot = 0;
     for (let j = 0; j < rings.length; j++) {
-      const c = rings[j].c;
+      const c = rings[j].c, cy = SK().remap(c.y, B.rigid);     // the points are at real heights
       for (let k = 0; k < S; k += Math.max(1, S >> 3)) {
         const i = base[j] + k;
-        dot += B.n[i * 3] * (B.p[i * 3] - c.x) + B.n[i * 3 + 1] * (B.p[i * 3 + 1] - c.y)
+        dot += B.n[i * 3] * (B.p[i * 3] - c.x) + B.n[i * 3 + 1] * (B.p[i * 3 + 1] - cy)
              + B.n[i * 3 + 2] * (B.p[i * 3 + 2] - c.z);
       }
     }
@@ -333,83 +336,84 @@ const FigureBody = (() => {
      extents about z = 0. Two runs that meet at the mouth line, so the
      mouth can open: the ring there is built twice, once on the jaw and
      once on the skull, and the front of the seam between them is left
-     open. Closed, the two rings coincide. */
-  const HEAD_LOW = [
-    [1.486, 0.036, 0.022, 0.034, 0.00, 2.0],
-    [1.490, 0.046, 0.042, 0.044, 0.25, 2.1],
-    [1.493, 0.051, 0.062, 0.048, 0.40, 2.2],
-    [1.499, 0.054, 0.073, 0.051, 0.44, 2.2],
-    [1.509, 0.058, 0.078, 0.055, 0.38, 2.25],
-    [1.517, 0.060, 0.079, 0.060, 0.32, 2.25],
-    [1.525, 0.062, 0.082, 0.064, 0.27, 2.25],
-  ];
-  const HEAD_HIGH = [
-    [1.525, 0.062, 0.082, 0.064, 0.27, 2.25],
-    [1.535, 0.064, 0.085, 0.069, 0.23, 2.25],
-    [1.548, 0.066, 0.087, 0.076, 0.20, 2.25],
-    [1.558, 0.067, 0.088, 0.081, 0.17, 2.25],
-    [1.570, 0.069, 0.089, 0.087, 0.19, 2.25],
-    [1.585, 0.072, 0.088, 0.093, 0.12, 2.3],
-    [1.603, 0.074, 0.088, 0.097, 0.06, 2.3],
-    [1.622, 0.075, 0.092, 0.099, 0.02, 2.3],
-    [1.645, 0.074, 0.089, 0.099, 0.00, 2.25],
-    [1.670, 0.069, 0.080, 0.094, 0.00, 2.2],
-    [1.692, 0.058, 0.064, 0.082, 0.00, 2.1],
-    [1.708, 0.042, 0.044, 0.062, 0.00, 2.0],
-    [1.718, 0.022, 0.022, 0.034, 0.00, 2.0],
-    [1.722, 0.000, 0.000, 0.000, 0.00, 2.0],
-  ];
-  const HEAD_ALL = HEAD_LOW.concat(HEAD_HIGH.slice(1));
+     open. Closed, the two rings coincide.
 
-  /* Face shapes: small multipliers on the profile, chosen in the lobby. */
+     The head is a toy's, not an anatomy lesson: nearly a ball, full and
+     round in the cheeks, no jaw to speak of. The realistic skull — a
+     nose, sockets, lips, cheekbones — read as uncanny on a person this
+     simple however far it was softened, so it is gone. `figure.js`
+     grows the head to a big one on a small body. */
+  const HEAD_Y0 = 1.486, HEAD_Y1 = 1.722, HEAD_YC = 1.598;
+  const supE = (u, q) => Math.pow(Math.max(0, 1 - Math.pow(Math.min(1, Math.abs(u)), q)), 1 / q);
+  function headRow(y) {
+    const up = y > HEAD_YC;
+    const u = (y - HEAD_YC) / (up ? HEAD_Y1 - HEAD_YC : HEAD_YC - HEAD_Y0);
+    // fuller below the middle, where the cheeks are; rounder over the crown
+    const k = supE(u, up ? 2.15 : 2.7);
+    const cheek = up ? 0 : 0.006 * gauss(u + 0.45, 0.35);
+    return [y, 0.091 * k + cheek, 0.090 * k + cheek * 0.6, 0.096 * supE(u, up ? 2.3 : 2.4), 0, 2.15];
+  }
+  function headRun(y0, y1, n) {
+    const out = [];
+    for (let i = 0; i <= n; i++) {
+      // closer together near the poles, where the curve turns fastest,
+      // and evenly at the mouth line so the two runs meet without a kink
+      const t = i / n;
+      const e = y0 === HEAD_Y0 ? Math.pow(t, 1.5) : 1 - Math.pow(1 - t, 1.5);
+      out.push(headRow(lerp(y0, y1, e)));
+    }
+    return out;
+  }
+  const HEAD_LOW = headRun(HEAD_Y0, 1.542, 8);       // to the mouth line, SK.Y.mouth
+  const HEAD_HIGH = headRun(1.542, HEAD_Y1, 14);
+  const HEAD_ALL = HEAD_LOW.concat(HEAD_HIGH.slice(1));
+  /* The eye: radius across, and how much of that it keeps in depth. */
+  const EYE_R = 0.0168, EYE_FLAT = 0.55;
+  /* The old head was this much narrower; things sized by hand to sit
+     on it (a hat's crown, a cap's peak, braids) grow by it. */
+  const HEAD_K = 1.18;
+  /* Sleeves and trouser legs a size fuller than tailoring: under a big
+     head, slim limbs read as spindly. */
+  const ARM_K = 1.14, LEG_K = 1.2;
+
+  /* Face shapes: small multipliers on the profile, chosen in the lobby.
+     On a round head they are only a hint: a squarer chin, fuller
+     cheeks, a longer face. */
   const FACES = [
     { id: 'oval',   jaw: 1.00, cheek: 1.00, nose: 1.00, chin: 1.00, brow: 1.00 },
-    { id: 'square', jaw: 1.10, cheek: 1.02, nose: 1.05, chin: 1.15, brow: 1.10 },
-    { id: 'heart',  jaw: 0.92, cheek: 1.06, nose: 0.92, chin: 0.85, brow: 0.95 },
-    { id: 'round',  jaw: 1.06, cheek: 1.08, nose: 0.90, chin: 0.90, brow: 0.90 },
-    { id: 'long',   jaw: 0.96, cheek: 0.96, nose: 1.12, chin: 1.10, brow: 1.05 },
+    { id: 'square', jaw: 1.06, cheek: 1.00, nose: 1.05, chin: 1.10, brow: 1.10 },
+    { id: 'heart',  jaw: 0.95, cheek: 1.04, nose: 0.92, chin: 0.90, brow: 0.95 },
+    { id: 'round',  jaw: 1.04, cheek: 1.08, nose: 0.90, chin: 0.95, brow: 0.90 },
+    { id: 'long',   jaw: 0.97, cheek: 0.97, nose: 1.10, chin: 1.05, brow: 1.05 },
   ];
 
   function headRows(rows, D, face) {
     return rows.map(r => {
       const [y, w, f, b, tp, n] = r;
-      const low = ss(1.56, 1.50, y);           // the jaw
-      const mid = gauss(y - 1.585, 0.02);      // the cheekbones
+      const low = ss(1.57, 1.50, y);           // the jaw
+      const mid = gauss(y - 1.562, 0.03);      // the cheeks
       const wk = 1 + (face.jaw - 1) * low + (face.cheek - 1) * mid;
-      return [y, w * D.hg * wk, f, b * (1 + (D.hg - 1) * 0.5), tp * (2 - face.jaw), n];
+      // a square face is a squarer section low down
+      return [y, w * D.hg * wk, f, b * (1 + (D.hg - 1) * 0.5), tp, n + (face.jaw - 1) * 3 * low];
     });
   }
 
   /* The features, as a forward push on the front of the head. In
-     head-ish world metres; `x` across the face, `y` up it. */
-  /* `soft` < 1 is for a coarse head: the nose and lips come down and
-     spread out, because a grid of a few vertices across cannot carry
-     them and makes spikes of them instead. */
+     head-ish world metres; `x` across the face, `y` up it. Only what a
+     toy has: a button of a nose, round cheeks, a soft chin. The eyes
+     sit on the face rather than in sockets. */
+  /* `soft` < 1 is for a coarse head: the nose comes down and spreads
+     out, because a grid of a few vertices across cannot carry it. */
   function faceDz(x, y, face, soft = 1) {
     const ax = Math.abs(x);
     const wide = 1 / Math.sqrt(soft);
     let dz = 0;
-    // nose: bridge to tip, the tip and the wings either side of it
-    const nh = y > 1.615 ? 0 : y > 1.598 ? lerp(0.004, 0.008, (1.615 - y) / 0.017)
-             : y > 1.580 ? lerp(0.008, 0.014, (1.598 - y) / 0.018)
-             : y > 1.566 ? lerp(0.014, 0.020, (1.580 - y) / 0.014)
-             : y > 1.556 ? lerp(0.020, 0.012, (1.566 - y) / 0.010)
-             : y > 1.548 ? lerp(0.012, 0.000, (1.556 - y) / 0.008) : 0;
-    const nw = y > 1.58 ? 0.0075 : lerp(0.0100, 0.0075, (y - 1.552) / 0.028);
-    dz += nh * face.nose * soft * gauss(x, Math.max(0.006, nw) * wide);
-    dz += 0.005 * face.nose * soft * gauss(ax - 0.0115, 0.005 * wide) * gauss(y - 1.557, 0.005 * wide);
-    // brow ridge, cheekbones
-    dz += 0.0045 * face.brow * gauss(ax - 0.030, 0.024) * gauss(y - 1.623, 0.0065);
-    dz += 0.006 * face.cheek * gauss(ax - 0.048, 0.016) * gauss(y - 1.583, 0.011);
-    // eye sockets
-    dz -= 0.011 * gauss(ax - 0.0315, 0.0145) * gauss(y - 1.603, 0.0095);
-    // lips, and the corners tucked in
-    dz += 0.0035 * soft * gauss(x, 0.016) * gauss(y - 1.530, 0.0040 * wide);
-    dz += 0.0042 * soft * gauss(x, 0.015) * gauss(y - 1.519, 0.0042 * wide);
-    dz -= 0.0025 * gauss(ax - 0.024, 0.006) * gauss(y - 1.525, 0.006);
-    // the groove under the lower lip, and the chin
-    dz -= 0.0025 * gauss(x, 0.02) * gauss(y - 1.512, 0.004);
-    dz += 0.0065 * face.chin * gauss(x, 0.02) * gauss(y - 1.502, 0.008);
+    // the button nose
+    dz += 0.0055 * face.nose * soft * gauss(x, 0.0085 * wide) * gauss(y - 1.566, 0.0075 * wide);
+    // the apples of the cheeks
+    dz += 0.0040 * face.cheek * gauss(ax - 0.052, 0.020) * gauss(y - 1.556, 0.016);
+    // the chin, just a fullness
+    dz += 0.0025 * face.chin * gauss(x, 0.025) * gauss(y - 1.508, 0.012);
     return dz;
   }
 
@@ -565,7 +569,7 @@ const FigureBody = (() => {
   /* ---------------- quality ---------------- */
 
   const LEVELS = [
-    { level: 0, seg: 40, sub: 2, head: 44, headSub: 2, limb: 16, hand: 10, finger: 6, eye: 16 },
+    { level: 0, seg: 40, sub: 2, head: 52, headSub: 2, limb: 16, hand: 10, finger: 6, eye: 16 },
     { level: 1, seg: 18, sub: 1, head: 30, headSub: 2, limb: 10, hand: 8, finger: 5, eye: 10, soft: 0.6 },
   ];
 
@@ -693,6 +697,8 @@ const FigureBody = (() => {
     }
 
     /* ----- sleeves and hands ----- */
+    // the arms only come down with the shoulders; the short legs do not squeeze them
+    B.coat.rigid = B.skin.rigid = true;
     for (const [k, s] of SK().SIDES) {
       const cx = s * D.armX;
       const armW = (P) => {
@@ -702,10 +708,10 @@ const FigureBody = (() => {
         return w;
       };
       const sl = sample(SLEEVE, L.sub).map(([y, rx, rz]) =>
-        ring(new THREE.Vector3(cx, y, -0.008), X, Z, rx, rz, rz, 2.1, 0, L.limb));
+        ring(new THREE.Vector3(cx, y, -0.008), X, Z, rx * ARM_K, rz * ARM_K, rz * ARM_K, 2.1, 0, L.limb));
       loft(B.coat, sl, { wt: armW, tag: () => 0 });
       const cuff = SHIRT_CUFF.map(([y, rx, rz]) =>
-        ring(new THREE.Vector3(cx, y, -0.008), X, Z, rx, rz, rz, 2.0, 0, L.limb));
+        ring(new THREE.Vector3(cx, y, -0.008), X, Z, rx * ARM_K, rz * ARM_K, rz * ARM_K, 2.0, 0, L.limb));
       loft(B.coat, cuff, { wt: armW, tag: () => 1 });
 
       // the palm: thickness across x (it faces the thigh), width along z
@@ -744,6 +750,8 @@ const FigureBody = (() => {
       }
     }
 
+    B.coat.rigid = B.skin.rigid = false;
+
     /* ----- trousers and boots ----- */
     {
       const rows = sample(SEAT, L.sub).map(([y, w, f, b]) =>
@@ -757,11 +765,13 @@ const FigureBody = (() => {
       const xAt = (y) => s * lerp(D.hipX, D.ankleX, U.clamp((SK().Y.hip - y) / (SK().Y.hip - SK().Y.ankle), 0, 1));
       const wt = (P) => chain(P.y, [[I.pelvis, 0.97], [I['thigh_' + k], 0.83], [I['thigh_' + k], 0.54],
                                     [I['shin_' + k], 0.43], [I['shin_' + k], 0.15], [I['foot_' + k], 0.085]]);
+      // fuller toward the ankle, so the legs are sturdy rather than long
+      const lk = (y) => lerp(LEG_K, 1.06, ss(0.75, 0.95, y));
       const lr = sampleEnds(LEG, L.sub, 0, 1).map(([y, rx, rz, z]) =>
-        ring(new THREE.Vector3(xAt(y), y, z), X, Z, rx * g, rz * gz, rz * gz, 2.1, 0, L.limb));
+        ring(new THREE.Vector3(xAt(y), y, z), X, Z, rx * g * lk(y), rz * gz * lk(y), rz * gz * lk(y), 2.1, 0, L.limb));
       loft(B.legs, lr, { wt });
       const sh = SHAFT.map(([y, rx, rz, z]) =>
-        ring(new THREE.Vector3(xAt(y), y, z), X, Z, rx * g, rz, rz, 2.2, 0, L.limb));
+        ring(new THREE.Vector3(xAt(y), y, z), X, Z, rx * g * LEG_K, rz * LEG_K, rz * LEG_K, 2.2, 0, L.limb));
       loft(B.legs, sh, { wt, tag: () => 1 });
       const fx = s * D.ankleX;
       const fr = sample(FOOT, L.sub > 1 ? 2 : 1).map(([z, yc, w, up, down]) =>
@@ -781,17 +791,20 @@ const FigureBody = (() => {
     }
     const hLow = headRows(HEAD_LOW, D, face), hHigh = headRows(HEAD_HIGH, D, face);
     const hAll = hLow.concat(hHigh.slice(1));
-    const eyeX = 0.0315 * D.hg, eyeR = 0.012;
-    const eyeZ = headFrontZ(hAll, eyeX, SK().Y.eye) - eyeR + 0.0022;
-    const lipTint = [0.80, 0.50, 0.50], blush = [1.0, 0.90, 0.88];
+    /* The eyes are flattened domes sitting on the face, turned a little
+       to follow its curve, and nearly all iris: big, dark and glossy,
+       with the white only showing at a sideways glance. */
+    const MY = SK().Y.mouth, EY = SK().Y.eye;
+    const eyeX = SK().EYE_X * D.hg, eyeR = EYE_R, eyeZr = EYE_R * EYE_FLAT;
+    const eyeFront = (x) => headFrontZ(hAll, x, EY) + faceDz(x, EY, face);
+    const eyeZ = eyeFront(eyeX) - eyeZr * 0.45;
+    const eyeYaw = 0.7 * Math.atan(-(eyeFront(eyeX + 0.003) - eyeFront(eyeX - 0.003)) / 0.006);
+    const mouthHalf = 0.0150;
+    const blush = [1.0, 0.64, 0.64];
+    // round pink cheeks, a toy's; the mouth itself is a drawn line, below
     const headCol = (P) => {
-      const front = ss(0.05, 0.075, P.z);
-      const lip = gauss(P.x, 0.018) * (gauss(P.y - 1.530, 0.0040) + gauss(P.y - 1.519, 0.0046)) * front;
-      const k = U.clamp(lip * 1.15, 0, 1);
-      const line = 1 - 0.55 * gauss(P.y - 1.525, 0.0015) * gauss(P.x, 0.019) * front;
-      // a little colour in the cheeks: an even, bloodless face is a mannequin's
-      const c = 0.55 * gauss(Math.abs(P.x) - 0.044, 0.015) * gauss(P.y - 1.566, 0.012) * ss(0.03, 0.06, P.z);
-      return [0, 1, 2].map(i => lerp(1, lipTint[i], k) * lerp(1, blush[i], c) * line);
+      const c = 0.66 * gauss(Math.abs(P.x) - 0.053, 0.0125) * gauss(P.y - 1.561, 0.0085) * ss(0.03, 0.06, P.z);
+      return [0, 1, 2].map(i => lerp(1, blush[i], c));
     };
     const soft = L.soft || 1;
     const headDisp = (P) => {
@@ -800,24 +813,23 @@ const FigureBody = (() => {
     };
     const headWt = (jawSide) => (P) => {
       let w = [[I.head, 1]];
-      // the back of the skull meets the neck
-      const nk = ss(1.53, 1.495, P.y) * ss(0.0, -0.03, P.z);
+      // only the very bottom of the ball goes with the neck
+      const nk = ss(1.515, 1.490, P.y) * ss(0.0, -0.03, P.z);
       if (nk > 0) w = mixW(w, [[I.neck, 1]], nk);
       if (jawSide) {
         const j = ss(-0.035, 0.02, P.z) * (1 - nk);
         w = mixW(w, [[I.jaw, 1]], j);
       } else {
         // the cheeks either side of the mouth stretch with the jaw a little
-        const j = 0.3 * gauss(P.y - 1.527, 0.010) * ss(0.018, 0.034, Math.abs(P.x)) * ss(0.03, 0.06, P.z);
+        const j = 0.3 * gauss(P.y - MY, 0.010) * ss(0.012, 0.026, Math.abs(P.x)) * ss(0.03, 0.06, P.z);
         if (j > 0) w = mixW(w, [[I.jaw, 1]], j);
       }
       // the corners of the mouth have bones of their own, to smile with
       const s = side(P.x);
-      const mc = 0.85 * gauss(Math.abs(P.x) - 0.025, 0.010) * gauss(P.y - 1.525, 0.010) * ss(0.04, 0.07, P.z);
+      const mc = 0.85 * gauss(Math.abs(P.x) - mouthHalf, 0.008) * gauss(P.y - MY, 0.008) * ss(0.04, 0.07, P.z);
       if (mc > 0.01) w = mixW(w, [[I['mouth_' + s], 1]], mc);
       return w;
     };
-    const mouthHalf = 0.0225;
     let lowBase = null;
     {
       const rows = sample(hLow, L.headSub);
@@ -847,69 +859,76 @@ const FigureBody = (() => {
         B.skin.averageNormals([jl + k, sk + k]);
       }
     }
-    // ears
-    for (const [k, s] of SK().SIDES) {
-      const y = 1.592, w = rowAt(hHigh, y)[1];
+    // ears: plain round nubs, and none under hair that hangs over them
+    const earsHidden = spec.hair === 'bob' || spec.hair === 'long';
+    for (const [k, s] of earsHidden ? [] : SK().SIDES) {
+      const y = 1.586, w = rowAt(hHigh, y)[1];
       const geo = new THREE.SphereGeometry(1, 14, 10);
-      const p = geo.attributes.position;
-      for (let i = 0; i < p.count; i++) {
-        const x = p.getX(i);
-        // the bowl of the ear, pressed in on its outer face
-        if (x > 0.3) p.setX(i, x - 0.55 * (x - 0.3) * gauss(Math.hypot(p.getY(i), p.getZ(i)), 0.6));
-      }
-      geo.scale(0.011, 0.031, 0.019);
-      if (s < 0) { geo.scale(-1, 1, 1); flipIndex(geo); } else geo.computeVertexNormals();
-      const m = new THREE.Matrix4().makeRotationZ(-s * 0.12)
-        .premultiply(new THREE.Matrix4().makeRotationY(s * 0.25))
-        .premultiply(new THREE.Matrix4().makeTranslation(s * (w + 0.003), y, -0.014));
-      addGeom(B.skin, geo, m, [[I.head, 1]], 0, [0.97, 0.88, 0.86]);
-    }
-    // eyelids: an upper lid that rolls down over the eye, a lower one that stays
-    for (const [k, s] of SK().SIDES) {
-      const E = new THREE.Vector3(s * eyeX, SK().Y.eye, eyeZ);
-      // resting just over the top of the iris: a lid above it is a stare
-      const up = new THREE.SphereGeometry(eyeR + 0.0016, L.eye, 8, 0, TAU, 0, 1.25);
-      const lash = (P) => {
-        const c = (P.y - E.y) / (eyeR + 0.0016);
-        return c < 0.50 && P.z > E.z ? [0.14, 0.11, 0.10] : [0.94, 0.88, 0.87];
-      };
-      addGeom(B.skin, up, new THREE.Matrix4().makeTranslation(E.x, E.y, E.z), [[I['lid_' + k], 1]], 0, lash);
-      // and a lower lid up to the iris's bottom edge: white showing
-      // under the iris is the startled, staring look
-      const lo = new THREE.SphereGeometry(eyeR + 0.0012, L.eye, 6, 0, TAU, Math.PI - 1.04, 1.04);
-      addGeom(B.skin, lo, new THREE.Matrix4().makeTranslation(E.x, E.y, E.z), [[I.head, 1]], 0);
+      geo.scale(0.011, 0.021, 0.018);
+      const m = new THREE.Matrix4().makeRotationY(s * 0.3)
+        .premultiply(new THREE.Matrix4().makeTranslation(s * (w + 0.001), y, -0.008));
+      addGeom(B.skin, geo, m, [[I.head, 1]], 0, [0.97, 0.84, 0.82]);
     }
 
-    /* ----- eyes, mouth, teeth ----- */
+    /* ----- eyes, mouth ----- */
+    /* No lids: a blink squashes the eye flat on its bone, the way a
+       cartoon's does (`figure-anim.js`). Latitude bands from the front
+       pole — pupil, iris, the iris's dark rim, white — and two glints
+       of light, both from the upper left on either eye. */
     for (const [k, s] of SK().SIDES) {
-      const E = new THREE.Vector3(s * eyeX, SK().Y.eye, eyeZ);
-      // latitude bands from the front pole: pupil, iris, the iris's rim, white
-      const bands = [[0, 0.25, 2], [0.25, 0.56, 1], [0.56, 0.64, 5], [0.64, Math.PI, 0]];
+      const M = new THREE.Matrix4().makeRotationY(s * eyeYaw)
+        .premultiply(new THREE.Matrix4().makeTranslation(s * eyeX, EY, eyeZ));
+      const eyeWt = () => [[I['eye_' + k], 1]];
+      const bands = [[0, 0.46, 2], [0.46, 0.86, 1], [0.86, 1.28, 5], [1.28, Math.PI, 0]];
       for (const [a0, a1, tag] of bands) {
-        const n = tag === 0 ? Math.max(4, L.eye >> 1) : 2;
+        const n = tag === 0 ? Math.max(4, L.eye >> 1) : 3;
         const rings = [];
         for (let i = 0; i <= n; i++) {
           const a = lerp(a0, a1, i / n);
-          const c = E.clone().add(new THREE.Vector3(0, 0, Math.cos(a) * eyeR));
           const r = Math.sin(a) * eyeR;
-          rings.push(ring(c, X, Yv, r, r, r, 2, 0, L.eye));
+          const R = ring(new THREE.Vector3(0, 0, Math.cos(a) * eyeZr), X, Yv, r, r, r, 2, 0, L.eye);
+          R.pts.forEach(P => P.applyMatrix4(M));
+          R.c.applyMatrix4(M);
+          rings.push(R);
         }
-        loft(B.features, rings, { wt: () => [[I['eye_' + k], 1]], tag: () => tag });
+        loft(B.features, rings, { wt: eyeWt, tag: () => tag });
+      }
+      for (const [gx, gy, gr] of [[-0.34, 0.36, 0.27], [0.30, -0.30, 0.12]]) {
+        const gz = eyeZr * Math.sqrt(Math.max(0, 1 - gx * gx - gy * gy)) + 0.0004;
+        const geo = new THREE.SphereGeometry(gr * eyeR, 10, 6);
+        geo.scale(1, 1, 0.35);
+        addGeom(B.features, geo, new THREE.Matrix4().makeTranslation(gx * eyeR, gy * eyeR, gz).premultiply(M),
+                eyeWt, 6);
       }
     }
     {
-      const mz = headFrontZ(hAll, 0, SK().Y.mouth) + faceDz(0, SK().Y.mouth, face);
-      const c = new THREE.Vector3(0, SK().Y.mouth - 0.003, mz - 0.024);
+      // a small dark mouth behind the seam, seen when it opens; no teeth
+      const mz = headFrontZ(hAll, 0, MY) + faceDz(0, MY, face);
+      const c = new THREE.Vector3(0, MY - 0.002, mz - 0.014);
       const geo = new THREE.SphereGeometry(1, 16, 10);
-      geo.scale(0.019, 0.013, 0.019);
+      geo.scale(0.016, 0.010, 0.012);
       flipIndex(geo);
       addGeom(B.features, geo, new THREE.Matrix4().makeTranslation(c.x, c.y, c.z),
-              (P) => (P.y > SK().Y.mouth - 0.002 ? [[I.head, 1]] : [[I.jaw, 1]]), 3);
-      for (const [dy, bone] of [[0.0035, I.head], [-0.0075, I.jaw]]) {
-        const t = new THREE.CylinderGeometry(0.020, 0.020, 0.0055, 12, 1, true, -0.6, 1.2);
-        addGeom(B.features, t, new THREE.Matrix4().makeTranslation(0, SK().Y.mouth + dy, mz - 0.029),
-                [[bone, 1]], 4);
+              (P) => (P.y > MY - 0.001 ? [[I.head, 1]] : [[I.jaw, 1]]), 3);
+      /* The mouth, drawn: a little curve along the upper lip, ends up in
+         a smile. Its ends ride the corner bones, so a mood bends it and a
+         frown turns it over; when the jaw drops, the dark inside shows
+         under it. A painted line cannot do this — there are only a few
+         vertices across the mouth. */
+      const path = [];
+      for (let i = 0; i <= 10; i++) {
+        const u = lerp(-1, 1, i / 10), x = u * mouthHalf;
+        const y = MY + 0.0004 + 0.0030 * u * u;
+        path.push(new THREE.Vector3(x, y, headFrontZ(hAll, Math.abs(x), y) + faceDz(x, y, face) + 0.0009));
       }
+      tube(B.features, path, 6, (t) => [0.0013 * (0.55 + 0.45 * Math.sin(Math.PI * t)), 0.0008], {
+        nrm: () => Z.clone(),
+        wt: (P) => {
+          const k = 0.85 * ss(0.25, 1.0, Math.abs(P.x) / mouthHalf);
+          return mixW([[I.head, 1]], [[I['mouth_' + side(P.x)], 1]], k);
+        },
+        tag: () => 3,
+      });
     }
 
     /* ----- hair and brows ----- */
@@ -920,14 +939,15 @@ const FigureBody = (() => {
     buildHair(B.hair, spec, hAll, headRing, I, L, D);
     for (const [k, s] of SK().SIDES) {
       const path = [];
+      // short, soft and rounded at both ends
       for (let i = 0; i <= 8; i++) {
         const t = i / 8;
-        const x = s * lerp(0.011, 0.051, t) * D.hg;
-        const y = SK().Y.brow + 0.0045 * Math.sin(Math.PI * Math.min(1, t * 1.25)) - 0.003 * t;
-        const z = headFrontZ(hAll, Math.abs(x), y) + faceDz(x, y, face) + 0.0010;
+        const x = s * lerp(0.024, 0.050, t) * D.hg;
+        const y = SK().Y.brow + 0.0030 * Math.sin(Math.PI * t) - 0.002 * t;
+        const z = headFrontZ(hAll, Math.abs(x), y) + faceDz(x, y, face) + 0.0012;
         path.push(new THREE.Vector3(x, y, z));
       }
-      tube(B.hair, path, 6, (t) => [lerp(0.0028, 0.0013, t), 0.0012], {
+      tube(B.hair, path, 6, (t) => [0.0034 * Math.sqrt(Math.max(0.12, Math.sin(Math.PI * t))), 0.0014], {
         nrm: () => Z.clone(), wt: () => [[I['brow_' + k], 1]],
       });
     }
@@ -1124,7 +1144,7 @@ const FigureBody = (() => {
       for (const s of [-1, 1]) {
         const path = [[0.070, 1.588, -0.032], [0.086, 1.525, -0.012], [0.108, 1.458, 0.040],
                       [0.108, 1.400, 0.098], [0.101, 1.340, 0.122], [0.095, 1.285, 0.128]]
-          .map(([x, y, z]) => new THREE.Vector3(s * x * D.hg, y, z));
+          .map(([x, y, z]) => new THREE.Vector3(s * x * D.hg * (y > 1.47 ? HEAD_K : lerp(1, HEAD_K, ss(1.30, 1.47, y))), y, z));
         const smooth = sample(path.map(v => [v.x, v.y, v.z]), 4).map(r => new THREE.Vector3(...r));
         tube(B, smooth, 9, (t) => {
           const r = (t > 0.96 ? 0.6 : 1) * lerp(0.016, 0.011, t) * (1 + 0.14 * Math.cos(t * 22 * Math.PI));
@@ -1191,7 +1211,7 @@ const FigureBody = (() => {
         if (P.y > 1.70) P.y = 1.70 + (P.y - 1.70) * 0.35;
       });
       const fz = rowAt(rows, 1.664)[2];
-      const peak = new THREE.CylinderGeometry(0.098, 0.098, 0.007, 18, 1, false, -Math.PI / 2, Math.PI);
+      const peak = new THREE.CylinderGeometry(0.098 * HEAD_K, 0.098 * HEAD_K, 0.007, 18, 1, false, -Math.PI / 2, Math.PI);
       peak.scale(1, 1, 0.62);
       const m = new THREE.Matrix4().makeRotationX(0.14)
         .premultiply(new THREE.Matrix4().makeTranslation(0, 1.664, fz - 0.012));
@@ -1200,13 +1220,15 @@ const FigureBody = (() => {
       const crown = [[1.650, 0.090, 0.106], [1.700, 0.085, 0.100], [1.762, 0.078, 0.092],
                      [1.776, 0.068, 0.082], [1.781, 0.035, 0.042], [1.782, 0, 0]];
       const rings = crown.map(([y, rx, rz]) => {
-        const R = ring(new THREE.Vector3(0, y, -0.006), X, Z, rx, rz, rz, 2.3, 0, S);
+        const R = ring(new THREE.Vector3(0, y, -0.006), X, Z, rx * HEAD_K, rz * 1.04, rz * 1.04, 2.3, 0, S);
         return R;
       });
       loft(B, rings, { wt: () => head, tag: (P) => (P.y < 1.684 && P.y > 1.660 ? 1 : 0) });
       const prof = [[0.086, 1.664], [0.140, 1.661], [0.190, 1.671], [0.193, 1.665],
                     [0.140, 1.655], [0.088, 1.657], [0.086, 1.664]];
-      const br = prof.map(([r, y]) => ring(new THREE.Vector3(0, y, -0.006), X, Z, r, r * 1.08, r * 1.08, 2, 0, S));
+      // the brim's inner edge grows with the head, its outer one barely: a big head in a big hat is all hat
+      const bk = (r) => r * lerp(HEAD_K, 0.88, ss(0.09, 0.19, r));
+      const br = prof.map(([r, y]) => ring(new THREE.Vector3(0, y, -0.006), X, Z, bk(r), bk(r) * 1.06, bk(r) * 1.06, 2, 0, S));
       loft(B, br, { wt: () => head });
     } else if (style === 'band') {
       const layers = [[1.640, 0.001], [1.643, 0.007], [1.662, 0.007], [1.665, 0.001]];

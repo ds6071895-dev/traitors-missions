@@ -165,18 +165,27 @@ test('the pouch leaves the hand in front of the thrower', () => {
   ok(local.z > 0.15 && local.y > 1.0, 'released at ' + local.toArray().map(v => v.toFixed(2)));
 });
 
-test('seated, the feet are on the floor and the seat is on the cushion', () => {
+test('seated, the feet hang clear of the floor and the seat is on the cushion', () => {
   const fig = Figure.build({ look: Look.fresh() });
   place(fig);
   Figure.setSeated(fig, true, { table: true });
   run(fig, 2.5);
   const by = fig.userData.rig.by;
+  /* The legs are a toy's, too short for a castle chair: the shins drop
+     from the cushion's edge and the feet hang, never through the floor
+     and never stretched out stiff for it. */
   for (const k of ['l', 'r']) {
     const a = by['foot_' + k].getWorldPosition(new THREE.Vector3());
-    ok(Math.abs(a.y - SK.Y.ankle) < 0.02, k + ' ankle at ' + a.y.toFixed(3));
+    const knee = by['shin_' + k].getWorldPosition(new THREE.Vector3());
+    const hip = by['thigh_' + k].getWorldPosition(new THREE.Vector3());
+    ok(a.y > SK.Y.ankle - 0.01 && a.y < 0.45, k + ' ankle at ' + a.y.toFixed(3));
+    ok(knee.z > hip.z + 0.15 && a.y < knee.y - 0.15, k + ' leg not bent over the cushion edge');
   }
+  const legs = skinned(fig, 'legs');
+  ok(Math.min(...legs.map(v => v.y)) > -0.005, 'a shoe through the floor');
   // the lowest of the trousers inside the chair's footprint: on the cushion (0.48), not through it
-  const seat = skinned(fig, 'legs').filter(v => v.z > -0.22 && v.z < 0.2 && Math.abs(v.x) < 0.22 && v.y > 0.3);
+  // (under the hips only: the shins hanging off the front are lower, rightly)
+  const seat = legs.filter(v => v.z > -0.22 && v.z < 0.08 && Math.abs(v.x) < 0.22 && v.y > 0.3);
   const low = Math.min(...seat.map(v => v.y));
   ok(low > 0.455 && low < 0.53, 'the seat of the trousers at ' + low.toFixed(3));
 });
