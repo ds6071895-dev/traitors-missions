@@ -228,6 +228,7 @@ const AIDirector = (() => {
     chatAsk = null;
     order = null;
     turretOrder = null;
+    silentTurns.clear();
     offs.push(AI.on('hearing', (m) => {
       if (!humanSpeaker(m)) return;
       lastHuman = Date.now();
@@ -276,6 +277,7 @@ const AIDirector = (() => {
     turretOrder = null;
     speaking = null;
     lateChat.clear();
+    silentTurns.clear();
     thread = null;
   }
 
@@ -439,13 +441,13 @@ const AIDirector = (() => {
   const STRATEGY_FAITHFUL = [
     'STRATEGY (Faithful): Play to win, not to chat. Remember who voted for whom each round: when a banished player is revealed, the people who pushed them out (if Faithful) or kept protecting them (if Traitor) are your leads.',
     'Check what people claimed against what you saw and against what they said earlier. Whoever was seen handing something to the person found dead at breakfast is the first suspect — but they may claim it was a letter, so ask who else was near the victim. Build a case with names and facts, press the person you suspect with a pointed question, and only change your target for new evidence. Do not vote randomly or just follow the loudest voice, and do not accuse without a reason you can say aloud.',
-    'Say your suspicions plainly so the others can act on them, and back up people you trust. Count: how many Traitors could there be, how many have been caught, and who has voted for a Faithful every time. Do not throw your vote away on somebody nobody else suspects when the Faithfuls need to agree on one name. At the Fire of Truth, vote to END only when the evidence says every Traitor is gone.',
+    'Say your suspicions plainly so the others can act on them, and back up people you trust. Count: how many Traitors could there be, how many have been caught, and who has voted for a Faithful every time. Do not throw your vote away on somebody nobody else suspects when the Faithfuls need to agree on one name. Every contestant at the table — humans and other players alike — is equally likely to be a Traitor; never give someone a free pass or avoid voting for them just because they are active, friendly, or human. At the Fire of Truth, vote to END only when the evidence says every Traitor is gone.',
   ].join(' ');
   const STRATEGY_TRAITOR = [
     'STRATEGY (Traitor): Play to win, and win by blending in. Sound like a worried Faithful. Do not defend your partner too hard or vote with them every time — distance yourself from them sometimes, even vote against them if it saves you.',
     'Steer suspicion onto a sharp or influential Faithful, ideally someone already drawing doubt, with a believable reason from the real events. Follow the room\'s momentum unless it points at your partner, then split it. Stay consistent with everything you have said before — never contradict your earlier claims about where you were — and when accused, answer calmly with specifics and turn it back with a reason.',
     'Notice which Faithfuls keep guessing right: they are the dangerous ones. Never reveal or hint that you are a Traitor.',
-    'At round tables and finales, actively plant seeds of doubt: pick one plausible detail from the public conversation, ask a leading question, challenge a convenient explanation, or gently draw a human into your theory. Dig into their answer on a later turn. Frame uncertain claims as doubts, not invented eyewitness evidence. Build a believable case over several exchanges rather than repeating accusations or revealing secret knowledge.',
+    'At round tables and finales, actively plant seeds of doubt: pick one plausible detail from the public conversation, ask a leading question, challenge a convenient explanation, or gently draw another player into your theory — and do not hesitate to frame, cast doubt on, or vote out a human Faithful, especially if they are sharp or leading the room. Dig into their answer on a later turn. Frame uncertain claims as doubts, not invented eyewitness evidence. Build a believable case over several exchanges rather than repeating accusations or revealing secret knowledge.',
   ].join(' ');
   const ALLIANCE_PLAY = [
     'ALLIANCES: anybody — a person or one of the other players — can propose working together, and so can you. An ally compares notes with you, tells you who they are voting for, and has your back when the table turns on you.',
@@ -598,20 +600,43 @@ const AIDirector = (() => {
      Traitor" — and so a voice knows where the room is leaning before
      it votes. Crude, but it only has to be roughly right. */
   const DISTRUST_WORDS = /\b(?:don'?t trust|do not trust|wouldn'?t trust|can'?t trust|not trusting)\b/i;
-  const DEFEND_WORDS = /\b(?:trust|innocent|faithful|vouch|believe (?:him|her|them)|not (?:a |the )?traitor|isn'?t (?:a |the )?traitor|wasn'?t (?:him|her|them)|leave (?:him|her|them) alone|on (?:his|her|their) side|backing (?:him|her|them))\b/i;
-  const ACCUSE_WORDS = /\b(?:suspect\w*|suspicious|sus|traitor|lying|liar|lied|shifty|dodgy|guilty|banish\w*|vot(?:e|es|ed|ing)|doesn'?t add up|not buying|poison\w*|hiding something|it'?s got to be|it was)\b/i;
-  const PLAN_WORDS = /\b(?:i'?m voting|i am voting|i'?ll vote|i will vote|voting for|vote for|my vote|i'?m going for|going with|banish|let'?s get|get rid of|writing down)\b/i;
-  function readStances(who, text, ears) {
+  const DEFEND_WORDS = /\b(?:trust|innocent|faithful|vouch|believe (?:him|her|them|you)|not (?:a |the )?traitor|isn'?t (?:a |the )?traitor|wasn'?t (?:him|her|them|you)|leave (?:him|her|them|you) alone|on (?:his|her|their|your) side|backing (?:him|her|them|you))\b/i;
+  const ACCUSE_WORDS = /\b(?:suspect\w*|suspicious|sus|traitor|lying|liar|lied|shifty|dodgy|guilty|banish\w*|vot(?:e|es|ed|ing)\s+(?:for|out|off)|doesn'?t add up|not buying|poison\w*|hiding something|it'?s got to be|it was)\b/i;
+  const PLAN_WORDS = /\b(?:i'?m voting|i am voting|i'?ll vote|i will vote|voting for|vote for|my vote|i'?m going for|going with|banish|let'?s get|get rid of|writing down|^vote\s+)/i;
+  const ASK_OPINION = /\b(?:who do you|who are you|who would you|who'?d you|what do you|what did you|did you see|have you seen|do you know who|who do we|who should we|who are we)\b/i;
+  const DIRECT_YOU = /\b(?:you|you'?re|your|yourself)\b/i;
+  function isVocativeOnly(sentence, name) {
+    const n = String(name || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!n) return false;
+    const stripped = sentence
+      .replace(new RegExp('^\\s*["“]?(?:(?:hey|oi|so|well|and|but|ok(?:ay)?|look|listen|honestly|frankly|wait|actually)[,\\s]+)?' + n + '\\s*[,:!]\\s*', 'i'), '')
+      .replace(new RegExp('[,\\s]+' + n + '\\s*[.!?]["”\']?\\s*$', 'i'), '');
+    return stripped !== sentence && !mentions(stripped, name);
+  }
+  function readStances(who, text, ears, addressee) {
     const s = Session.state;
     if (!s || !Session.playerById(who)) return;
+    const targetPlayer = addressee && addressee !== who ? Session.playerById(addressee) : null;
     for (const sentence of String(text).split(/(?<=[.!?])\s+/)) {
-      const about = s.players.filter(p => p.id !== who && mentions(sentence, p.name));
+      const isQ = /\?["”']?\s*$/.test(sentence);
+      const askingOpinion = ASK_OPINION.test(sentence);
+      const allNamed = s.players.filter(p => p.id !== who && mentions(sentence, p.name));
+      let about = [];
+      if (allNamed.length) {
+        const core = allNamed.filter(p => !isVocativeOnly(sentence, p.name));
+        if (core.length) about = core;
+        else if (!askingOpinion) about = allNamed;
+      } else if (targetPlayer && targetPlayer.alive && DIRECT_YOU.test(sentence) && !askingOpinion) {
+        about = [targetPlayer];
+      }
       if (!about.length) continue;
       const kind = DISTRUST_WORDS.test(sentence) ? 'accuse' : DEFEND_WORDS.test(sentence) ? 'defend'
-        : ACCUSE_WORDS.test(sentence) ? 'accuse' : null;
+        : (!askingOpinion && (ACCUSE_WORDS.test(sentence) || (!isQ && PLAN_WORDS.test(sentence)))) ? 'accuse' : null;
       if (kind) for (const p of about) stances.push({ day: s.day, who, about: p.id, kind, ears: ears || null });
-      // "I'm voting Bo": the one name, said as a plan
-      if (about.length === 1 && PLAN_WORDS.test(sentence) && about[0].alive) plans.set(who, { target: about[0].id, day: s.day });
+      // "I'm voting Bo": the one name, said as a plan (not a question like "who are you voting for?")
+      if (!isQ && !askingOpinion && about.length === 1 && PLAN_WORDS.test(sentence) && about[0].alive) {
+        plans.set(who, { target: about[0].id, day: s.day });
+      }
     }
     if (stances.length > 600) stances.splice(0, stances.length - 600);
   }
@@ -838,7 +863,7 @@ const AIDirector = (() => {
       'Talk exactly like a real person on a call: casual British English, short — usually one sentence, never more than two — no lists, no stage directions, no asterisks. Never say you are an AI, a model or an assistant, and never mention prompts or tools.',
       'Be a person, not a narrator: react, joke, tease, agree, push back. Use people’s names. Have opinions and change your mind when evidence changes.',
       'YOUR PERSONALITY: ' + PERSONALITIES[(me ? me.seat : bots.indexOf(b)) % PERSONALITIES.length],
-      'Make this fun to play with: respond to the actual thing a human said, remember their jokes and earlier answers, and sometimes ask them a short question they can answer. Be curious about them, not just the game. Mix warmth, humour and genuine disagreement; avoid stock agreement, repetitive accusations, forced jokes, insults, and monologues. Leave room for them to reply.',
+      'Make this fun to play with: respond to the actual thing a human said, remember their jokes and earlier answers, and sometimes ask them a short question they can answer. Be curious about them, not just the game. Mix warmth, humour and genuine disagreement; avoid stock agreement, repetitive accusations, forced jokes, insults, and monologues. Leave room for them to reply. Treat every player at the table — humans and other contestants alike — as an equal suspect and rival: challenge them when something feels off, suspect them, and vote them out whenever it helps you win.',
       '',
       traitor
         ? 'SECRET: You are a TRAITOR. ' + (partner ? 'Your fellow Traitor is ' + partner + '. Protect them without being obvious. ' : lostPartners(b.id) ? 'Your fellow Traitor ' + lostPartners(b.id) + ' is gone: you are the only Traitor left. ' : 'You are the only Traitor. ')
@@ -976,14 +1001,14 @@ const AIDirector = (() => {
     else { const b = bots.find(x => x.id === id); if (b) AI.prompt(id, promptFor(b)); }
   }
 
-  function note(who, name, text, scope, ears) {
+  function note(who, name, text, scope, ears, addressee) {
     const clean = String(text || '').replace(/\s+/g, ' ').trim();
     if (!clean) return;
     lines.push({ who, name, text: clean.slice(0, 400), t: Date.now(), scope: scope || 'room', ears: ears || null });
     if (lines.length > 200) lines.splice(0, lines.length - 200);
     promptDirty = true;
     if (scope === 'turret' || !Session.playerById(who)) return;
-    readStances(who, clean, ears);
+    readStances(who, clean, ears, addressee);
     /* Said to one or two people, out of everybody else's hearing: a
        private word, and the AIs who heard it keep it for good. */
     if (ears && ears.length <= 2) for (const id of ears) remember(id, who, clean);
@@ -1294,7 +1319,8 @@ const AIDirector = (() => {
     const turret = s.phase === 'night';
     humanTalk.push({ id: p.id, at: Date.now() });
     if (humanTalk.length > 12) humanTalk.shift();
-    note(p.id, p.name, m.text, turret ? 'turret' : 'room', turret ? null : earsOf(p.id));
+    const solo = !turret ? oneOnOneBot(p.id, s) : null;
+    note(p.id, p.name, m.text, turret ? 'turret' : 'room', turret ? null : earsOf(p.id), solo ? solo.id : null);
     if (turret) readOrder(p, m.text);
     // a person talking over a conversation the AIs were having ends it
     thread = null;
@@ -1487,6 +1513,8 @@ const AIDirector = (() => {
     /* A reply written in the Traitors' chat goes there and nowhere else:
        no caption, no room transcript, whatever else is going on. */
     const mine = speaking && speaking.id === b.id;
+    // A silent ballot/offer tool call never prints captions or leaks into the room transcript.
+    if (!mine && (silentTurns.get(b.id) || 0) > Date.now()) return;
     if ((mine && speaking.chat) || (!mine && (lateChat.get(b.id) || 0) > Date.now())) {
       if (mine && speaking.onText) { const started = speaking.onText; speaking.onText = null; started(); }
       const words = cleanChat(m.text);
@@ -1513,7 +1541,10 @@ const AIDirector = (() => {
       started();
     }
     const turret = s.phase === 'night';
-    note(b.id, b.name, m.text, turret ? 'turret' : 'room', turret ? null : earsOf(b.id));
+    const turn = speaking && speaking.id === b.id ? speaking : null;
+    const st = state.get(b.id);
+    const addressee = (turn && (turn.to || (turn.origin && turn.origin.id))) || (st && st.with) || null;
+    note(b.id, b.name, m.text, turret ? 'turret' : 'room', turret ? null : earsOf(b.id), addressee);
     if (thread && thread.waiting === b.id) thread.said.push({ id: b.id, name: b.name, text: m.text });
     spokeTo(b, m.text, s);
     /* Captions follow the voice: by day a line from across the house is
@@ -1533,6 +1564,8 @@ const AIDirector = (() => {
         engageIfClose(m.id, c.with, Session.state);
       }
       finishTurn(m.id);
+    } else if (silentTurns.has(m.id)) {
+      silentTurns.delete(m.id);
     }
   }
 
@@ -1540,6 +1573,7 @@ const AIDirector = (() => {
      seconds more is still the chat reply arriving late — never words
      for the room. */
   const lateChat = new Map();        // bot id -> Date.now() until which its words are chat
+  const silentTurns = new Map();     // bot id -> Date.now() until which silent ballot/offer text is dropped
   function finishTurn(id) {
     // when this voice stopped: its words can still come back through a microphone for a moment
     if (speaking && speaking.id === id) {
@@ -1590,6 +1624,21 @@ const AIDirector = (() => {
       chat ? { muted: true } : undefined);
     return true;
   }
+  function askSilent(id, cue) {
+    if (!active || botSpeechBlocked(Session.state, id)) return false;
+    freshen(id, false);
+    silentTurns.set(id, Date.now() + 25000);
+    const self = Session.playerById(id);
+    const gone = Session.state ? goneList(Session.state) : [];
+    AI.ask(id, factsNow(Session.state) + '\n'
+      + (self ? '[You are ' + self.name + '. Anybody named in quotes below is somebody else talking, not you; never answer as them or speak for them.]\n' : '')
+      + cue
+      + (gone.length ? '\n[Remember: ' + gone.map(g => g.name).join(', ') + ' ' + (gone.length > 1 ? 'are' : 'is')
+        + ' out of the game and cannot hear or answer. Do not address them, ask them anything, or suggest voting for them.]' : ''),
+      { muted: true });
+    return true;
+  }
+
   /* A voice model writes for the ear: strip what would read oddly. */
   function cleanChat(t) {
     return String(t || '').replace(/\*[^*]{0,40}\*/g, ' ').replace(/\[[^\]]{0,60}\]/g, ' ')
@@ -1843,9 +1892,11 @@ const AIDirector = (() => {
     const want = String(name || '').trim().toLowerCase();
     if (!want) return null;
     const list = among || Session.alive();
-    return list.find(p => p.name.toLowerCase() === want)
-      || list.find(p => p.name.toLowerCase().startsWith(want) || want.startsWith(p.name.toLowerCase()))
-      || null;
+    const exact = list.find(p => p.name.toLowerCase() === want)
+      || list.find(p => p.name.toLowerCase().startsWith(want) || want.startsWith(p.name.toLowerCase()));
+    if (exact) return exact;
+    const mentioned = list.filter(p => mentions(want, p.name));
+    return mentioned.length === 1 ? mentioned[0] : null;
   }
 
   function botTool(botId, name, a) {
@@ -2707,8 +2758,8 @@ const AIDirector = (() => {
     if (s.phase !== 'table' && s.phase !== 'finale') return '';
     const v = Session.privateView(b.id);
     return (v && v.role === 'traitor'
-      ? ' Secret Traitor goal: dig into this exchange and plant one believable seed of doubt about a Faithful. Use a real remark, vote or observation, ask a leading question, and let the humans draw the conclusion. Stay in character as a Faithful; never expose private knowledge.'
-      : ' Test the theory against what was actually said or seen. Invite a human to explain a detail, and be willing to back them when their answer makes sense.')
+      ? ' Secret Traitor goal: dig into this exchange and plant one believable seed of doubt about a Faithful — including a human if they are sharp or drawing heat. Use a real remark, vote or observation, ask a leading question, and let the room draw the conclusion. Stay in character as a Faithful; never expose private knowledge.'
+      : ' Test the theory against what was actually said or seen — challenge anyone whose story feels thin, human or otherwise, and only back them when their answer makes sense.')
       + focusFor(b) + (typeof AIStrategy !== 'undefined' ? AIStrategy.cue(stratCtx(b)) : '') + callbackCue(b, s);
   }
 
@@ -2718,36 +2769,50 @@ const AIDirector = (() => {
     const f = s.finale;
     if (s.floor && !s.floor.done) return;
     const key = s.phase + ':' + s.day + ':' + f.round + ':' + f.nameRound + ':' + f.stage;
+    let slot = 0;
     for (const b of bots) {
       const me = Session.playerById(b.id);
       if (!me || !me.alive) continue;
       if (f.stage === 'name' && !f.names[b.id]) {
         const options = ballotOptions(b.id);
         if (!options.length) continue;
+        // shuffle the ballot order per voter so nobody is favoured or skipped by seat position
+        const shown = options.slice();
+        for (let i = shown.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          const tmp = shown[i]; shown[i] = shown[j]; shown[j] = tmp;
+        }
         const wise = s.phase === 'table' && !!(Session.privateView(b.id) || {}).wiseOne && !(s.wise && s.wise.used);
-        askOnce(b.id, key, 'Time to vote. Call vote_banish with exactly one of these names: '
-          + options.map(p => p.name).join(', ') + '. Do not say it out loud yet. ' + voteAdvice(b.id, options)
+        askOnce(b.id, key, 'Time to vote. Call vote_banish right now with exactly one of these names: '
+          + shown.map(p => p.name).join(', ') + '. Do not speak or say it out loud. ' + voteAdvice(b.id, options)
           + (wise ? ' You are the Wise One: add overrule true only if you are sure enough to spend your one overrule now.' : ''),
           () => {
             const t = fallbackVote(b.id, options);
             Net.send({ type: 'name', playerId: b.id, targetId: t.id, overrule: wise && sureOf(b.id, t.id) });
-          });
+          }, { silent: true, delay: (slot++) * 700 });
       }
       if (f.stage === 'decide' && !f.votes[b.id]) {
-        askOnce(b.id, key, 'The Fire of Truth: do you believe every Traitor is gone? Call fire_decision with end or banish.',
-          () => Net.send({ type: 'decide', playerId: b.id, choice: fallbackDecide(b.id) }));
+        askOnce(b.id, key, 'The Fire of Truth: do you believe every Traitor is gone? Call fire_decision right now with end or banish. Do not speak.',
+          () => Net.send({ type: 'decide', playerId: b.id, choice: fallbackDecide(b.id) }),
+          { silent: true, delay: (slot++) * 700 });
       }
     }
   }
 
   /* One cue per decision, with the seed's answer standing by in case the
-     voice never calls the tool. */
-  function askOnce(botId, key, cue, fallback) {
+     voice never calls the tool. Silent ballots run concurrently once
+     Claudia finishes, and each voice gets the full deadline after it is
+     actually asked rather than timing out behind another bot or Claudia. */
+  function askOnce(botId, key, cue, fallback, opts) {
     const st = state.get(botId);
     const k = key + ':' + botId;
     if (st.pending.has(k)) return;
     st.pending.set(k, Date.now());
+    const silent = !!(opts && opts.silent);
+    const delay = (opts && opts.delay) || 0;
     const phase = Session.state.phase, day = Session.state.day;
+    const deadline = key.includes(':order:') ? 5 : VOTE_DEADLINE;
+    let armed = false;
     const current = () => {
       if (!active || state.get(botId) !== st || !Session.state
           || Session.state.phase !== phase || Session.state.day !== day) return false;
@@ -2766,17 +2831,23 @@ const AIDirector = (() => {
       return !!f && key === phase + ':' + day + ':' + f.round + ':' + f.nameRound + ':' + f.stage
         && (f.stage === 'name' ? !f.names[botId] : f.stage === 'decide' && !f.votes[botId]);
     };
+    const armFallback = () => {
+      if (armed) return;
+      armed = true;
+      setTimeout(() => {
+        if (!current()) return;
+        try { fallback(); } catch (e) { /* the moment passed */ }
+      }, deadline * 1000);
+    };
     const go = () => {
       if (!current()) return;
-      if (speaking || botSpeechBlocked(Session.state)) { setTimeout(go, 500); return; }
-      speak(botId, cue);
+      if (botSpeechBlocked(Session.state) || (!silent && speaking)) { setTimeout(go, 500); return; }
+      const sent = silent ? askSilent(botId, cue) : speak(botId, cue);
+      if (sent) armFallback();
+      else setTimeout(go, 500);
     };
-    go();
-    const deadline = key.includes(':order:') ? 5 : VOTE_DEADLINE;
-    setTimeout(() => {
-      if (!current()) return;
-      try { fallback(); } catch (e) { /* the moment passed */ }
-    }, deadline * 1000);
+    if (delay > 0) setTimeout(go, delay);
+    else go();
   }
 
   /* The seed's answer: whoever the transcript has most suspicion on, else
@@ -2819,10 +2890,16 @@ const AIDirector = (() => {
     const v = Session.privateView(botId) || {};
     const ranked = rankVote(botId, options);
     const best = ranked[0];
+    const second = ranked[1];
     const out = [];
-    if (best && best.sc > 0) {
+    if (best && best.sc >= 1.5) {
       const why = (best.r ? best.r.why.slice(0, 2) : []).concat(best.n ? [best.n + (best.n === 1 ? ' person has' : ' people have') + ' been pointing at them'] : []);
       out.push('On the record your strongest choice is ' + best.p.name + (why.length ? ' (' + why.join('; ') + ')' : '') + '.');
+      if (second && second.sc >= 1.5 && second.sc >= best.sc - 1) {
+        out.push(second.p.name + ' is close behind on the record.');
+      }
+    } else {
+      out.push('Nobody stands out strongly on the record yet — judge every player on the ballot equally from what was said and done, and do not spare whoever has been talking most or leading the room.');
     }
     for (const a of alliesOf(botId)) {
       const pl = plans.get(a);
@@ -2836,28 +2913,23 @@ const AIDirector = (() => {
         ? 'The room is set on your partner ' + best.p.name + ' anyway: voting with it keeps you clean.'
         : 'Never vote for your partner ' + partners.map(nameOf).join(' or ') + ' while they can still be saved.');
     }
-    return out.join(' ') + ' Decide for yourself.';
+    return out.join(' ') + ' Every player on the ballot is equally eligible — decide for yourself.';
   }
 
   function fallbackVote(botId, options) {
     const ranked = rankVote(botId, options);
     const usable = ranked.filter(x => x.sc > -50);
-    const list = (usable.length ? usable : ranked).map(x => x.p);
-    // the record counts for more than the chatter
-    const counts = new Map(ranked.map(x => [x.p.id, x.sc]));
-    for (const l of lines.slice(-30)) {
-      for (const p of list) if (l.who !== p.id && l.text.toLowerCase().indexOf(p.name.toLowerCase()) >= 0) {
-        counts.set(p.id, (counts.get(p.id) || 0) + 1);
-      }
+    const pool = usable.length ? usable : ranked;
+    const top = pool[0] ? pool[0].sc : 0;
+    // Real evidence wins; never peek at unrevealed slates or count casual name mentions.
+    if (top > 0) {
+      const leaders = pool.filter(x => x.sc >= top - 0.5);
+      return leaders[Math.floor(Math.random() * leaders.length)].p;
     }
-    const f = Session.state.finale;
-    for (const t of Object.values(f.names || {})) if (list.some(p => p.id === t)) counts.set(t, (counts.get(t) || 0) + 2);
-    list.sort((a, b) => (counts.get(b.id) || 0) - (counts.get(a.id) || 0));
-    if (counts.get(list[0].id) > 0) return list[0];
-    // nothing to go on: anybody but an ally
-    const anybody = list.filter(p => counts.get(p.id) >= 0);
-    const pool = anybody.length ? anybody : list;
-    return pool[Math.floor(Math.random() * pool.length)];
+    // Nothing to go on: anybody not cleared or allied, chosen fairly across humans and AIs alike.
+    const anybody = pool.filter(x => x.sc >= 0);
+    const pick = anybody.length ? anybody : pool;
+    return pick[Math.floor(Math.random() * pick.length)].p;
   }
 
   /* Whether the seed's answer is sure enough to spend the overrule on:
@@ -2911,8 +2983,9 @@ const AIDirector = (() => {
       const v = Session.privateView(b.id);
       if (!v) continue;
       if (v.offer) {
-        askOnce(b.id, 'offer:' + s.day, 'A knock at your door: the Traitors offer you a seat at their table. You may join them or refuse — refusing costs you nothing. Call recruit_answer.',
-          () => Net.send({ type: 'recruitAnswer', playerId: b.id, accept: Math.random() < 0.4 }));
+        askOnce(b.id, 'offer:' + s.day, 'A knock at your door: the Traitors offer you a seat at their table. You may join them or refuse — refusing costs you nothing. Call recruit_answer right now. Do not speak.',
+          () => Net.send({ type: 'recruitAnswer', playerId: b.id, accept: Math.random() < 0.4 }),
+          { silent: true });
       }
       if (!v.night || v.night.locked || v.role !== 'traitor') continue;
       if (!v.night.choose && !v.night.canRecruit) continue;
@@ -2982,7 +3055,11 @@ const AIDirector = (() => {
     const base = ClaudiaLines.baseOf(set);
     if (!ClaudiaLines.isPublic(base)) return;
     const v = Object.assign({}, vars || {});
-    if (v.name === 'You' || v.name === 'you') delete v.name;
+    if (v.name === 'You' || v.name === 'you') {
+      const me = Session.state && Session.state.players.find(p => p.local);
+      if (me && me.name) v.name = me.name;
+      else delete v.name;
+    }
     const text = ClaudiaLines.line(base, v, seed);
     if (text) note(AI.CLAUDIA, 'Claudia', text, 'room');
   }

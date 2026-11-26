@@ -1328,4 +1328,78 @@ test('a sentence already being spoken runs on through a change of scene', () => 
   ok(W.speaking.has('m'), 'and not talked off it either');
 });
 
+section('ai — voting fairly (humans and AIs alike)');
+
+test('fallback voting ignores unrevealed slates and casual mentions, so AIs can vote for the human', () => {
+  const W = world({ phase: 'table', n: 5, random: [0.01] }); // Ana (p1), Bo (p2), Morag (m), Fergus (f), Isla (i)
+  // Lots of casual questions/greetings naming AIs, and Ana already wrote Morag on her secret slate
+  W.say('p1', 'Morag, who do you think is the traitor?');
+  W.step(1.5); W.reply('m', 'Fergus, who are you voting for?');
+  W.step(1.5); W.reply('f', 'Isla, did you see who poisoned anyone?');
+  W.step(1.5); W.reply('i', 'Not sure yet, Morag.');
+  const sent = [];
+  W.ctx.Net.send = (m) => sent.push(m);
+  const s = W.ctx.Session.state;
+  // Ana has already cast her secret slate for Morag; nobody has accused Morag or Fergus
+  s.finale = { stage: 'name', names: { p1: 'm' }, votes: {}, round: 0, nameRound: 0 };
+  // Random = 0.01 picks index 0 of the unranked equal pool (p1 = Ana) for every bot whose partner isn't Ana
+  W.step(25);
+  const votes = sent.filter(m => m.type === 'name');
+  ok(votes.length >= 3, 'all living bots voted: ' + votes.length);
+  ok(votes.some(v => v.targetId === 'p1'), 'AIs vote for the human instead of copying Ana’s secret slate onto Morag');
+  ok(!votes.every(v => v.targetId === 'm'), 'bots do not pile onto Morag from questions and secret slates');
+});
+
+test('second-person accusations against a human count toward the vote, while opinion questions do not accuse the addressee', () => {
+  const W = world({ phase: 'table', n: 5, random: [0.5] });
+  const s = W.ctx.Session.state;
+  s.floor = { all: true, done: false, ready: [] };
+  // Ana asks Fergus a question (must NOT count as accusing Fergus)
+  W.say('p1', 'Fergus, who are you voting for?');
+  W.step(1.5);
+  eq(W.asked[0].id, 'f');
+  // Fergus replies in second person, accusing Ana without repeating her name
+  W.reply('f', "I don't trust you at all — your story doesn't add up and I'm voting for you.");
+  // Isla also accuses Ana by name
+  W.say('p1', 'Isla, what do you reckon?');
+  W.step(1.5);
+  W.reply('i', 'Honestly, Ana is lying and hiding something.');
+  const sent = [];
+  W.ctx.Net.send = (m) => sent.push(m);
+  s.floor.done = true;
+  s.finale = { stage: 'name', names: {}, votes: {}, round: 0, nameRound: 0 };
+  W.step(25);
+  const byBot = new Map(sent.filter(m => m.type === 'name').map(m => [m.playerId, m.targetId]));
+  // Any bot that isn't Ana's Traitor partner should vote for Ana (p1), not Fergus
+  const nonPartners = ['m', 'f', 'i'].filter(id => (W.ctx.Session.privateView(id).partners || []).indexOf('p1') < 0);
+  ok(nonPartners.length >= 2, 'at least two bots are not partnered with Ana');
+  ok(nonPartners.every(id => byBot.get(id) === 'p1'), 'AIs vote for Ana when suspicion points at her: ' + JSON.stringify([...byBot]));
+});
+
+test('silent ballots ask every bot concurrently (muted) and wait for Claudia before starting the deadline', () => {
+  const W = world({ phase: 'table' });
+  const sent = [];
+  W.ctx.Net.send = (m) => sent.push(m);
+  const s = W.ctx.Session.state;
+  W.ctx.Voice.speaking = true;
+  s.finale = { stage: 'name', names: {}, votes: {}, round: 0, nameRound: 0 };
+  // Claudia speaks for 18 seconds (longer than VOTE_DEADLINE = 16s)
+  W.step(18);
+  eq(W.asked.filter(a => /Time to vote/.test(a.text)).length, 0, 'nobody is asked while Claudia speaks');
+  eq(sent.filter(m => m.type === 'name').length, 0, 'deadline does not fire into fallback while Claudia is still talking');
+  W.ctx.Voice.speaking = false;
+  // After Claudia finishes + AFTER_CLAUDIA_MS (3.5s) + staggered slots (4 * 0.7s), all 4 bots are asked concurrently without needing done events
+  W.step(8);
+  const ballotAsks = W.asked.filter(a => /Time to vote/.test(a.text));
+  eq(ballotAsks.length, 4, 'all four bots are asked concurrently without blocking behind speaking');
+  ok(ballotAsks.every(a => a.muted), 'ballot asks are muted so slates are never spoken aloud');
+  // Stray post-vote text during a silent ballot is dropped, not leaked to captions
+  W.emit('text', { id: 'm', text: 'I am writing down Ana.' });
+  eq(sent.filter(m => m.type === 'cue' && m.id === 'm').length, 0, 'silent ballot text never leaks to captions');
+  // Calling vote_banish with the human’s name works
+  W.emit('tool', { id: 'm', calls: [{ callId: 'c1', name: 'vote_banish', arguments: '{"name":"Ana"}' }] });
+  const vote = sent.find(m => m.type === 'name' && m.playerId === 'm');
+  ok(vote && vote.targetId === 'p1', 'vote_banish casts the slate for the human');
+});
+
 H.report();
